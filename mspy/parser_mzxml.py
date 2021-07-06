@@ -221,7 +221,7 @@ class parseMZXML:
 
         # convert from binary
         count = len(data) / struct.calcsize(endian + precision)
-        data = struct.unpack(endian + precision * count, data[0 : len(data)])
+        data = struct.unpack(endian + precision * int(count), data[0 : len(data)])
 
         # format
         if scanData["spectrumType"] == "discrete":
