@@ -1,6 +1,6 @@
 # mMass
 
-This is the official repository for mMass] on Python3.
+This is the official repository for mMass on Python3.
 
 For more information please see the official mMass homepage at [www.mmass.org](http://www.mmass.org).  Many thanks to Martin Strohalm for his hard work on the project over many years!
 
@@ -42,13 +42,15 @@ Currently the installer is unsigned, so you might get a warning about the develo
 For technical reasons, mMass currently does not run on the M1 architecture.  For more information, see section [Building from source](#building-from-source).
 
 
-## Sponsors
+## Acknowledgements
 
-Many thanks to the following projects for funding the ongoing work on mMass:
+Many thanks to the [FINDER](https://www.shh.mpg.de/453199/finder) project for sponsoring the recent overhaul
+work, through whom the software has been made runnable on Python3 and
+WxWidgets Phoenix.
 
-[Warinner Lab](https://projects.iq.harvard.edu/warinnerlab)
+Thanks also to [Warriner Lab](https://projects.iq.harvard.edu/warinnerlab) for providing support and testing, and
+funding the updated MacOS installer.
 
-[FINDER](https://www.shh.mpg.de/453199/finder)
 
 ## Building from source
 ### Linux
