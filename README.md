@@ -7,23 +7,9 @@ For more information please see the official mMass homepage at [www.mmass.org](h
 ## Installation
 ### Linux
 
-We have a package available on `pip`.  To install:
-
-```
-pip install --user mmass
-```
-
-Then invoke at the command line with:
-
-```
-mmass
-```
-
-or, if you haven't configured your $PATH to contain the install location of `pip` programs:
-
-```
-python3 -m mmass
-```
+Currently architecture-specific reasons dictate that pypi can't accept packages from specific linux architectures, requiring a build on manylinux instead.
+This is being tracked [here](https://github.com/dreamingspires/mMass/issues/10).
+For now, compile from source as documented below.
 
 ### Windows
 
