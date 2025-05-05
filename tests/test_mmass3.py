@@ -1,4 +1,4 @@
-from mmass3 import __version__
+from mmass import __version__
 
 
 def test_version():

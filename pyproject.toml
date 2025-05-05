@@ -18,7 +18,7 @@ homepage = "https://github.com/dreamingspires/mMass"
 repository = "https://github.com/dreamingspires/mMass"
 
 [tool.poetry.dependencies]
-python = "^3.7"
+python = "^3.9"
 numpy = "^1.19.0"
 wxPython = "^4.1.0"
 xdgenvpy = "^2.3.3"
