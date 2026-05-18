@@ -8,14 +8,5 @@ pythonInclude = sys.prefix + "/include"
 
 
 def build(setup_kwargs):
-    setup_kwargs.update(
-        {
-            "ext_modules": [
-                Extension(
-                    "calculations",
-                    ["cx/calculations.c"],
-                    include_dirs=[numpyInclude, pythonInclude],
-                )
-            ]
-        }
-    )
+    # Extension build code removed
+    pass
