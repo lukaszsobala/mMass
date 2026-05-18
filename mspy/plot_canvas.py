@@ -1365,10 +1365,10 @@ class canvas(wx.Window):
         size = 6 * self.printerScale["drawings"]
         if xAxis[1] < minX:
             x = x1 - 2 * self.printerScale["drawings"]
-            dc.DrawPolygon([(x, y1), (x, y1 + height), (x - size, y1 + height / 2)])
+            dc.DrawPolygon([(int(p[0]), int(p[1])) for p in [(x, y1), (x, y1 + height), (x - size, y1 + height / 2)]])
         if xAxis[0] > maxX:
             x = x2 + 2 * self.printerScale["drawings"]
-            dc.DrawPolygon([(x, y1), (x, y1 + height), (x + size, y1 + height / 2)])
+            dc.DrawPolygon([(int(p[0]), int(p[1])) for p in [(x, y1), (x, y1 + height), (x + size, y1 + height / 2)]])
 
     # ----
 
@@ -1419,10 +1419,10 @@ class canvas(wx.Window):
         size = 6 * self.printerScale["drawings"]
         if yAxis[0] > maxY:
             y = y1 - 2 * self.printerScale["drawings"]
-            dc.DrawPolygon([(x1, y), (x1 + width, y), (x1 + width / 2, y - size)])
+            dc.DrawPolygon([(int(p[0]), int(p[1])) for p in [(x1, y), (x1 + width, y), (x1 + width / 2, y - size)]])
         if yAxis[1] < minY:
             y = y2 + 2 * self.printerScale["drawings"]
-            dc.DrawPolygon([(x1, y), (x1 + width, y), (x1 + width / 2, y + size)])
+            dc.DrawPolygon([(int(p[0]), int(p[1])) for p in [(x1, y), (x1 + width, y), (x1 + width / 2, y + size)]])
 
     # ----
 
@@ -1955,13 +1955,13 @@ class canvas(wx.Window):
 
         # draw arrow
         if direction == "up":
-            dc.DrawPolygon([(x, y), (x - 3, y + 7), (x + 3, y + 7)])
+            dc.DrawPolygon([(int(p[0]), int(p[1])) for p in [(x, y), (x - 3, y + 7), (x + 3, y + 7)]])
         elif direction == "down":
-            dc.DrawPolygon([(x, y), (x - 3, y - 7), (x + 3, y - 7)])
+            dc.DrawPolygon([(int(p[0]), int(p[1])) for p in [(x, y), (x - 3, y - 7), (x + 3, y - 7)]])
         elif direction == "left":
-            dc.DrawPolygon([(x + 7, y + 2), (x, y + 5), (x + 7, y + 8)])
+            dc.DrawPolygon([(int(p[0]), int(p[1])) for p in [(x + 7, y + 2), (x, y + 5), (x + 7, y + 8)]])
         elif direction == "right":
-            dc.DrawPolygon([(x - 7, y + 2), (x, y + 5), (x - 7, y + 8)])
+            dc.DrawPolygon([(int(p[0]), int(p[1])) for p in [(x - 7, y + 2), (x, y + 5), (x - 7, y + 8)]])
 
     # ----
 

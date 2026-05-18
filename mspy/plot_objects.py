@@ -251,7 +251,7 @@ class container:
                     angle = -90
 
                 # draw label
-                dc.DrawRotatedText(text, textCoords[0], textCoords[1], angle)
+                dc.DrawRotatedText(text, int(textCoords[0]), int(textCoords[1]), angle)
                 occupied.append(textCoords)
 
         dc.SetBackgroundMode(wx.TRANSPARENT)
@@ -868,7 +868,11 @@ class points:
 
             dc.SetPen(pen)
             dc.SetBrush(brush)
-            dc.DrawLines(self.scaled)
+            if len(self.scaled) > 0:
+                import numpy as np
+                points = np.array(self.scaled, dtype=int).tolist()
+                print(f"Drawing {len(points)} lines. First 5 points: {points[:5]}")
+            dc.DrawLines([wx.Point(p[0], p[1]) for p in points])
 
         # draw points
         if self.properties["showPoints"]:
@@ -1402,7 +1406,11 @@ class spectrum:
         dc.SetBrush(brush)
 
         # draw lines
-        dc.DrawLines(self.spectrumScaled)
+        if len(self.spectrumScaled) > 0:
+            import numpy as np
+            points = np.array(self.spectrumScaled, dtype=int).tolist()
+            print(f"Drawing {len(points)} lines. First 5 points: {points[:5]}")
+            dc.DrawLines([wx.Point(p[0], p[1]) for p in points])
 
         # set pen for points
         pen = wx.Pen(
@@ -1425,7 +1433,7 @@ class spectrum:
 
             for point in self.spectrumScaled:
                 try:
-                    dc.DrawCircle(point[0], point[1], 2 * printerScale["drawings"])
+                    dc.DrawCircle(int(int(point[0])), int(int(point[1])), int(int(2 * printerScale["drawings"])))
                 except OverflowError:
                     pass
 
@@ -1487,7 +1495,7 @@ class spectrum:
 
                 # draw point rectangle
                 try:
-                    dc.DrawRectangle(lastX, gelY1, xPos - lastX, gelHeight)
+                    dc.DrawRectangle(int(int(lastX)), int(int(gelY1)), int(int(xPos - lastX)), int(int(gelHeight)))
                 except:
                     pass
 
@@ -1497,12 +1505,7 @@ class spectrum:
                     brush.SetColour((maxY, maxY, maxY))
                     dc.SetBrush(brush)
                     try:
-                        dc.DrawRectangle(
-                            lastX + printerScale["drawings"],
-                            gelY1,
-                            xPos - (lastX + printerScale["drawings"]),
-                            gelHeight,
-                        )
+                        dc.DrawRectangle(int(lastX + printerScale["drawings"]), int(gelY1), int(xPos - (lastX + printerScale["drawings"])), int(gelHeight))
                     except:
                         pass
 
@@ -1547,13 +1550,8 @@ class spectrum:
         for x, peak in enumerate(self.peaklistScaled):
             if self.peaklistCroppedPeaks[x].isotope != 0:
                 try:
-                    dc.DrawLine(peak[0], peak[2], peak[0], peak[1])
-                    dc.DrawLine(
-                        peak[0] - 3 * printerScale["drawings"],
-                        peak[2],
-                        peak[0] + 3 * printerScale["drawings"],
-                        peak[2],
-                    )
+                    dc.DrawLine(int(int(peak[0])), int(int(peak[2])), int(int(peak[0])), int(int(peak[1])))
+                    dc.DrawLine(int(peak[0] - 3 * printerScale["drawings"]), int(peak[2]), int(peak[0] + 3 * printerScale["drawings"]), int(peak[2]))
                 except OverflowError:
                     pass
 
@@ -1563,19 +1561,9 @@ class spectrum:
         for x, peak in enumerate(self.peaklistScaled):
             if self.peaklistCroppedPeaks[x].isotope == 0:
                 try:
-                    dc.DrawLine(peak[0], peak[2], peak[0], peak[1])
-                    dc.DrawLine(
-                        peak[0] - 3 * printerScale["drawings"],
-                        peak[2],
-                        peak[0] + 3 * printerScale["drawings"],
-                        peak[2],
-                    )
-                    dc.DrawRectangle(
-                        peak[0] - 1 * printerScale["drawings"],
-                        peak[1] - 1 * printerScale["drawings"],
-                        3 * printerScale["drawings"],
-                        3 * printerScale["drawings"],
-                    )
+                    dc.DrawLine(int(int(peak[0])), int(int(peak[2])), int(int(peak[0])), int(int(peak[1])))
+                    dc.DrawLine(int(peak[0] - 3 * printerScale["drawings"]), int(peak[2]), int(peak[0] + 3 * printerScale["drawings"]), int(peak[2]))
+                    dc.DrawRectangle(int(peak[0] - 1 * printerScale["drawings"]), int(peak[1] - 1 * printerScale["drawings"]), int(3 * printerScale["drawings"]), int(3 * printerScale["drawings"]))
                 except OverflowError:
                     pass
 
@@ -1585,7 +1573,7 @@ class spectrum:
         for x, peak in enumerate(self.peaklistScaled):
             if self.peaklistCroppedPeaks[x].childScanNumber is not None:
                 try:
-                    dc.DrawCircle(peak[0], peak[1], 3 * printerScale["drawings"])
+                    dc.DrawCircle(int(int(peak[0])), int(int(peak[1])), int(int(3 * printerScale["drawings"])))
                 except OverflowError:
                     pass
 
@@ -1641,7 +1629,7 @@ class spectrum:
                 brush.SetColour((intens, intens, intens))
                 dc.SetBrush(brush)
                 try:
-                    dc.DrawRectangle(xPos, gelY1, printerScale["drawings"], gelHeight)
+                    dc.DrawRectangle(int(int(xPos)), int(int(gelY1)), int(int(printerScale["drawings"])), int(int(gelHeight)))
                 except:
                     pass
                 lastY = maxY
@@ -1657,7 +1645,7 @@ class spectrum:
 
                 # draw peak line
                 try:
-                    dc.DrawRectangle(lastX, gelY1, printerScale["drawings"], gelHeight)
+                    dc.DrawRectangle(int(int(lastX)), int(int(gelY1)), int(int(printerScale["drawings"])), int(int(gelHeight)))
                 except:
                     pass
 
@@ -1671,9 +1659,7 @@ class spectrum:
                     brush.SetColour((maxY, maxY, maxY))
                     dc.SetBrush(brush)
                     try:
-                        dc.DrawRectangle(
-                            xPos, gelY1, printerScale["drawings"], gelHeight
-                        )
+                        dc.DrawRectangle(int(int(xPos)), int(int(gelY1)), int(int(printerScale["drawings"])), int(int(gelHeight)))
                     except:
                         pass
 
@@ -1706,14 +1692,14 @@ class spectrum:
         # draw legend circle
         x = plotX2 - 9 * printerScale["drawings"]
         y = gelY1 + (gelHeight) / 2
-        dc.DrawCircle(x, y, 3 * printerScale["drawings"])
+        dc.DrawCircle(int(int(x)), int(int(y)), int(int(3 * printerScale["drawings"])))
 
         # draw legend text
         if self.properties["showGelLegend"] and self.properties["legend"]:
             textSize = dc.GetTextExtent(self.properties["legend"])
             x = plotX2 - textSize[0] - 17 * printerScale["drawings"]
             y = gelY1 + gelHeight / 2 - textSize[1] / 2
-            dc.DrawText(self.properties["legend"], x, y)
+            dc.DrawText(self.properties["legend"], int(x), int(y))
 
     # ----
 

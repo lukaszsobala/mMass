@@ -521,8 +521,6 @@ def movaver(signal, window, cycles=1, style="flat"):
     """
 
     # approximate number of points within window
-    import pdb
-    pdb.set_trace()
     if signal[-1][0] - signal[0][0] != 0:
         window = int(window * len(signal) / (signal[-1][0] - signal[0][0]))
         window = min(window, len(signal))

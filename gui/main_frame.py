@@ -4159,8 +4159,6 @@ class mainFrame(wx.Frame):
             process.start()
             while process.is_alive():
                 gauge.pulse()
-
-            # append document
             if before < len(self.documents):
                 self.onDocumentLoaded(select=True)
                 status *= True
