@@ -1,3 +1,4 @@
+import time
 # -------------------------------------------------------------------------
 #     Copyright (C) 2005-2013 Martin Strohalm <www.mmass.org>
 
@@ -106,6 +107,7 @@ class canvas(wx.Window):
         self.lastDraw = None
         self.pointScale = 1
         self.pointShift = 0
+        self._last_draw_time = 0.0
 
         # set events
         self.Bind(wx.EVT_PAINT, self.onPaint)
@@ -473,13 +475,20 @@ class canvas(wx.Window):
     def onMMotion(self, evt):
         """Draw cursor on mouse motion."""
 
-        dc = wx.MemoryDC(self.plotBuffer)
-        wx.CallAfter(self.Refresh, False)
-        self.quickRefresh(dc)
-
         # store cursor positions
         self.cursorPosition[0], self.cursorPosition[1] = self.getXY(evt)
         self.cursorPosition[2], self.cursorPosition[3] = evt.GetPosition()
+
+        # throttle expensive dragged events
+        if self.mouseEvent in ("xShift", "yShift", "xScale", "yScale", "zoom", "range", "rectangle"):
+            now = time.time()
+            if now - self._last_draw_time < 0.03333:  # limit to ~30fps
+                return
+            self._last_draw_time = now
+
+        dc = wx.MemoryDC(self.plotBuffer)
+        wx.CallAfter(self.Refresh, False)
+        self.quickRefresh(dc)
 
         # draw cursor tracker if no event
         if not self.mouseEvent:
