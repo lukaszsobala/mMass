@@ -259,6 +259,8 @@ class container:
     # ----
 
     def drawGel(self, dc, gelCoords, gelHeight, printerScale):
+        import time
+        t0 = time.time()
         """Draw gel for all allowed objects."""
 
         # draw objects
@@ -517,6 +519,8 @@ class annotations:
     # ----
 
     def draw(self, dc, printerScale):
+        import time
+        t0 = time.time()
         """Draw object."""
 
         # check data
@@ -540,6 +544,8 @@ class annotations:
     # ----
 
     def drawGel(self, dc, gelCoords, gelHeight, printerScale):
+        import time
+        t0 = time.time()
         """Draw gel."""
         pass
 
@@ -850,6 +856,8 @@ class points:
     # ----
 
     def draw(self, dc, printerScale):
+        import time
+        t0 = time.time()
         """Draw object."""
 
         # check data
@@ -869,10 +877,7 @@ class points:
             dc.SetPen(pen)
             dc.SetBrush(brush)
             if len(self.scaled) > 0:
-                import numpy as np
-                points = np.array(self.scaled, dtype=int).tolist()
-                print(f"Drawing {len(points)} lines. First 5 points: {points[:5]}")
-            dc.DrawLines([wx.Point(p[0], p[1]) for p in points])
+                dc.DrawLines(self.scaled.astype(int))
 
         # draw points
         if self.properties["showPoints"]:
@@ -906,6 +911,8 @@ class points:
     # ----
 
     def drawGel(self, dc, gelCoords, gelHeight, printerScale):
+        import time
+        t0 = time.time()
         """Draw gel."""
         pass
 
@@ -1267,12 +1274,16 @@ class spectrum:
     # ----
 
     def draw(self, dc, printerScale):
+        import time
+        t0 = time.time()
         """Draw object."""
 
         # draw line spectrum
         if len(self.spectrumScaled) > 2 and self.properties["showSpectrum"]:
             self._drawSpectrum(dc, printerScale)
 
+        import time
+        print(f"Objects draw() until peaklist took {time.time()-t0:.4f}s")
         # draw peaklist ticks
         if len(self.peaklistScaled) and (
             self.properties["showTicks"] or not len(self.spectrumPoints)
@@ -1282,6 +1293,8 @@ class spectrum:
     # ----
 
     def drawGel(self, dc, gelCoords, gelHeight, printerScale):
+        import time
+        t0 = time.time()
         """Draw gel."""
 
         # draw line spectrum gel
@@ -1296,6 +1309,8 @@ class spectrum:
         ):
             self._drawPeaklistGel(dc, gelCoords, gelHeight, printerScale)
 
+        import time
+        print(f"Objects drawGel() until legend took {time.time()-t0:.4f}s")
         # draw gel legend
         self._drawGelLegend(dc, gelCoords, gelHeight, printerScale)
 
@@ -1407,10 +1422,7 @@ class spectrum:
 
         # draw lines
         if len(self.spectrumScaled) > 0:
-            import numpy as np
-            points = np.array(self.spectrumScaled, dtype=int).tolist()
-            print(f"Drawing {len(points)} lines. First 5 points: {points[:5]}")
-            dc.DrawLines([wx.Point(p[0], p[1]) for p in points])
+            dc.DrawLines(self.spectrumScaled.astype(int))
 
         # set pen for points
         pen = wx.Pen(

@@ -177,7 +177,8 @@ class canvas(wx.Window):
     def onLeave(self, evt):
         """Escape mouse events when cursor leave out of the canvas."""
 
-        dc = wx.BufferedDC(wx.ClientDC(self), self.plotBuffer)
+        dc = wx.MemoryDC(self.plotBuffer)
+        wx.CallAfter(self.Refresh, False)
         self.quickRefresh(dc)
 
         # escape mouse events
@@ -207,7 +208,8 @@ class canvas(wx.Window):
         if self.mouseEvent:
             return
 
-        dc = wx.BufferedDC(wx.ClientDC(self), self.plotBuffer)
+        dc = wx.MemoryDC(self.plotBuffer)
+        wx.CallAfter(self.Refresh, False)
         self.quickRefresh(dc)
 
         # get starting coords for movement
@@ -264,7 +266,8 @@ class canvas(wx.Window):
             self.SetFocus()
             return
 
-        dc = wx.BufferedDC(wx.ClientDC(self), self.plotBuffer)
+        dc = wx.MemoryDC(self.plotBuffer)
+        wx.CallAfter(self.Refresh, False)
         self.quickRefresh(dc)
 
         # zoom plot
@@ -333,7 +336,8 @@ class canvas(wx.Window):
         else:
             return
 
-        dc = wx.BufferedDC(wx.ClientDC(self), self.plotBuffer)
+        dc = wx.MemoryDC(self.plotBuffer)
+        wx.CallAfter(self.Refresh, False)
 
         # redraw plot
         self.draw(self.lastDraw[0], (minX, maxX), (minY, maxY), dc)
@@ -370,7 +374,8 @@ class canvas(wx.Window):
         self.draggingStart = self.cursorPosition[:]
         location = self.getCursorLocation()
 
-        dc = wx.BufferedDC(wx.ClientDC(self), self.plotBuffer)
+        dc = wx.MemoryDC(self.plotBuffer)
+        wx.CallAfter(self.Refresh, False)
         self.quickRefresh(dc)
 
         # draw zoom box and set event
@@ -397,7 +402,8 @@ class canvas(wx.Window):
             self.SetFocus()
             return
 
-        dc = wx.BufferedDC(wx.ClientDC(self), self.plotBuffer)
+        dc = wx.MemoryDC(self.plotBuffer)
+        wx.CallAfter(self.Refresh, False)
         self.quickRefresh(dc)
 
         # zoom dragging
@@ -447,7 +453,8 @@ class canvas(wx.Window):
         else:
             return
 
-        dc = wx.BufferedDC(wx.ClientDC(self), self.plotBuffer)
+        dc = wx.MemoryDC(self.plotBuffer)
+        wx.CallAfter(self.Refresh, False)
 
         # redraw plot
         self.draw(self.lastDraw[0], (minX, maxX), (minY, maxY), dc)
@@ -468,7 +475,8 @@ class canvas(wx.Window):
     def onMMotion(self, evt):
         """Draw cursor on mouse motion."""
 
-        dc = wx.BufferedDC(wx.ClientDC(self), self.plotBuffer)
+        dc = wx.MemoryDC(self.plotBuffer)
+        wx.CallAfter(self.Refresh, False)
         self.quickRefresh(dc)
 
         # store cursor positions
@@ -530,7 +538,8 @@ class canvas(wx.Window):
         if self.mouseEvent:
             return
 
-        dc = wx.BufferedDC(wx.ClientDC(self), self.plotBuffer)
+        dc = wx.MemoryDC(self.plotBuffer)
+        wx.CallAfter(self.Refresh, False)
         self.quickRefresh(dc)
 
         # get scroll direction
@@ -1060,7 +1069,8 @@ class canvas(wx.Window):
 
         # set DC
         if dc is None:
-            dc = wx.BufferedDC(wx.ClientDC(self), self.plotBuffer)
+            dc = wx.MemoryDC(self.plotBuffer)
+            wx.CallAfter(self.Refresh, False)
         dc.SetBackground(wx.Brush(self.properties["canvasColour"], wx.SOLID))
         dc.Clear()
 
@@ -1351,6 +1361,8 @@ class canvas(wx.Window):
         penWidth = self.printerScale["drawings"]
         dc.SetPen(wx.Pen(self.properties["axisColour"], penWidth))
 
+        import time
+        print(f"Canvas draw until outline took {time.time()-t0:.4f}s")
         # draw outline
         dc.SetBrush(wx.Brush(self.properties["plotColour"], wx.SOLID))
         dc.DrawRectangle(int(x1), int(y1), int(width), int(height))
@@ -1405,6 +1417,8 @@ class canvas(wx.Window):
         penWidth = self.printerScale["drawings"]
         dc.SetPen(wx.Pen(self.properties["axisColour"], penWidth))
 
+        import time
+        print(f"Canvas draw until outline took {time.time()-t0:.4f}s")
         # draw outline
         dc.SetBrush(wx.Brush(self.properties["plotColour"], wx.SOLID))
         dc.DrawRectangle(int(x1), int(y1), int(width), int(height))
@@ -1454,16 +1468,20 @@ class canvas(wx.Window):
         dc.DrawRectangle(int(plotX1), int(gelY1), int(width), int(height))
 
         # draw gels
+        import time; t_gel = time.time()
         graphics.drawGel(
             dc,
             [gelY1, plotX1, plotY1, plotX2, plotY2, zeroY],
             self.properties["gelHeight"] * self.printerScale["drawings"],
             self.printerScale,
         )
+        print(f"drawGel took {time.time()-t_gel:.4f}s")
 
         # remove the clipping area
         dc.DestroyClippingRegion()
 
+        import time
+        print(f"Canvas draw until outline took {time.time()-t0:.4f}s")
         # draw outlines
         plotX1 -= penWidth
         gelY1 -= penWidth
@@ -1838,7 +1856,10 @@ class canvas(wx.Window):
             maxYGel = minYGel - self.gelsCount * self.properties["gelHeight"]
 
         # use DC with transparency (only needed for MSW)
-        dc = wx.GCDC(dc)
+        try:
+            dc = wx.GCDC(dc)
+        except Exception:
+            pass
 
         # set canvas and pen
         dc.SetPen(wx.Pen(wx.BLACK))
@@ -1949,7 +1970,8 @@ class canvas(wx.Window):
         y += 1
 
         # set dc
-        dc = wx.BufferedDC(wx.ClientDC(self), self.plotBuffer)
+        dc = wx.MemoryDC(self.plotBuffer)
+        wx.CallAfter(self.Refresh, False)
         dc.SetPen(wx.TRANSPARENT_PEN)
         dc.SetBrush(wx.Brush(self.properties["highlightColour"], wx.SOLID))
 
@@ -2058,7 +2080,8 @@ class canvas(wx.Window):
     def clear(self):
         """Clear plot window"""
 
-        dc = wx.BufferedDC(wx.ClientDC(self), self.plotBuffer)
+        dc = wx.MemoryDC(self.plotBuffer)
+        wx.CallAfter(self.Refresh, False)
         dc.Clear()
         self.lastDraw = None
 
