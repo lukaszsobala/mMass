@@ -16,3 +16,4 @@ test_files/
 .DS_Store
 *.swp
 .git-blame-ignore-revs
+.vscode/
