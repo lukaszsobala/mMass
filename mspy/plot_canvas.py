@@ -513,19 +513,19 @@ class canvas(wx.Window):
 
         # move x axis
         elif self.mouseEvent == "xShift":
-            self.shiftAxis("x")
+            self.shiftAxis("x", dc=dc)
 
         # move y axis
         elif self.mouseEvent == "yShift":
-            self.shiftAxis("y")
+            self.shiftAxis("y", dc=dc)
 
         # scale x axis
         elif self.mouseEvent == "xScale":
-            self.scaleAxis("x")
+            self.scaleAxis("x", dc=dc)
 
         # scale y axis
         elif self.mouseEvent == "yScale":
-            self.scaleAxis("y")
+            self.scaleAxis("y", dc=dc)
 
     # ----
 
@@ -2285,7 +2285,7 @@ class canvas(wx.Window):
 
     # ----
 
-    def shiftAxis(self, axis):
+    def shiftAxis(self, axis, dc=None):
         """Shift plot while dragging"""
 
         # skip y shift symmetric
@@ -2320,11 +2320,11 @@ class canvas(wx.Window):
             minY, maxY = self.getMaxYRange(minX, maxX)
 
         # redraw plot
-        self.draw(self.lastDraw[0], (minX, maxX), (minY, maxY))
+        self.draw(self.lastDraw[0], (minX, maxX), (minY, maxY), dc=dc)
 
     # ----
 
-    def scaleAxis(self, axis):
+    def scaleAxis(self, axis, dc=None):
         """Scale plot while dragging"""
 
         # get coordination
@@ -2365,7 +2365,7 @@ class canvas(wx.Window):
                 maxY += shift
 
         # redraw plot
-        self.draw(self.lastDraw[0], (minX, maxX), (minY, maxY))
+        self.draw(self.lastDraw[0], (minX, maxX), (minY, maxY), dc=dc)
 
     # ----
 
