@@ -202,7 +202,7 @@ def cmp(a, b):
         try:
             return (a > b) - (a < b)
         except TypeError:
-            return (a > b) ^ (a < b)
+            return (str(a) > str(b)) - (str(a) < str(b))
 
 
 # RUN AFTER APP INIT
