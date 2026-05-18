@@ -130,10 +130,8 @@ class canvas(wx.Window):
 
     def onPaint(self, evt):
         """Repaint plot."""
-
-        # draw buffer to screen
-        dc = wx.BufferedPaintDC(self, self.plotBuffer)
-        self.quickRefresh(dc)
+        dc = wx.PaintDC(self)
+        dc.DrawBitmap(self.plotBuffer, 0, 0)
 
     # ----
 
@@ -146,8 +144,8 @@ class canvas(wx.Window):
         height = max(1, height)
 
         # make new offscreen bitmap
-        self.plotBuffer = wx.Bitmap(width, height)
-        self.cleanPlotBuffer = wx.Bitmap(width, height)
+        self.plotBuffer = wx.Bitmap(width, height, 32)
+        self.cleanPlotBuffer = wx.Bitmap(width, height, 32)
         self.setSize()
 
         # redraw plot or clear area
@@ -1856,10 +1854,11 @@ class canvas(wx.Window):
             maxYGel = minYGel - self.gelsCount * self.properties["gelHeight"]
 
         # use DC with transparency (only needed for MSW)
+        # try:
         try:
             dc = wx.GCDC(dc)
-        except Exception:
-            pass
+        except Exception as e:
+            print("GCDC error:", e)
 
         # set canvas and pen
         dc.SetPen(wx.Pen(wx.BLACK))
