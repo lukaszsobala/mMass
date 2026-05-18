@@ -1,34 +1,25 @@
 # mMass
 
-This is the official repository for mMass on Python3.
+This is a fork of the official repository for mMass on Python3.
+
+This version contains fixes that allow it to launch using modern Python and updated requirements. Currently it works on Linux.
 
 For more information please see the official mMass homepage at [www.mmass.org](http://www.mmass.org).  Many thanks to Martin Strohalm for his hard work on the project over many years!
 
 ## Installation
 ### Linux
 
-Currently architecture-specific reasons dictate that pypi can't accept packages from specific linux architectures, requiring a build on manylinux instead.
-This is being tracked [here](https://github.com/dreamingspires/mMass/issues/10).
-For now, compile from source as documented below.
+tbd
 
 ### Windows
 
-A Windows installer is provided with each release, and can be obtained by visiting the [releases page](https://github.com/dreamingspires/mMass/releases).
-
-To install, download and run `mMass_windows_installer.exe`.
+tbd
 
 ### MacOS
 
-A Mac app file is provided with each release, and can also be obtained by visiting the [releases page](https://github.com/dreamingspires/mMass/releases).
+tbd
 
-To install, download `mMass_mac_installer.zip`.  Extract the file, right click, and select open.
-
-Currently the installer is unsigned, so you might get a warning about the developer being unauthorised.  If this concerns you, you can verify our build by building from source.
-
-For technical reasons, mMass currently does not run on the M1 architecture.  For more information, see section [Building from source](#building-from-source).
-
-
-## Acknowledgements
+## Acknowledgements (from original repo)
 
 Many thanks to the [FINDER](https://www.shh.mpg.de/453199/finder) project for sponsoring the recent overhaul
 work, through whom the software has been made runnable on Python3 and
@@ -40,6 +31,9 @@ funding the updated MacOS installer.
 
 ## Building from source
 ### Linux
+
+(We will use UV instead of poetry)
+
 mMass uses [poetry](python-poetry.org/) as the build system.  To get started ensure poetry is [installed](https://python-poetry.org/docs/#installation), then clone the mMass repository.
 
 Due to this [well-known issue](https://wxpython.org/blog/2017-08-17-builds-for-linux-with-pip/index.html), the wxPython toolkit must be compiled from scratch.  Poetry will handle this, but you require the build dependencies.
@@ -142,6 +136,8 @@ Before proceeding with packaging steps, first ensure that you've built mMass fro
 
 ### Linux
 
+(this is not how it will be set up as I could not really get it to work)
+
 We currently only compile mMass for x86_64.  This must be done using [manylinux](https://github.com/pypa/manylinux) to maintain ABI compatibility between versions.
 
 Firstly, get a fresh build environment container.  We're using [podman](https://podman.io):
@@ -183,6 +179,8 @@ python3 -m twine upload --repository pypi dist/*
 
 ### Windows
 
+(not a priority)
+
 Ensure that `makensis` is installed:
 
 ```
@@ -204,6 +202,8 @@ makensis.exe /DPRODUCT_VERSION=0.1.0 installer\windows_installer.nsi
 
 ### MacOS
 
+(I don't use the walled garden computers, so probably won't be done)
+
 From within the installed project directory:
 
 ```
@@ -220,13 +220,7 @@ Issues can be file in the GitHub bug tracker.  PRs welcomed!
 
 ## Release procedure
 
-* Update version in `pyproject.toml` and `gui/config.py`
-* (Future) run unit tests
-* Build installers (see below)
-* Test installers
-* Commit, tag, push
-* Publish to PyPi with poetry publish
-* Create a release on Github, including the changelog, source, and installers
+* As I please
 
 ## Disclaimer
 
