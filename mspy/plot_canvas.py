@@ -1146,8 +1146,8 @@ class canvas(wx.Window):
             self.plotBoxOrigin[1] - xAxisLabelWH[1] - 3,
         )
         yLabelPos = (3, spaceTop + yAxisLabelWH[0])
-        dc.DrawText(self.properties["xLabel"], xLabelPos[0], xLabelPos[1])
-        dc.DrawRotatedText(self.properties["yLabel"], yLabelPos[0], yLabelPos[1], 90)
+        dc.DrawText(self.properties["xLabel"], int(xLabelPos[0]), int(xLabelPos[1]))
+        dc.DrawRotatedText(self.properties["yLabel"], int(yLabelPos[0]), int(yLabelPos[1]), 90)
 
         # draw plot axis
         self.drawAxis(dc, xAxisTicks, yAxisTicks)
@@ -1211,7 +1211,7 @@ class canvas(wx.Window):
 
         # fill background
         dc.SetBrush(wx.Brush(self.properties["plotColour"], wx.SOLID))
-        dc.DrawRectangle(plotX1, plotY1, plotX2 - plotX1, plotY2 - plotY1)
+        dc.DrawRectangle(int(plotX1), int(plotY1), int(plotX2 - plotX1), int(plotY2 - plotY1))
         dc.SetBrush(wx.TRANSPARENT_BRUSH)
 
         # set length of tick marks
@@ -1225,20 +1225,20 @@ class canvas(wx.Window):
             # minor ticks
             if ttype == "minor":
                 if self.properties["showMinorTicks"]:
-                    dc.DrawLine(pt[0], plotY2, pt[0], plotY2 + tickLength / 2)
+                    dc.DrawLine(int(pt[0]), int(plotY2), int(pt[0]), int(plotY2 + tickLength / 2))
                 continue
 
             # major ticks
-            dc.DrawLine(pt[0], plotY2, pt[0], plotY2 + tickLength)
+            dc.DrawLine(int(pt[0]), int(plotY2), int(pt[0]), int(plotY2 + tickLength))
             extent = dc.GetTextExtent(label)
             ori = pt[0] - extent[0] / 2
             if ori > previous:
-                dc.DrawText(label, ori, plotY2 + tickLength * 1.4)
+                dc.DrawText(label, int(ori), int(plotY2 + tickLength * 1.4))
                 previous = ori + extent[0] + 10 * self.printerScale["drawings"]
             if self.properties["showGrid"]:
                 dc.SetPen(wx.Pen(self.properties["gridColour"], penWidth))
                 dc.SetTextForeground(self.properties["gridColour"])
-                dc.DrawLine(pt[0], plotY1, pt[0], plotY2 - penWidth)
+                dc.DrawLine(int(pt[0]), int(plotY1), int(pt[0]), int(plotY2 - penWidth))
                 dc.SetPen(wx.Pen(self.properties["axisColour"], penWidth))
                 dc.SetTextForeground(self.properties["axisColour"])
 
@@ -1250,38 +1250,35 @@ class canvas(wx.Window):
             # minor ticks
             if ttype == "minor":
                 if self.properties["showMinorTicks"]:
-                    dc.DrawLine(
-                        plotX1 - penWidth,
-                        pt[1],
-                        plotX1 - penWidth - tickLength / 2,
-                        pt[1],
-                    )
+                    dc.DrawLine(int(
+                        plotX1 - penWidth), int(pt[1]), int(plotX1 - penWidth - tickLength / 2), int(pt[1],
+                    ))
                 continue
 
             # major ticks
-            dc.DrawLine(plotX1 - penWidth, pt[1], plotX1 - penWidth - tickLength, pt[1])
+            dc.DrawLine(int(plotX1 - penWidth), int(pt[1]), int(plotX1 - penWidth - tickLength), int(pt[1]))
             extent = dc.GetTextExtent(label)
             ori = pt[1] - extent[1] / 2
             if ori + extent[1] < previous:
                 dc.DrawText(
-                    label, plotX1 - penWidth - extent[0] - tickLength * 1.5, ori
-                )
+                    label, int(plotX1 - penWidth - extent[0] - tickLength * 1.5), int(ori
+                ))
                 previous = ori + 5 * self.printerScale["drawings"]
             if self.properties["showGrid"]:
                 dc.SetPen(wx.Pen(self.properties["gridColour"], penWidth))
                 dc.SetTextForeground(self.properties["gridColour"])
-                dc.DrawLine(plotX1, pt[1], plotX2 - penWidth, pt[1])
+                dc.DrawLine(int(plotX1), int(pt[1]), int(plotX2 - penWidth), int(pt[1]))
                 dc.SetPen(wx.Pen(self.properties["axisColour"], penWidth))
                 dc.SetTextForeground(self.properties["axisColour"])
 
             # show zero line
             if self.properties["showZero"] and float(label) == 0:
                 dc.SetPen(wx.Pen(self.properties["axisColour"], penWidth, wx.DOT))
-                dc.DrawLine(plotX1, pt[1], plotX2 - penWidth, pt[1])
+                dc.DrawLine(int(plotX1), int(pt[1]), int(plotX2 - penWidth), int(pt[1]))
                 dc.SetPen(wx.Pen(self.properties["axisColour"], penWidth))
 
         # draw plot outline
-        dc.DrawRectangle(plotX1, plotY1, plotX2 - plotX1, plotY2 - plotY1)
+        dc.DrawRectangle(int(plotX1), int(plotY1), int(plotX2 - plotX1), int(plotY2 - plotY1))
 
     # ----
 
@@ -1305,7 +1302,7 @@ class canvas(wx.Window):
                 - 17 * self.printerScale["drawings"]
             )
             dc.SetTextForeground(name[1])
-            dc.DrawText(name[0], x, y)
+            dc.DrawText(name[0], int(x), int(y))
 
             # draw circle
             x = self.plotCoords[2] - 9 * self.printerScale["drawings"]
@@ -1317,7 +1314,7 @@ class canvas(wx.Window):
             dc.SetPen(pen)
             dc.SetBrush(brush)
 
-            dc.DrawCircle(x, y, 3 * self.printerScale["drawings"])
+            dc.DrawCircle(int(x), int(y), int(3 * self.printerScale["drawings"]))
 
             # set y for next name
             y += dc.GetTextExtent(name[0])[1] / 2 + 2 * self.printerScale["drawings"]
@@ -1356,11 +1353,11 @@ class canvas(wx.Window):
 
         # draw outline
         dc.SetBrush(wx.Brush(self.properties["plotColour"], wx.SOLID))
-        dc.DrawRectangle(x1, y1, width, height)
+        dc.DrawRectangle(int(x1), int(y1), int(width), int(height))
 
         # draw position
         dc.SetBrush(wx.Brush(self.properties["axisColour"], wx.SOLID))
-        dc.DrawRectangle(x, y1, currWidth, height)
+        dc.DrawRectangle(int(x), int(y1), int(currWidth), int(height))
 
         # draw outside arrows
         dc.SetPen(wx.TRANSPARENT_PEN)
@@ -1410,11 +1407,11 @@ class canvas(wx.Window):
 
         # draw outline
         dc.SetBrush(wx.Brush(self.properties["plotColour"], wx.SOLID))
-        dc.DrawRectangle(x1, y1, width, height)
+        dc.DrawRectangle(int(x1), int(y1), int(width), int(height))
 
         # draw position
         dc.SetBrush(wx.Brush(self.properties["axisColour"], wx.SOLID))
-        dc.DrawRectangle(x1, y, width, currHeight)
+        dc.DrawRectangle(int(x1), int(y), int(width), int(currHeight))
 
         # draw outside arrows
         dc.SetPen(wx.TRANSPARENT_PEN)
@@ -1454,7 +1451,7 @@ class canvas(wx.Window):
         # draw background
         dc.SetPen(wx.TRANSPARENT_PEN)
         dc.SetBrush(wx.Brush(self.properties["plotColour"], wx.SOLID))
-        dc.DrawRectangle(plotX1, gelY1, width, height)
+        dc.DrawRectangle(int(plotX1), int(gelY1), int(width), int(height))
 
         # draw gels
         graphics.drawGel(
@@ -1475,7 +1472,7 @@ class canvas(wx.Window):
 
         dc.SetBrush(wx.TRANSPARENT_BRUSH)
         dc.SetPen(wx.Pen(self.properties["axisColour"], penWidth))
-        dc.DrawRectangle(plotX1, gelY1, width, height)
+        dc.DrawRectangle(int(plotX1), int(gelY1), int(width), int(height))
 
     # ----
 
@@ -1526,10 +1523,10 @@ class canvas(wx.Window):
         dc.SetPen(wx.Pen(wx.BLACK, style=wx.PENSTYLE_SHORT_DASH))
         # dc.SetLogicalFunction(wx.INVERT)
 
-        dc.DrawLine(x, minYPlot, x, maxYPlot)
-        dc.DrawLine(minXPlot, y, maxXPlot, y)
+        dc.DrawLine(int(x), int(minYPlot), int(x), int(maxYPlot))
+        dc.DrawLine(int(minXPlot), int(y), int(maxXPlot), int(y))
         if self.properties["showGel"]:
-            dc.DrawLine(x, minYGel, x, maxYGel)
+            dc.DrawLine(int(x), int(minYGel), int(x), int(maxYGel))
 
         dc.SetLogicalFunction(wx.COPY)
 
@@ -1607,16 +1604,16 @@ class canvas(wx.Window):
         dc.SetPen(wx.Pen(wx.BLACK))
 
         if self.mouseFnLMB == "xDistance":
-            dc.DrawLine(x1, minY, x1, maxY)
+            dc.DrawLine(int(x1), int(minY), int(x1), int(maxY))
             if x1 != x2:
-                dc.DrawLine(x2, minY, x2, maxY)
-                dc.DrawLine(x1, y2, x2, y2)
+                dc.DrawLine(int(x2), int(minY), int(x2), int(maxY))
+                dc.DrawLine(int(x1), int(y2), int(x2), int(y2))
 
         elif self.mouseFnLMB == "yDistance":
-            dc.DrawLine(minX, y1, maxX, y1)
+            dc.DrawLine(int(minX), int(y1), int(maxX), int(y1))
             if y1 != y2:
-                dc.DrawLine(minX, y2, maxX, y2)
-                dc.DrawLine(x2, y1, x2, y2)
+                dc.DrawLine(int(minX), int(y2), int(maxX), int(y2))
+                dc.DrawLine(int(x2), int(y1), int(x2), int(y2))
 
         dc.SetLogicalFunction(wx.COPY)
 
@@ -1682,13 +1679,13 @@ class canvas(wx.Window):
         dc.SetPen(wx.Pen(wx.BLACK))
         # dc.SetLogicalFunction(wx.INVERT)
         if wx.Platform == "__WXMAC__":
-            dc.DrawLine(x, minY, x, maxY - 1)
+            dc.DrawLine(int(x), int(minY), int(x), int(maxY - 1))
             if currentY:
-                dc.DrawLine(x - 5, currentY[1], x + 6, currentY[1])
+                dc.DrawLine(int(x - 5), int(currentY[1]), int(x + 6), int(currentY[1]))
         else:
             if currentY:
-                dc.DrawLine(x, minY, x, maxY)
-                dc.DrawLine(x - 5, currentY[1], x + 6, currentY[1])
+                dc.DrawLine(int(x), int(minY), int(x), int(maxY))
+                dc.DrawLine(int(x - 5), int(currentY[1]), int(x + 6), int(currentY[1]))
         dc.SetLogicalFunction(wx.COPY)
 
         # draw x position text
@@ -1776,9 +1773,9 @@ class canvas(wx.Window):
         # draw lines
         for i, isotope in enumerate(isotopes):
             if i == 0 or not isotope[1]:
-                dc.DrawLine(isotope[0], minYPlot, isotope[0], maxYPlot)
+                dc.DrawLine(int(isotope[0]), int(minYPlot), int(isotope[0]), int(maxYPlot))
             if self.properties["showGel"]:
-                dc.DrawLine(isotope[0], minYGel, isotope[0], maxYGel)
+                dc.DrawLine(int(isotope[0]), int(minYGel), int(isotope[0]), int(maxYGel))
 
         # draw circles
         if wx.Platform != "__WXMAC__":
@@ -1786,7 +1783,7 @@ class canvas(wx.Window):
             dc.SetBrush(wx.Brush(wx.BLACK))
         for i, isotope in enumerate(isotopes):
             if isotope[1]:
-                dc.DrawCircle(isotope[0], isotope[1], 4)
+                dc.DrawCircle(int(isotope[0]), int(isotope[1]), int(4))
 
         dc.SetLogicalFunction(wx.COPY)
 
@@ -1851,21 +1848,21 @@ class canvas(wx.Window):
 
         # draw clasic zoom box
         if self.properties["zoomAxis"] == "xy":
-            dc.DrawRectangle(minX, minY, maxX - minX, maxY - minY)
+            dc.DrawRectangle(int(minX), int(minY), int(maxX - minX), int(maxY - minY))
 
         # draw X-axis-zoom-only box
         elif self.properties["zoomAxis"] == "x":
-            dc.DrawRectangle(minX, maxYPlot, maxX - minX, minYPlot - maxYPlot)
+            dc.DrawRectangle(int(minX), int(maxYPlot), int(maxX - minX), int(minYPlot - maxYPlot))
 
         # draw Y-axis-only zoom box
         elif self.properties["zoomAxis"] == "y":
-            dc.DrawRectangle(minXPlot, maxY, maxXPlot - minXPlot, minY - maxY)
+            dc.DrawRectangle(int(minXPlot), int(maxY), int(maxXPlot - minXPlot), int(minY - maxY))
 
         # draw gellview zoombox
         if self.properties["showGel"] and self.properties["zoomAxis"] == "x":
             minYGel += self.printerScale["drawings"]
             maxYGel -= self.printerScale["drawings"]
-            dc.DrawRectangle(minX, maxYGel, maxX - minX, minYGel - maxYGel)
+            dc.DrawRectangle(int(minX), int(maxYGel), int(maxX - minX), int(minYGel - maxYGel))
 
         # resset canvas and pen
         dc.SetLogicalFunction(wx.COPY)
@@ -1899,7 +1896,7 @@ class canvas(wx.Window):
         # dc.SetLogicalFunction(wx.INVERT)
         dc.SetPen(wx.Pen(wx.BLACK))
         dc.SetBrush(wx.Brush(wx.BLACK, wx.TRANSPARENT))
-        dc.DrawRectangle(x1, y1, width, height)
+        dc.DrawRectangle(int(x1), int(y1), int(width), int(height))
         dc.SetLogicalFunction(wx.COPY)
 
     # ----
@@ -1926,13 +1923,13 @@ class canvas(wx.Window):
         dc.SetPen(wx.Pen(wx.BLACK))
         dc.SetBrush(wx.Brush(wx.BLACK, wx.TRANSPARENT))
         if wx.Platform == "__WXMAC__":
-            dc.DrawLine(x1, y1 - 3, x1, y1 + 3)
-            dc.DrawLine(x1 + 1, y1, x2 - 1, y1)
-            dc.DrawLine(x2, y1 - 3, x2, y1 + 3)
+            dc.DrawLine(int(x1), int(y1 - 3), int(x1), int(y1 + 3))
+            dc.DrawLine(int(x1 + 1), int(y1), int(x2 - 1), int(y1))
+            dc.DrawLine(int(x2), int(y1 - 3), int(x2), int(y1 + 3))
         else:
-            dc.DrawLine(x1, y1 - 3, x1, y1 + 3)
-            dc.DrawLine(x1 + 1, y1, x2, y1)
-            dc.DrawLine(x2, y1 - 3, x2, y1 + 3)
+            dc.DrawLine(int(x1), int(y1 - 3), int(x1), int(y1 + 3))
+            dc.DrawLine(int(x1 + 1), int(y1), int(x2), int(y1))
+            dc.DrawLine(int(x2), int(y1 - 3), int(x2), int(y1 + 3))
         dc.SetLogicalFunction(wx.COPY)
 
     # ----
@@ -1974,7 +1971,7 @@ class canvas(wx.Window):
         # draw normal text as inverted text seems impossible to implement in wx
         dc.SetTextForeground(wx.BLACK)
         dc.SetFont(font)
-        dc.DrawText(text, x, y)
+        dc.DrawText(text, int(x), int(y))
         return
 
         # init dc

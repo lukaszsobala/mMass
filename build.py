@@ -1,9 +1,9 @@
 import sys
 import numpy
-from distutils.core import setup
-from distutils.extension import Extension
+from setuptools import setup
+from setuptools import Extension
 
-numpyInclude = numpy.get_include() + "/numpy"
+numpyInclude = numpy.get_include()
 pythonInclude = sys.prefix + "/include"
 
 
