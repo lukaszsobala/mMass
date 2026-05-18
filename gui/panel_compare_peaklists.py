@@ -642,10 +642,10 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         if recreate or not self.currentPeaklist:
 
             # erase grid
-            if self.documentsGrid.GetNumberCols():
-                self.documentsGrid.DeleteCols(0, self.documentsGrid.GetNumberCols())
             if self.documentsGrid.GetNumberRows():
                 self.documentsGrid.DeleteRows(0, self.documentsGrid.GetNumberRows())
+            if self.documentsGrid.GetNumberCols():
+                self.documentsGrid.DeleteCols(0, self.documentsGrid.GetNumberCols())
 
             # check peaklist
             if not self.currentPeaklist:
@@ -712,10 +712,10 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         if recreate or not self.currentPeaklist:
 
             # erase grid
-            if self.peaklistGrid.GetNumberCols():
-                self.peaklistGrid.DeleteCols(0, self.peaklistGrid.GetNumberCols())
             if self.peaklistGrid.GetNumberRows():
                 self.peaklistGrid.DeleteRows(0, self.peaklistGrid.GetNumberRows())
+            if self.peaklistGrid.GetNumberCols():
+                self.peaklistGrid.DeleteCols(0, self.peaklistGrid.GetNumberCols())
 
             # check peaklist
             if not self.currentPeaklist:
@@ -769,10 +769,10 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         """Update current matches."""
 
         # erase grid
-        if self.matchesGrid.GetNumberCols():
-            self.matchesGrid.DeleteCols(0, self.matchesGrid.GetNumberCols())
         if self.matchesGrid.GetNumberRows():
             self.matchesGrid.DeleteRows(0, self.matchesGrid.GetNumberRows())
+        if self.matchesGrid.GetNumberCols():
+            self.matchesGrid.DeleteCols(0, self.matchesGrid.GetNumberCols())
 
         # check matches
         if not self.currentMatches:

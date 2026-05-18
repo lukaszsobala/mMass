@@ -7,212 +7,53 @@ This version contains fixes that allow it to launch using modern Python and upda
 For more information please see the official mMass homepage at [www.mmass.org](http://www.mmass.org).  Many thanks to Martin Strohalm for his hard work on the project over many years!
 
 ## Installation
-### Linux
 
-tbd
+mMass is now a fully pure-Python package (native C extensions were removed and replaced with Numba/SciPy), making it trivial to install via modern package managers like `uv` or `pip`.
 
-### Windows
+### Linux (and MacOS / Windows)
+We recommend using [uv](https://github.com/astral-sh/uv) or pip to install the package directly into a virtual environment.
 
-tbd
+```sh
+# Clone the repository
+git clone https://github.com/dreamingspires/mMass.git
+cd mMass
 
-### MacOS
+# Install via uv (creates a virtual environment automatically and is extremely fast)
+uv pip install -e .
 
-tbd
-
-## Acknowledgements (from original repo)
-
-Many thanks to the [FINDER](https://www.shh.mpg.de/453199/finder) project for sponsoring the recent overhaul
-work, through whom the software has been made runnable on Python3 and
-WxWidgets Phoenix.
-
-Thanks also to [Warriner Lab](https://projects.iq.harvard.edu/warinnerlab) for providing support and testing, and
-funding the updated MacOS installer.
-
-
-## Building from source
-### Linux
-
-(We will use UV instead of poetry)
-
-mMass uses [poetry](python-poetry.org/) as the build system.  To get started ensure poetry is [installed](https://python-poetry.org/docs/#installation), then clone the mMass repository.
-
-Due to this [well-known issue](https://wxpython.org/blog/2017-08-17-builds-for-linux-with-pip/index.html), the wxPython toolkit must be compiled from scratch.  Poetry will handle this, but you require the build dependencies.
-
-Ensure all the [dependencies for building wxPython](https://wxpython.org/blog/2017-08-17-builds-for-linux-with-pip/index.html) are installed on your system.  For Fedora GNU/Linux (32), this is currently:
-```
-python3
-python3-devel
-gtk3-devel
-gstreamer1-devel
-freeglut-devel
-libjpeg-turbo-devel
-libpng-devel
-libtiff-devel
-SDL-devel
-libnotify-devel
-libSM-devel
+# Or using standard pip
+python -m venv .venv
+source .venv/bin/activate
+pip install -e .
 ```
 
-For Debian, this is currently:
-```
-python3
-python3-dev
-freeglut3-dev
-libwebkitgtk-3.0-dev
-libjpeg-dev
-libpng-dev
-libtiff-dev
-libsdl-dev
-libnotify-dev
-libsm-dev
+Depending on your Linux distribution, you may need system-level GUI dependencies installed for wxPython to build or run seamlessly. For example, on Debian/Ubuntu:
+```sh
+sudo apt-get install python3-dev libgtk-3-dev freeglut3-dev libwebkitgtk-?.0-dev libjpeg-dev libpng-dev libtiff-dev libsdl-dev libnotify-dev libsm-dev
 ```
 
-From within the repository, install the dependencies into the _venv_ with:
+### Running the application
+Once installed, the CLI wrapper is available globally within your virtual environment:
 
-`poetry install`
+```sh
+mmass
+```
 
-Don't be surprised if installing wxPython takes a long time: the entire UI toolkit is being compiled from source.
+You can also run it generically:
 
-Run the software:
-
-`poetry run mmass`
-
-Build software packages with:
-
-`poetry build`
-
-Your packages will be built within the `dist/` directory.
-
-### Windows
-Microsoft Windows does not come with a C compiler built in.  Since mMass uses a Python extension module, written in C, to speed up certain calculations, we must first install Microsoft Visual C++ 14.0 (or newer).
-
-Go to the [Visual Studio downloads page](https://visualstudio.microsoft.com/downloads/), and download Visual Studio 2019 (or newer) Community edition.  Run the installer.
-
-You will be presented with a list of packages to install.  Under the `Workloads` tab, select Desktop development with C++, and in the sidebar ensure that the MSVC option is selected.
-
-You might also want to use this installed to install Python onto your machine, if you haven't already done so.
-
-Ensure you have installed the [poetry build system](https://python-poetry.org/docs/#installation), clone the mMass repository.
-
-From within the repository, install the dependencies into the _venv_ with:
-
-`poetry install`
-
-Run the software:
-
-`poetry run mmass`
-
-Build software packages with:
-
-`poetry build`
-
-Your packages will be built within the `dist/` directory.
-
-
-### MacOS
-
-NB: mMass is currently known to not build correctly on M1 silicon, because of [this upstream issue](https://github.com/python-pillow/Pillow/issues/5093).  Once Python3.9 is supported on MacOS by default, it will become possible to build a new package supporting M1.
-
-mMass uses [poetry](python-poetry.org/) as the build system.  To get started ensure poetry is [installed](https://python-poetry.org/docs/#installation), then clone the mMass repository.
-
-You may need to add the poetry install location to your shell's $PATH depending on the install method.
-
-From within the repository, install the dependencies into the _venv_ with:
-
-`poetry install`
-
-Run the software:
-
-`poetry run mmass`
-
-Build software packages with:
-
-`poetry build`
-
-Your packages will be built within the `dist/` directory.
+```sh
+python mmass.py
+```
 
 ## Packaging
-Before proceeding with packaging steps, first ensure that you've built mMass from source on your current machine.
+Because the legacy C extensions have been removed, pre-building ABI-specific wheels targeting `manylinux` arrays via Docker is **no longer required**. 
 
-### Linux
-
-(this is not how it will be set up as I could not really get it to work)
-
-We currently only compile mMass for x86_64.  This must be done using [manylinux](https://github.com/pypa/manylinux) to maintain ABI compatibility between versions.
-
-Firstly, get a fresh build environment container.  We're using [podman](https://podman.io):
-
+Simply build it using modern Python buildup tools:
+```sh
+pip install build
+python -m build
 ```
-podman pull quay.io/pypa/manylinux_2_24_x86_64
-podman run -i quay.io/pypa/manylinux_2_24_x86_64
-podman ps # To get CONTAINER ID
-podman exec -it [CONTAINER ID] /bin/bash
-```
-
-And then within the container:
-```
-cd /root
-git clone https://github.com/dreamingspires/mMass
-cd mMass
-```
-
-Now install and build the repository:
-```
-apt update
-apt install -y python3-pip libgtk-3-dev gstreamer1.0 gstreamer1.0-plugins-base freeglut3-dev libwebkitgtk-3.0-dev libjpeg-dev libpng-dev libtiff-dev libsdl-dev libnotify-dev libsm-dev libwebkitgtk-dev
-
-python3 -m pip install --user poetry
-python3 -m poetry env use /opt/python/cp37-cp37m/bin/python3
-
-python3 -m poetry install  # This will probably take a while
-poetry build
-```
-
-To prepare a release for pypi, see [this guide](https://packaging.python.org/tutorials/packaging-projects/#uploading-the-distribution-archives).  In summary:
-
-```
-poetry install
-poetry build
-python3 -m twine upload --repository testpypi dist/*
-python3 -m twine upload --repository pypi dist/*
-```
-
-### Windows
-
-(not a priority)
-
-Ensure that `makensis` is installed:
-
-```
-choco install nsis.portable
-```
-
-Build the executable in `dist/`.  From the root directory of the repo:
-
-```
-poetry install
-poetry run pyinstaller .\installer\windows.spec
-```
-
-Build the installer in `dist/`.  From the root directory of the repo:
-
-```
-makensis.exe /DPRODUCT_VERSION=0.1.0 installer\windows_installer.nsi
-```
-
-### MacOS
-
-(I don't use the walled garden computers, so probably won't be done)
-
-From within the installed project directory:
-
-```
-poetry run python3 installer/mac_setup.py py2app
-```
-
-The resulting application will be built inside `./dist/mMass`.
-
-Finally, package the application into a `.zip` archive for easier distribution.  You can do this by launching `Finder`, right-clicking on the application, and selecting `Compress "mMass"`.
+The universal wheel and source dist will be produced natively in `dist/`.
 
 ## Contributing
 
@@ -220,7 +61,7 @@ Issues can be file in the GitHub bug tracker.  PRs welcomed!
 
 ## Release procedure
 
-* As I please
+* Not regulated yet
 
 ## Disclaimer
 

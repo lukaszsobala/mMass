@@ -17,3 +17,4 @@ test_files/
 *.swp
 .git-blame-ignore-revs
 .vscode/
+mMass.egg-info

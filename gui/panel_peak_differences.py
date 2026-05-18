@@ -223,6 +223,8 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
         self.differencesGrid.SetDefaultCellFont(wx.SMALL_FONT)
         self.differencesGrid.SetDefaultCellAlignment(wx.ALIGN_RIGHT, wx.ALIGN_TOP)
         self.differencesGrid.SetDefaultCellBackgroundColour(wx.WHITE)
+        self.differencesGrid.EnableGridLines(True)
+        self.differencesGrid.SetGridLineColour(wx.Colour(220, 220, 220))
 
         self.differencesGrid.Bind(wx.grid.EVT_GRID_SELECT_CELL, self.onCellSelected)
         self.differencesGrid.Bind(
@@ -480,8 +482,9 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
 
         # erase grid
         if self.differencesGrid.GetNumberRows():
-            self.differencesGrid.DeleteCols(0, self.differencesGrid.GetNumberCols())
             self.differencesGrid.DeleteRows(0, self.differencesGrid.GetNumberRows())
+        if self.differencesGrid.GetNumberCols():
+            self.differencesGrid.DeleteCols(0, self.differencesGrid.GetNumberCols())
 
         # check differences
         if not self.currentDifferences:
@@ -502,7 +505,7 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
             label = mzFormat % self.currentDifferences[x][0][0]
             self.differencesGrid.SetColLabelValue(x, label)
             self.differencesGrid.SetRowLabelValue(x, label)
-            self.differencesGrid.SetColAttr(x, cellAttr)
+            self.differencesGrid.SetColAttr(x, cellAttr.Clone())
 
         # paste data
         mzFormat = "%0." + repr(config.main["mzDigits"]) + "f"
@@ -540,10 +543,10 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
         """Update current matches."""
 
         # erase grid
-        if self.matchesGrid.GetNumberCols():
-            self.matchesGrid.DeleteCols(0, self.matchesGrid.GetNumberCols())
         if self.matchesGrid.GetNumberRows():
             self.matchesGrid.DeleteRows(0, self.matchesGrid.GetNumberRows())
+        if self.matchesGrid.GetNumberCols():
+            self.matchesGrid.DeleteCols(0, self.matchesGrid.GetNumberCols())
 
         # check matches
         if not self.currentMatches:

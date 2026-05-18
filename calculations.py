@@ -274,11 +274,99 @@ def signal_gausslorentzian(x, minY, maxY, fwhm, points):
     l = signal_lorentzian(x, minY, maxY, fwhm, points)
     return np.column_stack((g[:, 0], 0.5 * g[:, 1] + 0.5 * l[:, 1]))
 
-def signal_profile(mpeaks, points, noise, shape):
-    # Need properly simulated sum of profiles.
-    # To prevent blocks, just yield a dummy for now until it's specifically hit.
-    return np.array([[0.0, 0.0]])
+@njit
+def signal_profile_raster(p_peaks, points):
+    minX = p_peaks[0, 0]
+    maxX = p_peaks[0, 0]
+    minFwhm = p_peaks[0, 2]
+    maxFwhm = p_peaks[0, 2]
+    
+    n = len(p_peaks)
+    for i in range(1, n):
+        if p_peaks[i, 0] < minX: minX = p_peaks[i, 0]
+        if p_peaks[i, 0] > maxX: maxX = p_peaks[i, 0]
+        if p_peaks[i, 2] < minFwhm: minFwhm = p_peaks[i, 2]
+        if p_peaks[i, 2] > maxFwhm: maxFwhm = p_peaks[i, 2]
+        
+    minX -= 5 * maxFwhm
+    maxX += 5 * maxFwhm
+    
+    step = minFwhm / points
+    size = int((maxX - minX) / step)
+    if size <= 0: return np.empty(0, dtype=np.float64)
+    
+    if maxX - minX != 0:
+        a = (maxFwhm / points - minFwhm / points) / (maxX - minX)
+    else:
+        a = 0.0
+    b = minFwhm / points - a * minX
+    
+    buff = np.empty(size, dtype=np.float64)
+    count = 0
+    x = minX
+    while x < maxX and count < size:
+        buff[count] = x
+        x += a * x + b
+        count += 1
+        
+    return buff[:count].copy()
 
-def signal_profile_to_raster(array, array2, width, points):
-    return array
+@njit
+def signal_profile_to_raster(p_peaks, p_raster, noise, shape):
+    if len(p_peaks) == 0 or len(p_raster) == 0:
+        return np.empty((0, 2), dtype=np.float64)
+        
+    p_profile = np.empty((len(p_raster), 2), dtype=np.float64)
+    for i in range(len(p_raster)):
+        p_profile[i, 0] = p_raster[i]
+        p_profile[i, 1] = 0.0
+        
+    for i in range(len(p_peaks)):
+        mz = p_peaks[i, 0]
+        intens = p_peaks[i, 1]
+        fwhm = p_peaks[i, 2]
+        
+        if shape == 0:
+            minX = mz - (5*fwhm)
+            maxX = mz + (5*fwhm)
+            idx1 = np.searchsorted(p_profile[:, 0], minX)
+            idx2 = np.searchsorted(p_profile[:, 0], maxX)
+            
+            f = (fwhm / 1.66) * (fwhm / 1.66)
+            for j in range(idx1, idx2):
+                p_profile[j, 1] += intens * np.exp(-((p_profile[j, 0] - mz)**2) / f)
+                
+        elif shape == 1:
+            minX = mz - (10*fwhm)
+            maxX = mz + (10*fwhm)
+            idx1 = np.searchsorted(p_profile[:, 0], minX)
+            idx2 = np.searchsorted(p_profile[:, 0], maxX)
+            
+            f = (fwhm / 2.0) * (fwhm / 2.0)
+            for j in range(idx1, idx2):
+                p_profile[j, 1] += intens / (1.0 + ((p_profile[j, 0] - mz)**2) / f)
+                
+        elif shape == 2:
+            minX = mz - (5*fwhm)
+            maxX = mz + (10*fwhm)
+            idx1 = np.searchsorted(p_profile[:, 0], minX)
+            idx2 = np.searchsorted(p_profile[:, 0], maxX)
+            
+            f_g = (fwhm / 1.66) * (fwhm / 1.66)
+            f_l = (fwhm / 2.0) * (fwhm / 2.0)
+            for j in range(idx1, idx2):
+                if p_profile[j, 0] < mz:
+                    p_profile[j, 1] += intens * np.exp(-((p_profile[j, 0] - mz)**2) / f_g)
+                else:
+                    p_profile[j, 1] += intens / (1.0 + ((p_profile[j, 0] - mz)**2) / f_l)
+                    
+    if noise != 0:
+        for i in range(len(p_profile)):
+            p_profile[i, 1] += noise * np.random.rand() - noise/2
+            
+    return p_profile
+
+def signal_profile(mpeaks, points, noise, shape):
+    raster = signal_profile_raster(mpeaks, points)
+    return signal_profile_to_raster(mpeaks, raster, noise, shape)
 

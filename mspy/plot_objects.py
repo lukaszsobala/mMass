@@ -535,11 +535,7 @@ class annotations:
             dc.SetPen(pen)
             dc.SetBrush(brush)
             for point in self.pointsScaled:
-                dc.DrawCircle(
-                    point[0],
-                    point[1],
-                    self.properties["pointSize"] * printerScale["drawings"],
-                )
+                dc.DrawCircle(int(point[0]), int(point[1]), int(self.properties["pointSize"] * printerScale["drawings"]))
 
     # ----
 
@@ -902,11 +898,7 @@ class points:
             dc.SetPen(pen)
             dc.SetBrush(brush)
             for point in self.scaled:
-                dc.DrawCircle(
-                    point[0],
-                    point[1],
-                    self.properties["pointSize"] * printerScale["drawings"],
-                )
+                dc.DrawCircle(int(point[0]), int(point[1]), int(self.properties["pointSize"] * printerScale["drawings"]))
 
     # ----
 
