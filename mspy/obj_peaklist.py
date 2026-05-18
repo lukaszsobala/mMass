@@ -296,6 +296,28 @@ class peaklist:
 
     # ----
 
+    def squareroot(self):
+        """Apply square root to each peak intensity. Retains sign.
+        """
+
+        # check peaklist
+        if not self.peaks:
+            return
+
+        # squareroot all peaks
+        for peak in self.peaks:
+            sign_ai = 1 if peak.ai >= 0 else -1
+            peak.setai(sign_ai * (abs(peak.ai)**0.5))
+            
+            sign_base = 1 if peak.base >= 0 else -1
+            peak.setbase(sign_base * (abs(peak.base)**0.5))
+
+        # update peaklist
+        self._setbasepeak()
+        self._setRelativeIntensities()
+
+    # ----
+
     def combine(self, other):
         """Add data from given peaklist."""
 

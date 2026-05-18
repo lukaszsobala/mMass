@@ -485,6 +485,31 @@ def multiply(signal, x=1.0, y=1.0):
 # ----
 
 
+def squareroot(signal):
+    """Apply square root to signal intensities. Retains sign. New array is returned.
+    signal (numpy array) - signal data points
+    """
+
+    # check signal type
+    if not isinstance(signal, numpy.ndarray):
+        raise TypeError("Signal must be NumPy array!")
+    if signal.dtype.name != "float64":
+        raise TypeError("Signal data must be float64!")
+
+    # check signal data
+    if len(signal) == 0:
+        return numpy.array([])
+
+    # calculate squareroot
+    res = signal.copy()
+    y = res[:, 1]
+    res[:, 1] = numpy.sign(y) * numpy.sqrt(numpy.abs(y))
+    return res
+
+
+# ----
+
+
 def normalize(signal):
     """Normalize y-values of the signal to max 1. New array is returned.
     signal (numpy array) - signal data points

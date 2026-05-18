@@ -327,6 +327,21 @@ class scan:
 
     # ----
 
+    def squareroot(self):
+        """Apply square root to profile and peaklist."""
+
+        # squareroot spectrum
+        if len(self.profile):
+            self.profile = mod_signal.squareroot(self.profile)
+
+        # squareroot peakslist
+        self.peaklist.squareroot()
+
+        # clear buffers
+        self.reset()
+
+    # ----
+
     def normalize(self):
         """Normalize profile and peaklist."""
 

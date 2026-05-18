@@ -313,6 +313,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         self.mathOperationSubtract_radio = wx.RadioButton(panel, -1, "Subtract A - B")
         self.mathOperationOverlay_radio = wx.RadioButton(panel, -1, "Overlay max(A, B)")
         self.mathOperationMultiply_radio = wx.RadioButton(panel, -1, "Multiply A * ")
+        self.mathOperationSqrt_radio = wx.RadioButton(panel, -1, "Square Root A")
 
         self.mathMultiply_value = wx.TextCtrl(
             panel, -1, "1", size=(80, -1), validator=mwx.validator("floatPos")
@@ -329,6 +330,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         self.mathOperationSubtract_radio.Bind(wx.EVT_RADIOBUTTON, self.onMathChanged)
         self.mathOperationOverlay_radio.Bind(wx.EVT_RADIOBUTTON, self.onMathChanged)
         self.mathOperationMultiply_radio.Bind(wx.EVT_RADIOBUTTON, self.onMathChanged)
+        self.mathOperationSqrt_radio.Bind(wx.EVT_RADIOBUTTON, self.onMathChanged)
 
         mathSpectrumA_label = wx.StaticText(panel, -1, "Spectrum A:")
         self.mathSpectrumA_choice = wx.Choice(
@@ -368,6 +370,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             self.mathOperationMultiply_radio, (8, 1), flag=wx.ALIGN_CENTER_VERTICAL
         )
         grid.Add(self.mathMultiply_value, (8, 2), flag=wx.EXPAND)
+        grid.Add(self.mathOperationSqrt_radio, (9, 1), (1, 2))
 
         grid.Add(
             mathSpectrumA_label, (10, 0), flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL
@@ -1466,6 +1469,9 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         elif self.mathOperationMultiply_radio.GetValue():
             self.mathSpectrumB_choice.Disable()
             self.mathMultiply_value.Enable()
+        elif self.mathOperationSqrt_radio.GetValue():
+            self.mathSpectrumB_choice.Disable()
+            self.mathMultiply_value.Disable()
 
         # update batch processing options
         self.onBatchChanged()
@@ -1706,6 +1712,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             "overlay",
             "subtract",
             "multiply",
+            "squareroot",
         ):
             self.parent.onDocumentChanged(items=("spectrum", "notations"))
         elif self.currentTool == "deconvolution":
@@ -1766,6 +1773,8 @@ class panelProcessing(wx.Frame, MakeModalMixin):
                 config.processing["math"]["operation"] = "subtract"
             elif self.mathOperationMultiply_radio.GetValue():
                 config.processing["math"]["operation"] = "multiply"
+            elif self.mathOperationSqrt_radio.GetValue():
+                config.processing["math"]["operation"] = "squareroot"
 
             config.processing["math"]["multiplier"] = float(
                 self.mathMultiply_value.GetValue()
@@ -2040,6 +2049,9 @@ class panelProcessing(wx.Frame, MakeModalMixin):
                     self.previewData, y=config.processing["math"]["multiplier"]
                 )
 
+            elif config.processing["math"]["operation"] == "squareroot":
+                self.previewData = mspy.squareroot(self.previewData)
+
             elif config.processing["math"]["operation"] == "averageall":
                 count = 0
                 for item in self.parent.documents:
@@ -2214,6 +2226,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
                 "overlay",
                 "subtract",
                 "multiply",
+                "squareroot",
             ):
 
                 # check current spectrum
@@ -2256,6 +2269,9 @@ class panelProcessing(wx.Frame, MakeModalMixin):
                     self.currentDocument.spectrum.multiply(
                         y=config.processing["math"]["multiplier"]
                     )
+
+                elif config.processing["math"]["operation"] == "squareroot":
+                    self.currentDocument.spectrum.squareroot()
 
                 # remove notations
                 del self.currentDocument.annotations[:]
