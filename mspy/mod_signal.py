@@ -585,21 +585,16 @@ def savgol(signal, window, cycles=1, order=3):
     # coeficients
     orderRange = list(range(order + 1))
     halfWindow = (window - 1) // 2
-    b = numpy.mat(
+    b = numpy.array(
         [[k ** i for i in orderRange] for k in range(-halfWindow, halfWindow + 1)]
     )
-    m = numpy.linalg.pinv(b).A[0]
+    m = numpy.linalg.pinv(b)[0]
     window = len(m)
     halfWindow = (window - 1) // 2
 
-    # precompute the offset values for better performance
-    offsets = list(range(-halfWindow, halfWindow + 1))
-    offsetData = list(zip(offsets, m))
-
-    # smooth the data
+    # smooth the data using fast convolution array
+    kernel = numpy.array(m)[::-1]
     while cycles:
-        smoothData = list()
-
         yAxis = numpy.concatenate(
             (
                 numpy.zeros(halfWindow) + yAxis[0],
@@ -607,16 +602,7 @@ def savgol(signal, window, cycles=1, order=3):
                 numpy.zeros(halfWindow) + yAxis[-1],
             )
         )
-        for i in range(halfWindow, len(yAxis) - halfWindow):
-
-            CHECK_FORCE_QUIT()
-
-            value = 0.0
-            for offset, weight in offsetData:
-                value += weight * yAxis[i + offset]
-            smoothData.append(value)
-
-        yAxis = smoothData
+        yAxis = numpy.convolve(yAxis, kernel, mode="valid")
         cycles -= 1
 
     # return smoothed data
