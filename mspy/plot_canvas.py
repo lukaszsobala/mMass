@@ -1359,8 +1359,6 @@ class canvas(wx.Window):
         penWidth = self.printerScale["drawings"]
         dc.SetPen(wx.Pen(self.properties["axisColour"], penWidth))
 
-        import time
-        print(f"Canvas draw until outline took {time.time()-t0:.4f}s")
         # draw outline
         dc.SetBrush(wx.Brush(self.properties["plotColour"], wx.SOLID))
         dc.DrawRectangle(int(x1), int(y1), int(width), int(height))
@@ -1415,8 +1413,6 @@ class canvas(wx.Window):
         penWidth = self.printerScale["drawings"]
         dc.SetPen(wx.Pen(self.properties["axisColour"], penWidth))
 
-        import time
-        print(f"Canvas draw until outline took {time.time()-t0:.4f}s")
         # draw outline
         dc.SetBrush(wx.Brush(self.properties["plotColour"], wx.SOLID))
         dc.DrawRectangle(int(x1), int(y1), int(width), int(height))
@@ -1466,20 +1462,16 @@ class canvas(wx.Window):
         dc.DrawRectangle(int(plotX1), int(gelY1), int(width), int(height))
 
         # draw gels
-        import time; t_gel = time.time()
         graphics.drawGel(
             dc,
             [gelY1, plotX1, plotY1, plotX2, plotY2, zeroY],
             self.properties["gelHeight"] * self.printerScale["drawings"],
             self.printerScale,
         )
-        print(f"drawGel took {time.time()-t_gel:.4f}s")
 
         # remove the clipping area
         dc.DestroyClippingRegion()
 
-        import time
-        print(f"Canvas draw until outline took {time.time()-t0:.4f}s")
         # draw outlines
         plotX1 -= penWidth
         gelY1 -= penWidth

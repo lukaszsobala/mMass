@@ -33,17 +33,17 @@ from gui.panel_match import panelMatch
 # -------------------------------------
 
 
-class panelMassFilter(wx.MiniFrame):
+class panelMassFilter(wx.Frame):
     """Mass filter tool."""
 
     def __init__(self, parent):
-        wx.MiniFrame.__init__(
+        wx.Frame.__init__(
             self,
             parent,
             -1,
             "Mass Filter",
             size=(400, 300),
-            style=wx.DEFAULT_FRAME_STYLE & ~wx.MAXIMIZE_BOX,
+            style=wx.DEFAULT_FRAME_STYLE | wx.FRAME_FLOAT_ON_PARENT & ~wx.MAXIMIZE_BOX,
         )
 
         self.parent = parent

@@ -33,17 +33,17 @@ import mspy.plot
 # -------------------------------------------
 
 
-class panelSpectrumGenerator(wx.MiniFrame, MakeModalMixin):
+class panelSpectrumGenerator(wx.Frame, MakeModalMixin):
     """Spectrum generator tool."""
 
     def __init__(self, parent):
-        wx.MiniFrame.__init__(
+        wx.Frame.__init__(
             self,
             parent,
             -1,
             "Spectrum Generator",
             size=(700, 400),
-            style=wx.DEFAULT_FRAME_STYLE & ~wx.MAXIMIZE_BOX,
+            style=wx.DEFAULT_FRAME_STYLE | wx.FRAME_FLOAT_ON_PARENT & ~wx.MAXIMIZE_BOX,
         )
 
         self.parent = parent

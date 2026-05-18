@@ -36,17 +36,17 @@ import mspy.plot
 # ------------------------------------
 
 
-class panelCalibration(wx.MiniFrame, MakeModalMixin):
+class panelCalibration(wx.Frame, MakeModalMixin):
     """Calibration tool."""
 
     def __init__(self, parent, tool="references"):
-        wx.MiniFrame.__init__(
+        wx.Frame.__init__(
             self,
             parent,
             -1,
             "Calibration",
             size=(400, 300),
-            style=wx.DEFAULT_FRAME_STYLE & ~wx.MAXIMIZE_BOX,
+            style=wx.DEFAULT_FRAME_STYLE | wx.FRAME_FLOAT_ON_PARENT & ~wx.MAXIMIZE_BOX,
         )
 
         self.parent = parent

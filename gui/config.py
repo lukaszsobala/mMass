@@ -606,23 +606,23 @@ links = {
 replacements = {
     "sequences": {
         "general": {
-            "pattern": "^([A-Z0-9_]+[\.0-9]*)$",
+            "pattern": r"^([A-Z0-9_]+[\.0-9]*)$",
             "url": "http://www.ncbi.nlm.nih.gov/protein/%s",
         },
         "gi": {
-            "pattern": "^gi\|?([0-9]+[\.0-9]*)$",
+            "pattern": r"^gi\|?([0-9]+[\.0-9]*)$",
             "url": "http://www.ncbi.nlm.nih.gov/protein/%s",
         },
         "gb": {
-            "pattern": "^gb\|?([A-Z]{3}[0-9]{5}[\.0-9]*)$",
+            "pattern": r"^gb\|?([A-Z]{3}[0-9]{5}[\.0-9]*)$",
             "url": "http://www.ncbi.nlm.nih.gov/protein/%s",
         },
         "sp": {
-            "pattern": "^sp\|?([A-Z][A-Z0-9]+)$",
+            "pattern": r"^sp\|?([A-Z][A-Z0-9]+)$",
             "url": "http://www.uniprot.org/uniprot/%s",
         },
         "ref": {
-            "pattern": "^ref\|?([A-Z]{2}_[0-9]+[\.0-9]*)$",
+            "pattern": r"^ref\|?([A-Z]{2}_[0-9]+[\.0-9]*)$",
             "url": "http://www.ncbi.nlm.nih.gov/protein/%s",
         },
     },

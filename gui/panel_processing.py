@@ -36,17 +36,17 @@ from . import doc
 # ------------------------------------
 
 
-class panelProcessing(wx.MiniFrame, MakeModalMixin):
+class panelProcessing(wx.Frame, MakeModalMixin):
     """Data processing tools."""
 
     def __init__(self, parent, tool="peakpicking"):
-        wx.MiniFrame.__init__(
+        wx.Frame.__init__(
             self,
             parent,
             -1,
             "Processing",
             size=(300, -1),
-            style=wx.DEFAULT_FRAME_STYLE & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX),
+            style=wx.DEFAULT_FRAME_STYLE | wx.FRAME_FLOAT_ON_PARENT & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX),
         )
 
         self.parent = parent
@@ -449,7 +449,7 @@ class panelProcessing(wx.MiniFrame, MakeModalMixin):
         self.baselinePrecision_slider = wx.Slider(
             panel,
             -1,
-            config.processing["baseline"]["precision"],
+            int(config.processing["baseline"]["precision"]),
             1,
             100,
             size=(150, -1),
@@ -463,7 +463,7 @@ class panelProcessing(wx.MiniFrame, MakeModalMixin):
         self.baselineOffset_slider = wx.Slider(
             panel,
             -1,
-            config.processing["baseline"]["offset"] * 100,
+            int(config.processing["baseline"]["offset"] * 100),
             0,
             100,
             size=(150, -1),
@@ -532,7 +532,7 @@ class panelProcessing(wx.MiniFrame, MakeModalMixin):
         self.smoothingCycles_slider = wx.Slider(
             panel,
             -1,
-            config.processing["smoothing"]["cycles"],
+            int(config.processing["smoothing"]["cycles"]),
             1,
             5,
             size=(150, -1),
@@ -630,7 +630,7 @@ class panelProcessing(wx.MiniFrame, MakeModalMixin):
         self.peakpickingHeight_slider = wx.Slider(
             panel,
             -1,
-            config.processing["peakpicking"]["pickingHeight"] * 100,
+            int(config.processing["peakpicking"]["pickingHeight"] * 100),
             1,
             100,
             size=(150, -1),
@@ -2114,7 +2114,7 @@ class panelProcessing(wx.MiniFrame, MakeModalMixin):
                 signal=self.currentDocument.spectrum.profile,
                 method=config.processing["smoothing"]["method"],
                 window=config.processing["smoothing"]["windowSize"],
-                cycles=config.processing["smoothing"]["cycles"],
+                cycles=int(config.processing["smoothing"]["cycles"]),
             )
 
         # task canceled
@@ -2377,7 +2377,7 @@ class panelProcessing(wx.MiniFrame, MakeModalMixin):
             self.currentDocument.spectrum.smooth(
                 method=config.processing["smoothing"]["method"],
                 window=config.processing["smoothing"]["windowSize"],
-                cycles=config.processing["smoothing"]["cycles"],
+                cycles=int(config.processing["smoothing"]["cycles"]),
             )
 
             # remove notations
@@ -2428,7 +2428,7 @@ class panelProcessing(wx.MiniFrame, MakeModalMixin):
                 baselineOffset=config.processing["baseline"]["offset"],
                 smoothMethod=smoothMethod,
                 smoothWindow=config.processing["smoothing"]["windowSize"],
-                smoothCycles=config.processing["smoothing"]["cycles"],
+                smoothCycles=int(config.processing["smoothing"]["cycles"]),
             )
 
             # remove shoulder peaks

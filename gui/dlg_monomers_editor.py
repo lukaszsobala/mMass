@@ -497,7 +497,7 @@ class dlgMonomersEditor(wx.Dialog):
                 losses.append(item.GetValue())
 
         # check values
-        if not abbr or not formula or not re.match("^[A-Za-z0-9\-_]*$", abbr):
+        if not abbr or not formula or not re.match(r"^[A-Za-z0-9\-_]*$", abbr):
             wx.Bell()
             return False
 

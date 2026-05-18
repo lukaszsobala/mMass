@@ -34,17 +34,17 @@ from . import doc
 # -------------------------------
 
 
-class panelMatch(wx.MiniFrame, MakeModalMixin):
+class panelMatch(wx.Frame, MakeModalMixin):
     """Data match tool."""
 
     def __init__(self, parentTool, mainFrame, module):
-        wx.MiniFrame.__init__(
+        wx.Frame.__init__(
             self,
             parentTool,
             -1,
             "Match Data",
             size=(400, 300),
-            style=wx.DEFAULT_FRAME_STYLE & ~wx.MAXIMIZE_BOX,
+            style=wx.DEFAULT_FRAME_STYLE | wx.FRAME_FLOAT_ON_PARENT & ~wx.MAXIMIZE_BOX,
         )
 
         self.parentTool = parentTool

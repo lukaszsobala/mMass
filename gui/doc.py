@@ -1663,7 +1663,7 @@ class parseMSD:
         """Add monomer to library."""
 
         # check data
-        if not abbr or not formula or not re.match("^[A-Za-z0-9\-_]*$", abbr):
+        if not abbr or not formula or not re.match(r"^[A-Za-z0-9\-_]*$", abbr):
             return False
 
         # add new monomer

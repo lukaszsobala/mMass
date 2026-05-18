@@ -32,17 +32,17 @@ import mspy
 # ------------------------------------------
 
 
-class panelComparePeaklists(wx.MiniFrame, MakeModalMixin):
+class panelComparePeaklists(wx.Frame, MakeModalMixin):
     """Compare peaklists tool."""
 
     def __init__(self, parent):
-        wx.MiniFrame.__init__(
+        wx.Frame.__init__(
             self,
             parent,
             -1,
             "Compare Peak Lists",
             size=(500, 400),
-            style=wx.DEFAULT_FRAME_STYLE,
+            style=wx.DEFAULT_FRAME_STYLE | wx.FRAME_FLOAT_ON_PARENT,
         )
 
         self.parent = parent

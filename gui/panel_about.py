@@ -32,7 +32,7 @@ if wx.Platform == "__WXMAC__":
     frame = wx.Frame
     frameTitle = ""
 else:
-    frame = wx.MiniFrame
+    frame = wx.Frame
     frameTitle = "About mMass"
 
 
@@ -45,7 +45,7 @@ class panelAbout(frame):
             parent,
             -1,
             frameTitle,
-            style=wx.DEFAULT_FRAME_STYLE
+            style=wx.DEFAULT_FRAME_STYLE | wx.FRAME_FLOAT_ON_PARENT
             & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX | wx.MINIMIZE_BOX),
         )
         self.parent = parent

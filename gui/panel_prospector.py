@@ -34,17 +34,17 @@ from . import doc
 # -------------------------------------------
 
 
-class panelProspector(wx.MiniFrame):
+class panelProspector(wx.Frame):
     """ProteinProspector search tools."""
 
     def __init__(self, parent, tool=config.prospector["common"]["searchType"]):
-        wx.MiniFrame.__init__(
+        wx.Frame.__init__(
             self,
             parent,
             -1,
             "Protein Prospector",
             size=(300, -1),
-            style=wx.DEFAULT_FRAME_STYLE & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX),
+            style=wx.DEFAULT_FRAME_STYLE | wx.FRAME_FLOAT_ON_PARENT & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX),
         )
 
         self.parent = parent

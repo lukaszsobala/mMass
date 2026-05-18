@@ -32,17 +32,17 @@ import mspy
 # -----------------------------------------
 
 
-class panelPeakDifferences(wx.MiniFrame, MakeModalMixin):
+class panelPeakDifferences(wx.Frame, MakeModalMixin):
     """Peak differences tool."""
 
     def __init__(self, parent):
-        wx.MiniFrame.__init__(
+        wx.Frame.__init__(
             self,
             parent,
             -1,
             "Peak Differences",
             size=(500, 400),
-            style=wx.DEFAULT_FRAME_STYLE,
+            style=wx.DEFAULT_FRAME_STYLE | wx.FRAME_FLOAT_ON_PARENT,
         )
 
         self.parent = parent

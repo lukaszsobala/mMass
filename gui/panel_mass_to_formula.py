@@ -36,17 +36,17 @@ import mspy
 # ----------------------------------------
 
 
-class panelMassToFormula(wx.MiniFrame, MakeModalMixin):
+class panelMassToFormula(wx.Frame, MakeModalMixin):
     """Mass to formula tool."""
 
     def __init__(self, parent):
-        wx.MiniFrame.__init__(
+        wx.Frame.__init__(
             self,
             parent,
             -1,
             "Mass To Formula",
             size=(400, 300),
-            style=wx.DEFAULT_FRAME_STYLE & ~wx.MAXIMIZE_BOX,
+            style=wx.DEFAULT_FRAME_STYLE | wx.FRAME_FLOAT_ON_PARENT & ~wx.MAXIMIZE_BOX,
         )
 
         self.parent = parent

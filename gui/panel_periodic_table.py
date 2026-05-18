@@ -31,17 +31,17 @@ import mspy
 # ----------------------------------------------
 
 
-class panelPeriodicTable(wx.MiniFrame):
+class panelPeriodicTable(wx.Frame):
     """Periodic table of elements."""
 
     def __init__(self, parent):
-        wx.MiniFrame.__init__(
+        wx.Frame.__init__(
             self,
             parent,
             -1,
             "Periodic Table of the Elements",
             size=(400, 300),
-            style=wx.DEFAULT_FRAME_STYLE & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX),
+            style=wx.DEFAULT_FRAME_STYLE | wx.FRAME_FLOAT_ON_PARENT & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX),
         )
 
         self.parent = parent

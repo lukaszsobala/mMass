@@ -34,17 +34,17 @@ import mspy.plot
 # ----------------------------------
 
 
-class panelMassCalculator(wx.MiniFrame):
+class panelMassCalculator(wx.Frame):
     """Mass calculator tools."""
 
     def __init__(self, parent, tool="pattern"):
-        wx.MiniFrame.__init__(
+        wx.Frame.__init__(
             self,
             parent,
             -1,
             "Mass Calculator",
             size=(400, 300),
-            style=wx.DEFAULT_FRAME_STYLE & ~wx.MAXIMIZE_BOX,
+            style=wx.DEFAULT_FRAME_STYLE | wx.FRAME_FLOAT_ON_PARENT & ~wx.MAXIMIZE_BOX,
         )
 
         self.parent = parent

@@ -40,17 +40,17 @@ from . import doc
 # ---------------------------------
 
 
-class panelMascot(wx.MiniFrame, MakeModalMixin):
+class panelMascot(wx.Frame, MakeModalMixin):
     """Mascot search tool."""
 
     def __init__(self, parent, tool=config.mascot["common"]["searchType"]):
-        wx.MiniFrame.__init__(
+        wx.Frame.__init__(
             self,
             parent,
             -1,
             "Mascot Tools",
             size=(300, -1),
-            style=wx.DEFAULT_FRAME_STYLE & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX),
+            style=wx.DEFAULT_FRAME_STYLE | wx.FRAME_FLOAT_ON_PARENT & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX),
         )
 
         self.parent = parent
@@ -1594,7 +1594,7 @@ class panelMascot(wx.MiniFrame, MakeModalMixin):
             "INSTRUMENT": ["Default"],
             "QUANTITATION": ["None"],
         }
-        pattSection = re.compile("^\[([a-zA-Z_]*)\]$")
+        pattSection = re.compile(r"^\[([a-zA-Z_]*)\]$")
         for line in data.split("\n"):
             line = line.strip()
             if not line:

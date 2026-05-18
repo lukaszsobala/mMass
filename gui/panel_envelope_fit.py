@@ -33,17 +33,17 @@ import mspy
 # -------------------------------------
 
 
-class panelEnvelopeFit(wx.MiniFrame, MakeModalMixin):
+class panelEnvelopeFit(wx.Frame, MakeModalMixin):
     """Envelope fit tool."""
 
     def __init__(self, parent):
-        wx.MiniFrame.__init__(
+        wx.Frame.__init__(
             self,
             parent,
             -1,
             "Envelope Fit",
             size=(400, 300),
-            style=wx.DEFAULT_FRAME_STYLE & ~wx.MAXIMIZE_BOX,
+            style=wx.DEFAULT_FRAME_STYLE | wx.FRAME_FLOAT_ON_PARENT & ~wx.MAXIMIZE_BOX,
         )
 
         self.parent = parent

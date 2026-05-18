@@ -4410,7 +4410,7 @@ class mainFrame(wx.Frame):
     def runDocumentXYParser(self, rawData, dataType="profile"):
         """Parse XY data and make new document."""
 
-        pattern = re.compile("^([-0-9\.eE+]+)[ \t]*(;|,)?[ \t]*([-0-9\.eE+]*)$")
+        pattern = re.compile(r"^([-0-9\.eE+]+)[ \t]*(;|,)?[ \t]*([-0-9\.eE+]*)$")
 
         # read lines
         data = []
@@ -5003,7 +5003,7 @@ class mainFrame(wx.Frame):
 
     def decodeVersionString(self, versionString):
         """Decode version string to int tuple."""
-        if re.match("^v?([0-9]{1,2})\.([0-9]{1,2})\.([0-9]{1,2})$", versionString):
+        if re.match(r"^v?([0-9]{1,2})\.([0-9]{1,2})\.([0-9]{1,2})$", versionString):
             return tuple(int(i) for i in re.sub(r"[^.0-9]", "", versionString).split("."))
         else:
             raise ValueError

@@ -32,17 +32,17 @@ import mspy.plot
 # ------------------------------------
 
 
-class panelMassDefectPlot(wx.MiniFrame):
+class panelMassDefectPlot(wx.Frame):
     """Mass defect plot tool."""
 
     def __init__(self, parent):
-        wx.MiniFrame.__init__(
+        wx.Frame.__init__(
             self,
             parent,
             -1,
             "Mass Defect Plot",
             size=(400, 300),
-            style=wx.DEFAULT_FRAME_STYLE,
+            style=wx.DEFAULT_FRAME_STYLE | wx.FRAME_FLOAT_ON_PARENT,
         )
 
         self.parent = parent

@@ -34,17 +34,17 @@ from . import doc
 # -----------------------------------
 
 
-class panelProfound(wx.MiniFrame):
+class panelProfound(wx.Frame):
     """Profound search tool."""
 
     def __init__(self, parent, tool="pmf"):
-        wx.MiniFrame.__init__(
+        wx.Frame.__init__(
             self,
             parent,
             -1,
             "ProFound Search",
             size=(300, -1),
-            style=wx.DEFAULT_FRAME_STYLE & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX),
+            style=wx.DEFAULT_FRAME_STYLE | wx.FRAME_FLOAT_ON_PARENT & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX),
         )
 
         self.parent = parent
@@ -786,39 +786,39 @@ class panelProfound(wx.MiniFrame):
         # default server params
         self.currentParams = {
             "DBSE": {
-                "NCBI nr": "#1#NCBInr#nr#..\databases\#1#0",
-                "IPI Human": "#100#IPI_HUMAN#ipi_human#..\databases\#0#0",
-                "IPI Mouse": "#101#IPI_MOUSE#ipi_mouse#..\databases\#0#0",
-                "IPI Rat": "#102#IPI_RAT#ipi_rat#..\databases\#0#0",
-                "IPI Cow": "#103#IPI_BOVIN#ipi_bovin#..\databases\#0#0",
-                "IPI Chicken": "#104#IPI_CHICK#ipi_chick#..\databases\#0#0",
-                "IPI Zebrafish": "#105#IPI_BRARE#ipi_brare#..\databases\#0#0",
-                "IPI Arabidopsis": "#106#IPI_ARATH#ipi_arath#..\databases\#0#0",
-                "Ensembl Aedes aegypti": "#200#Ensembl_aedes_aegypti#Ensembl_aedes_aegypti#..\databases\#0#0",
-                "Ensembl Anopheles gambiae": "#201#Ensembl_anopheles_gambiae#Ensembl_anopheles_gambiae#..\databases\#0#0",
-                "Ensembl Bos taurus": "#202#Ensembl_bos_taurus#Ensembl_bos_taurus#..\databases\#0#0",
-                "Ensembl Caenorhabditis elegans": "#203#Ensembl_caenorhabditis_elegans#Ensembl_caenorhabditis_elegans#..\databases\#0#0",
-                "Ensembl Canis familiaris": "#204#Ensembl_canis_familiaris#Ensembl_canis_familiaris#..\databases\#0#0",
-                "Ensembl Ciona intestinalis": "#205#Ensembl_ciona_intestinalis#Ensembl_ciona_intestinalis#..\databases\#0#0",
-                "Ensembl Ciona savignyi": "#206#Ensembl_ciona_savignyi#Ensembl_ciona_savignyi#..\databases\#0#0",
-                "Ensembl Danio rerio": "#207#Ensembl_danio_rerio#Ensembl_danio_rerio#..\databases\#0#0",
-                "Ensembl Dasypus novemcinctus": "#208#Ensembl_dasypus_novemcinctus#Ensembl_dasypus_novemcinctus#..\databases\#0#0",
-                "Ensembl Drosophila melanogaster": "#209#Ensembl_drosophila_melanogaster#Ensembl_drosophila_melanogaster#..\databases\#0#0",
-                "Ensembl Echinops telfairi": "#210#Ensembl_echinops_telfairi#Ensembl_echinops_telfairi#..\databases\#0#0",
-                "Ensembl Gallus gallus": "#211#Ensembl_gallus_gallus#Ensembl_gallus_gallus#..\databases\#0#0",
-                "Ensembl Gasterosteus aculeatus": "#212#Ensembl_Gasterosteus_aculeatus#Ensembl_Gasterosteus_aculeatus#..\databases\#0#0",
-                "Ensembl Homo sapiens": "#213#Ensembl_Homo_sapiens#Ensembl_Homo_sapiens#..\databases\#0#0",
-                "Ensembl Loxodonta africana": "#214#Ensembl_Loxodonta_africana#Ensembl_Loxodonta_africana#..\databases\#0#0",
-                "Ensembl Monodelphis domestica": "#215#Ensembl_monodelphis_domestica#Ensembl_monodelphis_domestica#..\databases\#0#0",
-                "Ensembl Mus musculus": "#216#Ensembl_Mus_musculus#Ensembl_Mus_musculus#..\databases\#0#0",
-                "Ensembl Ornithorhynchus anatinus": "#217#Ensembl_Ornithorhynchus_anatinus#Ensembl_ornithorhynchus_anatinus#..\databases\#0#0",
-                "Ensembl Oryctolagus cuniculus": "#218#Ensembl_Oryctolagus_cuniculus#Ensembl_oryctolagus_cuniculus#..\databases\#0#0",
-                "Ensembl Oryzias latipes": "#219#Ensembl_Oryzias_latipes#Ensembl_oryzias_latipes#..\databases\#0#0",
-                "Ensembl Rattus norvegicus": "#220#Ensembl_Rattus_norvegicus#Ensembl_Rattus_norvegicus#..\databases\#0#0",
-                "Ensembl Saccharomyces cerevisiae": "#221#Ensembl_saccharomyces_cerevisiae#Ensembl_saccharomyces_cerevisiae#..\databases\#0#0",
-                "Ensembl Takifugu rubripes": "#222#Ensembl_takifugu_rubripes#Ensembl_takifugu_rubripes#..\databases\#0#0",
-                "Ensembl Tetraodon nigroviridis": "#223#Ensembl_tetraodon_nigroviridis#Ensembl_tetraodon_nigroviridis#..\databases\#0#0",
-                "Ensembl Xenopus tropicalis": "#224#Ensembl_xenopus_tropicalis#Ensembl_xenopus_tropicalis#..\databases\#0#0",
+                "NCBI nr": r"#1#NCBInr#nr#..\databases\#1#0",
+                "IPI Human": r"#100#IPI_HUMAN#ipi_human#..\databases\#0#0",
+                "IPI Mouse": r"#101#IPI_MOUSE#ipi_mouse#..\databases\#0#0",
+                "IPI Rat": r"#102#IPI_RAT#ipi_rat#..\databases\#0#0",
+                "IPI Cow": r"#103#IPI_BOVIN#ipi_bovin#..\databases\#0#0",
+                "IPI Chicken": r"#104#IPI_CHICK#ipi_chick#..\databases\#0#0",
+                "IPI Zebrafish": r"#105#IPI_BRARE#ipi_brare#..\databases\#0#0",
+                "IPI Arabidopsis": r"#106#IPI_ARATH#ipi_arath#..\databases\#0#0",
+                "Ensembl Aedes aegypti": r"#200#Ensembl_aedes_aegypti#Ensembl_aedes_aegypti#..\databases\#0#0",
+                "Ensembl Anopheles gambiae": r"#201#Ensembl_anopheles_gambiae#Ensembl_anopheles_gambiae#..\databases\#0#0",
+                "Ensembl Bos taurus": r"#202#Ensembl_bos_taurus#Ensembl_bos_taurus#..\databases\#0#0",
+                "Ensembl Caenorhabditis elegans": r"#203#Ensembl_caenorhabditis_elegans#Ensembl_caenorhabditis_elegans#..\databases\#0#0",
+                "Ensembl Canis familiaris": r"#204#Ensembl_canis_familiaris#Ensembl_canis_familiaris#..\databases\#0#0",
+                "Ensembl Ciona intestinalis": r"#205#Ensembl_ciona_intestinalis#Ensembl_ciona_intestinalis#..\databases\#0#0",
+                "Ensembl Ciona savignyi": r"#206#Ensembl_ciona_savignyi#Ensembl_ciona_savignyi#..\databases\#0#0",
+                "Ensembl Danio rerio": r"#207#Ensembl_danio_rerio#Ensembl_danio_rerio#..\databases\#0#0",
+                "Ensembl Dasypus novemcinctus": r"#208#Ensembl_dasypus_novemcinctus#Ensembl_dasypus_novemcinctus#..\databases\#0#0",
+                "Ensembl Drosophila melanogaster": r"#209#Ensembl_drosophila_melanogaster#Ensembl_drosophila_melanogaster#..\databases\#0#0",
+                "Ensembl Echinops telfairi": r"#210#Ensembl_echinops_telfairi#Ensembl_echinops_telfairi#..\databases\#0#0",
+                "Ensembl Gallus gallus": r"#211#Ensembl_gallus_gallus#Ensembl_gallus_gallus#..\databases\#0#0",
+                "Ensembl Gasterosteus aculeatus": r"#212#Ensembl_Gasterosteus_aculeatus#Ensembl_Gasterosteus_aculeatus#..\databases\#0#0",
+                "Ensembl Homo sapiens": r"#213#Ensembl_Homo_sapiens#Ensembl_Homo_sapiens#..\databases\#0#0",
+                "Ensembl Loxodonta africana": r"#214#Ensembl_Loxodonta_africana#Ensembl_Loxodonta_africana#..\databases\#0#0",
+                "Ensembl Monodelphis domestica": r"#215#Ensembl_monodelphis_domestica#Ensembl_monodelphis_domestica#..\databases\#0#0",
+                "Ensembl Mus musculus": r"#216#Ensembl_Mus_musculus#Ensembl_Mus_musculus#..\databases\#0#0",
+                "Ensembl Ornithorhynchus anatinus": r"#217#Ensembl_Ornithorhynchus_anatinus#Ensembl_ornithorhynchus_anatinus#..\databases\#0#0",
+                "Ensembl Oryctolagus cuniculus": r"#218#Ensembl_Oryctolagus_cuniculus#Ensembl_oryctolagus_cuniculus#..\databases\#0#0",
+                "Ensembl Oryzias latipes": r"#219#Ensembl_Oryzias_latipes#Ensembl_oryzias_latipes#..\databases\#0#0",
+                "Ensembl Rattus norvegicus": r"#220#Ensembl_Rattus_norvegicus#Ensembl_Rattus_norvegicus#..\databases\#0#0",
+                "Ensembl Saccharomyces cerevisiae": r"#221#Ensembl_saccharomyces_cerevisiae#Ensembl_saccharomyces_cerevisiae#..\databases\#0#0",
+                "Ensembl Takifugu rubripes": r"#222#Ensembl_takifugu_rubripes#Ensembl_takifugu_rubripes#..\databases\#0#0",
+                "Ensembl Tetraodon nigroviridis": r"#223#Ensembl_tetraodon_nigroviridis#Ensembl_tetraodon_nigroviridis#..\databases\#0#0",
+                "Ensembl Xenopus tropicalis": r"#224#Ensembl_xenopus_tropicalis#Ensembl_xenopus_tropicalis#..\databases\#0#0",
             },
             "SPEC": [
                 "All taxa",

@@ -37,17 +37,17 @@ from gui.panel_monomer_library import panelMonomerLibrary
 # ----------------------------------
 
 
-class panelSequence(wx.MiniFrame, MakeModalMixin):
+class panelSequence(wx.Frame, MakeModalMixin):
     """Sequence tools."""
 
     def __init__(self, parent, tool="editor"):
-        wx.MiniFrame.__init__(
+        wx.Frame.__init__(
             self,
             parent,
             -1,
             "Sequence",
             size=(500, 300),
-            style=wx.DEFAULT_FRAME_STYLE & ~wx.MAXIMIZE_BOX,
+            style=wx.DEFAULT_FRAME_STYLE | wx.FRAME_FLOAT_ON_PARENT & ~wx.MAXIMIZE_BOX,
         )
 
         self.parent = parent
