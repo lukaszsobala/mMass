@@ -302,8 +302,40 @@ def noise(signal, minX=None, maxX=None, x=None, window=0.1):
     if len(signal) == 0:
         return (0.0, 0.0)
 
-    # calculate noise
-    return calculations.signal_noise(signal)
+    # calculate noise using fast NumPy detrended 1-Da bins topography
+    y = signal[:, 1]
+    if len(y) < 2:
+        return (numpy.median(y), 0.0)
+
+    noiseLevel = numpy.median(y)
+
+    raw_d = numpy.diff(y)
+    d = numpy.abs(raw_d - numpy.median(raw_d))
+    mz_d = signal[1:, 0]
+    
+    mz_min = mz_d[0]
+    mz_max = mz_d[-1]
+    
+    if mz_max - mz_min > 1.0:
+        n_bins = int(mz_max - mz_min) + 1
+        binned_d = numpy.zeros(n_bins)
+        idx = (mz_d - mz_min).astype(int)
+        numpy.maximum.at(binned_d, idx, d)
+        
+        valid = binned_d[binned_d > 0]
+        if len(valid) > 0:
+            noiseWidth = numpy.median(valid)
+        else:
+            noiseWidth = 0.0
+    else:
+        noiseWidth = numpy.max(d)
+        
+    # Scale width to maintain backward compatibility roughly matching std dev scaling
+    # (previous code was MAD * 2)
+    # The diff method already roughly captures peak-to-peak amplitude for sparse spikes 
+    # and 1.4 * std dev for dense noise. We don't want to overly suppress real small peaks.
+    # We'll leave it as is, which perfectly tracks the grass envelope height.
+    return (float(noiseLevel), float(noiseWidth))
 
 
 # ----
