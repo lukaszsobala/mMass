@@ -35,7 +35,7 @@ from . import obj_peaklist
 from . import obj_scan
 
 # compile basic patterns
-RETENTION_TIME_PATTERN = re.compile("^PT((\d*\.?\d*)M)?((\d*\.?\d*)S)?$")
+RETENTION_TIME_PATTERN = re.compile(r"^PT((\d*\.?\d*)M)?((\d*\.?\d*)S)?$")
 
 
 # PARSE mzXML DATA

@@ -26,10 +26,10 @@ from .mod_stopper import CHECK_FORCE_QUIT
 from . import obj_sequence
 
 # compile basic patterns
-spPattern = re.compile("^(sp\|[A-Z][A-Z0-9]+)\|(.*)")
-giPattern = re.compile("^(gi\|[0-9]+[\.0-9]*)\|(.*)")
-gbPattern = re.compile("^(gb\|[A-Z]{3}[0-9]{5}[\.0-9]*)\|(.*)")
-refPattern = re.compile("^(ref\|[A-Z]{2}_[0-9]+[\.0-9]*)\|(.*)")
+spPattern = re.compile(r"^(sp\|[A-Z][A-Z0-9]+)\|(.*)")
+giPattern = re.compile(r"^(gi\|[0-9]+[\.0-9]*)\|(.*)")
+gbPattern = re.compile(r"^(gb\|[A-Z]{3}[0-9]{5}[\.0-9]*)\|(.*)")
+refPattern = re.compile(r"^(ref\|[A-Z]{2}_[0-9]+[\.0-9]*)\|(.*)")
 
 
 # PARSE FASTA SEQUENCE FILE

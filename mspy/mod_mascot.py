@@ -156,7 +156,7 @@ class mascot:
             return False
 
         # get results path
-        match = re.search('master_results\.pl\?file=(.*)"', data)
+        match = re.search(r'master_results\.pl\?file=(.*)"', data)
         if match:
             self.resultsPath = match.group(1)
             return True
@@ -342,7 +342,7 @@ class mascot:
             "OPTIONS": ["None"],
         }
 
-        sectionPattern = re.compile("^\[([a-zA-Z_]*)\]$")
+        sectionPattern = re.compile(r"^\[([a-zA-Z_]*)\]$")
         for line in data.split("\n"):
             line = line.strip()
             if not line:
