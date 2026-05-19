@@ -4,7 +4,7 @@ This is a fork of the official repository for mMass on Python3.
 
 This version contains fixes that allow it to launch using modern Python and updated requirements. Currently it works on Linux.
 
-For more information please see the official mMass homepage at [www.mmass.org](http://www.mmass.org).  Many thanks to Martin Strohalm for his hard work on the project over many years!
+Many thanks to Martin Strohalm for his hard work on the project over many years!
 
 ## Installation
 
@@ -15,7 +15,7 @@ We recommend using [uv](https://github.com/astral-sh/uv) or pip to install the p
 
 ```sh
 # Clone the repository
-git clone https://github.com/dreamingspires/mMass.git
+git clone https://github.com/lukaszsobala/mMass.git
 cd mMass
 
 # Install via uv (creates a virtual environment automatically and is extremely fast)
