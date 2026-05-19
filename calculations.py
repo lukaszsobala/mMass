@@ -184,7 +184,7 @@ def signal_width(array, x, height):
 
 
 def signal_area(array):
-    return float(np.trapz(array[:, 1], array[:, 0]))
+    return float(np.trapezoid(array[:, 1], array[:, 0]))
 
 
 def signal_combine(array1, array2):

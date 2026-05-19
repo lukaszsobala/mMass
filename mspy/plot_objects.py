@@ -191,10 +191,8 @@ class container:
             return
 
         # sort labels
-        annots.sort()
-        annots.reverse()
-        labels.sort()
-        labels.reverse()
+        annots.sort(key=lambda x: x[0], reverse=True)
+        labels.sort(key=lambda x: x[0], reverse=True)
         labels = annots + labels
 
         # preset font by first label

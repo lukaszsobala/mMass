@@ -981,7 +981,7 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
                 self._maxSize = max(size, self._maxSize)
 
             # sort peaklist by mz
-            self.currentPeaklist.sort()
+            self.currentPeaklist.sort(key=lambda x: x[0])
 
         # task canceled
         except mspy.ForceQuit:

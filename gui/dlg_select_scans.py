@@ -312,7 +312,7 @@ class dlgSelectScans(wx.Dialog):
             self.showChromCanvas = True
 
         if len(bpcData) > 10:
-            ticData.sort()
+            bpcData.sort()
             obj = mspy.plot.points(
                 bpcData,
                 lineColour=(50, 140, 0),

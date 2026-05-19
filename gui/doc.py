@@ -134,7 +134,7 @@ class document:
         buff = []
         for item in self.annotations:
             buff.append((item.mz, item))
-        buff.sort()
+        buff.sort(key=lambda x: x[0])
 
         # remove formula duplicates
         # formulas = []
@@ -157,7 +157,7 @@ class document:
         sequences = []
         for sequence in self.sequences:
             sequences.append((sequence.title, sequence))
-        sequences.sort()
+        sequences.sort(key=lambda x: x[0])
 
         # update document
         del self.sequences[:]
@@ -174,7 +174,7 @@ class document:
             buff = []
             for item in sequence.matches:
                 buff.append((item.mz, item))
-            buff.sort()
+            buff.sort(key=lambda x: x[0])
 
             del sequence.matches[:]
             for item in buff:

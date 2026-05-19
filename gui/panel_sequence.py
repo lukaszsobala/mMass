@@ -2285,7 +2285,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
 
         # check data
         if buff:
-            buff.sort()
+            buff.sort(key=lambda x: x[0])
             matches = []
             for match in buff:
                 matches.append(match[2])
