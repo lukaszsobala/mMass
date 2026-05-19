@@ -217,6 +217,7 @@ processing = {
     "math": {
         "operation": "normalize",
         "multiplier": 1,
+        "preservePeaks": 0,
     },
     "crop": {
         "lowMass": 500,
@@ -226,11 +227,13 @@ processing = {
         "precision": 15,
         "offset": 0.25,
         "allowNegative": 0,
+        "preservePeaks": 0,
     },
     "smoothing": {
         "method": "SG",
         "windowSize": 0.3,
         "cycles": 2,
+        "preservePeaks": 0,
     },
     "peakpicking": {
         "snThreshold": 3.0,

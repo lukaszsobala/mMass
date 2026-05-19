@@ -343,6 +343,9 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             panel, -1, choices=[], size=(200, mwx.CHOICE_HEIGHT)
         )
         self.mathSpectrumB_choice.Disable()
+        
+        self.mathPreservePeaks_check = wx.CheckBox(panel, -1, "Preserve peaks")
+        self.mathPreservePeaks_check.SetValue(bool(config.processing.get("math", {}).get("preservePeaks", 0)))
 
         # pack elements
         grid = wx.GridBagSizer(mwx.GRIDBAG_VSPACE, mwx.GRIDBAG_HSPACE)
@@ -380,6 +383,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             mathSpectrumB_label, (11, 0), flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL
         )
         grid.Add(self.mathSpectrumB_choice, (11, 1), (1, 2))
+        grid.Add(self.mathPreservePeaks_check, (12, 1), (1, 2))
 
         mainSizer = wx.BoxSizer(wx.VERTICAL)
         mainSizer.Add(grid, 0, wx.ALIGN_CENTER | wx.ALL, mwx.PANEL_SPACE_MAIN)
@@ -478,6 +482,13 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
         self.baselineAllowNegative_check = wx.CheckBox(panel, -1, "Allow negative values")
         self.baselineAllowNegative_check.SetValue(bool(config.processing["baseline"]["allowNegative"]))
+        self.baselineAllowNegative_check.Bind(wx.EVT_CHECKBOX, self.onBaselineChanged)
+
+        self.baselinePreservePeaks_check = wx.CheckBox(panel, -1, "Preserve peaks")
+        self.baselinePreservePeaks_check.SetValue(
+            bool(config.processing["baseline"]["preservePeaks"])
+        )
+        self.baselinePreservePeaks_check.Bind(wx.EVT_CHECKBOX, self.onBaselineChanged)
 
         # pack elements
         grid = wx.GridBagSizer(mwx.GRIDBAG_VSPACE, mwx.GRIDBAG_HSPACE)
@@ -492,6 +503,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         )
         grid.Add(self.baselineOffset_slider, (1, 1))
         grid.Add(self.baselineAllowNegative_check, (2, 0), (1, 2))
+        grid.Add(self.baselinePreservePeaks_check, (3, 0), (1, 2))
 
         mainSizer = wx.BoxSizer(wx.VERTICAL)
         mainSizer.Add(grid, 0, wx.ALIGN_CENTER | wx.ALL, mwx.PANEL_SPACE_MAIN)
@@ -549,6 +561,12 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         self.smoothingCycles_slider.SetTickFreq(1)
         self.smoothingCycles_slider.Bind(wx.EVT_SCROLL, self.onSmoothingChanged)
 
+        self.smoothingPreservePeaks_check = wx.CheckBox(panel, -1, "Preserve peaks")
+        self.smoothingPreservePeaks_check.SetValue(
+            bool(config.processing["smoothing"]["preservePeaks"])
+        )
+        self.smoothingPreservePeaks_check.Bind(wx.EVT_CHECKBOX, self.onSmoothingChanged)
+
         # pack elements
         grid = wx.GridBagSizer(mwx.GRIDBAG_VSPACE, mwx.GRIDBAG_HSPACE)
         grid.Add(
@@ -570,6 +588,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL,
         )
         grid.Add(self.smoothingCycles_slider, (2, 1), (1, 2))
+        grid.Add(self.smoothingPreservePeaks_check, (3, 1), (1, 2))
 
         mainSizer = wx.BoxSizer(wx.VERTICAL)
         mainSizer.Add(grid, 0, wx.ALIGN_CENTER | wx.ALL, mwx.PANEL_SPACE_MAIN)
@@ -1783,6 +1802,9 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             config.processing["math"]["multiplier"] = float(
                 self.mathMultiply_value.GetValue()
             )
+            config.processing["math"]["preservePeaks"] = int(
+                self.mathPreservePeaks_check.GetValue()
+            )
 
             # crop
             config.processing["crop"]["lowMass"] = float(
@@ -1802,6 +1824,9 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             config.processing["baseline"]["allowNegative"] = int(
                 self.baselineAllowNegative_check.GetValue()
             )
+            config.processing["baseline"]["preservePeaks"] = int(
+                self.baselinePreservePeaks_check.GetValue()
+            )
 
             # smoothing
             config.processing["smoothing"]["windowSize"] = float(
@@ -1809,6 +1834,9 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             )
             config.processing["smoothing"]["cycles"] = int(
                 self.smoothingCycles_slider.GetValue()
+            )
+            config.processing["smoothing"]["preservePeaks"] = int(
+                self.smoothingPreservePeaks_check.GetValue()
             )
 
             config.processing["smoothing"]["method"] = "MA"
@@ -2260,17 +2288,19 @@ class panelProcessing(wx.Frame, MakeModalMixin):
                     self.currentDocument.backup(("spectrum", "notations"))
 
                 # process spectrum
+                preserve_peaks = bool(config.processing["math"]["preservePeaks"])
+                
                 if config.processing["math"]["operation"] == "normalize":
                     self.currentDocument.spectrum.normalize()
 
                 elif config.processing["math"]["operation"] == "combine":
-                    self.currentDocument.spectrum.combine(spectrumB)
+                    self.currentDocument.spectrum.combine(spectrumB, preservePeaks=preserve_peaks)
 
                 elif config.processing["math"]["operation"] == "overlay":
-                    self.currentDocument.spectrum.overlay(spectrumB)
+                    self.currentDocument.spectrum.overlay(spectrumB, preservePeaks=preserve_peaks)
 
                 elif config.processing["math"]["operation"] == "subtract":
-                    self.currentDocument.spectrum.subtract(spectrumB)
+                    self.currentDocument.spectrum.subtract(spectrumB, preservePeaks=preserve_peaks)
 
                 elif config.processing["math"]["operation"] == "multiply":
                     self.currentDocument.spectrum.multiply(
@@ -2278,7 +2308,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
                     )
 
                 elif config.processing["math"]["operation"] == "squareroot":
-                    self.currentDocument.spectrum.squareroot()
+                    self.currentDocument.spectrum.squareroot(preservePeaks=preserve_peaks)
 
                 # remove notations
                 del self.currentDocument.annotations[:]
@@ -2367,6 +2397,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
                 window=(1.0 / config.processing["baseline"]["precision"]),
                 offset=config.processing["baseline"]["offset"],
                 allowNegative=config.processing["baseline"]["allowNegative"],
+                preservePeaks=bool(config.processing["baseline"]["preservePeaks"]),
             )
 
             # remove notations
@@ -2402,6 +2433,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
                 method=config.processing["smoothing"]["method"],
                 window=config.processing["smoothing"]["windowSize"],
                 cycles=int(config.processing["smoothing"]["cycles"]),
+                preservePeaks=bool(config.processing["smoothing"]["preservePeaks"]),
             )
 
             # remove notations

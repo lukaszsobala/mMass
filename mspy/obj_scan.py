@@ -327,7 +327,7 @@ class scan:
 
     # ----
 
-    def squareroot(self):
+    def squareroot(self, preservePeaks=False):
         """Apply square root to profile and peaklist."""
 
         # squareroot spectrum
@@ -364,7 +364,7 @@ class scan:
 
     # ----
 
-    def combine(self, other):
+    def combine(self, other, preservePeaks=False):
         """Add data from given scan.
         other (mspy.scan) - scan to combine with
         """
@@ -379,8 +379,17 @@ class scan:
             # combine profiles
             self.profile = mod_signal.combine(self.profile, other.profile)
 
-            # empty peaklist
-            self.peaklist.empty()
+            if not preservePeaks:
+                self.peaklist.empty()
+            elif len(self.peaklist) > 0 and len(self.profile) > 0:
+                import numpy
+                peak_mzs = numpy.array([p.mz for p in self.peaklist.peaks])
+                prof_vals = numpy.interp(peak_mzs, self.profile[:, 0], self.profile[:, 1])
+                for i, peak in enumerate(self.peaklist.peaks):
+                    peak.ai = prof_vals[i]
+                    peak.reset()
+                self.peaklist._setbasepeak()
+                self.peaklist._setRelativeIntensities()
 
         # use peaklists only
         elif len(self.peaklist) or len(other.peaklist):
@@ -391,7 +400,7 @@ class scan:
 
     # ----
 
-    def overlay(self, other):
+    def overlay(self, other, preservePeaks=False):
         """Overlay with data from given scan.
         other (mspy.scan) - scan to overlay with
         """
@@ -406,15 +415,24 @@ class scan:
             # overlay profiles
             self.profile = mod_signal.overlay(self.profile, other.profile)
 
-            # empty peaklist
-            self.peaklist.empty()
+            if not preservePeaks:
+                self.peaklist.empty()
+            elif len(self.peaklist) > 0 and len(self.profile) > 0:
+                import numpy
+                peak_mzs = numpy.array([p.mz for p in self.peaklist.peaks])
+                prof_vals = numpy.interp(peak_mzs, self.profile[:, 0], self.profile[:, 1])
+                for i, peak in enumerate(self.peaklist.peaks):
+                    peak.ai = prof_vals[i]
+                    peak.reset()
+                self.peaklist._setbasepeak()
+                self.peaklist._setRelativeIntensities()
 
             # clear buffers
             self.reset()
 
     # ----
 
-    def subtract(self, other):
+    def subtract(self, other, preservePeaks=False):
         """Subtract given data from current scan.
         other (mspy.scan) - scan to subtract
         """
@@ -429,15 +447,24 @@ class scan:
             # subtract profile
             self.profile = mod_signal.subtract(self.profile, other.profile)
 
-            # empty peaklist
-            self.peaklist.empty()
+            if not preservePeaks:
+                self.peaklist.empty()
+            elif len(self.peaklist) > 0 and len(self.profile) > 0:
+                import numpy
+                peak_mzs = numpy.array([p.mz for p in self.peaklist.peaks])
+                prof_vals = numpy.interp(peak_mzs, self.profile[:, 0], self.profile[:, 1])
+                for i, peak in enumerate(self.peaklist.peaks):
+                    peak.ai = prof_vals[i]
+                    peak.reset()
+                self.peaklist._setbasepeak()
+                self.peaklist._setRelativeIntensities()
 
             # clear buffers
             self.reset()
 
     # ----
 
-    def smooth(self, method, window, cycles=1):
+    def smooth(self, method, window, cycles=1, preservePeaks=False):
         """Smooth profile.
         method (MA GA SG) - smoothing method
         window (float) - m/z window size for smoothing
@@ -451,7 +478,19 @@ class scan:
 
         # store data
         self.profile = profile
-        self.peaklist.empty()
+        
+        # update peaklist instead of emptying it
+        if not preservePeaks:
+            self.peaklist.empty()
+        elif len(self.peaklist) > 0 and len(profile) > 0:
+            import numpy
+            peak_mzs = numpy.array([p.mz for p in self.peaklist.peaks])
+            prof_vals = numpy.interp(peak_mzs, profile[:, 0], profile[:, 1])
+            for i, peak in enumerate(self.peaklist.peaks):
+                peak.ai = prof_vals[i]
+                peak.reset()
+            self.peaklist._setbasepeak()
+            self.peaklist._setRelativeIntensities()
 
         # clear buffers
         self.reset()
@@ -476,7 +515,7 @@ class scan:
 
     # ----
 
-    def subbase(self, window=0.1, offset=0.0, allowNegative=False):
+    def subbase(self, window=0.1, offset=0.0, allowNegative=False, preservePeaks=False):
         """Subtract baseline from profile.
         window (float or None) - noise calculation window (%/100)
         offset (float) - baseline offset, relative to noise width (in %/100)
@@ -491,7 +530,22 @@ class scan:
 
         # store data
         self.profile = profile
-        self.peaklist.empty()
+        
+        if not preservePeaks:
+            self.peaklist.empty()
+        # update peaklist instead of emptying it
+        elif len(self.peaklist) > 0 and len(baseline) > 0:
+            import numpy
+            peak_mzs = numpy.array([p.mz for p in self.peaklist.peaks])
+            base_vals = numpy.interp(peak_mzs, baseline[:, 0], baseline[:, 1])
+            for i, peak in enumerate(self.peaklist.peaks):
+                peak.ai -= base_vals[i]
+                if not allowNegative and peak.ai < 0:
+                    peak.ai = 0.0
+                peak.base = max(0.0, peak.base - base_vals[i])
+                peak.reset()
+            self.peaklist._setbasepeak()
+            self.peaklist._setRelativeIntensities()
 
         # clear buffers
         self.reset()
