@@ -305,7 +305,7 @@ def noise(signal, minX=None, maxX=None, x=None, window=0.1):
     # calculate noise using fast NumPy detrended 1-Da bins topography
     y = signal[:, 1]
     if len(y) < 2:
-        return (numpy.median(y), 0.0)
+        return (float(numpy.median(y)), 0.0)
 
     noiseLevel = numpy.median(y)
 
@@ -330,11 +330,6 @@ def noise(signal, minX=None, maxX=None, x=None, window=0.1):
     else:
         noiseWidth = numpy.max(d)
         
-    # Scale width to maintain backward compatibility roughly matching std dev scaling
-    # (previous code was MAD * 2)
-    # The diff method already roughly captures peak-to-peak amplitude for sparse spikes 
-    # and 1.4 * std dev for dense noise. We don't want to overly suppress real small peaks.
-    # We'll leave it as is, which perfectly tracks the grass envelope height.
     return (float(noiseLevel), float(noiseWidth))
 
 
@@ -361,7 +356,7 @@ def baseline(signal, window=0.1, offset=0.0):
     # single segment baseline
     if window is None:
         noiseLevel, noiseWidth = noise(signal)
-        noiseLevel -= noiseWidth * offset
+        noiseLevel -= noiseWidth * offset * 6.0
         return numpy.array(
             [
                 [signal[0][0], noiseLevel, noiseWidth],
@@ -375,7 +370,7 @@ def baseline(signal, window=0.1, offset=0.0):
     x = signal[-1][0]
     while x > minimum:
         raster.append(x)
-        x -= max(50, x * window)
+        x -= max(5, x * window)
     raster.append(minimum)
     raster.sort()
 
@@ -402,7 +397,7 @@ def baseline(signal, window=0.1, offset=0.0):
     buff = []
     for i, x in enumerate(raster):
         width = abs(widths[i][1])
-        level = max(0, levels[i][1] - width * offset)
+        level = max(0, levels[i][1] - width * offset * 6.0)
         buff.append([x, level, width])
 
     return numpy.array(buff)
@@ -742,7 +737,7 @@ def subtract(signalA, signalB):
 # ----
 
 
-def subbase(signal, baseline):
+def subbase(signal, baseline, allowNegative=False):
     """Subtract baseline from signal withou chaning x-raster. New array is returned.
     signal (numpy array) - signal data points
     baseline (numpy array) - baseline data points
@@ -767,7 +762,7 @@ def subbase(signal, baseline):
         baseline = numpy.hsplit(baseline, (2, 6))[0].copy()
 
     # subtract signals
-    return calculations.signal_subbase(signal, baseline)
+    return calculations.signal_subbase(signal, baseline, allowNegative=allowNegative)
 
 
 # ----

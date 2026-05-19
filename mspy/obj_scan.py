@@ -476,17 +476,18 @@ class scan:
 
     # ----
 
-    def subbase(self, window=0.1, offset=0.0):
+    def subbase(self, window=0.1, offset=0.0, allowNegative=False):
         """Subtract baseline from profile.
         window (float or None) - noise calculation window (%/100)
         offset (float) - baseline offset, relative to noise width (in %/100)
+        allowNegative (bool) - allow negative values after subtraction
         """
 
         # get baseline
         baseline = self.baseline(window=window, offset=offset)
 
         # subtract baseline
-        profile = mod_signal.subbase(signal=self.profile, baseline=baseline)
+        profile = mod_signal.subbase(signal=self.profile, baseline=baseline, allowNegative=allowNegative)
 
         # store data
         self.profile = profile

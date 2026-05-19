@@ -476,6 +476,9 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         self.baselineOffset_slider.SetTickFreq(10)
         self.baselineOffset_slider.Bind(wx.EVT_SCROLL, self.onBaselineChanged)
 
+        self.baselineAllowNegative_check = wx.CheckBox(panel, -1, "Allow negative values")
+        self.baselineAllowNegative_check.SetValue(bool(config.processing["baseline"]["allowNegative"]))
+
         # pack elements
         grid = wx.GridBagSizer(mwx.GRIDBAG_VSPACE, mwx.GRIDBAG_HSPACE)
         grid.Add(
@@ -488,6 +491,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             baselineOffset_label, (1, 0), flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL
         )
         grid.Add(self.baselineOffset_slider, (1, 1))
+        grid.Add(self.baselineAllowNegative_check, (2, 0), (1, 2))
 
         mainSizer = wx.BoxSizer(wx.VERTICAL)
         mainSizer.Add(grid, 0, wx.ALIGN_CENTER | wx.ALL, mwx.PANEL_SPACE_MAIN)
@@ -1795,6 +1799,9 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             config.processing["baseline"]["offset"] = (
                 float(self.baselineOffset_slider.GetValue()) / 100.0
             )
+            config.processing["baseline"]["allowNegative"] = int(
+                self.baselineAllowNegative_check.GetValue()
+            )
 
             # smoothing
             config.processing["smoothing"]["windowSize"] = float(
@@ -2359,6 +2366,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             self.currentDocument.spectrum.subbase(
                 window=(1.0 / config.processing["baseline"]["precision"]),
                 offset=config.processing["baseline"]["offset"],
+                allowNegative=config.processing["baseline"]["allowNegative"],
             )
 
             # remove notations

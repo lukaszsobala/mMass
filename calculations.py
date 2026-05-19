@@ -34,8 +34,15 @@ def signal_box(array):
     }
 
 def signal_crop(array, x1, x2):
-    idx1 = np.searchsorted(array[:, 0], x1)
-    idx2 = np.searchsorted(array[:, 0], x2)
+    idx1 = np.searchsorted(array[:, 0], x1, side='left')
+    idx2 = np.searchsorted(array[:, 0], x2, side='right')
+    
+    # Ensure there's at least one point outside the viewport on both sides for drawing lines
+    if idx1 > 0:
+        idx1 -= 1
+    if idx2 < len(array):
+        idx2 += 1
+        
     return array[idx1:idx2].copy()
 
 def signal_offset(array, offsetX, offsetY):
@@ -178,10 +185,12 @@ def signal_subtract(array1, array2):
     out[:, 1] = out[:, 1] - y2_interp
     return out
 
-def signal_subbase(array1, baseline):
+def signal_subbase(array1, baseline, allowNegative=False):
     out = array1.copy()
     y_base = np.interp(out[:, 0], baseline[:, 0], baseline[:, 1], left=0, right=0)
     out[:, 1] = out[:, 1] - y_base
+    if not allowNegative:
+        out[:, 1] = np.clip(out[:, 1], 0, None)
     return out
 
 @njit

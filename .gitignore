@@ -18,3 +18,6 @@ test_files/
 .git-blame-ignore-revs
 .vscode/
 mMass.egg-info
+old_*
+test_*
+patch_*

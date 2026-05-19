@@ -225,6 +225,7 @@ processing = {
     "baseline": {
         "precision": 15,
         "offset": 0.25,
+        "allowNegative": 0,
     },
     "smoothing": {
         "method": "SG",
@@ -1193,6 +1194,9 @@ def saveConfig(path=os.path.join(confdir, "config.xml")):
     )
     buff += '      <param name="offset" value="%f" type="float" />\n' % (
         processing["baseline"]["offset"]
+    )
+    buff += '      <param name="allowNegative" value="%d" type="int" />\n' % (
+        processing["baseline"]["allowNegative"]
     )
     buff += "    </baseline>\n"
     buff += "    <smoothing>\n"
