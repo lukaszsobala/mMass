@@ -582,10 +582,10 @@ class scan:
         baseline = self.baseline(window=baselineWindow, offset=baselineOffset)
 
         # pre-smooth profile
-        profile = self.profile
+        smooth_profile = self.profile
         if smoothMethod:
-            profile = mod_signal.smooth(
-                signal=profile,
+            smooth_profile = mod_signal.smooth(
+                signal=self.profile,
                 method=smoothMethod,
                 window=smoothWindow,
                 cycles=smoothCycles,
@@ -593,7 +593,7 @@ class scan:
 
         # label peaks
         peaklist = mod_peakpicking.labelscan(
-            signal=profile,
+            signal=smooth_profile,
             pickingHeight=pickingHeight,
             absThreshold=absThreshold,
             relThreshold=relThreshold,
@@ -604,6 +604,16 @@ class scan:
         # check peaklist
         if peaklist is None:
             return False
+
+        # revert heights to original profile if smoothed
+        if smoothMethod and peaklist:
+            for p in peaklist:
+                intens = mod_signal.intensity(self.profile, p.mz)
+                if intens is not None:
+                    old_ai = p.ai
+                    p.ai = intens
+                    if p.sn and (old_ai - p.base) > 0:
+                        p.sn = p.sn * (p.ai - p.base) / (old_ai - p.base)
 
         # update peaklist
         self.peaklist = peaklist
