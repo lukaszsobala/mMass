@@ -850,6 +850,8 @@ class panelPeaklist(wx.Panel):
     def updatePeakList(self):
         """Refresh peaklist."""
 
+        top_item = self.peakList.GetTopItem() if self.peakList.GetItemCount() > 0 else 0
+
         # clear previous data
         self.peakList.DeleteAllItems()
         self.selectedPeak = None
@@ -911,9 +913,13 @@ class panelPeaklist(wx.Panel):
         # sort data
         self.peakList.sort()
 
-        # scroll top
+        # restore scroll position
         if len(self.currentDocument.spectrum.peaklist) > 0:
-            self.peakList.EnsureVisible(0)
+            if top_item > 0 and top_item < self.peakList.GetItemCount():
+                self.peakList.EnsureVisible(self.peakList.GetItemCount() - 1)
+                self.peakList.EnsureVisible(top_item)
+            else:
+                self.peakList.EnsureVisible(0)
 
     # ----
 
