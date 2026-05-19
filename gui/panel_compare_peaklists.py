@@ -238,6 +238,8 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         self.documentsGrid.SetDefaultCellFont(wx.SMALL_FONT)
         self.documentsGrid.SetDefaultCellAlignment(wx.ALIGN_RIGHT, wx.ALIGN_TOP)
         self.documentsGrid.SetDefaultCellBackgroundColour(wx.WHITE)
+        self.documentsGrid.EnableGridLines(True)
+        self.documentsGrid.SetGridLineColour(wx.Colour(220, 220, 220))
 
         self.documentsGrid.Bind(
             wx.grid.EVT_GRID_SELECT_CELL, self.onDocumentsCellSelected
@@ -264,6 +266,8 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         self.peaklistGrid.SetDefaultCellFont(wx.SMALL_FONT)
         self.peaklistGrid.SetDefaultCellAlignment(wx.ALIGN_RIGHT, wx.ALIGN_TOP)
         self.peaklistGrid.SetDefaultCellBackgroundColour(wx.WHITE)
+        self.peaklistGrid.EnableGridLines(True)
+        self.peaklistGrid.SetGridLineColour(wx.Colour(220, 220, 220))
 
         self.peaklistGrid.Bind(
             wx.grid.EVT_GRID_SELECT_CELL, self.onPeaklistCellSelected
@@ -290,6 +294,8 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         self.matchesGrid.SetDefaultCellFont(wx.SMALL_FONT)
         self.matchesGrid.SetDefaultCellAlignment(wx.ALIGN_RIGHT, wx.ALIGN_TOP)
         self.matchesGrid.SetDefaultCellBackgroundColour(wx.WHITE)
+        self.matchesGrid.EnableGridLines(True)
+        self.matchesGrid.SetGridLineColour(wx.Colour(220, 220, 220))
 
         self.matchesGrid.Bind(wx.EVT_KEY_DOWN, self.onMatchesKey)
 
@@ -512,22 +518,51 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
             wx.Bell()
             return
 
+# save state
+        try:
+            scroll_x, scroll_y = self.peaklistGrid.GetViewStart()
+            sel_row = self.peaklistGrid.GetGridCursorRow()
+            sel_mz = self.currentPeaklist[sel_row][0] if (sel_row >= 0 and self.currentPeaklist and sel_row < len(self.currentPeaklist)) else None
+        except Exception:
+            scroll_x, scroll_y, sel_mz = 0, 0, None
+
         # show processing gauge
         self.onProcessing(True)
         self.compare_butt.Enable(False)
 
-        # do processing
-        self.processing = threading.Thread(target=self.runCompare)
+        # do processing to get peaklists
+        self.processing = threading.Thread(target=self.runGetPeaklists)
         self.processing.start()
 
         # pulse gauge while working
         while self.processing and self.processing.is_alive():
             self.gauge.pulse()
 
-        # update gui
-        self.updateDocumentsGrid(recreate=False)
-        self.updatePeaklistGrid(recreate=False)
+        # AUTO COMPARE if possible
+        if self.currentDocuments and self.currentPeaklist and self.getParams():
+            self.processing = threading.Thread(target=self.runCompare)
+            self.processing.start()
+            while self.processing and self.processing.is_alive():
+                self.gauge.pulse()
+
+        # update gui with recreate=True
+        self.updateDocumentsGrid()
+        self.updatePeaklistGrid()
         self.updateMatchesGrid()
+
+        # restore state
+        if sel_mz is not None and self.currentPeaklist:
+            best_row = 0
+            min_diff = abs(self.currentPeaklist[0][0] - sel_mz)
+            for i, item in enumerate(self.currentPeaklist):
+                if abs(item[0] - sel_mz) < min_diff:
+                    min_diff = abs(item[0] - sel_mz)
+                    best_row = i
+            
+            if best_row < self.peaklistGrid.GetNumberRows():
+                self.peaklistGrid.SetGridCursor(best_row, 0)
+                self.peaklistGrid.SelectRow(best_row)
+            wx.CallAfter(self.peaklistGrid.Scroll, scroll_x, scroll_y)
 
         # hide processing gauge
         self.onProcessing(False)
@@ -556,11 +591,19 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
             wx.Bell()
             return
 
+# save state
+        try:
+            scroll_x, scroll_y = self.peaklistGrid.GetViewStart()
+            sel_row = self.peaklistGrid.GetGridCursorRow()
+            sel_mz = self.currentPeaklist[sel_row][0] if (sel_row >= 0 and self.currentPeaklist and sel_row < len(self.currentPeaklist)) else None
+        except Exception:
+            scroll_x, scroll_y, sel_mz = 0, 0, None
+
         # show processing gauge
         self.onProcessing(True)
         self.compare_butt.Enable(False)
 
-        # do processing
+        # do processing to get peaklists
         self.processing = threading.Thread(target=self.runGetPeaklists)
         self.processing.start()
 
@@ -568,10 +611,31 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         while self.processing and self.processing.is_alive():
             self.gauge.pulse()
 
-        # update gui
+        # AUTO COMPARE if possible
+        if self.currentDocuments and self.currentPeaklist and self.getParams():
+            self.processing = threading.Thread(target=self.runCompare)
+            self.processing.start()
+            while self.processing and self.processing.is_alive():
+                self.gauge.pulse()
+
+        # update gui with recreate=True
         self.updateDocumentsGrid()
         self.updatePeaklistGrid()
         self.updateMatchesGrid()
+
+        # restore state
+        if sel_mz is not None and self.currentPeaklist:
+            best_row = 0
+            min_diff = abs(self.currentPeaklist[0][0] - sel_mz)
+            for i, item in enumerate(self.currentPeaklist):
+                if abs(item[0] - sel_mz) < min_diff:
+                    min_diff = abs(item[0] - sel_mz)
+                    best_row = i
+            
+            if best_row < self.peaklistGrid.GetNumberRows():
+                self.peaklistGrid.SetGridCursor(best_row, 0)
+                self.peaklistGrid.SelectRow(best_row)
+            wx.CallAfter(self.peaklistGrid.Scroll, scroll_x, scroll_y)
 
         # hide processing gauge
         self.onProcessing(False)
@@ -582,8 +646,8 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
     def setData(self, documents):
         """Set data."""
 
+        # DO NOT clear currentPeaklist yet, because onUpdatePeaklist needs it to save the scroll/selection state.
         self.currentDocuments = []
-        self.currentPeaklist = []
         self.currentMatches = []
 
         # get visible documents only

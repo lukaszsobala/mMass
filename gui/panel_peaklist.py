@@ -690,8 +690,6 @@ class panelPeaklist(wx.Panel):
         if not selected_rows:
             return
 
-        next_row = selected_rows[0]
-
         indexes = []
         for item in selected_rows:
             indexes.append(self.peakList.GetItemData(item))
@@ -700,12 +698,6 @@ class panelPeaklist(wx.Panel):
         self.currentDocument.backup(("spectrum"))
         self.currentDocument.spectrum.peaklist.delete(indexes)
         self.parent.onDocumentChanged(items=("spectrum"))
-
-        # restore selection
-        if self.peakList.GetItemCount() > 0:
-            next_row = min(next_row, self.peakList.GetItemCount() - 1)
-            self.peakList.SetItemState(next_row, wx.LIST_STATE_SELECTED, wx.LIST_STATE_SELECTED)
-            self.peakList.EnsureVisible(next_row)
 
     # ---
 
