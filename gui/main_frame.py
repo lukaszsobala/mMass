@@ -75,7 +75,6 @@ from .dlg_presets_editor import dlgPresetsEditor
 from .dlg_references_editor import dlgReferencesEditor
 
 from .dlg_error import dlgError
-from .dlg_preferences import dlgPreferences
 from .dlg_select_scans import dlgSelectScans
 from .dlg_select_sequences import dlgSelectSequences
 from .dlg_clipboard_editor import dlgClipboardEditor
@@ -201,7 +200,6 @@ class mainFrame(wx.Frame):
             document.AppendSeparator()
         document.Append(ID_documentInfo, "Document Info..." + HK_documentInfo, "")
         document.AppendSeparator()
-        document.Append(ID_preferences, "Preferences..." + HK_preferences, "")
         document.AppendSeparator()
         document.Append(ID_quit, "Quit" + HK_quit, "Quit mMass")
 
@@ -221,7 +219,6 @@ class mainFrame(wx.Frame):
             wx.EVT_MENU, self.onDocumentPrintSpectrum, id=ID_documentPrintSpectrum
         )
         self.Bind(wx.EVT_MENU, self.onDocumentReport, id=ID_documentReport)
-        self.Bind(wx.EVT_MENU, self.onPreferences, id=ID_preferences)
         self.Bind(wx.EVT_MENU, self.onQuit, id=ID_quit)
 
         self.menubar.Append(document, "File")
@@ -809,7 +806,6 @@ class mainFrame(wx.Frame):
         help.Append(ID_helpCite, "Papers to Cite...", "")
         help.Append(ID_helpDonate, "Make a Donation...", "")
         help.AppendSeparator()
-        help.Append(ID_helpUpdate, "Check for Update", "")
         if wx.Platform != "__WXMAC__":
             help.AppendSeparator()
         help.Append(ID_helpAbout, "About mMass", "")
@@ -820,7 +816,6 @@ class mainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.onLibraryLink, id=ID_helpTwitter)
         self.Bind(wx.EVT_MENU, self.onLibraryLink, id=ID_helpCite)
         self.Bind(wx.EVT_MENU, self.onLibraryLink, id=ID_helpDonate)
-        self.Bind(wx.EVT_MENU, self.onHelpUpdate, id=ID_helpUpdate)
         self.Bind(wx.EVT_MENU, self.onHelpAbout, id=ID_helpAbout)
 
         self.menubar.Append(help, "&Help")
@@ -3991,69 +3986,6 @@ class mainFrame(wx.Frame):
             dlg.ShowModal()
             dlg.Destroy()
             return
-
-    # ----
-
-    def onHelpUpdate(self, evt=None):
-        """Check for available updates."""
-
-        # check for available updates
-        if not self.getAvailableUpdates():
-            wx.Bell()
-            title = "Update Error!"
-            message = "An error occured in retrieving update information.\nPlease try again later."
-            buttons = [(wx.ID_CANCEL, "Cancel Update", -1, True, 0)]
-            dlg = mwx.dlgMessage(self, title, message, buttons)
-            dlg.ShowModal()
-            dlg.Destroy()
-            return
-
-        # newer version is available
-        if config.main["updatesAvailable"] != config.version or config.nightbuild:
-            if config.nightbuild:
-                title = "Different stable version of mMass is available."
-                message = (
-                    "Version %s is the latest stable version available for download.\nYou are currently using test version %s (%s)."
-                    % (
-                        config.main["updatesAvailable"],
-                        config.version,
-                        config.nightbuild,
-                    )
-                )
-            else:
-                title = "A newer version of mMass is available from github.com"
-                message = (
-                    "Version %s is now available for download.\nYou are currently using version %s."
-                    % (config.main["updatesAvailable"], config.version)
-                )
-            buttons = [
-                (ID_helpWhatsNew, "What's New", -1, False, 15),
-                (wx.ID_CANCEL, "Ask Again Later", -1, False, 15),
-                (ID_helpDownload, "Upgrade Now", -1, True, 0),
-            ]
-            dlg = mwx.dlgMessage(self, title, message, buttons)
-            response = dlg.ShowModal()
-            dlg.Destroy()
-            if response == ID_helpDownload:
-                try:
-                    webbrowser.open(config.links["mMassDownload"], autoraise=1)
-                except:
-                    pass
-            elif response == ID_helpWhatsNew:
-                try:
-                    webbrowser.open(config.links["mMassWhatsNew"], autoraise=1)
-                except:
-                    pass
-
-        # you are up to date
-        else:
-            title = "You're up to date!"
-            message = (
-                "mMass %s is currently the newest version available." % config.version
-            )
-            dlg = mwx.dlgMessage(self, title, message)
-            dlg.ShowModal()
-            dlg.Destroy()
 
     # ----
 

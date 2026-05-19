@@ -1,9 +1,7 @@
-Disable auto updating (this should be the package manager's job)
-    Remove option in File->Preferences...
-    Remove option in Help
+1 [DONE] Disable auto updating
 
-Auto PEP8 conformance
+2 Auto PEP8 conformance
 
-Move mixin into gui
+3 [DONE] Move mixin into gui
 
-See if files in configs are being loaded in properly
+4 See if files in configs are being loaded in properly

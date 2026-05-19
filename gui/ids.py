@@ -21,13 +21,8 @@ import wx
 # common
 ID_quit = wx.ID_EXIT
 ID_about = wx.ID_ABOUT
-ID_preferences = wx.ID_PREFERENCES
 
 HK_quit = "\tCtrl+Q"
-HK_preferences = ""
-if wx.Platform == "__WXMAC__":
-    HK_preferences = "\tCtrl+,"
-
 # file
 ID_documentNew = wx.NewId()
 ID_documentNewFromClipboard = wx.NewId()
@@ -276,7 +271,6 @@ ID_helpForum = wx.NewId()
 ID_helpTwitter = wx.NewId()
 ID_helpCite = wx.NewId()
 ID_helpDonate = wx.NewId()
-ID_helpUpdate = wx.NewId()
 ID_helpUserGuide = wx.NewId()
 ID_helpDownload = wx.NewId()
 ID_helpWhatsNew = wx.NewId()
