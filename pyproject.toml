@@ -23,8 +23,8 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/dreamingspires/mMass"
-Repository = "https://github.com/dreamingspires/mMass"
+Homepage = "https://github.com/lukaszsobala/mMass"
+Repository = "https://github.com/lukaszsobala/mMass"
 
 [project.scripts]
 mmass = "mmass:main"

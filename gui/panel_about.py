@@ -117,8 +117,11 @@ class panelAbout(frame):
         sizer.AddSpacer(10)
         sizer.Add(cite_butt, 0, wx.CENTER | wx.LEFT | wx.RIGHT | wx.BOTTOM, 20)
 
-        sizer.Fit(panel)
-        return sizer
+        panel.SetSizer(sizer)
+
+        mainSizer = wx.BoxSizer(wx.VERTICAL)
+        mainSizer.Add(panel, 1, wx.EXPAND)
+        return mainSizer
 
     # ----
 

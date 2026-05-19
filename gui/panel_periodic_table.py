@@ -657,7 +657,7 @@ class panelPeriodicTable(wx.Frame):
         # show the link
         if link:
             try:
-                webbrowser.open(link, autoraise=1)
+                import wx; wx.LaunchDefaultBrowser(link, flags=0)
             except:
                 pass
 
@@ -673,7 +673,7 @@ class panelPeriodicTable(wx.Frame):
                 % mspy.elements[self.currentElement].atomicNumber
             )
             try:
-                webbrowser.open(link, autoraise=1)
+                import wx; wx.LaunchDefaultBrowser(link, flags=0)
             except:
                 pass
         else:

@@ -87,7 +87,7 @@ class dlgError(wx.Dialog):
         message_label = wx.StaticText(
             self,
             -1,
-            "mMass has crashed.\nIf you believe this is due to a bug, please file an issue at https://github.com/dreamingspires/mMass/ including the mMass version number, the precise steps that lead to the error, and the error report above.\nYou should probably quit mMass and try again.",
+            "mMass has crashed.\nIf you believe this is due to a bug, please file an issue at https://github.com/lukaszsobala/mMass/ including the mMass version number, the precise steps that lead to the error, and the error report above.\nYou should probably quit mMass and try again.",
         )
         message_label.SetFont(wx.SMALL_FONT)
 

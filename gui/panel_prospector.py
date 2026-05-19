@@ -1058,7 +1058,7 @@ class panelProspector(wx.Frame):
             path = os.path.join(tempfile.gettempdir(), "mmass_prospector_search.html")
             with open(path, "wb") as f:
                 f.write(htmlData.encode("utf-8"))
-            webbrowser.open("file://" + path, autoraise=1)
+            import wx; wx.LaunchDefaultBrowser("file://" + path, flags=0)
         except:
             wx.Bell()
             dlg = mwx.dlgMessage(

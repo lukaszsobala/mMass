@@ -25,7 +25,18 @@ from xdgenvpy import XDGPackage
 # SET VERSION
 # -----------
 
-version = "6.0.2"
+try:
+    import re
+    pyproject_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pyproject.toml")
+    with open(pyproject_path, "r", encoding="utf-8") as f:
+        match = re.search(r'^version\s*=\s*"([^"]+)"', f.read(), re.MULTILINE)
+        version = match.group(1) if match else "6.0.2"
+except:
+    try:
+        import importlib.metadata
+        version = importlib.metadata.version("mmass")
+    except:
+        version = "6.0.2"
 nightbuild = ""
 
 
@@ -78,6 +89,56 @@ if not os.path.exists(confdir):
     raise IOError("Configuration folder cannot be found!")
 
 
+_auto_save_enabled = False
+
+class ConfigList(list):
+    def __setitem__(self, key, value):
+        super(ConfigList, self).__setitem__(key, value)
+        if _auto_save_enabled: saveConfig()
+    def __delitem__(self, key):
+        super(ConfigList, self).__delitem__(key)
+        if _auto_save_enabled: saveConfig()
+    def append(self, x):
+        super(ConfigList, self).append(x)
+        if _auto_save_enabled: saveConfig()
+    def extend(self, x):
+        super(ConfigList, self).extend(x)
+        if _auto_save_enabled: saveConfig()
+    def remove(self, x):
+        super(ConfigList, self).remove(x)
+        if _auto_save_enabled: saveConfig()
+    def insert(self, i, x):
+        super(ConfigList, self).insert(i, x)
+        if _auto_save_enabled: saveConfig()
+    def pop(self, i=-1):
+        res = super(ConfigList, self).pop(i)
+        if _auto_save_enabled: saveConfig()
+        return res
+    def clear(self):
+        del self[:]
+
+class ConfigDict(dict):
+    def __init__(self, *args, **kwargs):
+        super(ConfigDict, self).__init__(*args, **kwargs)
+        for k, v in self.items():
+            if isinstance(v, list) and not isinstance(v, ConfigList):
+                super(ConfigDict, self).__setitem__(k, ConfigList(v))
+            elif isinstance(v, dict) and not isinstance(v, ConfigDict):
+                super(ConfigDict, self).__setitem__(k, ConfigDict(v))
+                
+    def __setitem__(self, key, value):
+        if isinstance(value, list) and not isinstance(value, ConfigList):
+            value = ConfigList(value)
+        elif isinstance(value, dict) and not isinstance(value, ConfigDict):
+            value = ConfigDict(value)
+        super(ConfigDict, self).__setitem__(key, value)
+        if _auto_save_enabled:
+            saveConfig()
+            
+    def __delitem__(self, key):
+        super(ConfigDict, self).__delitem__(key)
+        if _auto_save_enabled: saveConfig()
+
 # INIT DEFAULT VALUES
 # -------------------
 
@@ -114,7 +175,7 @@ main = {
     "updatesChecked": "",
     "updatesCurrent": version,
     "updatesAvailable": version,
-    "latestVersionUrl": "https://api.github.com/repos/dreamingspires/mMass/releases/latest",
+    "latestVersionUrl": "https://api.github.com/repos/lukaszsobala/mMass/releases/latest",
     "compassMode": "Profile",
     "compassFormat": "mzML",
     "compassDeleteFile": 1,
@@ -581,13 +642,13 @@ prospector = {
 }
 
 links = {
-    "mMassHomepage": "http://www.mmass.org/",
-    "mMassForum": "http://forum.mmass.org/",
+    "mMassHomepage": "https://github.com/lukaszsobala/mMass",
+    "mMassForum": "https://github.com/lukaszsobala/mMass",
     "mMassTwitter": "http://www.twitter.com/mmassorg/",
-    "mMassCite": "http://www.mmass.org/donate/papers.php",
-    "mMassDonate": "http://www.mmass.org/donate/",
-    "mMassDownload": "https://github.com/dreamingspires/mMass/",
-    "mMassWhatsNew": "https://github.com/dreamingspires/mMass/releases",
+    "mMassCite": "https://web.archive.org/web/20220307182056/http://www.mmass.org/donate/papers.php",
+    "mMassDonate": "https://web.archive.org/web/20220123052313/http://www.mmass.org/donate/",
+    "mMassDownload": "https://github.com/lukaszsobala/mMass/",
+    "mMassWhatsNew": "https://github.com/lukaszsobala/mMass/releases",
     "biomedmstools": "http://ms.biomed.cas.cz/MSTools/",
     "blast": "http://www.ebi.ac.uk/Tools/blastall/",
     "clustalw": "http://www.ebi.ac.uk/Tools/clustalw/",
@@ -661,10 +722,10 @@ def loadConfig(path=os.path.join(confdir, "config.xml")):
     if mainTags:
         _getParams(mainTags[0], main)
 
-        if type(main["cursorInfo"]) != list:
+        if not isinstance(main["cursorInfo"], list):
             main["cursorInfo"] = main["cursorInfo"].split(";")
 
-        if type(main["peaklistColumns"]) != list:
+        if not isinstance(main["peaklistColumns"], list):
             main["peaklistColumns"] = main["peaklistColumns"].split(";")
 
     # recent files
@@ -691,7 +752,7 @@ def loadConfig(path=os.path.join(confdir, "config.xml")):
     if exportTags:
         _getParams(exportTags[0], export)
 
-        if type(export["peaklistColumns"]) != list:
+        if not isinstance(export["peaklistColumns"], list):
             export["peaklistColumns"] = export["peaklistColumns"].split(";")
 
     # spectrum
@@ -699,19 +760,19 @@ def loadConfig(path=os.path.join(confdir, "config.xml")):
     if spectrumTags:
         _getParams(spectrumTags[0], spectrum)
 
-        if type(spectrum["tickColour"]) != list:
+        if not isinstance(spectrum["tickColour"], list):
             col = spectrum["tickColour"]
             spectrum["tickColour"] = [
                 int(c, 16) for c in (col[0:2], col[2:4], col[4:6])
             ]
 
-        if type(spectrum["tmpSpectrumColour"]) != list:
+        if not isinstance(spectrum["tmpSpectrumColour"], list):
             col = spectrum["tmpSpectrumColour"]
             spectrum["tmpSpectrumColour"] = [
                 int(c, 16) for c in (col[0:2], col[2:4], col[4:6])
             ]
 
-        if type(spectrum["notationMarksColour"]) != list:
+        if not isinstance(spectrum["notationMarksColour"], list):
             col = spectrum["notationMarksColour"]
             spectrum["notationMarksColour"] = [
                 int(c, 16) for c in (col[0:2], col[2:4], col[4:6])
@@ -775,7 +836,7 @@ def loadConfig(path=os.path.join(confdir, "config.xml")):
         if searchTags:
             _getParams(searchTags[0], sequence["search"])
 
-        if type(sequence["fragment"]["fragments"]) != list:
+        if not isinstance(sequence["fragment"]["fragments"], list):
             sequence["fragment"]["fragments"] = sequence["fragment"]["fragments"].split(
                 ";"
             )
@@ -790,7 +851,7 @@ def loadConfig(path=os.path.join(confdir, "config.xml")):
     if massToFormulaTags:
         _getParams(massToFormulaTags[0], massToFormula)
 
-        if type(massToFormula["rules"]) != list:
+        if not isinstance(massToFormula["rules"], list):
             massToFormula["rules"] = massToFormula["rules"].split(";")
 
     # mass defect plot
@@ -803,7 +864,7 @@ def loadConfig(path=os.path.join(confdir, "config.xml")):
     if compoundsSearchTags:
         _getParams(compoundsSearchTags[0], compoundsSearch)
 
-        if type(compoundsSearch["adducts"]) != list:
+        if not isinstance(compoundsSearch["adducts"], list):
             compoundsSearch["adducts"] = compoundsSearch["adducts"].split(";")
 
     # peak differences
@@ -847,9 +908,9 @@ def loadConfig(path=os.path.join(confdir, "config.xml")):
             _getParams(misTags[0], mascot["mis"])
 
         for key in ("pmf", "sq", "mis"):
-            if type(mascot[key]["fixedMods"]) != list:
+            if not isinstance(mascot[key]["fixedMods"], list):
                 mascot[key]["fixedMods"] = mascot[key]["fixedMods"].split(";")
-            if type(mascot[key]["variableMods"]) != list:
+            if not isinstance(mascot[key]["variableMods"], list):
                 mascot[key]["variableMods"] = mascot[key]["variableMods"].split(";")
 
     # profound
@@ -857,9 +918,9 @@ def loadConfig(path=os.path.join(confdir, "config.xml")):
     if profoundTags:
         _getParams(profoundTags[0], profound)
 
-        if type(profound["fixedMods"]) != list:
+        if not isinstance(profound["fixedMods"], list):
             profound["fixedMods"] = profound["fixedMods"].split(";")
-        if type(profound["variableMods"]) != list:
+        if not isinstance(profound["variableMods"], list):
             profound["variableMods"] = profound["variableMods"].split(";")
 
     # prospector
@@ -879,9 +940,9 @@ def loadConfig(path=os.path.join(confdir, "config.xml")):
             _getParams(mstagTags[0], prospector["mstag"])
 
         for key in ("msfit", "mstag"):
-            if type(prospector[key]["fixedMods"]) != list:
+            if not isinstance(prospector[key]["fixedMods"], list):
                 prospector[key]["fixedMods"] = prospector[key]["fixedMods"].split(";")
-            if type(prospector[key]["variableMods"]) != list:
+            if not isinstance(prospector[key]["variableMods"], list):
                 prospector[key]["variableMods"] = prospector[key]["variableMods"].split(
                     ";"
                 )
@@ -2073,7 +2134,38 @@ def _escape(text):
 # ----
 
 
+
+# ----
+
+internal = ConfigDict(internal)
+main = ConfigDict(main)
+recent = ConfigList(recent)
+export = ConfigDict(export)
+spectrum = ConfigDict(spectrum)
+match = ConfigDict(match)
+processing = ConfigDict(processing)
+calibration = ConfigDict(calibration)
+sequence = ConfigDict(sequence)
+massCalculator = ConfigDict(massCalculator)
+massfilter = ConfigDict(massfilter)
+massToFormula = ConfigDict(massToFormula)
+massDefectPlot = ConfigDict(massDefectPlot)
+compoundsSearch = ConfigDict(compoundsSearch)
+peakDifferences = ConfigDict(peakDifferences)
+comparePeaklists = ConfigDict(comparePeaklists)
+spectrumGenerator = ConfigDict(spectrumGenerator)
+envelopeFit = ConfigDict(envelopeFit)
+mascot = ConfigDict(mascot)
+profound = ConfigDict(profound)
+prospector = ConfigDict(prospector)
+links = ConfigDict(links)
+replacements = ConfigDict(replacements)
+
+
 try:
     loadConfig()
 except IOError:
     saveConfig()
+
+_auto_save_enabled = True
+

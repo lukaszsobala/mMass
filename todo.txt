@@ -1,7 +1,0 @@
-1 [DONE] Disable auto updating
-
-2 Auto PEP8 conformance
-
-3 [DONE] Move mixin into gui
-
-4 See if files in configs are being loaded in properly

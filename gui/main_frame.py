@@ -2113,7 +2113,7 @@ class mainFrame(wx.Frame):
 
             # show report
             path = "file://%s?%s" % (reportPath, time.time())
-            webbrowser.open(path, autoraise=1)
+            import wx; wx.LaunchDefaultBrowser(path, flags=0)
 
         except IOError:
             wx.Bell()
@@ -3854,7 +3854,7 @@ class mainFrame(wx.Frame):
 
         # open webpage
         try:
-            webbrowser.open(link, autoraise=1)
+            import wx; wx.LaunchDefaultBrowser(link)
         except:
             pass
 
@@ -5012,12 +5012,12 @@ class mainFrame(wx.Frame):
             dlg.Destroy()
             if response == ID_helpDownload:
                 try:
-                    webbrowser.open(config.links["mMassDownload"], autoraise=1)
+                    import wx; wx.LaunchDefaultBrowser(config.links["mMassDownload"], flags=0)
                 except:
                     pass
             elif response == ID_helpWhatsNew:
                 try:
-                    webbrowser.open(config.links["mMassWhatsNew"], autoraise=1)
+                    import wx; wx.LaunchDefaultBrowser(config.links["mMassWhatsNew"], flags=0)
                 except:
                     pass
 
