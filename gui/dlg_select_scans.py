@@ -17,13 +17,13 @@
 
 # load libs
 import datetime
+import random
 import wx
 
 # load modules
 from . import mwx
 from . import config
 import mspy
-
 
 # SCAN SELECTION DIALOG
 # ---------------------

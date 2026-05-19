@@ -35,7 +35,6 @@ from .mixins import MakeModalMixin
 import mspy
 from . import doc
 
-
 # FLOATING PANEL WITH MASCOT SEARCH
 # ---------------------------------
 
@@ -50,7 +49,8 @@ class panelMascot(wx.Frame, MakeModalMixin):
             -1,
             "Mascot Tools",
             size=(300, -1),
-            style=wx.DEFAULT_FRAME_STYLE | wx.FRAME_FLOAT_ON_PARENT & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX),
+            style=wx.DEFAULT_FRAME_STYLE
+            | wx.FRAME_FLOAT_ON_PARENT & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX),
         )
 
         self.parent = parent

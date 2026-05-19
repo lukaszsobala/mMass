@@ -28,7 +28,6 @@ from . import doc
 
 from .dlg_notation import dlgNotation
 
-
 # DOCUMENTS PANEL
 # --------------
 
@@ -1207,7 +1206,7 @@ class documentsTree(wx.TreeCtrl):
         self.enableItem(item, enable)
 
         # enable children
-        (child, cookie) = self.GetFirstChild(item)
+        child, cookie = self.GetFirstChild(item)
         while child.IsOk():
 
             # enable item
@@ -1218,7 +1217,7 @@ class documentsTree(wx.TreeCtrl):
                 self.enableItemTree(child, enable)
 
             # get next
-            (child, cookie) = self.GetNextChild(item, cookie)
+            child, cookie = self.GetNextChild(item, cookie)
 
     # ---
 

@@ -653,7 +653,7 @@ def loadImages():
 
 
 def convertImages():
-    """Convert an image to PNG format and embed it in a Python file. """
+    """Convert an image to PNG format and embed it in a Python file."""
 
     # get libs to import images
     try:

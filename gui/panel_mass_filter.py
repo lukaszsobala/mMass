@@ -28,7 +28,6 @@ import mspy
 
 from gui.panel_match import panelMatch
 
-
 # FLOATING PANEL WITH MASS FILTER TOOL
 # -------------------------------------
 

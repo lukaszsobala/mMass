@@ -27,7 +27,6 @@ from . import config
 import mspy
 import mspy.plot
 
-
 # FLOATING PANEL WITH MASS DEFECT PLOT
 # ------------------------------------
 
@@ -392,9 +391,9 @@ class panelMassDefectPlot(wx.Frame):
         """Show current document or all visible."""
 
         # get value
-        config.massDefectPlot[
-            "showAllDocuments"
-        ] = self.showAllDocuments_check.GetValue()
+        config.massDefectPlot["showAllDocuments"] = (
+            self.showAllDocuments_check.GetValue()
+        )
 
         # update plot
         self.onPlot()
@@ -421,20 +420,20 @@ class panelMassDefectPlot(wx.Frame):
             choices = ["fraction", "standard", "relative", "kendrick"]
             config.massDefectPlot["yAxis"] = choices[self.yAxis_choice.GetSelection()]
 
-            config.massDefectPlot[
-                "nominalMass"
-            ] = self.nominalMass_choice.GetStringSelection().lower()
+            config.massDefectPlot["nominalMass"] = (
+                self.nominalMass_choice.GetStringSelection().lower()
+            )
             config.massDefectPlot["relIntCutoff"] = (
                 float(self.relIntCutoff_value.GetValue()) / 100.0
             )
-            config.massDefectPlot[
-                "removeIsotopes"
-            ] = self.removeIsotopes_check.GetValue()
+            config.massDefectPlot["removeIsotopes"] = (
+                self.removeIsotopes_check.GetValue()
+            )
             config.massDefectPlot["ignoreCharge"] = self.ignoreCharge_check.GetValue()
             config.massDefectPlot["showNotations"] = self.showNotations_check.GetValue()
-            config.massDefectPlot[
-                "showAllDocuments"
-            ] = self.showAllDocuments_check.GetValue()
+            config.massDefectPlot["showAllDocuments"] = (
+                self.showAllDocuments_check.GetValue()
+            )
 
             formula = self.kendrickFormula_value.GetValue()
             cmpd = mspy.compound(formula)

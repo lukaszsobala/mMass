@@ -32,7 +32,6 @@ from . import obj_compound
 from . import mod_basics
 from . import mod_pattern
 
-
 # SEQUENCE OBJECT DEFINITION
 # --------------------------
 
@@ -47,7 +46,7 @@ class sequence:
         accession="",
         chainType="aminoacids",
         cyclic=False,
-        **attr
+        **attr,
     ):
 
         self.chain = []

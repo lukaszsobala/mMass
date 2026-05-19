@@ -33,7 +33,6 @@ from . import mod_signal
 from . import mod_peakpicking
 from . import mod_calibration
 
-
 # ENVELOPE FIT
 # ------------
 
@@ -481,7 +480,7 @@ class envfit:
 
         # calculate differences and chi-square value between calculated and real data
         differences = numpy.sum(models * [[x] for x in params], axis=0) - data
-        chisq_value = numpy.sum(differences ** 2)
+        chisq_value = numpy.sum(differences**2)
 
         # calculate chi-square deriv and alpha
         cycles = len(models)

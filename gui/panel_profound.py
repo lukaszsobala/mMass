@@ -29,7 +29,6 @@ from . import config
 import mspy
 from . import doc
 
-
 # FLOATING PANEL WITH PROFOUND SEARCH
 # -----------------------------------
 
@@ -44,7 +43,8 @@ class panelProfound(wx.Frame):
             -1,
             "ProFound Search",
             size=(300, -1),
-            style=wx.DEFAULT_FRAME_STYLE | wx.FRAME_FLOAT_ON_PARENT & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX),
+            style=wx.DEFAULT_FRAME_STYLE
+            | wx.FRAME_FLOAT_ON_PARENT & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX),
         )
 
         self.parent = parent
@@ -677,21 +677,21 @@ class panelProfound(wx.Frame):
             config.profound["database"] = self.paramDatabase_choice.GetStringSelection()
             config.profound["taxonomy"] = self.paramTaxonomy_choice.GetStringSelection()
             config.profound["enzyme"] = self.paramEnzyme_choice.GetStringSelection()
-            config.profound[
-                "miscleavages"
-            ] = self.paramMiscleavages_choice.GetStringSelection()
-            config.profound[
-                "proteinMassLow"
-            ] = self.paramProteinMassLow_value.GetValue()
-            config.profound[
-                "proteinMassHigh"
-            ] = self.paramProteinMassHigh_value.GetValue()
+            config.profound["miscleavages"] = (
+                self.paramMiscleavages_choice.GetStringSelection()
+            )
+            config.profound["proteinMassLow"] = (
+                self.paramProteinMassLow_value.GetValue()
+            )
+            config.profound["proteinMassHigh"] = (
+                self.paramProteinMassHigh_value.GetValue()
+            )
             config.profound["proteinPILow"] = self.paramProteinPILow_value.GetValue()
             config.profound["proteinPIHigh"] = self.paramProteinPIHigh_value.GetValue()
             config.profound["peptideTol"] = self.paramPeptideTol_value.GetValue()
-            config.profound[
-                "peptideTolUnits"
-            ] = self.paramPeptideTolUnits_choice.GetStringSelection()
+            config.profound["peptideTolUnits"] = (
+                self.paramPeptideTolUnits_choice.GetStringSelection()
+            )
             config.profound["massType"] = self.paramMassType_choice.GetStringSelection()
             config.profound["charge"] = self.paramCharge_choice.GetStringSelection()
             config.profound["expectation"] = self.paramExpectation_value.GetValue()

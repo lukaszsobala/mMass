@@ -24,7 +24,6 @@ import copy
 from . import mod_signal
 import calculations
 
-
 # MAIN PLOT OBJECTS
 # -----------------
 
@@ -260,6 +259,7 @@ class container:
 
     def drawGel(self, dc, gelCoords, gelHeight, printerScale):
         import time
+
         t0 = time.time()
         """Draw gel for all allowed objects."""
 
@@ -520,6 +520,7 @@ class annotations:
 
     def draw(self, dc, printerScale):
         import time
+
         t0 = time.time()
         """Draw object."""
 
@@ -535,12 +536,17 @@ class annotations:
             dc.SetPen(pen)
             dc.SetBrush(brush)
             for point in self.pointsScaled:
-                dc.DrawCircle(int(point[0]), int(point[1]), int(self.properties["pointSize"] * printerScale["drawings"]))
+                dc.DrawCircle(
+                    int(point[0]),
+                    int(point[1]),
+                    int(self.properties["pointSize"] * printerScale["drawings"]),
+                )
 
     # ----
 
     def drawGel(self, dc, gelCoords, gelHeight, printerScale):
         import time
+
         t0 = time.time()
         """Draw gel."""
         pass
@@ -836,11 +842,10 @@ class points:
         # filter and scale data
         if filterSize and len(self.cropped) and self.properties.get("showLines", True):
             from calculations import signal_filter
+
             data_res = filterSize / abs(xScale)
             filtered = signal_filter(self.cropped, data_res)
-            self.scaled = _scaleAndShift(
-                filtered, xScale, yScale, xShift, yShift
-            )
+            self.scaled = _scaleAndShift(filtered, xScale, yScale, xShift, yShift)
         elif len(self.cropped):
             self.scaled = _scaleAndShift(self.cropped, xScale, yScale, xShift, yShift)
         else:
@@ -860,6 +865,7 @@ class points:
 
     def draw(self, dc, printerScale):
         import time
+
         t0 = time.time()
         """Draw object."""
 
@@ -905,12 +911,17 @@ class points:
             dc.SetPen(pen)
             dc.SetBrush(brush)
             for point in self.scaled:
-                dc.DrawCircle(int(point[0]), int(point[1]), int(self.properties["pointSize"] * printerScale["drawings"]))
+                dc.DrawCircle(
+                    int(point[0]),
+                    int(point[1]),
+                    int(self.properties["pointSize"] * printerScale["drawings"]),
+                )
 
     # ----
 
     def drawGel(self, dc, gelCoords, gelHeight, printerScale):
         import time
+
         t0 = time.time()
         """Draw gel."""
         pass
@@ -1249,6 +1260,7 @@ class spectrum:
         # filter and scale spectrum data
         if filterSize and len(self.spectrumCropped) and self.properties["showSpectrum"]:
             from calculations import signal_filter
+
             data_res = filterSize / abs(xScale)
             filtered = signal_filter(self.spectrumCropped, data_res)
             self.spectrumScaled = _scaleAndShift(
@@ -1263,14 +1275,20 @@ class spectrum:
 
         # scale and shift peaklist data
         if len(self.peaklistCropped):
-            if filterSize and (self.properties.get("showLabels", True) or self.properties.get("showTicks", True)):
+            if filterSize and (
+                self.properties.get("showLabels", True)
+                or self.properties.get("showTicks", True)
+            ):
                 from calculations import peaklist_filter_indices
+
                 data_res = filterSize / abs(xScale)
                 keep_idx = peaklist_filter_indices(self.peaklistCropped, data_res)
-                
+
                 # We need to filter BOTH the numpy array and the python list representing the data model
                 self.peaklistCropped = self.peaklistCropped[keep_idx]
-                self.peaklistCroppedPeaks = [self.peaklistCroppedPeaks[i] for i in keep_idx]
+                self.peaklistCroppedPeaks = [
+                    self.peaklistCroppedPeaks[i] for i in keep_idx
+                ]
 
             self.peaklistScaled = numpy.array(
                 (xScale, yScale, yScale)
@@ -1304,6 +1322,7 @@ class spectrum:
 
     def drawGel(self, dc, gelCoords, gelHeight, printerScale):
         import time
+
         t0 = time.time()
         """Draw gel."""
 
@@ -1320,6 +1339,7 @@ class spectrum:
             self._drawPeaklistGel(dc, gelCoords, gelHeight, printerScale)
 
         import time
+
         print(f"Objects drawGel() until legend took {time.time()-t0:.4f}s")
         # draw gel legend
         self._drawGelLegend(dc, gelCoords, gelHeight, printerScale)
@@ -1455,7 +1475,11 @@ class spectrum:
 
             for point in self.spectrumScaled:
                 try:
-                    dc.DrawCircle(int(int(point[0])), int(int(point[1])), int(int(2 * printerScale["drawings"])))
+                    dc.DrawCircle(
+                        int(int(point[0])),
+                        int(int(point[1])),
+                        int(int(2 * printerScale["drawings"])),
+                    )
                 except OverflowError:
                     pass
 
@@ -1517,7 +1541,12 @@ class spectrum:
 
                 # draw point rectangle
                 try:
-                    dc.DrawRectangle(int(int(lastX)), int(int(gelY1)), int(int(xPos - lastX)), int(int(gelHeight)))
+                    dc.DrawRectangle(
+                        int(int(lastX)),
+                        int(int(gelY1)),
+                        int(int(xPos - lastX)),
+                        int(int(gelHeight)),
+                    )
                 except:
                     pass
 
@@ -1527,7 +1556,12 @@ class spectrum:
                     brush.SetColour((maxY, maxY, maxY))
                     dc.SetBrush(brush)
                     try:
-                        dc.DrawRectangle(int(lastX + printerScale["drawings"]), int(gelY1), int(xPos - (lastX + printerScale["drawings"])), int(gelHeight))
+                        dc.DrawRectangle(
+                            int(lastX + printerScale["drawings"]),
+                            int(gelY1),
+                            int(xPos - (lastX + printerScale["drawings"])),
+                            int(gelHeight),
+                        )
                     except:
                         pass
 
@@ -1572,8 +1606,18 @@ class spectrum:
         for x, peak in enumerate(self.peaklistScaled):
             if self.peaklistCroppedPeaks[x].isotope != 0:
                 try:
-                    dc.DrawLine(int(int(peak[0])), int(int(peak[2])), int(int(peak[0])), int(int(peak[1])))
-                    dc.DrawLine(int(peak[0] - 3 * printerScale["drawings"]), int(peak[2]), int(peak[0] + 3 * printerScale["drawings"]), int(peak[2]))
+                    dc.DrawLine(
+                        int(int(peak[0])),
+                        int(int(peak[2])),
+                        int(int(peak[0])),
+                        int(int(peak[1])),
+                    )
+                    dc.DrawLine(
+                        int(peak[0] - 3 * printerScale["drawings"]),
+                        int(peak[2]),
+                        int(peak[0] + 3 * printerScale["drawings"]),
+                        int(peak[2]),
+                    )
                 except OverflowError:
                     pass
 
@@ -1583,9 +1627,24 @@ class spectrum:
         for x, peak in enumerate(self.peaklistScaled):
             if self.peaklistCroppedPeaks[x].isotope == 0:
                 try:
-                    dc.DrawLine(int(int(peak[0])), int(int(peak[2])), int(int(peak[0])), int(int(peak[1])))
-                    dc.DrawLine(int(peak[0] - 3 * printerScale["drawings"]), int(peak[2]), int(peak[0] + 3 * printerScale["drawings"]), int(peak[2]))
-                    dc.DrawRectangle(int(peak[0] - 1 * printerScale["drawings"]), int(peak[1] - 1 * printerScale["drawings"]), int(3 * printerScale["drawings"]), int(3 * printerScale["drawings"]))
+                    dc.DrawLine(
+                        int(int(peak[0])),
+                        int(int(peak[2])),
+                        int(int(peak[0])),
+                        int(int(peak[1])),
+                    )
+                    dc.DrawLine(
+                        int(peak[0] - 3 * printerScale["drawings"]),
+                        int(peak[2]),
+                        int(peak[0] + 3 * printerScale["drawings"]),
+                        int(peak[2]),
+                    )
+                    dc.DrawRectangle(
+                        int(peak[0] - 1 * printerScale["drawings"]),
+                        int(peak[1] - 1 * printerScale["drawings"]),
+                        int(3 * printerScale["drawings"]),
+                        int(3 * printerScale["drawings"]),
+                    )
                 except OverflowError:
                     pass
 
@@ -1595,7 +1654,11 @@ class spectrum:
         for x, peak in enumerate(self.peaklistScaled):
             if self.peaklistCroppedPeaks[x].childScanNumber is not None:
                 try:
-                    dc.DrawCircle(int(int(peak[0])), int(int(peak[1])), int(int(3 * printerScale["drawings"])))
+                    dc.DrawCircle(
+                        int(int(peak[0])),
+                        int(int(peak[1])),
+                        int(int(3 * printerScale["drawings"])),
+                    )
                 except OverflowError:
                     pass
 
@@ -1651,7 +1714,12 @@ class spectrum:
                 brush.SetColour((intens, intens, intens))
                 dc.SetBrush(brush)
                 try:
-                    dc.DrawRectangle(int(int(xPos)), int(int(gelY1)), int(int(printerScale["drawings"])), int(int(gelHeight)))
+                    dc.DrawRectangle(
+                        int(int(xPos)),
+                        int(int(gelY1)),
+                        int(int(printerScale["drawings"])),
+                        int(int(gelHeight)),
+                    )
                 except:
                     pass
                 lastY = maxY
@@ -1667,7 +1735,12 @@ class spectrum:
 
                 # draw peak line
                 try:
-                    dc.DrawRectangle(int(int(lastX)), int(int(gelY1)), int(int(printerScale["drawings"])), int(int(gelHeight)))
+                    dc.DrawRectangle(
+                        int(int(lastX)),
+                        int(int(gelY1)),
+                        int(int(printerScale["drawings"])),
+                        int(int(gelHeight)),
+                    )
                 except:
                     pass
 
@@ -1681,7 +1754,12 @@ class spectrum:
                     brush.SetColour((maxY, maxY, maxY))
                     dc.SetBrush(brush)
                     try:
-                        dc.DrawRectangle(int(int(xPos)), int(int(gelY1)), int(int(printerScale["drawings"])), int(int(gelHeight)))
+                        dc.DrawRectangle(
+                            int(int(xPos)),
+                            int(int(gelY1)),
+                            int(int(printerScale["drawings"])),
+                            int(int(gelHeight)),
+                        )
                     except:
                         pass
 

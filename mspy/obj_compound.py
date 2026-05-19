@@ -25,7 +25,6 @@ from . import blocks
 from . import mod_basics
 from . import mod_pattern
 
-
 # COMPOUND OBJECT DEFINITION
 # --------------------------
 

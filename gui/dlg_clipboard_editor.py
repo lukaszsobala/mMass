@@ -22,7 +22,6 @@ import wx
 from . import mwx
 from . import config
 
-
 # CLIPBOARD EDITOR DIALOG
 # -----------------------
 

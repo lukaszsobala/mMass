@@ -26,7 +26,6 @@ from . import mwx
 from . import config
 from . import images
 
-
 # SYSTEM ERROR
 # ------------
 

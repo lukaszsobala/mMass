@@ -22,7 +22,6 @@ import os
 import xml.dom.minidom
 from xdgenvpy import XDGPackage
 
-
 # SET VERSION
 # -----------
 

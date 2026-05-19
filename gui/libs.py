@@ -26,7 +26,6 @@ import copy
 from . import config
 import mspy
 
-
 # ENSURE DEFAULT LIBS ARE AVAILABLE AFTER MAC INSTALLATION
 # --------------------------------------------------------
 if sys.platform == "darwin":

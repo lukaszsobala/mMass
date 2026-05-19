@@ -31,7 +31,6 @@ from . import config
 from .mixins import MakeModalMixin
 import mspy
 
-
 # FLOATING PANEL WITH MASS TO FORMULA TOOL
 # ----------------------------------------
 

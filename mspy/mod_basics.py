@@ -28,7 +28,6 @@ from . import blocks
 # load objects
 from . import obj_compound
 
-
 # BASIC CONSTANTS
 # ---------------
 

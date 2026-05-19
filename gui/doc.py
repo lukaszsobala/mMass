@@ -33,7 +33,6 @@ from . import images
 from . import config
 import mspy
 
-
 # DOCUMENT STRUCTURE
 # ------------------
 

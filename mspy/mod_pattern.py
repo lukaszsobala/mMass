@@ -35,7 +35,6 @@ from . import mod_basics
 from . import mod_signal
 from . import mod_peakpicking
 
-
 # ISOTOPIC PATTERN FUNCTIONS
 # --------------------------
 

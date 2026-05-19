@@ -22,7 +22,6 @@ from numpy.linalg import solve as solveLinEq
 # load stopper
 from .mod_stopper import CHECK_FORCE_QUIT
 
-
 # DATA RE-CALIBRATION
 # -------------------
 
@@ -239,7 +238,7 @@ class _DerivVar:
                 ),
             )
         else:
-            inv = 1.0 / value
+            inv = 1.0 / other
             return _DerivVar(
                 self.value * inv, list(map(lambda x, f=inv: f * x, self.deriv))
             )

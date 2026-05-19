@@ -28,7 +28,6 @@ from . import doc
 
 from .dlg_notation import dlgNotation
 
-
 # PEAKLIST PANEL
 # --------------
 

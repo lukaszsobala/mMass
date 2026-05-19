@@ -77,7 +77,7 @@ class mMass(wx.App):
     # ----
 
     def MacOpenFile(self, path):
-        """"Enable drag/drop under Mac."""
+        """ "Enable drag/drop under Mac."""
 
         if path != "mmass.py":
             self.frame.onDocumentOpen(path=path)
@@ -182,5 +182,6 @@ def main():
         app = mMass(0)
         app.MainLoop()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

@@ -15,6 +15,7 @@
 #     main directory of the program.
 # -------------------------------------------------------------------------
 
+
 # stop exception
 class ForceQuit(Exception):
     """Force quit all processing."""

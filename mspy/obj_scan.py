@@ -30,7 +30,6 @@ from . import obj_peaklist
 from . import mod_signal
 from . import mod_peakpicking
 
-
 # SCAN OBJECT DEFINITION
 # ----------------------
 
@@ -383,8 +382,11 @@ class scan:
                 self.peaklist.empty()
             elif len(self.peaklist) > 0 and len(self.profile) > 0:
                 import numpy
+
                 peak_mzs = numpy.array([p.mz for p in self.peaklist.peaks])
-                prof_vals = numpy.interp(peak_mzs, self.profile[:, 0], self.profile[:, 1])
+                prof_vals = numpy.interp(
+                    peak_mzs, self.profile[:, 0], self.profile[:, 1]
+                )
                 for i, peak in enumerate(self.peaklist.peaks):
                     peak.ai = prof_vals[i]
                     peak.reset()
@@ -419,8 +421,11 @@ class scan:
                 self.peaklist.empty()
             elif len(self.peaklist) > 0 and len(self.profile) > 0:
                 import numpy
+
                 peak_mzs = numpy.array([p.mz for p in self.peaklist.peaks])
-                prof_vals = numpy.interp(peak_mzs, self.profile[:, 0], self.profile[:, 1])
+                prof_vals = numpy.interp(
+                    peak_mzs, self.profile[:, 0], self.profile[:, 1]
+                )
                 for i, peak in enumerate(self.peaklist.peaks):
                     peak.ai = prof_vals[i]
                     peak.reset()
@@ -451,8 +456,11 @@ class scan:
                 self.peaklist.empty()
             elif len(self.peaklist) > 0 and len(self.profile) > 0:
                 import numpy
+
                 peak_mzs = numpy.array([p.mz for p in self.peaklist.peaks])
-                prof_vals = numpy.interp(peak_mzs, self.profile[:, 0], self.profile[:, 1])
+                prof_vals = numpy.interp(
+                    peak_mzs, self.profile[:, 0], self.profile[:, 1]
+                )
                 for i, peak in enumerate(self.peaklist.peaks):
                     peak.ai = prof_vals[i]
                     peak.reset()
@@ -478,12 +486,13 @@ class scan:
 
         # store data
         self.profile = profile
-        
+
         # update peaklist instead of emptying it
         if not preservePeaks:
             self.peaklist.empty()
         elif len(self.peaklist) > 0 and len(profile) > 0:
             import numpy
+
             peak_mzs = numpy.array([p.mz for p in self.peaklist.peaks])
             prof_vals = numpy.interp(peak_mzs, profile[:, 0], profile[:, 1])
             for i, peak in enumerate(self.peaklist.peaks):
@@ -526,16 +535,19 @@ class scan:
         baseline = self.baseline(window=window, offset=offset)
 
         # subtract baseline
-        profile = mod_signal.subbase(signal=self.profile, baseline=baseline, allowNegative=allowNegative)
+        profile = mod_signal.subbase(
+            signal=self.profile, baseline=baseline, allowNegative=allowNegative
+        )
 
         # store data
         self.profile = profile
-        
+
         if not preservePeaks:
             self.peaklist.empty()
         # update peaklist instead of emptying it
         elif len(self.peaklist) > 0 and len(baseline) > 0:
             import numpy
+
             peak_mzs = numpy.array([p.mz for p in self.peaklist.peaks])
             base_vals = numpy.interp(peak_mzs, baseline[:, 0], baseline[:, 1])
             for i, peak in enumerate(self.peaklist.peaks):

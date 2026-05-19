@@ -28,7 +28,6 @@ from . import config
 from .mixins import MakeModalMixin
 import mspy
 
-
 # GUI CONSTANTS
 # -------------
 

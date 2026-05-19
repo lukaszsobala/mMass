@@ -24,7 +24,6 @@ import xml.dom.minidom
 # load stopper
 from .mod_stopper import CHECK_FORCE_QUIT
 
-
 # MASCOT SEARCH FUNCTIONS
 # -----------------------
 

@@ -32,7 +32,6 @@ import mspy
 from gui.panel_match import panelMatch
 from gui.panel_monomer_library import panelMonomerLibrary
 
-
 # FLOATING PANEL WITH SEQUENCE TOOLS
 # ----------------------------------
 

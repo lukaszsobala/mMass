@@ -25,7 +25,6 @@ from . import obj_compound
 from . import mod_basics
 import calculations
 
-
 # MASS TO FORMULA FUNCTIONS
 # -------------------------
 

@@ -1,4 +1,5 @@
 import time
+
 # -------------------------------------------------------------------------
 #     Copyright (C) 2005-2013 Martin Strohalm <www.mmass.org>
 
@@ -20,7 +21,6 @@ import pdb
 # load libs
 import wx
 import numpy
-
 
 # MAIN PLOT CANVAS OBJECT
 # -----------------------
@@ -76,7 +76,7 @@ class canvas(wx.Window):
             "axisColour": (0, 0, 0),
             "gridColour": (235, 235, 235),
             "highlightColour": (255, 0, 0),
-            "zoomBoxColour": wx.TheColourDatabase.Find('sky blue'),
+            "zoomBoxColour": wx.TheColourDatabase.Find("sky blue"),
             "axisFont": wx.Font(
                 10, wx.SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL, 0
             ),
@@ -314,6 +314,7 @@ class canvas(wx.Window):
         # show point tracker
         if self.getCursorLocation() == "plot":
             self.drawMouseTracker(dc)
+
     # ----
 
     def onLMDC(self, evt):
@@ -390,7 +391,6 @@ class canvas(wx.Window):
             self.mouseEvent = "yScale"
         elif location == "blank":
             self.mouseEvent = "ROut"
-
 
     # ----
 
@@ -480,7 +480,15 @@ class canvas(wx.Window):
         self.cursorPosition[2], self.cursorPosition[3] = evt.GetPosition()
 
         # throttle expensive dragged events
-        if self.mouseEvent in ("xShift", "yShift", "xScale", "yScale", "zoom", "range", "rectangle"):
+        if self.mouseEvent in (
+            "xShift",
+            "yShift",
+            "xScale",
+            "yScale",
+            "zoom",
+            "range",
+            "rectangle",
+        ):
             now = time.time()
             if now - self._last_draw_time < 0.03333:  # limit to ~30fps
                 return
@@ -995,7 +1003,7 @@ class canvas(wx.Window):
 
         # get size
         if width is None:
-            (width, height) = self.GetClientSize()
+            width, height = self.GetClientSize()
 
         # set size
         self.plotBoxSize = numpy.array([width, height])
@@ -1163,7 +1171,9 @@ class canvas(wx.Window):
         )
         yLabelPos = (3, spaceTop + yAxisLabelWH[0])
         dc.DrawText(self.properties["xLabel"], int(xLabelPos[0]), int(xLabelPos[1]))
-        dc.DrawRotatedText(self.properties["yLabel"], int(yLabelPos[0]), int(yLabelPos[1]), 90)
+        dc.DrawRotatedText(
+            self.properties["yLabel"], int(yLabelPos[0]), int(yLabelPos[1]), 90
+        )
 
         # draw plot axis
         self.drawAxis(dc, xAxisTicks, yAxisTicks)
@@ -1197,7 +1207,8 @@ class canvas(wx.Window):
         # save plot state before any dynamic content is drawn
         # used for quick refreshing
         self.cleanPlotBuffer = self.plotBuffer.GetSubBitmap(
-            wx.Rect(0, 0, *self.plotBuffer.GetSize()))
+            wx.Rect(0, 0, *self.plotBuffer.GetSize())
+        )
 
     # ----
 
@@ -1227,7 +1238,9 @@ class canvas(wx.Window):
 
         # fill background
         dc.SetBrush(wx.Brush(self.properties["plotColour"], wx.SOLID))
-        dc.DrawRectangle(int(plotX1), int(plotY1), int(plotX2 - plotX1), int(plotY2 - plotY1))
+        dc.DrawRectangle(
+            int(plotX1), int(plotY1), int(plotX2 - plotX1), int(plotY2 - plotY1)
+        )
         dc.SetBrush(wx.TRANSPARENT_BRUSH)
 
         # set length of tick marks
@@ -1241,7 +1254,12 @@ class canvas(wx.Window):
             # minor ticks
             if ttype == "minor":
                 if self.properties["showMinorTicks"]:
-                    dc.DrawLine(int(pt[0]), int(plotY2), int(pt[0]), int(plotY2 + tickLength / 2))
+                    dc.DrawLine(
+                        int(pt[0]),
+                        int(plotY2),
+                        int(pt[0]),
+                        int(plotY2 + tickLength / 2),
+                    )
                 continue
 
             # major ticks
@@ -1266,19 +1284,31 @@ class canvas(wx.Window):
             # minor ticks
             if ttype == "minor":
                 if self.properties["showMinorTicks"]:
-                    dc.DrawLine(int(
-                        plotX1 - penWidth), int(pt[1]), int(plotX1 - penWidth - tickLength / 2), int(pt[1],
-                    ))
+                    dc.DrawLine(
+                        int(plotX1 - penWidth),
+                        int(pt[1]),
+                        int(plotX1 - penWidth - tickLength / 2),
+                        int(
+                            pt[1],
+                        ),
+                    )
                 continue
 
             # major ticks
-            dc.DrawLine(int(plotX1 - penWidth), int(pt[1]), int(plotX1 - penWidth - tickLength), int(pt[1]))
+            dc.DrawLine(
+                int(plotX1 - penWidth),
+                int(pt[1]),
+                int(plotX1 - penWidth - tickLength),
+                int(pt[1]),
+            )
             extent = dc.GetTextExtent(label)
             ori = pt[1] - extent[1] / 2
             if ori + extent[1] < previous:
                 dc.DrawText(
-                    label, int(plotX1 - penWidth - extent[0] - tickLength * 1.5), int(ori
-                ))
+                    label,
+                    int(plotX1 - penWidth - extent[0] - tickLength * 1.5),
+                    int(ori),
+                )
                 previous = ori + 5 * self.printerScale["drawings"]
             if self.properties["showGrid"]:
                 dc.SetPen(wx.Pen(self.properties["gridColour"], penWidth))
@@ -1294,7 +1324,9 @@ class canvas(wx.Window):
                 dc.SetPen(wx.Pen(self.properties["axisColour"], penWidth))
 
         # draw plot outline
-        dc.DrawRectangle(int(plotX1), int(plotY1), int(plotX2 - plotX1), int(plotY2 - plotY1))
+        dc.DrawRectangle(
+            int(plotX1), int(plotY1), int(plotX2 - plotX1), int(plotY2 - plotY1)
+        )
 
     # ----
 
@@ -1381,10 +1413,20 @@ class canvas(wx.Window):
         size = 6 * self.printerScale["drawings"]
         if xAxis[1] < minX:
             x = x1 - 2 * self.printerScale["drawings"]
-            dc.DrawPolygon([(int(p[0]), int(p[1])) for p in [(x, y1), (x, y1 + height), (x - size, y1 + height / 2)]])
+            dc.DrawPolygon(
+                [
+                    (int(p[0]), int(p[1]))
+                    for p in [(x, y1), (x, y1 + height), (x - size, y1 + height / 2)]
+                ]
+            )
         if xAxis[0] > maxX:
             x = x2 + 2 * self.printerScale["drawings"]
-            dc.DrawPolygon([(int(p[0]), int(p[1])) for p in [(x, y1), (x, y1 + height), (x + size, y1 + height / 2)]])
+            dc.DrawPolygon(
+                [
+                    (int(p[0]), int(p[1]))
+                    for p in [(x, y1), (x, y1 + height), (x + size, y1 + height / 2)]
+                ]
+            )
 
     # ----
 
@@ -1435,10 +1477,20 @@ class canvas(wx.Window):
         size = 6 * self.printerScale["drawings"]
         if yAxis[0] > maxY:
             y = y1 - 2 * self.printerScale["drawings"]
-            dc.DrawPolygon([(int(p[0]), int(p[1])) for p in [(x1, y), (x1 + width, y), (x1 + width / 2, y - size)]])
+            dc.DrawPolygon(
+                [
+                    (int(p[0]), int(p[1]))
+                    for p in [(x1, y), (x1 + width, y), (x1 + width / 2, y - size)]
+                ]
+            )
         if yAxis[1] < minY:
             y = y2 + 2 * self.printerScale["drawings"]
-            dc.DrawPolygon([(int(p[0]), int(p[1])) for p in [(x1, y), (x1 + width, y), (x1 + width / 2, y + size)]])
+            dc.DrawPolygon(
+                [
+                    (int(p[0]), int(p[1]))
+                    for p in [(x1, y), (x1 + width, y), (x1 + width / 2, y + size)]
+                ]
+            )
 
     # ----
 
@@ -1789,9 +1841,13 @@ class canvas(wx.Window):
         # draw lines
         for i, isotope in enumerate(isotopes):
             if i == 0 or not isotope[1]:
-                dc.DrawLine(int(isotope[0]), int(minYPlot), int(isotope[0]), int(maxYPlot))
+                dc.DrawLine(
+                    int(isotope[0]), int(minYPlot), int(isotope[0]), int(maxYPlot)
+                )
             if self.properties["showGel"]:
-                dc.DrawLine(int(isotope[0]), int(minYGel), int(isotope[0]), int(maxYGel))
+                dc.DrawLine(
+                    int(isotope[0]), int(minYGel), int(isotope[0]), int(maxYGel)
+                )
 
         # draw circles
         if wx.Platform != "__WXMAC__":
@@ -1862,7 +1918,7 @@ class canvas(wx.Window):
 
         # set canvas and pen
         dc.SetPen(wx.Pen(wx.BLACK))
-        c = self.properties['zoomBoxColour']
+        c = self.properties["zoomBoxColour"]
         dc.SetBrush(wx.Brush(wx.Colour(c.Red(), c.Green(), c.Blue(), 80), wx.SOLID))
         dc.SetLogicalFunction(wx.COPY)
 
@@ -1872,17 +1928,23 @@ class canvas(wx.Window):
 
         # draw X-axis-zoom-only box
         elif self.properties["zoomAxis"] == "x":
-            dc.DrawRectangle(int(minX), int(maxYPlot), int(maxX - minX), int(minYPlot - maxYPlot))
+            dc.DrawRectangle(
+                int(minX), int(maxYPlot), int(maxX - minX), int(minYPlot - maxYPlot)
+            )
 
         # draw Y-axis-only zoom box
         elif self.properties["zoomAxis"] == "y":
-            dc.DrawRectangle(int(minXPlot), int(maxY), int(maxXPlot - minXPlot), int(minY - maxY))
+            dc.DrawRectangle(
+                int(minXPlot), int(maxY), int(maxXPlot - minXPlot), int(minY - maxY)
+            )
 
         # draw gellview zoombox
         if self.properties["showGel"] and self.properties["zoomAxis"] == "x":
             minYGel += self.printerScale["drawings"]
             maxYGel -= self.printerScale["drawings"]
-            dc.DrawRectangle(int(minX), int(maxYGel), int(maxX - minX), int(minYGel - maxYGel))
+            dc.DrawRectangle(
+                int(minX), int(maxYGel), int(maxX - minX), int(minYGel - maxYGel)
+            )
 
         # resset canvas and pen
         dc.SetLogicalFunction(wx.COPY)
@@ -1976,13 +2038,33 @@ class canvas(wx.Window):
 
         # draw arrow
         if direction == "up":
-            dc.DrawPolygon([(int(p[0]), int(p[1])) for p in [(x, y), (x - 3, y + 7), (x + 3, y + 7)]])
+            dc.DrawPolygon(
+                [
+                    (int(p[0]), int(p[1]))
+                    for p in [(x, y), (x - 3, y + 7), (x + 3, y + 7)]
+                ]
+            )
         elif direction == "down":
-            dc.DrawPolygon([(int(p[0]), int(p[1])) for p in [(x, y), (x - 3, y - 7), (x + 3, y - 7)]])
+            dc.DrawPolygon(
+                [
+                    (int(p[0]), int(p[1]))
+                    for p in [(x, y), (x - 3, y - 7), (x + 3, y - 7)]
+                ]
+            )
         elif direction == "left":
-            dc.DrawPolygon([(int(p[0]), int(p[1])) for p in [(x + 7, y + 2), (x, y + 5), (x + 7, y + 8)]])
+            dc.DrawPolygon(
+                [
+                    (int(p[0]), int(p[1]))
+                    for p in [(x + 7, y + 2), (x, y + 5), (x + 7, y + 8)]
+                ]
+            )
         elif direction == "right":
-            dc.DrawPolygon([(int(p[0]), int(p[1])) for p in [(x - 7, y + 2), (x, y + 5), (x - 7, y + 8)]])
+            dc.DrawPolygon(
+                [
+                    (int(p[0]), int(p[1]))
+                    for p in [(x - 7, y + 2), (x, y + 5), (x - 7, y + 8)]
+                ]
+            )
 
     # ----
 
@@ -2210,7 +2292,7 @@ class canvas(wx.Window):
             if e < error:
                 error = e
                 factor = f
-        majorGrid = factor * 10.0 ** power
+        majorGrid = factor * 10.0**power
         if factor == 1.0:
             factor = f
 
@@ -2370,7 +2452,7 @@ class canvas(wx.Window):
     # ----
 
     def rememberView(self, xAxis=None, yAxis=None):
-        """ Remember current zoom. """
+        """Remember current zoom."""
 
         # get axis
         if xAxis is None:

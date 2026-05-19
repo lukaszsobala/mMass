@@ -24,7 +24,6 @@ from .mod_stopper import CHECK_FORCE_QUIT
 # load modules
 import calculations
 
-
 # SIGNAL PROCESSING FUNCTIONS
 # ---------------------------
 
@@ -312,16 +311,16 @@ def noise(signal, minX=None, maxX=None, x=None, window=0.1):
     raw_d = numpy.diff(y)
     d = numpy.abs(raw_d - numpy.median(raw_d))
     mz_d = signal[1:, 0]
-    
+
     mz_min = mz_d[0]
     mz_max = mz_d[-1]
-    
+
     if mz_max - mz_min > 1.0:
         n_bins = int(mz_max - mz_min) + 1
         binned_d = numpy.zeros(n_bins)
         idx = (mz_d - mz_min).astype(int)
         numpy.maximum.at(binned_d, idx, d)
-        
+
         valid = binned_d[binned_d > 0]
         if len(valid) > 0:
             noiseWidth = numpy.median(valid)
@@ -329,7 +328,7 @@ def noise(signal, minX=None, maxX=None, x=None, window=0.1):
             noiseWidth = 0.0
     else:
         noiseWidth = numpy.max(d)
-        
+
     return (float(noiseLevel), float(noiseWidth))
 
 
@@ -597,7 +596,7 @@ def movaver(signal, window, cycles=1, style="flat"):
             w = numpy.ones(window, "f")
         elif style == "gaussian":
             r = numpy.array([(i - (window - 1) / 2.0) for i in range(window)])
-            w = numpy.exp(-(r ** 2 / (window / 4.0) ** 2))
+            w = numpy.exp(-(r**2 / (window / 4.0) ** 2))
         else:
             w = eval("numpy." + style + "(window)")
 
@@ -638,7 +637,7 @@ def savgol(signal, window, cycles=1, order=3):
     orderRange = list(range(order + 1))
     halfWindow = (window - 1) // 2
     b = numpy.array(
-        [[k ** i for i in orderRange] for k in range(-halfWindow, halfWindow + 1)]
+        [[k**i for i in orderRange] for k in range(-halfWindow, halfWindow + 1)]
     )
     m = numpy.linalg.pinv(b)[0]
     window = len(m)

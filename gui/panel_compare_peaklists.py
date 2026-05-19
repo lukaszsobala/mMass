@@ -27,7 +27,6 @@ from . import config
 from .mixins import MakeModalMixin
 import mspy
 
-
 # FLOATING PANEL WITH COMPARE PEAKLISTS TOOL
 # ------------------------------------------
 
@@ -518,11 +517,19 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
             wx.Bell()
             return
 
-# save state
+        # save state
         try:
             scroll_x, scroll_y = self.peaklistGrid.GetViewStart()
             sel_row = self.peaklistGrid.GetGridCursorRow()
-            sel_mz = self.currentPeaklist[sel_row][0] if (sel_row >= 0 and self.currentPeaklist and sel_row < len(self.currentPeaklist)) else None
+            sel_mz = (
+                self.currentPeaklist[sel_row][0]
+                if (
+                    sel_row >= 0
+                    and self.currentPeaklist
+                    and sel_row < len(self.currentPeaklist)
+                )
+                else None
+            )
         except Exception:
             scroll_x, scroll_y, sel_mz = 0, 0, None
 
@@ -558,7 +565,7 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
                 if abs(item[0] - sel_mz) < min_diff:
                     min_diff = abs(item[0] - sel_mz)
                     best_row = i
-            
+
             if best_row < self.peaklistGrid.GetNumberRows():
                 self.peaklistGrid.SetGridCursor(best_row, 0)
                 self.peaklistGrid.SelectRow(best_row)
@@ -591,11 +598,19 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
             wx.Bell()
             return
 
-# save state
+        # save state
         try:
             scroll_x, scroll_y = self.peaklistGrid.GetViewStart()
             sel_row = self.peaklistGrid.GetGridCursorRow()
-            sel_mz = self.currentPeaklist[sel_row][0] if (sel_row >= 0 and self.currentPeaklist and sel_row < len(self.currentPeaklist)) else None
+            sel_mz = (
+                self.currentPeaklist[sel_row][0]
+                if (
+                    sel_row >= 0
+                    and self.currentPeaklist
+                    and sel_row < len(self.currentPeaklist)
+                )
+                else None
+            )
         except Exception:
             scroll_x, scroll_y, sel_mz = 0, 0, None
 
@@ -631,7 +646,7 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
                 if abs(item[0] - sel_mz) < min_diff:
                     min_diff = abs(item[0] - sel_mz)
                     best_row = i
-            
+
             if best_row < self.peaklistGrid.GetNumberRows():
                 self.peaklistGrid.SetGridCursor(best_row, 0)
                 self.peaklistGrid.SelectRow(best_row)
@@ -717,12 +732,12 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
 
             # make new grid
             count = len(self.currentDocuments)
-            self.documentsGrid.AppendCols(count ** 2 + count)
+            self.documentsGrid.AppendCols(count**2 + count)
             self.documentsGrid.AppendRows(self._maxSize)
 
             cellAttr = wx.grid.GridCellAttr()
             cellAttr.SetReadOnly(True)
-            for x in range(count ** 2 + count):
+            for x in range(count**2 + count):
                 self.documentsGrid.SetColAttr(x, cellAttr.Clone())
                 if x % (count + 1):
                     self.documentsGrid.SetColLabelValue(x, "*")

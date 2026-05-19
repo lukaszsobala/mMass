@@ -31,7 +31,6 @@ from .mixins import MakeModalMixin
 import mspy
 import mspy.plot
 
-
 # FLOATING PANEL WITH CALIBRATION TOOL
 # ------------------------------------
 

@@ -1,7 +1,6 @@
 # load libs
 from wx.lib.embeddedimage import PyEmbeddedImage
 
-
 # ----------------------------------------------------------------------
 Icon16 = PyEmbeddedImage(
     b"iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAMAAAAoLQ9TAAAABGdBTUEAALGPC/xhBQAAACBj"

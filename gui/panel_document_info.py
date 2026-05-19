@@ -26,7 +26,6 @@ from . import config
 from . import libs
 import mspy
 
-
 # FLOATING PANEL WITH DOCUMENT INFO
 # ---------------------------------
 
@@ -41,7 +40,8 @@ class panelDocumentInfo(wx.Frame):
             -1,
             "Document Information",
             size=(400, 200),
-            style=wx.DEFAULT_FRAME_STYLE | wx.FRAME_FLOAT_ON_PARENT & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX),
+            style=wx.DEFAULT_FRAME_STYLE
+            | wx.FRAME_FLOAT_ON_PARENT & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX),
         )
 
         self.parent = parent

@@ -24,7 +24,6 @@ from . import blocks
 # load modules
 from . import mod_basics
 
-
 # PEAK OBJECT DEFINITION
 # ----------------------
 
@@ -42,7 +41,7 @@ class peak:
         isotope=None,
         fwhm=None,
         group="",
-        **attr
+        **attr,
     ):
 
         self.mz = float(mz)

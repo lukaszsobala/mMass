@@ -32,7 +32,6 @@ from . import doc
 
 from gui.panel_match import panelMatch
 
-
 # FLOATING PANEL WITH COUPOUND SEARCH TOOL
 # ----------------------------------------
 

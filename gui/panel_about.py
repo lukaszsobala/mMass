@@ -24,7 +24,6 @@ from . import mwx
 from . import images
 from . import config
 
-
 # ABOUT mMass PANEL
 # -----------------
 
@@ -45,7 +44,8 @@ class panelAbout(frame):
             parent,
             -1,
             frameTitle,
-            style=wx.DEFAULT_FRAME_STYLE | wx.FRAME_FLOAT_ON_PARENT
+            style=wx.DEFAULT_FRAME_STYLE
+            | wx.FRAME_FLOAT_ON_PARENT
             & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX | wx.MINIMIZE_BOX),
         )
         self.parent = parent

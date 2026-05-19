@@ -28,7 +28,6 @@ from . import libs
 from .mixins import MakeModalMixin
 import mspy
 
-
 # FLOATING PANEL WITH ENVELOPE FIT TOOL
 # -------------------------------------
 

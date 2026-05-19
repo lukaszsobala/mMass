@@ -29,7 +29,6 @@ from . import config
 import mspy
 from . import doc
 
-
 # FLOATING PANEL WITH PROSPECTOR SEARCH TOOLS
 # -------------------------------------------
 
@@ -44,7 +43,8 @@ class panelProspector(wx.Frame):
             -1,
             "Protein Prospector",
             size=(300, -1),
-            style=wx.DEFAULT_FRAME_STYLE | wx.FRAME_FLOAT_ON_PARENT & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX),
+            style=wx.DEFAULT_FRAME_STYLE
+            | wx.FRAME_FLOAT_ON_PARENT & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX),
         )
 
         self.parent = parent

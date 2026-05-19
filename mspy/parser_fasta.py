@@ -25,7 +25,6 @@ from .mod_stopper import CHECK_FORCE_QUIT
 # load objects
 from . import obj_sequence
 
-
 # compile basic patterns
 spPattern = re.compile("^(sp\|[A-Z][A-Z0-9]+)\|(.*)")
 giPattern = re.compile("^(gi\|[0-9]+[\.0-9]*)\|(.*)")
@@ -63,6 +62,10 @@ class parseFASTA:
         # read data
         reading = False
         data = []
+        chain = ""
+        title = ""
+        accession = ""
+        
         for line in rawData:
             line = line.strip()
 

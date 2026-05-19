@@ -27,7 +27,6 @@ from . import config
 import mspy
 import mspy.plot
 
-
 # SPECTRUM PANEL WITH CANVAS AND TOOLBAR
 # --------------------------------------
 

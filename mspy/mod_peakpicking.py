@@ -36,7 +36,6 @@ from . import obj_peaklist
 from . import mod_basics
 from . import mod_signal
 
-
 # BASIC CONSTANTS
 # ---------------
 

@@ -79,7 +79,6 @@ from .dlg_select_scans import dlgSelectScans
 from .dlg_select_sequences import dlgSelectSequences
 from .dlg_clipboard_editor import dlgClipboardEditor
 
-
 # MAIN FRAME
 # ----------
 
@@ -4936,7 +4935,9 @@ class mainFrame(wx.Frame):
     def decodeVersionString(self, versionString):
         """Decode version string to int tuple."""
         if re.match(r"^v?([0-9]{1,2})\.([0-9]{1,2})\.([0-9]{1,2})$", versionString):
-            return tuple(int(i) for i in re.sub(r"[^.0-9]", "", versionString).split("."))
+            return tuple(
+                int(i) for i in re.sub(r"[^.0-9]", "", versionString).split(".")
+            )
         else:
             raise ValueError
 
@@ -4965,7 +4966,9 @@ class mainFrame(wx.Frame):
             current_version = self.decodeVersionString(config.version)
 
             # this gives correct behaviour in case latest release is outdated
-            config.main["updatesAvailable"] = self.encodeVersionString(max(new_version, current_version))
+            config.main["updatesAvailable"] = self.encodeVersionString(
+                max(new_version, current_version)
+            )
             config.main["updatesChecked"] = time.strftime("%Y%m%d", time.localtime())
             return True
 

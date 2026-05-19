@@ -26,7 +26,6 @@ from . import images
 from . import config
 import mspy
 
-
 # FLOATING PANEL WITH PERIODIC TABLE OF ELEMENTS
 # ----------------------------------------------
 
@@ -41,7 +40,8 @@ class panelPeriodicTable(wx.Frame):
             -1,
             "Periodic Table of the Elements",
             size=(400, 300),
-            style=wx.DEFAULT_FRAME_STYLE | wx.FRAME_FLOAT_ON_PARENT & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX),
+            style=wx.DEFAULT_FRAME_STYLE
+            | wx.FRAME_FLOAT_ON_PARENT & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX),
         )
 
         self.parent = parent

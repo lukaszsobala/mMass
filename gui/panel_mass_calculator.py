@@ -29,7 +29,6 @@ from . import doc
 import mspy
 import mspy.plot
 
-
 # FLOATING PANEL WITH MASSCALC TOOLS
 # ----------------------------------
 

@@ -29,7 +29,6 @@ import mspy
 import mspy.plot
 from . import doc
 
-
 # FLOATING PANEL WITH MATCH TOOLS
 # -------------------------------
 

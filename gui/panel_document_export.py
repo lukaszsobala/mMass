@@ -28,7 +28,6 @@ from . import config
 from .mixins import MakeModalMixin
 import mspy
 
-
 # FLOATING PANEL WITH EXPORTING TOOLS
 # -----------------------------------
 
@@ -43,7 +42,8 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
             -1,
             "Export",
             size=(400, 300),
-            style=wx.DEFAULT_FRAME_STYLE | wx.FRAME_FLOAT_ON_PARENT & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX),
+            style=wx.DEFAULT_FRAME_STYLE
+            | wx.FRAME_FLOAT_ON_PARENT & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX),
         )
 
         self.parent = parent
@@ -624,9 +624,9 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
         """Get new peaklist format."""
 
         # get format
-        config.export[
-            "peaklistFormat"
-        ] = self.peaklistFormat_choice.GetStringSelection()
+        config.export["peaklistFormat"] = (
+            self.peaklistFormat_choice.GetStringSelection()
+        )
 
         # enable/disable columns and separator
         enable = True

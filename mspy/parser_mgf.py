@@ -28,7 +28,6 @@ from . import obj_peak
 from . import obj_peaklist
 from . import obj_scan
 
-
 # PARSE MGF DATA
 # --------------
 

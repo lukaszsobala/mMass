@@ -29,7 +29,6 @@ from .parser_mzml import parseMZML
 from .parser_mgf import parseMGF
 from .parser_fasta import parseFASTA
 
-
 # UTILITIES
 # ---------
 

@@ -24,7 +24,6 @@ from . import mwx
 from . import config
 import mspy
 
-
 # MONOMERS EDITOR
 # ---------------
 
