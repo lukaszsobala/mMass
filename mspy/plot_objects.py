@@ -136,12 +136,12 @@ class container:
 
     # ----
 
-    def scaleAndShift(self, scale, shift):
+    def scaleAndShift(self, scale, shift, filterSize=None):
         """Scale and shift all visible objects."""
 
         for obj in self.objects:
             if obj.properties["visible"]:
-                obj.scaleAndShift(scale, shift)
+                obj.scaleAndShift(scale, shift, filterSize)
 
     # ----
 
@@ -480,7 +480,7 @@ class annotations:
 
     # ----
 
-    def scaleAndShift(self, scale, shift):
+    def scaleAndShift(self, scale, shift, filterSize=None):
         """Scale and shift points to screen coordinations."""
 
         self.pointsScaled = self.pointsCropped
@@ -811,7 +811,7 @@ class points:
 
     # ----
 
-    def scaleAndShift(self, scale, shift):
+    def scaleAndShift(self, scale, shift, filterSize=None):
         """Scale and shift points to screen coordinations."""
 
         self.scaled = self.cropped
@@ -833,9 +833,18 @@ class points:
         xShift += self.properties["xOffset"] * xScale
         yShift += self.properties["yOffset"] * yScale
 
-        # recalculate data
-        if len(self.cropped):
+        # filter and scale data
+        if filterSize and len(self.cropped) and self.properties.get("showLines", True):
+            from calculations import signal_filter
+            data_res = filterSize / abs(xScale)
+            filtered = signal_filter(self.cropped, data_res)
+            self.scaled = _scaleAndShift(
+                filtered, xScale, yScale, xShift, yShift
+            )
+        elif len(self.cropped):
             self.scaled = _scaleAndShift(self.cropped, xScale, yScale, xShift, yShift)
+        else:
+            self.scaled = numpy.array([])
 
         self.currentScale = scale
         self.currentShift = shift
@@ -844,10 +853,8 @@ class points:
 
     def filterPoints(self, filterSize):
         """Filter points for printing and exporting"""
-
-        # filter data
-        if len(self.scaled) and self.properties["showLines"]:
-            self.scaled = _filterPoints(self.scaled, filterSize)
+        # Intentionally empty: LOD decimation applied pre-scaling inside scaleAndShift
+        pass
 
     # ----
 
@@ -1215,7 +1222,7 @@ class spectrum:
 
     # ----
 
-    def scaleAndShift(self, scale, shift):
+    def scaleAndShift(self, scale, shift, filterSize=None):
         """Scale and shift points to screen coordinations."""
 
         self.spectrumScaled = self.spectrumCropped
@@ -1239,11 +1246,20 @@ class spectrum:
             xShift += self.properties["xOffset"] * xScale
             yShift += self.properties["yOffset"] * yScale
 
-        # scale and shift spectrum data
-        if len(self.spectrumCropped):
+        # filter and scale spectrum data
+        if filterSize and len(self.spectrumCropped) and self.properties["showSpectrum"]:
+            from calculations import signal_filter
+            data_res = filterSize / abs(xScale)
+            filtered = signal_filter(self.spectrumCropped, data_res)
+            self.spectrumScaled = _scaleAndShift(
+                filtered, xScale, yScale, xShift, yShift
+            )
+        elif len(self.spectrumCropped):
             self.spectrumScaled = _scaleAndShift(
                 self.spectrumCropped, xScale, yScale, xShift, yShift
             )
+        else:
+            self.spectrumScaled = numpy.array([])
 
         # scale and shift peaklist data
         if len(self.peaklistCropped):
@@ -1258,10 +1274,8 @@ class spectrum:
 
     def filterPoints(self, filterSize):
         """Filter spectrum points invisible in current resolution."""
-
-        # filter spectrum data
-        if len(self.spectrumScaled) and self.properties["showSpectrum"]:
-            self.spectrumScaled = _filterPoints(self.spectrumScaled, filterSize)
+        # Intentionally empty: LOD decimation applied pre-scaling inside scaleAndShift
+        pass
 
     # ----
 

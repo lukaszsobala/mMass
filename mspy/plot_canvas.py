@@ -1154,8 +1154,7 @@ class canvas(wx.Window):
 
         # crop, recalculate and filter points
         graphics.cropPoints(p1[0], p2[0])
-        graphics.scaleAndShift(scale, shift)
-        graphics.filterPoints(filterSize)
+        graphics.scaleAndShift(scale, shift, filterSize)
 
         # draw axis labels
         xLabelPos = (
