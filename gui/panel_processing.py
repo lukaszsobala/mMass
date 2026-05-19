@@ -216,11 +216,6 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         self.presets_butt.SetToolTip(wx.ToolTip("Processing presets"))
         self.presets_butt.Bind(wx.EVT_BUTTON, self.onPresets)
 
-        self.preview_butt = wx.Button(
-            panel, -1, "Preview", size=(-1, mwx.SMALL_BUTTON_HEIGHT)
-        )
-        self.preview_butt.Bind(wx.EVT_BUTTON, self.onPreview)
-
         self.apply_butt = wx.Button(
             panel, -1, "Apply", size=(-1, mwx.SMALL_BUTTON_HEIGHT)
         )
@@ -275,7 +270,6 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         self.toolbar.Add(self.presets_butt, 0, wx.ALIGN_CENTER_VERTICAL)
         self.toolbar.AddStretchSpacer()
         self.toolbar.AddSpacer(20)
-        self.toolbar.Add(self.preview_butt, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 10)
         self.toolbar.Add(self.apply_butt, 0, wx.ALIGN_CENTER_VERTICAL)
         self.toolbar.AddSpacer(mwx.TOOLBAR_RSPACE)
 
@@ -1201,21 +1195,18 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             self.SetTitle("Math Operations")
             self.mainSizer.Show(1)
             self.math_butt.SetBitmapLabel(images.lib["processingMathOn"])
-            self.preview_butt.Enable(True)
 
         elif tool == "crop":
             self.SetTitle("Crop")
             self.toolbar.Show(10)
             self.mainSizer.Show(2)
             self.crop_butt.SetBitmapLabel(images.lib["processingCropOn"])
-            self.preview_butt.Enable(False)
 
         elif tool == "baseline":
             self.SetTitle("Baseline Correction")
             self.toolbar.Show(10)
             self.mainSizer.Show(3)
             self.baseline_butt.SetBitmapLabel(images.lib["processingBaselineOn"])
-            self.preview_butt.Enable(True)
             self.onBaselineChanged()
 
         elif tool == "smoothing":
@@ -1223,14 +1214,12 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             self.toolbar.Show(10)
             self.mainSizer.Show(4)
             self.smoothing_butt.SetBitmapLabel(images.lib["processingSmoothingOn"])
-            self.preview_butt.Enable(True)
 
         elif tool == "peakpicking":
             self.SetTitle("Peak Picking")
             self.toolbar.Show(10)
             self.mainSizer.Show(5)
             self.peakpicking_butt.SetBitmapLabel(images.lib["processingPeakpickingOn"])
-            self.preview_butt.Enable(False)
             self.onPeakpickingChanged()
 
         elif tool == "deisotoping":
@@ -1238,7 +1227,6 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             self.toolbar.Show(10)
             self.mainSizer.Show(6)
             self.deisotoping_butt.SetBitmapLabel(images.lib["processingDeisotopingOn"])
-            self.preview_butt.Enable(False)
 
         elif tool == "deconvolution":
             self.SetTitle("Deconvolution")
@@ -1247,14 +1235,12 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             self.deconvolution_butt.SetBitmapLabel(
                 images.lib["processingDeconvolutionOn"]
             )
-            self.preview_butt.Enable(False)
 
         elif tool == "batch":
             self.SetTitle("Batch Processing")
             self.toolbar.Show(10)
             self.mainSizer.Show(8)
             self.batch_butt.SetBitmapLabel(images.lib["processingBatchOn"])
-            self.preview_butt.Enable(False)
 
         # fit layout
         mwx.layout(self, self.mainSizer)
@@ -1537,14 +1523,30 @@ class panelProcessing(wx.Frame, MakeModalMixin):
     # ----
 
     def onSmoothingChanged(self, evt=None):
-        """Clear smoothing preview while params changed."""
+        """Auto preview smoothing while params changed."""
 
         # check tool
         if self.currentTool != "smoothing":
             return
 
-        # clear preview
-        self.clearPreview()
+        # check current spectrum
+        if not self.currentDocument or not self.currentDocument.spectrum.hasprofile():
+            return
+
+        # get params
+        if not self.getParams():
+            return
+
+        # get smoothed spectrum
+        self.previewData = mspy.smooth(
+            signal=self.currentDocument.spectrum.profile,
+            method=config.processing["smoothing"]["method"],
+            window=config.processing["smoothing"]["windowSize"],
+            cycles=int(config.processing["smoothing"]["cycles"]),
+        )
+
+        # send tmp spectrum to plot canvas
+        self.parent.updateTmpSpectrum(self.previewData)
 
     # ----
 
@@ -1626,7 +1628,6 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
         # show processing gauge
         self.onProcessing(True)
-        self.preview_butt.Enable(False)
         self.apply_butt.Enable(False)
 
         # show preview
@@ -1649,7 +1650,6 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
         # hide processing gauge
         self.onProcessing(False)
-        self.preview_butt.Enable(True)
         self.apply_butt.Enable(True)
 
     # ----
@@ -1696,7 +1696,6 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
         # show processing gauge
         self.onProcessing(True)
-        self.preview_butt.Enable(False)
         self.apply_butt.Enable(False)
 
         # process data
@@ -1746,8 +1745,6 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         # hide processing gauge
         self.onProcessing(False)
         self.apply_butt.Enable(True)
-        if self.currentTool in ("math", "baseline", "smoothing"):
-            self.preview_butt.Enable(True)
 
         # update tmp spectrum
         if self.currentTool == "baseline":
