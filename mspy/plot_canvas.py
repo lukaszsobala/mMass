@@ -1068,7 +1068,7 @@ class canvas(wx.Window):
 
     # ----
 
-    def draw(self, graphics, xAxis=None, yAxis=None, dc=None, filterSize=1.0):
+    def draw(self, graphics, xAxis=None, yAxis=None, dc=None, filterSize=1.5):
         """Draw axis and plot graphics."""
 
         # reset tracker

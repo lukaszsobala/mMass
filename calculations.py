@@ -206,6 +206,7 @@ def signal_filter(array, resol):
     
     lastX = previousX = array[0, 0]
     minY = maxY = previousY = array[0, 1]
+    minX = maxX = array[0, 0]
     count = 1
     
     for i in range(1, n):
@@ -214,20 +215,27 @@ def signal_filter(array, resol):
         
         if (currentX - lastX) >= resol or i == n - 1:
             
-            # add minimum in range
-            if buff[count-1, 0] != lastX or buff[count-1, 1] != minY:
-                buff[count, 0] = lastX
-                buff[count, 1] = minY
-                count += 1
-                
-            # add maximum in range
-            if maxY != minY:
-                buff[count, 0] = lastX
-                buff[count, 1] = maxY
-                count += 1
+            if minX <= maxX:
+                if buff[count-1, 0] != minX or buff[count-1, 1] != minY:
+                    buff[count, 0] = minX
+                    buff[count, 1] = minY
+                    count += 1
+                if buff[count-1, 0] != maxX or buff[count-1, 1] != maxY:
+                    buff[count, 0] = maxX
+                    buff[count, 1] = maxY
+                    count += 1
+            else:
+                if buff[count-1, 0] != maxX or buff[count-1, 1] != maxY:
+                    buff[count, 0] = maxX
+                    buff[count, 1] = maxY
+                    count += 1
+                if buff[count-1, 0] != minX or buff[count-1, 1] != minY:
+                    buff[count, 0] = minX
+                    buff[count, 1] = minY
+                    count += 1
                 
             # add last point in range
-            if previousY != maxY:
+            if buff[count-1, 0] != previousX or buff[count-1, 1] != previousY:
                 buff[count, 0] = previousX
                 buff[count, 1] = previousY
                 count += 1
@@ -239,9 +247,14 @@ def signal_filter(array, resol):
             
             lastX = previousX = currentX
             minY = maxY = previousY = currentY
+            minX = maxX = currentX
         else:
-            if currentY < minY: minY = currentY
-            if currentY > maxY: maxY = currentY
+            if currentY < minY: 
+                minY = currentY
+                minX = currentX
+            if currentY > maxY: 
+                maxY = currentY
+                maxX = currentX
             previousX = currentX
             previousY = currentY
             
@@ -379,3 +392,36 @@ def signal_profile(mpeaks, points, noise, shape):
     raster = signal_profile_raster(mpeaks, points)
     return signal_profile_to_raster(mpeaks, raster, noise, shape)
 
+
+@njit
+def peaklist_filter_indices(array, resol):
+    n = len(array)
+    if n == 0:
+        return np.empty(0, dtype=np.int64)
+        
+    keep = np.empty(n, dtype=np.int64)
+    count = 0
+    
+    lastX = array[0, 0]
+    maxY = array[0, 1]
+    maxIdx = 0
+    
+    for i in range(1, n):
+        currentX = array[i, 0]
+        currentY = array[i, 1]
+        
+        if (currentX - lastX) >= resol:
+            keep[count] = maxIdx
+            count += 1
+            lastX = currentX
+            maxY = currentY
+            maxIdx = i
+        else:
+            if currentY > maxY:
+                maxY = currentY
+                maxIdx = i
+                
+    keep[count] = maxIdx
+    count += 1
+    
+    return keep[:count].copy()

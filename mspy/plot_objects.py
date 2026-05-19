@@ -1263,6 +1263,15 @@ class spectrum:
 
         # scale and shift peaklist data
         if len(self.peaklistCropped):
+            if filterSize and (self.properties.get("showLabels", True) or self.properties.get("showTicks", True)):
+                from calculations import peaklist_filter_indices
+                data_res = filterSize / abs(xScale)
+                keep_idx = peaklist_filter_indices(self.peaklistCropped, data_res)
+                
+                # We need to filter BOTH the numpy array and the python list representing the data model
+                self.peaklistCropped = self.peaklistCropped[keep_idx]
+                self.peaklistCroppedPeaks = [self.peaklistCroppedPeaks[i] for i in keep_idx]
+
             self.peaklistScaled = numpy.array(
                 (xScale, yScale, yScale)
             ) * self.peaklistCropped + numpy.array((xShift, yShift, yShift))
@@ -1280,16 +1289,11 @@ class spectrum:
     # ----
 
     def draw(self, dc, printerScale):
-        import time
-        t0 = time.time()
         """Draw object."""
 
         # draw line spectrum
         if len(self.spectrumScaled) > 2 and self.properties["showSpectrum"]:
             self._drawSpectrum(dc, printerScale)
-
-        import time
-        print(f"Objects draw() until peaklist took {time.time()-t0:.4f}s")
         # draw peaklist ticks
         if len(self.peaklistScaled) and (
             self.properties["showTicks"] or not len(self.spectrumPoints)
