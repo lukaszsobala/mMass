@@ -424,7 +424,10 @@ class panelEnvelopeFit(wx.Frame, MakeModalMixin):
             wx.GetApp().Yield()
         except:
             pass
-        self.spectrumCanvas.SetMinSize((-1, -1))
+        try:
+            self.spectrumCanvas.SetMinSize((-1, -1))
+        except RuntimeError:
+            pass
 
     # ----
 

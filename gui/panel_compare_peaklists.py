@@ -366,7 +366,10 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
             wx.GetApp().Yield()
         except:
             pass
-        self.documentsGrid.SetMinSize((-1, -1))
+        try:
+            self.documentsGrid.SetMinSize((-1, -1))
+        except RuntimeError:
+            pass
 
     # ----
 

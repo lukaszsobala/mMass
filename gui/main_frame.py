@@ -1818,15 +1818,24 @@ class mainFrame(wx.Frame):
 
         # update compare panel
         if self.comparePeaklistsPanel:
-            self.comparePeaklistsPanel.setData(self.documents)
+            try:
+                self.comparePeaklistsPanel.setData(self.documents)
+            except RuntimeError:
+                pass
 
         # update processing panel
         if self.processingPanel:
-            self.processingPanel.updateAvailableDocuments()
+            try:
+                self.processingPanel.updateAvailableDocuments()
+            except RuntimeError:
+                pass
 
         # update mass defect plot panel
         if self.massDefectPlotPanel:
-            self.massDefectPlotPanel.updateDocuments()
+            try:
+                self.massDefectPlotPanel.updateDocuments()
+            except RuntimeError:
+                pass
 
         # update menubar and toolbar
         self.updateControls()

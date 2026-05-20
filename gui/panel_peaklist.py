@@ -172,7 +172,9 @@ class panelPeaklist(wx.Panel):
         self.peakList = mwx.sortListCtrl(
             self, -1, size=(201, -1), style=mwx.LISTCTRL_STYLE_MULTI
         )
-        self.peakList.SetFont(wx.SMALL_FONT)
+        font = wx.SystemSettings.GetFont(wx.SYS_DEFAULT_GUI_FONT)
+        font.SetPointSize(font.GetPointSize() - 2)
+        self.peakList.SetFont(font)
         self.peakList.setSecondarySortColumn(0)
         self.peakList.setAltColour(mwx.LISTCTRL_ALTCOLOUR)
 

@@ -319,7 +319,10 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
             wx.GetApp().Yield()
         except:
             pass
-        self.differencesGrid.SetMinSize((-1, -1))
+        try:
+            self.differencesGrid.SetMinSize((-1, -1))
+        except RuntimeError:
+            pass
 
     # ----
 
