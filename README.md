@@ -2,7 +2,7 @@
 
 This is a fork of the official repository for mMass on Python3.
 
-This version contains fixes that allow it to launch using modern Python and updated requirements. Currently it works on Linux.
+This version contains fixes that allow it to launch using modern Python and updated requirements. So far it has been tested on Linux (`amd64` and `arm64`).
 
 Many thanks to Martin Strohalm for his hard work on the project over many years!
 
@@ -13,12 +13,18 @@ mMass is now a fully pure-Python package (native C extensions were removed and r
 ### Linux (and MacOS / Windows)
 We recommend using [uv](https://github.com/astral-sh/uv) or pip to install the package directly into a virtual environment.
 
+This sadly involves compiling wxPython, which will take at least 5 minutes on a fast computer, and up to 1 hour on slower CPUs. Depending on your operating system, you may need system-level GUI dependencies installed for wxPython to build or run seamlessly. For example, on Ubuntu 26.04:
+```sh
+sudo apt install python3-dev libgtk-3-dev freeglut3-dev libwebkitgtk-6.0-dev libjpeg-dev libpng-dev libtiff-dev libsdl-dev libnotify-dev libsm-dev
+```
+
 ```sh
 # Clone the repository
 git clone https://github.com/lukaszsobala/mMass.git
 cd mMass
 
-# Install via uv (creates a virtual environment automatically and is extremely fast)
+# Install via uv
+uv venv
 uv pip install -e .
 
 # Or using standard pip
@@ -27,10 +33,7 @@ source .venv/bin/activate
 pip install -e .
 ```
 
-Depending on your Linux distribution, you may need system-level GUI dependencies installed for wxPython to build or run seamlessly. For example, on Debian/Ubuntu:
-```sh
-sudo apt-get install python3-dev libgtk-3-dev freeglut3-dev libwebkitgtk-?.0-dev libjpeg-dev libpng-dev libtiff-dev libsdl-dev libnotify-dev libsm-dev
-```
+
 
 ### Running the application
 Once installed, the CLI wrapper is available globally within your virtual environment:
