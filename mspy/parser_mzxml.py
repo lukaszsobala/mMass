@@ -220,8 +220,7 @@ class parseMZXML:
             data = zlib.decompress(data)
 
         # convert from binary
-        count = len(data) / struct.calcsize(endian + precision)
-        data = struct.unpack(endian + precision * int(count), data[0 : len(data)])
+        data = numpy.frombuffer(data[: (len(data) // struct.calcsize(endian + precision)) * struct.calcsize(endian + precision)], dtype=endian + precision)
 
         # format
         if scanData["spectrumType"] == "discrete":
@@ -229,7 +228,7 @@ class parseMZXML:
         else:
             data = numpy.array(data)
             data.shape = (-1, 2)
-            data = data.copy()
+            data = data.astype(numpy.float64)
 
         return data
 

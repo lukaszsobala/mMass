@@ -223,10 +223,8 @@ class parseMZML:
             intPrecision = "d"
 
         # convert from binary
-        count = int(len(mzData) / struct.calcsize("<" + mzPrecision))
-        mzData = struct.unpack("<" + mzPrecision * count, mzData[0 : len(mzData)])
-        count = int(len(intData) / struct.calcsize("<" + intPrecision))
-        intData = struct.unpack("<" + intPrecision * count, intData[0 : len(intData)])
+        mzData = numpy.frombuffer(mzData[: (len(mzData) // struct.calcsize("<" + mzPrecision)) * struct.calcsize("<" + mzPrecision)], dtype="<" + mzPrecision)
+        intData = numpy.frombuffer(intData[: (len(intData) // struct.calcsize("<" + intPrecision)) * struct.calcsize("<" + intPrecision)], dtype="<" + intPrecision)
 
         # format
         if scanData["spectrumType"] == "discrete":
@@ -237,7 +235,7 @@ class parseMZML:
             intData = numpy.array(intData)
             intData.shape = (-1, 1)
             data = numpy.concatenate((mzData, intData), axis=1)
-            data = data.copy()
+            data = data.astype(numpy.float64)
 
         return data
 

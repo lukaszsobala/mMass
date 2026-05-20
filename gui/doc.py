@@ -1213,7 +1213,7 @@ class parseMSD:
             intData.shape = (-1, 1)
 
             points = numpy.concatenate((mzData, intData), axis=1)
-            points = points.copy()
+            points = points.astype(numpy.float64)
 
             # add to spectrum
             self.document.spectrum.setprofile(points)
@@ -1619,8 +1619,7 @@ class parseMSD:
             data = zlib.decompress(data)
 
         # convert form binary
-        count = int(len(data) / struct.calcsize(endian + precision))
-        data = struct.unpack(endian + precision * count, data[0 : len(data)])
+        data = numpy.frombuffer(data[: (len(data) // struct.calcsize(endian + precision)) * struct.calcsize(endian + precision)], dtype=endian + precision)
 
         return data
 
