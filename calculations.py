@@ -1,6 +1,5 @@
 import numpy as np
 from numba import njit
-import math
 
 
 def signal_interpolate_x(x1, y1, x2, y2, y):
@@ -115,7 +114,6 @@ def formula_composition(minimum, maximum, masses, loMass, hiMass, limit):
     return tuple(tuple(r) for r in results)
 
 
-import numba as nb
 
 
 @njit
@@ -298,7 +296,6 @@ def signal_rescale(array, scaleX, scaleY, shiftX, shiftY):
 def signal_gaussian(x, minY, maxY, fwhm, points):
     minX = x - (5 * fwhm)
     maxX = x + (5 * fwhm)
-    step = (maxX - minX) / points
     amplitude = maxY - minY
 
     f = (fwhm / 1.66) * (fwhm / 1.66)
@@ -311,7 +308,6 @@ def signal_gaussian(x, minY, maxY, fwhm, points):
 def signal_lorentzian(x, minY, maxY, fwhm, points):
     minX = x - (10 * fwhm)
     maxX = x + (10 * fwhm)
-    step = (maxX - minX) / points
     amplitude = maxY - minY
 
     f = (fwhm / 2.0) * (fwhm / 2.0)
@@ -324,8 +320,8 @@ def signal_lorentzian(x, minY, maxY, fwhm, points):
 def signal_gausslorentzian(x, minY, maxY, fwhm, points):
     # Fast rough equivalent
     g = signal_gaussian(x, minY, maxY, fwhm, points)
-    l = signal_lorentzian(x, minY, maxY, fwhm, points)
-    return np.column_stack((g[:, 0], 0.5 * g[:, 1] + 0.5 * l[:, 1]))
+    lor = signal_lorentzian(x, minY, maxY, fwhm, points)
+    return np.column_stack((g[:, 0], 0.5 * g[:, 1] + 0.5 * lor[:, 1]))
 
 
 @njit

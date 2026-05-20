@@ -20,23 +20,23 @@
 import sys
 import os
 import xml.dom.minidom
-from xdgenvpy import XDGPackage
+from xdgenvpy import XDGPackage  # type: ignore[import-untyped]
 
 # SET VERSION
 # -----------
 
 try:
-    import re
-    pyproject_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pyproject.toml")
-    with open(pyproject_path, "r", encoding="utf-8") as f:
-        match = re.search(r'^version\s*=\s*"([^"]+)"', f.read(), re.MULTILINE)
-        version = match.group(1) if match else "6.0.2"
-except:
+    import importlib.metadata
+    version = importlib.metadata.version("mmass")
+except Exception:
     try:
-        import importlib.metadata
-        version = importlib.metadata.version("mmass")
-    except:
-        version = "6.0.2"
+        import re
+        pyproject_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pyproject.toml")
+        with open(pyproject_path, "r", encoding="utf-8") as f:
+            _m = re.search(r'^version\s*=\s*"([^"]+)"', f.read(), re.MULTILINE)
+            version = _m.group(1) if _m else "unknown"
+    except Exception:
+        version = "unknown"
 nightbuild = ""
 
 
@@ -51,7 +51,7 @@ if sys.platform == "darwin":
     if os.path.exists(support) and not os.path.exists(userconf):
         try:
             os.mkdir(userconf)
-        except:
+        except Exception:
             pass
     if os.path.exists(userconf):
         confdir = userconf
@@ -64,7 +64,7 @@ elif sys.platform.startswith("linux") or sys.platform.startswith("freebsd"):
     if os.path.exists(home) and not os.path.exists(userconf):
         try:
             os.mkdir(userconf)
-        except:
+        except Exception:
             pass
     if os.path.exists(userconf):
         confdir = userconf
@@ -82,7 +82,7 @@ else:
     if not os.path.exists(confdir):
         try:
             os.mkdir(confdir)
-        except:
+        except Exception:
             pass
 
 if not os.path.exists(confdir):
@@ -94,25 +94,32 @@ _auto_save_enabled = False
 class ConfigList(list):
     def __setitem__(self, key, value):
         super(ConfigList, self).__setitem__(key, value)
-        if _auto_save_enabled: saveConfig()
+        if _auto_save_enabled:
+            saveConfig()
     def __delitem__(self, key):
         super(ConfigList, self).__delitem__(key)
-        if _auto_save_enabled: saveConfig()
+        if _auto_save_enabled:
+            saveConfig()
     def append(self, x):
         super(ConfigList, self).append(x)
-        if _auto_save_enabled: saveConfig()
+        if _auto_save_enabled:
+            saveConfig()
     def extend(self, x):
         super(ConfigList, self).extend(x)
-        if _auto_save_enabled: saveConfig()
+        if _auto_save_enabled:
+            saveConfig()
     def remove(self, x):
         super(ConfigList, self).remove(x)
-        if _auto_save_enabled: saveConfig()
+        if _auto_save_enabled:
+            saveConfig()
     def insert(self, i, x):
         super(ConfigList, self).insert(i, x)
-        if _auto_save_enabled: saveConfig()
+        if _auto_save_enabled:
+            saveConfig()
     def pop(self, i=-1):
         res = super(ConfigList, self).pop(i)
-        if _auto_save_enabled: saveConfig()
+        if _auto_save_enabled:
+            saveConfig()
         return res
     def clear(self):
         del self[:]
@@ -137,7 +144,8 @@ class ConfigDict(dict):
             
     def __delitem__(self, key):
         super(ConfigDict, self).__delitem__(key)
-        if _auto_save_enabled: saveConfig()
+        if _auto_save_enabled:
+            saveConfig()
 
 # INIT DEFAULT VALUES
 # -------------------
@@ -2090,7 +2098,7 @@ def saveConfig(path=os.path.join(confdir, "config.xml")):
         with open(path, "wb") as f:
             f.write(buff.encode("utf-8"))
         return True
-    except:
+    except Exception:
         return False
 
 
@@ -2109,10 +2117,11 @@ def _getParams(sectionTag, section):
                     value = paramTag.getAttribute("value")
                     valueType = paramTag.getAttribute("type")
                     if name in section:
-                        if valueType in ("unicode", "str", "float", "int"):
+                        converter = {"unicode": str, "str": str, "float": float, "int": int}.get(valueType)
+                        if converter is not None:
                             try:
-                                section[name] = eval(valueType + "(value)")
-                            except:
+                                section[name] = converter(value)
+                            except Exception:
                                 pass
 
 
