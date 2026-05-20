@@ -721,11 +721,13 @@ class document:
             precision = "d"
 
         # convert data to binary
-        mzArray = b""
-        intArray = b""
-        for point in spectrum:
-            mzArray += struct.pack(precision, point[0])
-            intArray += struct.pack(precision, point[1])
+        if len(spectrum) > 0:
+            arr = numpy.asarray(spectrum)
+            mzArray = arr[:, 0].astype(precision).tobytes()
+            intArray = arr[:, 1].astype(precision).tobytes()
+        else:
+            mzArray = b""
+            intArray = b""
 
         # compress data by gz
         mzArray = zlib.compress(mzArray)
