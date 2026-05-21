@@ -22,7 +22,16 @@ import wx
 import copy
 
 # load modules
-from .ids import *
+from .ids import (
+    ID_processingMath,
+    ID_processingCrop,
+    ID_processingBaseline,
+    ID_processingSmoothing,
+    ID_processingPeakpicking,
+    ID_processingDeisotoping,
+    ID_processingDeconvolution,
+    ID_processingBatch,
+)
 from . import mwx
 from . import images
 from . import config
@@ -44,7 +53,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             parent,
             -1,
             "Processing",
-            size=(300, -1),
+            size=wx.Size(300, -1),
             style=wx.DEFAULT_FRAME_STYLE
             | wx.FRAME_FLOAT_ON_PARENT & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX),
         )
@@ -122,7 +131,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
         # init toolbar
         panel = mwx.bgrPanel(
-            self, -1, images.lib["bgrToolbar"], size=(-1, mwx.TOOLBAR_HEIGHT)
+            self, -1, images.lib["bgrToolbar"], size=wx.Size(-1, mwx.TOOLBAR_HEIGHT)
         )
 
         # make tools
@@ -130,7 +139,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             panel,
             ID_processingMath,
             images.lib["processingMathOff"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.math_butt.SetToolTip(wx.ToolTip("Math operations"))
@@ -140,7 +149,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             panel,
             ID_processingCrop,
             images.lib["processingCropOff"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.crop_butt.SetToolTip(wx.ToolTip("Crop data"))
@@ -150,7 +159,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             panel,
             ID_processingBaseline,
             images.lib["processingBaselineOff"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.baseline_butt.SetToolTip(wx.ToolTip("Baseline correction"))
@@ -160,7 +169,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             panel,
             ID_processingSmoothing,
             images.lib["processingSmoothingOff"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.smoothing_butt.SetToolTip(wx.ToolTip("Smoothing"))
@@ -170,7 +179,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             panel,
             ID_processingPeakpicking,
             images.lib["processingPeakpickingOff"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.peakpicking_butt.SetToolTip(wx.ToolTip("Peak picking"))
@@ -180,7 +189,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             panel,
             ID_processingDeisotoping,
             images.lib["processingDeisotopingOff"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.deisotoping_butt.SetToolTip(wx.ToolTip("Deisotoping"))
@@ -190,7 +199,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             panel,
             ID_processingDeconvolution,
             images.lib["processingDeconvolutionOff"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.deconvolution_butt.SetToolTip(wx.ToolTip("Deconvolution"))
@@ -200,7 +209,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             panel,
             ID_processingBatch,
             images.lib["processingBatchOff"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.batch_butt.SetToolTip(wx.ToolTip("Batch processing"))
@@ -210,14 +219,14 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             panel,
             -1,
             images.lib["toolsPresets"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.presets_butt.SetToolTip(wx.ToolTip("Processing presets"))
         self.presets_butt.Bind(wx.EVT_BUTTON, self.onPresets)
 
         self.apply_butt = wx.Button(
-            panel, -1, "Apply", size=(-1, mwx.SMALL_BUTTON_HEIGHT)
+            panel, -1, "Apply", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
         )
         self.apply_butt.Bind(wx.EVT_BUTTON, self.onApply)
 
@@ -310,7 +319,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         self.mathOperationSqrt_radio = wx.RadioButton(panel, -1, "Square Root A")
 
         self.mathMultiply_value = wx.TextCtrl(
-            panel, -1, "1", size=(80, -1), validator=mwx.validator("floatPos")
+            panel, -1, "1", size=wx.Size(80, -1), validator=mwx.validator("floatPos")
         )
         self.mathMultiply_value.Disable()
 
@@ -328,13 +337,13 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
         mathSpectrumA_label = wx.StaticText(panel, -1, "Spectrum A:")
         self.mathSpectrumA_choice = wx.Choice(
-            panel, -1, choices=[], size=(200, mwx.CHOICE_HEIGHT)
+            panel, -1, choices=[], size=wx.Size(200, mwx.CHOICE_HEIGHT)
         )
         self.mathSpectrumA_choice.Disable()
 
         mathSpectrumB_label = wx.StaticText(panel, -1, "Spectrum B:")
         self.mathSpectrumB_choice = wx.Choice(
-            panel, -1, choices=[], size=(200, mwx.CHOICE_HEIGHT)
+            panel, -1, choices=[], size=wx.Size(200, mwx.CHOICE_HEIGHT)
         )
         self.mathSpectrumB_choice.Disable()
 
@@ -345,7 +354,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
         # pack elements
         grid = wx.GridBagSizer(mwx.GRIDBAG_VSPACE, mwx.GRIDBAG_HSPACE)
-        grid.SetEmptyCellSize((-1, 0))
+        grid.SetEmptyCellSize(wx.Size(-1, 0))
 
         grid.Add(
             mathOperationMulti_label,
@@ -403,7 +412,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             panel,
             -1,
             str(config.processing["crop"]["lowMass"]),
-            size=(70, -1),
+            size=wx.Size(70, -1),
             validator=mwx.validator("floatPos"),
         )
         cropLowMassUnits_label = wx.StaticText(panel, -1, "m/z")
@@ -413,7 +422,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             panel,
             -1,
             str(config.processing["crop"]["highMass"]),
-            size=(70, -1),
+            size=wx.Size(70, -1),
             validator=mwx.validator("floatPos"),
         )
         cropHighMassUnits_label = wx.StaticText(panel, -1, "m/z")
@@ -455,7 +464,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             int(config.processing["baseline"]["precision"]),
             1,
             100,
-            size=(150, -1),
+            size=wx.Size(150, -1),
             style=mwx.SLIDER_STYLE,
         )
         self.baselinePrecision_slider.SetTick(1)
@@ -469,7 +478,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             int(config.processing["baseline"]["offset"] * 100),
             0,
             100,
-            size=(150, -1),
+            size=wx.Size(150, -1),
             style=mwx.SLIDER_STYLE,
         )
         self.baselinePrecision_slider.SetTick(1)
@@ -527,7 +536,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             panel,
             -1,
             choices=["Moving Average", "Gaussian", "Savitzky-Golay"],
-            size=(150, mwx.CHOICE_HEIGHT),
+            size=wx.Size(150, mwx.CHOICE_HEIGHT),
         )
         self.smoothingMethod_choice.Select(0)
         if config.processing["smoothing"]["method"] == "GA":
@@ -541,7 +550,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             panel,
             -1,
             str(config.processing["smoothing"]["windowSize"]),
-            size=(90, -1),
+            size=wx.Size(90, -1),
             validator=mwx.validator("floatPos"),
         )
         smoothingWindowUnits_label = wx.StaticText(panel, -1, "m/z")
@@ -554,7 +563,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             int(config.processing["smoothing"]["cycles"]),
             1,
             5,
-            size=(150, -1),
+            size=wx.Size(150, -1),
             style=mwx.SLIDER_STYLE,
         )
         self.smoothingCycles_slider.SetTick(1)
@@ -615,7 +624,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             multiplier=0.1,
             limits=(1, 100),
             digits=1,
-            size=(70, -1),
+            size=wx.Size(70, -1),
             validator=mwx.validator("floatPos"),
         )
         self.peakpickingSNThreshold_value.Bind(wx.EVT_TEXT, self.onPeakpickingChanged)
@@ -627,7 +636,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             panel,
             -1,
             str(config.processing["peakpicking"]["absIntThreshold"]),
-            size=(70, -1),
+            size=wx.Size(70, -1),
             validator=mwx.validator("floatPos"),
         )
         self.peakpickingAbsIntThreshold_value.Bind(
@@ -644,7 +653,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             multiplier=0.1,
             limits=(0.01, 100),
             digits=3,
-            size=(70, -1),
+            size=wx.Size(70, -1),
             validator=mwx.validator("floatPos"),
         )
         self.peakpickingRelIntThreshold_value.Bind(
@@ -659,7 +668,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             int(config.processing["peakpicking"]["pickingHeight"] * 100),
             1,
             100,
-            size=(150, -1),
+            size=wx.Size(150, -1),
             style=mwx.SLIDER_STYLE,
         )
         self.peakpickingHeight_slider.SetTick(1)
@@ -779,7 +788,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             panel,
             -1,
             str(config.processing["deisotoping"]["maxCharge"]),
-            size=(70, -1),
+            size=wx.Size(70, -1),
             validator=mwx.validator("int"),
         )
 
@@ -790,7 +799,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             panel,
             -1,
             str(config.processing["deisotoping"]["massTolerance"]),
-            size=(70, -1),
+            size=wx.Size(70, -1),
             validator=mwx.validator("floatPos"),
         )
         deisotopingMassToleranceUnits_label = wx.StaticText(panel, -1, "m/z")
@@ -802,7 +811,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             panel,
             -1,
             str(config.processing["deisotoping"]["intTolerance"] * 100),
-            size=(70, -1),
+            size=wx.Size(70, -1),
             validator=mwx.validator("floatPos"),
         )
         deisotopingIntToleranceUnits_label = wx.StaticText(panel, -1, "%")
@@ -812,7 +821,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             panel,
             -1,
             str(config.processing["deisotoping"]["isotopeShift"]),
-            size=(70, -1),
+            size=wx.Size(70, -1),
             validator=mwx.validator("float"),
         )
         self.deisotopingIsotopeShift_value.Bind(wx.EVT_TEXT, self.getParams)
@@ -841,7 +850,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
                 "Envelope Centroid",
                 "All Isotopes",
             ],
-            size=(160, mwx.CHOICE_HEIGHT),
+            size=wx.Size(160, mwx.CHOICE_HEIGHT),
         )
         self.deisotopingLabelEnvelopeTool_choice.Select(1)
         choices = ["1st", "monoisotope", "centroid", "isotopes"]
@@ -858,7 +867,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             panel,
             -1,
             choices=["Envelope Maximum", "Summed Isotopes", "Averaged Isotopes"],
-            size=(160, mwx.CHOICE_HEIGHT),
+            size=wx.Size(160, mwx.CHOICE_HEIGHT),
         )
         self.deisotopingEnvelopeIntensity_choice.Select(0)
         choices = ["maximum", "sum", "average"]
@@ -965,7 +974,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             panel,
             -1,
             choices=["Monoisotopic", "Average"],
-            size=(150, mwx.CHOICE_HEIGHT),
+            size=wx.Size(150, mwx.CHOICE_HEIGHT),
         )
         self.deconvolutionMassType_choice.Select(
             config.processing["deconvolution"]["massType"]
@@ -976,7 +985,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             panel,
             -1,
             str(config.processing["deconvolution"]["groupWindow"]),
-            size=(90, -1),
+            size=wx.Size(90, -1),
             validator=mwx.validator("floatPos"),
         )
         deconvolutionGroupWindowUnits_label = wx.StaticText(panel, -1, "m/z")
@@ -1114,7 +1123,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
         # init list
         self.batchDocumentsList = mwx.sortListCtrl(
-            panel, -1, size=(251, 100), style=mwx.LISTCTRL_STYLE_MULTI
+            panel, -1, size=wx.Size(251, 100), style=mwx.LISTCTRL_STYLE_MULTI
         )
         self.batchDocumentsList.SetFont(wx.SMALL_FONT)
         self.batchDocumentsList.setAltColour(mwx.LISTCTRL_ALTCOLOUR)
@@ -1272,7 +1281,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         self.mainSizer.Fit(self)
         try:
             wx.GetApp().Yield()
-        except:
+        except Exception:
             pass
 
     # ----
@@ -1667,8 +1676,10 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         if self.processing:
             return
 
+        current_document = self.currentDocument
+
         # check document
-        if self.currentDocument is None and not self.currentTool in ("math", "batch"):
+        if current_document is None and self.currentTool not in ("math", "batch"):
             wx.Bell()
             return
 
@@ -1682,13 +1693,13 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         # check data
         if (
             self.currentTool in ("baseline", "smoothing", "peakpicking")
-            and not self.currentDocument.spectrum.hasprofile()
+            and (current_document is None or not current_document.spectrum.hasprofile())
         ):
             wx.Bell()
             return
         if (
             self.currentTool in ("deisotoping", "deconvolution")
-            and not self.currentDocument.spectrum.haspeaks()
+            and (current_document is None or not current_document.spectrum.haspeaks())
         ):
             wx.Bell()
             return
@@ -1964,7 +1975,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             )
 
         # ring error bell if error
-        except:
+        except Exception:
             wx.Bell()
             return False
 
@@ -2223,6 +2234,10 @@ class panelProcessing(wx.Frame, MakeModalMixin):
                 docData.path = ""
                 docData.dirty = True
                 docData.backup(None)
+                if docData.spectrum is None:
+                    return
+
+                spectrum = docData.spectrum
 
                 # average spectra
                 if config.processing["math"]["operation"] == "averageall":
@@ -2231,10 +2246,10 @@ class panelProcessing(wx.Frame, MakeModalMixin):
                     count = 0
                     for item in self.parent.documents:
                         if item.visible:
-                            docData.spectrum.combine(item.spectrum)
+                            spectrum.combine(item.spectrum)
                             docData.notes += "- " + item.title + "\n"
                             count += 1
-                    docData.spectrum.multiply(1.0 / count)
+                    spectrum.multiply(1.0 / count)
 
                 # combine spectra
                 elif config.processing["math"]["operation"] == "combineall":
@@ -2242,7 +2257,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
                     docData.notes = "Combined Spectra:\n"
                     for item in self.parent.documents:
                         if item.visible:
-                            docData.spectrum.combine(item.spectrum)
+                            spectrum.combine(item.spectrum)
                             docData.notes += "- " + item.title + "\n"
 
                 # overlay spectra
@@ -2251,7 +2266,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
                     docData.notes = "Overlaid Spectra:\n"
                     for item in self.parent.documents:
                         if item.visible:
-                            docData.spectrum.overlay(item.spectrum)
+                            spectrum.overlay(item.spectrum)
                             docData.notes += "- " + item.title + "\n"
 
                 # append new document
@@ -2725,6 +2740,9 @@ class panelProcessing(wx.Frame, MakeModalMixin):
     def checkChargedPeaks(self):
         """Check if at least one peak in current peaklist has charge."""
 
+        if self.currentDocument is None or self.currentDocument.spectrum is None:
+            return False
+
         # check charge
         for peak in self.currentDocument.spectrum.peaklist:
             if peak.charge:
@@ -2824,7 +2842,7 @@ class dlgPresetsName(wx.Dialog):
 
         # make elements
         self.name_value = wx.TextCtrl(
-            self, -1, "", size=(300, -1), style=wx.TE_PROCESS_ENTER
+            self, -1, "", size=wx.Size(300, -1), style=wx.TE_PROCESS_ENTER
         )
         self.name_value.Bind(wx.EVT_TEXT_ENTER, self.onOK)
 
