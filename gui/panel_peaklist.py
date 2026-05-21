@@ -45,6 +45,7 @@ class panelPeaklist(wx.Panel):
         self.currentDocument = None
         self.peakListMap = None
         self.selectedPeak = None
+        self._ignore_selection_events = False
 
         # make GUI
         self.makeGUI()
@@ -416,6 +417,9 @@ class panelPeaklist(wx.Panel):
         """Highlight selected peak in the spectrum and refresh peak editor."""
 
         evt.Skip()
+
+        if getattr(self, '_ignore_selection_events', False):
+            return
 
         # get selected peak
         self.selectedPeak = evt.GetData()
@@ -852,6 +856,8 @@ class panelPeaklist(wx.Panel):
     def updatePeakList(self):
         """Refresh peaklist."""
 
+        self._ignore_selection_events = True
+
         top_item = self.peakList.GetTopItem() if self.peakList.GetItemCount() > 0 else 0
 
         # clear previous data
@@ -864,6 +870,7 @@ class panelPeaklist(wx.Panel):
             self.peaksCount.SetLabel("")
             self.peakListMap = None
             self.peakList.setDataMap(None)
+            self._ignore_selection_events = False
             return
 
         # update peaks count
@@ -922,6 +929,8 @@ class panelPeaklist(wx.Panel):
                 self.peakList.EnsureVisible(top_item)
             else:
                 self.peakList.EnsureVisible(0)
+
+        wx.CallAfter(lambda: setattr(self, '_ignore_selection_events', False))
 
     # ----
 

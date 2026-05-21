@@ -457,6 +457,9 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
 
         evt.Skip()
 
+        if getattr(self, '_ignore_selection_events', False):
+            return
+
         # check documents
         if not self.currentDocuments:
             return
@@ -495,6 +498,9 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         """Show more info for selected cell."""
 
         evt.Skip()
+
+        if getattr(self, '_ignore_selection_events', False):
+            return
 
         # check documents
         if not self.currentDocuments:
@@ -541,9 +547,55 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         if key == 67 and evt.CmdDown():
             self.copyPeaklist()
 
+        # delete
+        elif key == wx.WXK_DELETE or (key == wx.WXK_BACK and evt.CmdDown()):
+            self.onDeleteSelected()
+
         # other keys
         else:
             evt.Skip()
+
+    # ----
+
+    def onDeleteSelected(self):
+        """Delete selected peak."""
+
+        # get selection
+        try:
+            sel_row = self.peaklistGrid.GetGridCursorRow()
+        except:
+            return
+
+        if sel_row < 0 or not self.currentPeaklist or sel_row >= len(self.currentPeaklist):
+            return
+
+        p_info = self.currentPeaklist[sel_row]
+        item = p_info[5]
+        document = p_info[6]
+
+        # try to delete
+        deleted = False
+        import gui.config as config
+        import wx
+
+        if config.comparePeaklists["compare"] == "peaklists":
+            if item in document.spectrum.peaklist.peaks:
+                idx = document.spectrum.peaklist.peaks.index(item)
+                document.backup(("spectrum"))
+                document.spectrum.peaklist.delete([idx])
+                wx.CallAfter(self.parent.onDocumentChanged, items=("spectrum"))
+                deleted = True
+        elif config.comparePeaklists["compare"] in ("measured", "theoretical"):
+            if item in document.annotations:
+                idx = document.annotations.index(item)
+                document.backup(("annotations"))
+                del document.annotations[idx]
+                wx.CallAfter(self.parent.onDocumentChanged, items=("annotations"))
+                deleted = True
+
+        if deleted:
+            # immediately trigger an update logic
+            self.onUpdatePeaklist()
 
     # ----
 
@@ -595,6 +647,7 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
             )
         except Exception:
             scroll_x, scroll_y, sel_mz = 0, 0, None
+            sel_row = -1
 
         # show processing gauge
         self.onProcessing(True)
@@ -615,24 +668,24 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
             while self.processing and self.processing.is_alive():
                 self.gauge.pulse()
 
+        self._ignore_selection_events = True
         # update gui with recreate=True
         self.updateDocumentsGrid()
         self.updatePeaklistGrid()
         self.updateMatchesGrid()
 
         # restore state
-        if sel_mz is not None and self.currentPeaklist:
-            best_row = 0
-            min_diff = abs(self.currentPeaklist[0][0] - sel_mz)
-            for i, item in enumerate(self.currentPeaklist):
-                if abs(item[0] - sel_mz) < min_diff:
-                    min_diff = abs(item[0] - sel_mz)
-                    best_row = i
-
+        if sel_row >= 0 and self.currentPeaklist:
+            # We want to stay at the same index effectively, but ensure we don't exceed boundaries.
+            best_row = min(sel_row, len(self.currentPeaklist) - 1)
             if best_row < self.peaklistGrid.GetNumberRows():
                 self.peaklistGrid.SetGridCursor(best_row, 0)
                 self.peaklistGrid.SelectRow(best_row)
+                # DO NOT update parent mass points here to avoid view jump!
             wx.CallAfter(self.peaklistGrid.Scroll, scroll_x, scroll_y)
+
+        wx.CallAfter(lambda: setattr(self, '_ignore_selection_events', False))
+        
 
         # hide processing gauge
         self.onProcessing(False)
@@ -676,6 +729,7 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
             )
         except Exception:
             scroll_x, scroll_y, sel_mz = 0, 0, None
+            sel_row = -1
 
         # show processing gauge
         self.onProcessing(True)
@@ -696,24 +750,24 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
             while self.processing and self.processing.is_alive():
                 self.gauge.pulse()
 
+        self._ignore_selection_events = True
         # update gui with recreate=True
         self.updateDocumentsGrid()
         self.updatePeaklistGrid()
         self.updateMatchesGrid()
 
         # restore state
-        if sel_mz is not None and self.currentPeaklist:
-            best_row = 0
-            min_diff = abs(self.currentPeaklist[0][0] - sel_mz)
-            for i, item in enumerate(self.currentPeaklist):
-                if abs(item[0] - sel_mz) < min_diff:
-                    min_diff = abs(item[0] - sel_mz)
-                    best_row = i
-
+        if sel_row >= 0 and self.currentPeaklist:
+            # We want to stay at the same index effectively, but ensure we don't exceed boundaries.
+            best_row = min(sel_row, len(self.currentPeaklist) - 1)
             if best_row < self.peaklistGrid.GetNumberRows():
                 self.peaklistGrid.SetGridCursor(best_row, 0)
                 self.peaklistGrid.SelectRow(best_row)
+                # DO NOT update parent mass points here to avoid view jump!
             wx.CallAfter(self.peaklistGrid.Scroll, scroll_x, scroll_y)
+
+        wx.CallAfter(lambda: setattr(self, '_ignore_selection_events', False))
+        
 
         # hide processing gauge
         self.onProcessing(False)
@@ -828,7 +882,7 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
 
             # add matches
             for x in range(count):
-                if item[-1][x]:
+                if item[4][x]:
                     self.documentsGrid.SetCellBackgroundColour(
                         row, col + x + 1, self.currentDocuments[x].colour
                     )
@@ -890,7 +944,7 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
 
             # add matches
             for x in range(count):
-                if item[-1][x]:
+                if item[4][x]:
                     self.peaklistGrid.SetCellBackgroundColour(
                         i, x + 1, self.currentDocuments[x].colour
                     )
@@ -997,9 +1051,11 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
                                 item.charge,
                                 item.ai - item.base,
                                 count * [False],
+                                item,
+                                document,
                             ]
                         )
-                        self.currentPeaklist[-1][-1][x] = True
+                        self.currentPeaklist[-1][4][x] = True
                         size += 1
 
                 # use theoretical notations
@@ -1020,9 +1076,11 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
                                 item.charge,
                                 item.ai - item.base,
                                 count * [False],
+                                item,
+                                document,
                             ]
                         )
-                        self.currentPeaklist[-1][-1][x] = True
+                        self.currentPeaklist[-1][4][x] = True
                         size += 1
 
                 # use peaklists
@@ -1035,9 +1093,11 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
                                 item.charge,
                                 item.ai - item.base,
                                 count * [False],
+                                item,
+                                document,
                             ]
                         )
-                        self.currentPeaklist[-1][-1][x] = True
+                        self.currentPeaklist[-1][4][x] = True
                         size += 1
 
                 # remember max peaklist size
@@ -1065,8 +1125,8 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
             # erase previous matches
             count = len(self.currentDocuments)
             for i, item in enumerate(self.currentPeaklist):
-                item[-1] = count * [False]
-                item[-1][item[1]] = True
+                item[4] = count * [False]
+                item[4][item[1]] = True
 
             # compare peaklists
             count = len(self.currentPeaklist)
@@ -1119,8 +1179,8 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
 
                     # save matched
                     if matched:
-                        p1[-1][p2[1]] = True
-                        p2[-1][p1[1]] = True
+                        p1[4][p2[1]] = True
+                        p2[4][p1[1]] = True
 
         # task canceled
         except mspy.ForceQuit:

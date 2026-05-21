@@ -26,3 +26,5 @@ fix_*
 *.orig
 *.patch
 run_*
+replace_*
+make_*
