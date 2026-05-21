@@ -20,7 +20,6 @@ import wx
 
 # load modules
 from . import mwx
-from . import config
 
 # CLIPBOARD EDITOR DIALOG
 # -----------------------
@@ -63,7 +62,11 @@ class dlgClipboardEditor(wx.Dialog):
 
         # make elements
         self.data_value = wx.TextCtrl(
-            self, -1, "Reading data...", size=(250, 300), style=wx.TE_MULTILINE
+            self,
+            -1,
+            "Reading data...",
+            size=wx.Size(250, 300),
+            style=wx.TE_MULTILINE,
         )
         self.data_value.SetFont(wx.SMALL_FONT)
 

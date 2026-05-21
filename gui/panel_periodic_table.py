@@ -17,13 +17,10 @@
 
 # load libs
 import wx
-import webbrowser
 
 # load modules
-from .ids import *
 from . import mwx
 from . import images
-from . import config
 import mspy
 
 # FLOATING PANEL WITH PERIODIC TABLE OF ELEMENTS
@@ -39,7 +36,7 @@ class panelPeriodicTable(wx.Frame):
             parent,
             -1,
             "Periodic Table of the Elements",
-            size=(400, 300),
+            size=wx.Size(400, 300),
             style=wx.DEFAULT_FRAME_STYLE
             | wx.FRAME_FLOAT_ON_PARENT & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX),
         )
@@ -316,25 +313,25 @@ class panelPeriodicTable(wx.Frame):
             "Metalloids",
         ]
         self.highlight_choice = wx.Choice(
-            panel, -1, choices=choices, size=(-1, mwx.SMALL_CHOICE_HEIGHT)
+            panel, -1, choices=choices, size=wx.Size(-1, mwx.SMALL_CHOICE_HEIGHT)
         )
         self.highlight_choice.Select(0)
         self.highlight_choice.Bind(wx.EVT_CHOICE, self.onHighlightGroup)
 
         # make buttons
         self.isotopes_butt = wx.Button(
-            panel, -1, "Isotopes", size=(-1, mwx.SMALL_BUTTON_HEIGHT)
+            panel, -1, "Isotopes", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
         )
         self.isotopes_butt.Bind(wx.EVT_BUTTON, self.onIsotopes)
         self.isotopes_butt.Enable(False)
 
         self.wiki_butt = wx.Button(
-            panel, -1, "Wikipedia", size=(-1, mwx.SMALL_BUTTON_HEIGHT)
+            panel, -1, "Wikipedia", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
         )
         self.wiki_butt.Bind(wx.EVT_BUTTON, self.onWiki)
 
         self.photos_butt = wx.Button(
-            panel, -1, "Photos", size=(-1, mwx.SMALL_BUTTON_HEIGHT)
+            panel, -1, "Photos", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
         )
         self.photos_butt.Bind(wx.EVT_BUTTON, self.onPhotos)
         self.photos_butt.Enable(False)
@@ -470,18 +467,26 @@ class panelPeriodicTable(wx.Frame):
         )
 
         panel = wx.Panel(self, -1)
-        grid = wx.GridBagSizer(mwx.PERIODIC_TABLE_GRID[0], mwx.PERIODIC_TABLE_GRID[1])
+
+        # Keep element pitch consistent with sprite geometry (24x26 steps for 25x27 cells).
+        sample_bitmap = images.lib["periodicTableHOff"]
+        cell_width, cell_height = sample_bitmap.GetSize()
+        h_step = int(round((cell_width * 24.0) / 25.0))
+        v_step = int(round((cell_height * 26.0) / 27.0))
+        grid = wx.GridBagSizer(v_step - cell_height, h_step - cell_width)
 
         # make elements
         for element, position in elements:
             buttonID = wx.NewId()
-            button = wx.BitmapButton(
+            bitmap = images.lib["periodicTable" + element + "Off"]
+            button = wx.StaticBitmap(
                 panel,
                 buttonID,
-                images.lib["periodicTable" + element + "Off"],
+                bitmap,
+                size=bitmap.GetSize(),
                 style=wx.NO_BORDER,
             )
-            button.Bind(wx.EVT_BUTTON, self.onElementSelected)
+            button.Bind(wx.EVT_LEFT_UP, self.onElementSelected)
             button.SetToolTip(wx.ToolTip(mspy.elements[element].name))
 
             self.elementsIDs[buttonID] = element
@@ -495,7 +500,7 @@ class panelPeriodicTable(wx.Frame):
         grid.Add(connectionLine, (7, 2), (3, 1), flag=wx.ALIGN_CENTER_VERTICAL)
 
         # make element area
-        self.elementName = wx.StaticText(panel, -1, "", size=(200, 20))
+        self.elementName = wx.StaticText(panel, -1, "", size=wx.Size(200, 20))
         self.elementName.SetFont(
             wx.Font(
                 mwx.PERIODIC_TABLE_FONT_SIZE,
@@ -504,7 +509,7 @@ class panelPeriodicTable(wx.Frame):
                 wx.FONTWEIGHT_BOLD,
             )
         )
-        self.elementMass = wx.StaticText(panel, -1, "", size=(200, 30))
+        self.elementMass = wx.StaticText(panel, -1, "", size=wx.Size(200, 30))
         self.elementMass.SetFont(wx.SMALL_FONT)
 
         grid.Add(self.elementName, (0, 3), (1, 8), flag=wx.ALIGN_CENTER_VERTICAL)
@@ -546,11 +551,11 @@ class panelPeriodicTable(wx.Frame):
         # select group elements
         for element in self.elementsButtons:
             if self.currentGroup and element in self.groups[group]:
-                self.elementsButtons[element].SetBitmapLabel(
+                self.elementsButtons[element].SetBitmap(
                     images.lib["periodicTable" + element + "Sel"]
                 )
             else:
-                self.elementsButtons[element].SetBitmapLabel(
+                self.elementsButtons[element].SetBitmap(
                     images.lib["periodicTable" + element + "Off"]
                 )
 
@@ -565,11 +570,11 @@ class panelPeriodicTable(wx.Frame):
             and self.currentGroup
             and self.currentElement in self.groups[self.currentGroup]
         ):
-            self.elementsButtons[self.currentElement].SetBitmapLabel(
+            self.elementsButtons[self.currentElement].SetBitmap(
                 images.lib["periodicTable" + self.currentElement + "Sel"]
             )
         elif self.currentElement:
-            self.elementsButtons[self.currentElement].SetBitmapLabel(
+            self.elementsButtons[self.currentElement].SetBitmap(
                 images.lib["periodicTable" + self.currentElement + "Off"]
             )
 
@@ -583,11 +588,11 @@ class panelPeriodicTable(wx.Frame):
 
         # get current element
         else:
-            element = self.elementsIDs[evt.GetId()]
+            element = self.elementsIDs[evt.GetEventObject().GetId()]
 
             # highlight current element
             self.currentElement = element
-            self.elementsButtons[element].SetBitmapLabel(
+            self.elementsButtons[element].SetBitmap(
                 images.lib["periodicTable" + element + "On"]
             )
 
@@ -657,8 +662,8 @@ class panelPeriodicTable(wx.Frame):
         # show the link
         if link:
             try:
-                import wx; wx.LaunchDefaultBrowser(link, flags=0)
-            except:
+                wx.LaunchDefaultBrowser(link, flags=0)
+            except Exception:
                 pass
 
     # ----
@@ -673,8 +678,8 @@ class panelPeriodicTable(wx.Frame):
                 % mspy.elements[self.currentElement].atomicNumber
             )
             try:
-                import wx; wx.LaunchDefaultBrowser(link, flags=0)
-            except:
+                wx.LaunchDefaultBrowser(link, flags=0)
+            except Exception:
                 pass
         else:
             wx.Bell()
