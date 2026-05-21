@@ -358,8 +358,8 @@ class annotations:
         self.pointsScaled = self.pointsCropped
         if len(self.points):
             self.pointsBox = (
-                numpy.minimum.reduce(self.points),
-                numpy.maximum.reduce(self.points),
+                numpy.array([numpy.min(self.points[:, 0]), numpy.min(self.points[:, 1])]),
+                numpy.array([numpy.max(self.points[:, 0]), numpy.max(self.points[:, 1])]),
             )
 
         # get labels
@@ -409,8 +409,8 @@ class annotations:
 
         # get range
         if minX is not None and maxX is not None:
-            minXY = numpy.minimum.reduce(data)
-            maxXY = numpy.maximum.reduce(data)
+            minXY = numpy.array([numpy.min(data[:, 0]), numpy.min(data[:, 1])])
+            maxXY = numpy.array([numpy.max(data[:, 0]), numpy.max(data[:, 1])])
         else:
             minXY = [self.pointsBox[0][0], self.pointsBox[0][1]]
             maxXY = [self.pointsBox[1][0], self.pointsBox[1][1]]
@@ -689,8 +689,8 @@ class points:
         self.scaled = self.cropped
         if len(self.points):
             self.pointsBox = (
-                numpy.minimum.reduce(self.points),
-                numpy.maximum.reduce(self.points),
+                numpy.array([numpy.min(self.points[:, 0]), numpy.min(self.points[:, 1])]),
+                numpy.array([numpy.max(self.points[:, 0]), numpy.max(self.points[:, 1])]),
             )
 
         # calculate normalization
@@ -733,8 +733,8 @@ class points:
 
         # get range
         if minX is not None and maxX is not None:
-            minXY = numpy.minimum.reduce(data)
-            maxXY = numpy.maximum.reduce(data)
+            minXY = numpy.array([numpy.min(data[:, 0]), numpy.min(data[:, 1])])
+            maxXY = numpy.array([numpy.max(data[:, 0]), numpy.max(data[:, 1])])
         else:
             minXY = [self.pointsBox[0][0], self.pointsBox[0][1]]
             maxXY = [self.pointsBox[1][0], self.pointsBox[1][1]]
@@ -884,7 +884,7 @@ class points:
             dc.SetPen(pen)
             dc.SetBrush(brush)
             if len(self.scaled) > 0:
-                dc.DrawLines(self.scaled.astype(int))
+                dc.DrawLines(self.scaled)
 
         # draw points
         if self.properties["showPoints"]:
@@ -1007,8 +1007,8 @@ class spectrum:
         self.spectrumScaled = self.spectrumCropped
         if len(self.spectrumPoints):
             self.spectrumBox = (
-                numpy.minimum.reduce(self.spectrumPoints),
-                numpy.maximum.reduce(self.spectrumPoints),
+                numpy.array([numpy.min(self.spectrumPoints[:, 0]), numpy.min(self.spectrumPoints[:, 1])]),
+                numpy.array([numpy.max(self.spectrumPoints[:, 0]), numpy.max(self.spectrumPoints[:, 1])]),
             )
 
         # convert peaklist points to array
@@ -1021,8 +1021,8 @@ class spectrum:
         self.peaklistCroppedPeaks = self.peaklist[:]
         if len(self.peaklistPoints):
             self.peaklistBox = (
-                numpy.minimum.reduce(self.peaklistPoints),
-                numpy.maximum.reduce(self.peaklistPoints),
+                numpy.array([numpy.min(self.peaklistPoints[:, 0]), numpy.min(self.peaklistPoints[:, 1]), numpy.min(self.peaklistPoints[:, 2])]),
+                numpy.array([numpy.max(self.peaklistPoints[:, 0]), numpy.max(self.peaklistPoints[:, 1]), numpy.max(self.peaklistPoints[:, 2])]),
             )
 
         # calculate normalization
@@ -1067,8 +1067,8 @@ class spectrum:
         # calculate bounding box for spectrum
         if len(spectrumData) and self.properties["showSpectrum"]:
             if minX is not None and maxX is not None:
-                minXY = numpy.minimum.reduce(spectrumData)
-                maxXY = numpy.maximum.reduce(spectrumData)
+                minXY = numpy.array([numpy.min(spectrumData[:, 0]), numpy.min(spectrumData[:, 1])])
+                maxXY = numpy.array([numpy.max(spectrumData[:, 0]), numpy.max(spectrumData[:, 1])])
             else:
                 minXY = [self.spectrumBox[0][0], self.spectrumBox[0][1]]
                 maxXY = [self.spectrumBox[1][0], self.spectrumBox[1][1]]
@@ -1085,8 +1085,8 @@ class spectrum:
             or self.properties["showTicks"]
         ):
             if minX is not None and maxX is not None:
-                minXY = numpy.minimum.reduce(peaklistData)
-                maxXY = numpy.maximum.reduce(peaklistData)
+                minXY = numpy.array([numpy.min(peaklistData[:, 0]), numpy.min(peaklistData[:, 1]), numpy.min(peaklistData[:, 2])])
+                maxXY = numpy.array([numpy.max(peaklistData[:, 0]), numpy.max(peaklistData[:, 1]), numpy.max(peaklistData[:, 2])])
             else:
                 minXY = [
                     self.peaklistBox[0][0],
@@ -1450,7 +1450,7 @@ class spectrum:
 
         # draw lines
         if len(self.spectrumScaled) > 0:
-            dc.DrawLines(self.spectrumScaled.astype(int))
+            dc.DrawLines(self.spectrumScaled)
 
         # set pen for points
         pen = wx.Pen(

@@ -165,8 +165,8 @@ class scan:
 
         # calculate range for spectrum and peaklist
         if len(self.profile) > 0 and len(self.peaklist) > 0:
-            spectrumMax = numpy.maximum.reduce(self.profile)[1]
-            spectrumMin = numpy.minimum.reduce(self.profile)[1]
+            spectrumMax = numpy.max(self.profile[:, 1])
+            spectrumMin = numpy.min(self.profile[:, 1])
             peaklistMax = max([peak.ai for peak in self.peaklist])
             peaklistMin = min([peak.base for peak in self.peaklist])
 
@@ -174,8 +174,8 @@ class scan:
 
         # calculate range for spectrum only
         elif len(self.profile) > 0:
-            spectrumMax = numpy.maximum.reduce(self.profile)[1]
-            shift = numpy.minimum.reduce(self.profile)[1]
+            spectrumMax = numpy.max(self.profile[:, 1])
+            shift = numpy.min(self.profile[:, 1])
 
             return spectrumMax / 100.0
 
@@ -299,7 +299,7 @@ class scan:
         """
 
         # crop spectrum data
-        self.profile = mod_signal.crop(self.profile, minX, maxX)
+        self.profile = mod_signal.crop(self.profile, minX, maxX).copy()
 
         # crop peaklist data
         self.peaklist.crop(minX, maxX)

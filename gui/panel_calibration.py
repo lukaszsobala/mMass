@@ -795,11 +795,11 @@ class panelCalibration(wx.Frame, MakeModalMixin):
 
                 # set range
                 if intensities:
-                    minY = min(minY, float(numpy.minimum.reduce(curvePoints)[1]))
-                    maxY = max(maxY, float(numpy.maximum.reduce(curvePoints)[1]))
+                    minY = min(minY, float(numpy.min(curvePoints[:, 1])))
+                    maxY = max(maxY, float(numpy.max(curvePoints[:, 1])))
                 else:
-                    minY = float(numpy.minimum.reduce(curvePoints)[1])
-                    maxY = float(numpy.maximum.reduce(curvePoints)[1])
+                    minY = float(numpy.min(curvePoints[:, 1]))
+                    maxY = float(numpy.max(curvePoints[:, 1]))
 
         # make peaklist
         if self.currentDocument and self.currentDocument.spectrum.peaklist:

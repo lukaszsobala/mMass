@@ -1,5 +1,7 @@
 import time
 
+# pyright: reportAttributeAccessIssue=false, reportArgumentType=false, reportCallIssue=false, reportGeneralTypeIssues=false, reportIndexIssue=false, reportOperatorIssue=false, reportOptionalSubscript=false
+
 # -------------------------------------------------------------------------
 #     Copyright (C) 2005-2013 Martin Strohalm <www.mmass.org>
 
@@ -16,8 +18,6 @@ import time
 #     Complete text of GNU GPL can be found in the file LICENSE.TXT in the
 #     main directory of the program.
 # -------------------------------------------------------------------------
-import pdb
-
 # load libs
 import wx
 import numpy
@@ -108,6 +108,21 @@ class canvas(wx.Window):
         self.pointScale = 1
         self.pointShift = 0
         self._last_draw_time = 0.0
+        self._min_filter_size = 1.0
+        self._max_filter_size = 8.0
+        self._interactive_filter_size = self._min_filter_size
+        self._progressive_filter_size = self._min_filter_size
+        self._draw_budget_s = 0.04
+        self._reveal_delay_ms = 90
+        self._reveal_interval_ms = 16
+        self._reveal_timer = None
+        self._wheel_interaction_until = 0.0
+        self._wheel_interaction_hold_s = 0.12
+        self._target_points_per_px = 20.0
+        self._count_cull_deadband = 1.4
+        self._count_cull_knee = 3.0
+        self._count_cull_soft_exp = 0.55
+        self._count_cull_hard_exp = 1.2
 
         # set events
         self.Bind(wx.EVT_PAINT, self.onPaint)
@@ -197,7 +212,7 @@ class canvas(wx.Window):
             self.SetFocus()
             try:
                 wx.GetApp().Yield()
-            except:
+            except Exception:
                 pass
 
         # get cursor positions
@@ -457,6 +472,9 @@ class canvas(wx.Window):
         wx.CallAfter(self.Refresh, False)
 
         # redraw plot
+        self._wheel_interaction_until = (
+            time.perf_counter() + self._wheel_interaction_hold_s
+        )
         self.draw(self.lastDraw[0], (minX, maxX), (minY, maxY), dc)
 
         # remember new zoom
@@ -985,7 +1003,7 @@ class canvas(wx.Window):
         """Get selection rectangle coordinations."""
 
         # check position
-        if not self.mouseEvent in ("rectangle", "range"):
+        if self.mouseEvent not in ("rectangle", "range"):
             return False
 
         # get coordinations
@@ -1076,8 +1094,24 @@ class canvas(wx.Window):
 
     # ----
 
-    def draw(self, graphics, xAxis=None, yAxis=None, dc=None, filterSize=1.5):
+    def draw(
+        self, graphics, xAxis=None, yAxis=None, dc=None, filterSize=1.0, adaptive=True
+    ):
         """Draw axis and plot graphics."""
+
+        start = time.perf_counter()
+        now = time.perf_counter()
+        interactive = self.mouseEvent in (
+            "xShift",
+            "yShift",
+            "xScale",
+            "yScale",
+        ) or now < self._wheel_interaction_until
+        effective_filter = filterSize
+        if adaptive:
+            effective_filter = max(filterSize, self._progressive_filter_size)
+            if interactive:
+                effective_filter = max(effective_filter, self._interactive_filter_size)
 
         # reset tracker
         self.mouseTracker = False
@@ -1162,7 +1196,15 @@ class canvas(wx.Window):
 
         # crop, recalculate and filter points
         graphics.cropPoints(p1[0], p2[0])
-        graphics.scaleAndShift(scale, shift, filterSize)
+
+        if adaptive and interactive:
+            visible_count = self._estimateVisiblePointCount(graphics)
+            count_filter = self._getCountAdaptiveFilter(visible_count, width, filterSize)
+            if count_filter > self._interactive_filter_size:
+                self._interactive_filter_size = min(self._max_filter_size, count_filter)
+            effective_filter = max(effective_filter, self._interactive_filter_size)
+
+        graphics.scaleAndShift(scale, shift, effective_filter)
 
         # draw axis labels
         xLabelPos = (
@@ -1210,6 +1252,26 @@ class canvas(wx.Window):
             wx.Rect(0, 0, *self.plotBuffer.GetSize())
         )
 
+        elapsed = time.perf_counter() - start
+        if adaptive and interactive:
+            if elapsed > self._draw_budget_s:
+                self._interactive_filter_size = min(
+                    self._max_filter_size, self._interactive_filter_size * 1.5
+                )
+            elif elapsed < (self._draw_budget_s * 0.7):
+                self._interactive_filter_size = max(
+                    self._min_filter_size, self._interactive_filter_size * 0.90
+                )
+
+            self._progressive_filter_size = max(
+                self._progressive_filter_size, self._interactive_filter_size
+            )
+            self._scheduleProgressiveRefine(self._reveal_delay_ms)
+        elif adaptive:
+            self._interactive_filter_size = max(
+                self._min_filter_size, self._interactive_filter_size * 0.95
+            )
+
     # ----
 
     def drawOutside(self, dc, filterSize):
@@ -1217,7 +1279,102 @@ class canvas(wx.Window):
 
         if self.lastDraw is not None:
             graphics, xAxis, yAxis = self.lastDraw
-            self.draw(graphics, xAxis, yAxis, dc, filterSize=filterSize)
+            self.draw(graphics, xAxis, yAxis, dc, filterSize=filterSize, adaptive=False)
+
+    # ----
+
+    def _scheduleProgressiveRefine(self, delay=None):
+        """Queue incremental redraws that gradually restore full detail."""
+
+        if delay is None:
+            delay = self._reveal_interval_ms
+
+        if self._reveal_timer and self._reveal_timer.IsRunning():
+            self._reveal_timer.Stop()
+        self._reveal_timer = wx.CallLater(delay, self._progressiveRefineTick)
+
+    # ----
+
+    def _progressiveRefineTick(self):
+        """Redraw with lower decimation in small steps to avoid single-frame spikes."""
+
+        if not self.lastDraw:
+            return
+
+        if self.mouseEvent in ("xShift", "yShift", "xScale", "yScale"):
+            self._scheduleProgressiveRefine(self._reveal_delay_ms)
+            return
+
+        if time.perf_counter() < self._wheel_interaction_until:
+            self._scheduleProgressiveRefine(self._reveal_delay_ms)
+            return
+
+        if self._progressive_filter_size <= self._min_filter_size + 1e-9:
+            self._progressive_filter_size = self._min_filter_size
+            return
+
+        self._progressive_filter_size = max(
+            self._min_filter_size, self._progressive_filter_size * 0.3
+        )
+        self.draw(
+            self.lastDraw[0],
+            self.lastDraw[1],
+            self.lastDraw[2],
+            filterSize=self._min_filter_size,
+        )
+
+        if self._progressive_filter_size > self._min_filter_size + 1e-9:
+            self._scheduleProgressiveRefine(self._reveal_interval_ms)
+
+    # ----
+
+    def _estimateVisiblePointCount(self, graphics):
+        """Estimate visible point pressure from already cropped object buffers."""
+
+        count = 0
+        objects = getattr(graphics, "objects", [])
+        for obj in objects:
+            try:
+                if not obj.properties.get("visible", True):
+                    continue
+            except Exception:
+                pass
+
+            if hasattr(obj, "cropped"):
+                count += len(obj.cropped)
+            if hasattr(obj, "spectrumCropped"):
+                count += len(obj.spectrumCropped)
+            if hasattr(obj, "peaklistCropped"):
+                count += len(obj.peaklistCropped)
+
+        return count
+
+    # ----
+
+    def _getCountAdaptiveFilter(self, visible_count, plot_width_px, base_filter):
+        """Convert visible-point pressure into a temporary filter size."""
+
+        if visible_count <= 0:
+            return base_filter
+
+        target_points = max(800.0, float(plot_width_px) * self._target_points_per_px)
+        ratio = visible_count / target_points
+
+        # Keep low-density views detailed, then increase culling in two stages.
+        if ratio <= self._count_cull_deadband:
+            return base_filter
+
+        normalized = ratio / self._count_cull_deadband
+        if ratio <= self._count_cull_knee:
+            cull_factor = normalized**self._count_cull_soft_exp
+        else:
+            soft_at_knee = (
+                self._count_cull_knee / self._count_cull_deadband
+            ) ** self._count_cull_soft_exp
+            hard_ratio = ratio / self._count_cull_knee
+            cull_factor = soft_at_knee * (hard_ratio**self._count_cull_hard_exp)
+
+        return min(self._max_filter_size, base_filter * cull_factor)
 
     # ----
 
@@ -2197,7 +2354,7 @@ class canvas(wx.Window):
                 yAxis = (yAxis[1], yAxis[0])
 
         # draw plot
-        if not xAxis is None or not yAxis is None:
+        if xAxis is not None or yAxis is not None:
             self.draw(self.lastDraw[0], xAxis, yAxis, dc)
             self.rememberView(xAxis, yAxis)
 
@@ -2314,19 +2471,29 @@ class canvas(wx.Window):
         # make ticks
         t = -majorGrid * numpy.floor(-lower / majorGrid) - 5 * minorGrid
         i = -5
-        while t < lower:
+        loop_guard = 0
+        while t < lower and loop_guard < 1000:
+            prev_t = t
             t = round(t + minorGrid, rnd)
             i += 1
+            loop_guard += 1
+            if t <= prev_t:
+                break
 
         ticks = []
-        while t <= upper:
+        loop_guard = 0
+        while t <= upper and loop_guard < 1000:
             ttype = "minor"
-            if i == 0 or i == int(majorGrid / minorGrid):
+            if i == 0 or (minorGrid > 0 and i == int(majorGrid / minorGrid)):
                 ttype = "major"
                 i = 0
             ticks.append((t, format % (t,), ttype))
+            prev_t = t
             t += minorGrid
             i += 1
+            loop_guard += 1
+            if t <= prev_t:
+                break
 
         return ticks
 

@@ -48,7 +48,7 @@ def signal_crop(array, x1, x2):
     if idx2 < len(array):
         idx2 += 1
 
-    return array[idx1:idx2].copy()
+    return array[idx1:idx2]
 
 
 def signal_offset(array, offsetX, offsetY):
@@ -286,10 +286,13 @@ def signal_filter(array, resol):
     return buff[:count].copy()
 
 
+@njit(cache=True, fastmath=True)
 def signal_rescale(array, scaleX, scaleY, shiftX, shiftY):
-    out = np.empty_like(array)
-    out[:, 0] = np.round(array[:, 0] * scaleX + shiftX)
-    out[:, 1] = np.round(array[:, 1] * scaleY + shiftY)
+    n = len(array)
+    out = np.empty((n, 2), dtype=np.int32)
+    for i in range(n):
+        out[i, 0] = int(round(array[i, 0] * scaleX + shiftX))
+        out[i, 1] = int(round(array[i, 1] * scaleY + shiftY))
     return out
 
 
