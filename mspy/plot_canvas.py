@@ -1219,6 +1219,9 @@ class canvas(wx.Window):
         self.cleanPlotBuffer = self.plotBuffer.GetSubBitmap(
             wx.Rect(0, 0, *self.plotBuffer.GetSize())
         )
+        
+        # apply any dynamic overlays
+        self.quickRefresh(dc)
 
     # ----
 
@@ -2026,7 +2029,7 @@ class canvas(wx.Window):
 
     # ----
 
-    def drawPointArrow(self, x, y, direction="up"):
+    def drawPointArrow(self, x, y, direction="up", dc=None):
         """Draw point arrow"""
 
         # check stop position limits
@@ -2041,8 +2044,9 @@ class canvas(wx.Window):
         y += 1
 
         # set dc
-        dc = wx.MemoryDC(self.plotBuffer)
-        wx.CallAfter(self.Refresh, False)
+        if dc is None:
+            dc = wx.MemoryDC(self.plotBuffer)
+            wx.CallAfter(self.Refresh, False)
         dc.SetPen(wx.TRANSPARENT_PEN)
         dc.SetBrush(wx.Brush(self.properties["highlightColour"], wx.SOLID))
 
@@ -2165,6 +2169,12 @@ class canvas(wx.Window):
     def quickRefresh(self, dc):
 
         dc.DrawBitmap(self.cleanPlotBuffer, 0, 0)
+        
+        if getattr(self, "highlightedPoints", None):
+            y = self.plotCoords[3]
+            for point in self.highlightedPoints:
+                x = self.positionUserToScreen((point, 0))[0]
+                self.drawPointArrow(x, y, dc=dc)
 
     # ----
 
@@ -2215,19 +2225,23 @@ class canvas(wx.Window):
 
     def highlightXPoints(self, points, zoom=False):
         """Move plot to see selected X position and show pointarrow"""
+        
+        self.highlightedPoints = points
 
         # check points
         if not points:
+            dc = wx.MemoryDC(self.plotBuffer)
+            self.quickRefresh(dc)
+            wx.CallAfter(self.Refresh, False)
             return
 
         # ensure visible
         self.ensureVisible(points, zoom)
 
-        # draw point-arrow
-        y = self.plotCoords[3]
-        for point in points:
-            x = self.positionUserToScreen((point, 0))[0]
-            self.drawPointArrow(x, y)
+        # quick refresh to draw point-arrow
+        dc = wx.MemoryDC(self.plotBuffer)
+        self.quickRefresh(dc)
+        wx.CallAfter(self.Refresh, False)
 
     # ----
 

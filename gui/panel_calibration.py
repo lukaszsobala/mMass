@@ -276,6 +276,8 @@ class panelCalibration(wx.Frame, MakeModalMixin):
         self.referencesList.SetFont(wx.SMALL_FONT)
         self.referencesList.setSecondarySortColumn(2)
         self.referencesList.setAltColour(mwx.LISTCTRL_ALTCOLOUR)
+        self.referencesList._currentColumn = 1
+        self.referencesList._currentDirection = 1
 
         # set events
         self.referencesList.Bind(wx.EVT_LIST_ITEM_SELECTED, self.onItemSelected)
@@ -706,7 +708,7 @@ class panelCalibration(wx.Frame, MakeModalMixin):
                 self.referencesList.SetItemFont(row, fontUsed)
 
         # sort data
-        self.referencesList.sort()
+        self.referencesList.sort(1)
 
         # scroll top
         if scroll:
