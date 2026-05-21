@@ -1416,7 +1416,7 @@ class canvas(wx.Window):
             dc.DrawPolygon(
                 [
                     (int(p[0]), int(p[1]))
-                    for p in [(x, y1), (x, y1 + height), (x - size, y1 + height / 2)]
+                    for p in [(x, y1), (x, y1 + height), (x - size, y1 + height // 2)]
                 ]
             )
         if xAxis[0] > maxX:
@@ -1424,7 +1424,7 @@ class canvas(wx.Window):
             dc.DrawPolygon(
                 [
                     (int(p[0]), int(p[1]))
-                    for p in [(x, y1), (x, y1 + height), (x + size, y1 + height / 2)]
+                    for p in [(x, y1), (x, y1 + height), (x + size, y1 + height // 2)]
                 ]
             )
 
@@ -1480,7 +1480,7 @@ class canvas(wx.Window):
             dc.DrawPolygon(
                 [
                     (int(p[0]), int(p[1]))
-                    for p in [(x1, y), (x1 + width, y), (x1 + width / 2, y - size)]
+                    for p in [(x1, y), (x1 + width, y), (x1 + width // 2, y - size)]
                 ]
             )
         if yAxis[1] < minY:
@@ -1488,7 +1488,7 @@ class canvas(wx.Window):
             dc.DrawPolygon(
                 [
                     (int(p[0]), int(p[1]))
-                    for p in [(x1, y), (x1 + width, y), (x1 + width / 2, y + size)]
+                    for p in [(x1, y), (x1 + width, y), (x1 + width // 2, y + size)]
                 ]
             )
 

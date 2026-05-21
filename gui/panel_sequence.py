@@ -4149,7 +4149,7 @@ class sequenceGrid(wx.StaticBoxSizer):
             self.items.append(item)
 
             # add to grid
-            row = (length + x) / 5
+            row = (length + x) // 5
             col = 2 * (x % 5)
 
             label = wx.StaticText(self.panel, -1, str(length + x + 1))
