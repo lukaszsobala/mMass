@@ -40,7 +40,7 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
             parent,
             -1,
             "Compare Peak Lists",
-            size=(500, 400),
+            size=wx.Size(500, 400),
             style=wx.DEFAULT_FRAME_STYLE | wx.FRAME_FLOAT_ON_PARENT,
         )
 
@@ -91,7 +91,10 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
 
         # init toolbar
         panel = mwx.bgrPanel(
-            self, -1, images.lib["bgrToolbarNoBorder"], size=(-1, mwx.TOOLBAR_HEIGHT)
+            self,
+            -1,
+            images.lib["bgrToolbarNoBorder"],
+            size=wx.Size(-1, mwx.TOOLBAR_HEIGHT),
         )
 
         # make elements
@@ -100,7 +103,7 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
 
         choices = ["Peak Lists", "Notations (measured)", "Notations (theoretical)"]
         self.compare_choice = wx.Choice(
-            panel, -1, choices=choices, size=(180, mwx.SMALL_CHOICE_HEIGHT)
+            panel, -1, choices=choices, size=wx.Size(180, mwx.SMALL_CHOICE_HEIGHT)
         )
         self.compare_choice.Bind(wx.EVT_CHOICE, self.onUpdatePeaklist)
         self.compare_choice.Select(0)
@@ -116,7 +119,7 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
             panel,
             -1,
             str(config.comparePeaklists["tolerance"]),
-            size=(60, -1),
+            size=wx.Size(60, -1),
             style=wx.TE_PROCESS_ENTER,
             validator=mwx.validator("floatPos"),
         )
@@ -140,7 +143,10 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         self.ratioCheck_check.Bind(wx.EVT_CHECKBOX, self.onRatioCheckChanged)
 
         self.ratioDirection_choice = wx.Choice(
-            panel, -1, choices=["Above", "Below"], size=(80, mwx.SMALL_CHOICE_HEIGHT)
+            panel,
+            -1,
+            choices=["Above", "Below"],
+            size=wx.Size(80, mwx.SMALL_CHOICE_HEIGHT),
         )
         self.ratioDirection_choice.Select(0)
         if config.comparePeaklists["ratioDirection"] == -1:
@@ -150,12 +156,12 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
             panel,
             -1,
             str(config.comparePeaklists["ratioThreshold"]),
-            size=(50, -1),
+            size=wx.Size(50, -1),
             validator=mwx.validator("floatPos"),
         )
 
         self.compare_butt = wx.Button(
-            panel, -1, "Compare", size=(-1, mwx.SMALL_BUTTON_HEIGHT)
+            panel, -1, "Compare", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
         )
         self.compare_butt.Bind(wx.EVT_BUTTON, self.onCompare)
 
@@ -224,7 +230,7 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
 
         # make table
         self.documentsGrid = wx.grid.Grid(
-            panel, -1, size=(550, 500), style=mwx.GRID_STYLE
+            panel, -1, size=wx.Size(550, 500), style=mwx.GRID_STYLE
         )
         self.documentsGrid.CreateGrid(0, 0)
         self.documentsGrid.DisableDragColSize()
@@ -252,7 +258,7 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
 
         # make table
         self.peaklistGrid = wx.grid.Grid(
-            panel, -1, size=(225, 400), style=mwx.GRID_STYLE
+            panel, -1, size=wx.Size(225, 400), style=mwx.GRID_STYLE
         )
         self.peaklistGrid.CreateGrid(0, 0)
         self.peaklistGrid.DisableDragColSize()
@@ -280,7 +286,7 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
 
         # make table
         self.matchesGrid = wx.grid.Grid(
-            panel, -1, size=(225, 400), style=mwx.GRID_STYLE
+            panel, -1, size=wx.Size(225, 400), style=mwx.GRID_STYLE
         )
         self.matchesGrid.CreateGrid(0, 0)
         self.matchesGrid.DisableDragColSize()
@@ -364,10 +370,10 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         self.mainSizer.Fit(self)
         try:
             wx.GetApp().Yield()
-        except:
+        except Exception:
             pass
         try:
-            self.documentsGrid.SetMinSize((-1, -1))
+            self.documentsGrid.SetMinSize(wx.Size(-1, -1))
         except RuntimeError:
             pass
 
@@ -711,7 +717,7 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
 
             return True
 
-        except:
+        except Exception:
             wx.Bell()
             return False
 
@@ -894,7 +900,7 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
             self.matchesGrid.SetCellBackgroundColour(
                 i, 0, self.currentDocuments[match[0]].colour
             )
-            if match[5] == True:
+            if match[5]:
                 self.matchesGrid.SetCellAlignment(
                     i, 0, wx.ALIGN_CENTER, wx.ALIGN_CENTER
                 )
