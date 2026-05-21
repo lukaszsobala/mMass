@@ -199,9 +199,12 @@ def cmp(a, b):
         return 1
     else:
         try:
-            return (a > b) - (a < b)
-        except TypeError:
-            return (str(a) > str(b)) - (str(a) < str(b))
+            return (float(a) > float(b)) - (float(a) < float(b))
+        except (TypeError, ValueError):
+            try:
+                return (a > b) - (a < b)
+            except TypeError:
+                return (str(a) > str(b)) - (str(a) < str(b))
 
 
 # RUN AFTER APP INIT
@@ -411,7 +414,10 @@ class sortListCtrl(wx.ListCtrl):
 
     def _sortData(self, item1, item2):
         """Sort data."""
-        return self._sortItems(self._data[item1], self._data[item2])
+        comp = self._sortItems(self._data[item1], self._data[item2])
+        if comp == 0:
+            return 1 if item1 > item2 else -1
+        return comp
 
     # ----
 

@@ -1235,7 +1235,7 @@ class canvas(wx.Window):
         """Draw plot axis."""
 
         # set pen
-        penWidth = self.printerScale["drawings"]
+        penWidth = int(self.printerScale["drawings"])
         dc.SetPen(wx.Pen(self.properties["axisColour"], penWidth))
         dc.SetTextForeground(self.properties["axisColour"])
 
@@ -1367,7 +1367,7 @@ class canvas(wx.Window):
             y += dc.GetTextExtent(name[0])[1] / 2
 
             pencolour = [max(i - 70, 0) for i in name[1]]
-            pen = wx.Pen(pencolour, 1 * self.printerScale["drawings"], wx.SOLID)
+            pen = wx.Pen(pencolour, int(self.printerScale["drawings"]), wx.SOLID)
             brush = wx.Brush(name[1], wx.SOLID)
             dc.SetPen(pen)
             dc.SetBrush(brush)
@@ -1406,7 +1406,7 @@ class canvas(wx.Window):
             currWidth = 0
 
         # set pen
-        penWidth = self.printerScale["drawings"]
+        penWidth = int(self.printerScale["drawings"])
         dc.SetPen(wx.Pen(self.properties["axisColour"], penWidth))
 
         # draw outline
@@ -1470,7 +1470,7 @@ class canvas(wx.Window):
             currHeight = 0
 
         # set pen
-        penWidth = self.printerScale["drawings"]
+        penWidth = int(self.printerScale["drawings"])
         dc.SetPen(wx.Pen(self.properties["axisColour"], penWidth))
 
         # draw outline
@@ -1508,7 +1508,7 @@ class canvas(wx.Window):
         """Draw spectra gelview."""
 
         # set pen
-        penWidth = self.printerScale["drawings"]
+        penWidth = int(self.printerScale["drawings"])
 
         # get plot coordinates
         plotX1, plotY1, plotX2, plotY2 = self.plotCoords
@@ -2590,7 +2590,7 @@ class printout(wx.Printout):
         self.graph.setSize(plotAreaW, plotAreaH)
 
         # set offset and scale
-        dc.SetDeviceOrigin(pixLeft, pixTop)
+        dc.SetDeviceOrigin(int(pixLeft), int(pixTop))
 
         # thicken up pens and fonts for printing
         ratioW = float(plotAreaW) / 900
@@ -2634,7 +2634,7 @@ def _scaleFont(font, scale):
     encoding = font.GetDefaultEncoding()
 
     # scale pointSize
-    pointSize = pointSize * scale * 1.3
+    pointSize = int(pointSize * scale * 1.3)
 
     # make print font
     printerFont = wx.Font(

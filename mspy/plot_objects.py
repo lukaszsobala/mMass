@@ -529,7 +529,7 @@ class annotations:
         # draw points
         if self.properties["showPoints"]:
             pencolour = [max(x - 70, 0) for x in self.properties["pointColour"]]
-            pen = wx.Pen(pencolour, 1 * printerScale["drawings"], wx.SOLID)
+            pen = wx.Pen(pencolour, int(printerScale["drawings"]), wx.SOLID)
             brush = wx.Brush(self.properties["pointColour"], wx.SOLID)
             dc.SetPen(pen)
             dc.SetBrush(brush)
@@ -879,7 +879,7 @@ class points:
 
             pen = wx.Pen(
                 self.properties["lineColour"],
-                self.properties["lineWidth"] * printerScale["drawings"],
+                int(self.properties["lineWidth"] * printerScale["drawings"]),
                 self.properties["lineStyle"],
             )
             brush = wx.Brush(self.properties["lineColour"], wx.SOLID)
@@ -896,7 +896,7 @@ class points:
                 pencolour = [max(x - 70, 0) for x in self.properties["pointColour"]]
                 pen = wx.Pen(
                     pencolour,
-                    self.properties["lineWidth"] * printerScale["drawings"],
+                    int(self.properties["lineWidth"] * printerScale["drawings"]),
                     wx.SOLID,
                 )
                 brush = wx.Brush(self.properties["pointColour"], wx.SOLID)
@@ -904,7 +904,7 @@ class points:
                 pencolour = self.properties["pointColour"]
                 pen = wx.Pen(
                     pencolour,
-                    self.properties["lineWidth"] * printerScale["drawings"],
+                    int(self.properties["lineWidth"] * printerScale["drawings"]),
                     wx.SOLID,
                 )
                 brush = wx.TRANSPARENT_BRUSH
@@ -1447,7 +1447,7 @@ class spectrum:
         # set pen and brush
         pen = wx.Pen(
             self.properties["spectrumColour"],
-            self.properties["spectrumWidth"] * printerScale["drawings"],
+            int(self.properties["spectrumWidth"] * printerScale["drawings"]),
             self.properties["spectrumStyle"],
         )
         brush = wx.Brush(self.properties["spectrumColour"], wx.SOLID)
@@ -1461,7 +1461,7 @@ class spectrum:
         # set pen for points
         pen = wx.Pen(
             self.properties["spectrumColour"],
-            self.properties["spectrumWidth"] * printerScale["drawings"],
+            int(self.properties["spectrumWidth"] * printerScale["drawings"]),
             wx.SOLID,
         )
         dc.SetPen(pen)
@@ -1589,12 +1589,12 @@ class spectrum:
         # set pen params
         peakPen = wx.Pen(
             self.properties["tickColour"],
-            self.properties["tickWidth"] * printerScale["drawings"],
+            int(self.properties["tickWidth"] * printerScale["drawings"]),
             self.properties["tickStyle"],
         )
         isotopePen = wx.Pen(
             self.properties["tickColour"],
-            self.properties["tickWidth"] * printerScale["drawings"],
+            int(self.properties["tickWidth"] * printerScale["drawings"]),
             self.properties["tickStyle"],
         )
         peakBrush = wx.Brush(self.properties["tickColour"], wx.SOLID)
@@ -1644,8 +1644,8 @@ class spectrum:
                         int(peak[2]),
                     )
                     dc.DrawRectangle(
-                        int(peak[0] - 1 * printerScale["drawings"]),
-                        int(peak[1] - 1 * printerScale["drawings"]),
+                        int(peak[0] - int(printerScale["drawings"])),
+                        int(peak[1] - int(printerScale["drawings"])),
                         int(3 * printerScale["drawings"]),
                         int(3 * printerScale["drawings"]),
                     )
@@ -1788,7 +1788,7 @@ class spectrum:
 
         # set dc
         pencolour = [max(i - 70, 0) for i in colour]
-        pen = wx.Pen(pencolour, 1 * printerScale["drawings"], wx.SOLID)
+        pen = wx.Pen(pencolour, int(printerScale["drawings"]), wx.SOLID)
         dc.SetPen(pen)
         dc.SetTextForeground(colour)
         dc.SetBrush(wx.Brush(colour, wx.SOLID))
@@ -1859,7 +1859,7 @@ def _scaleFont(font, scale):
     encoding = font.GetDefaultEncoding()
 
     # scale pointSize
-    pointSize = pointSize * scale * 1.3
+    pointSize = int(pointSize * scale * 1.3)
 
     # make print font
     printerFont = wx.Font(
