@@ -78,6 +78,7 @@ from .dlg_error import dlgError
 from .dlg_select_scans import dlgSelectScans
 from .dlg_select_sequences import dlgSelectSequences
 from .dlg_clipboard_editor import dlgClipboardEditor
+from .dlg_settings import dlgSettings
 
 # MAIN FRAME
 # ----------
@@ -197,6 +198,7 @@ class mainFrame(wx.Frame):
         document.Append(ID_documentReport, "Analysis Report..." + HK_documentReport, "")
         if wx.Platform == "__WXMAC__":
             document.AppendSeparator()
+        document.Append(ID_documentSettings, "Settings...", "")
         document.Append(ID_documentInfo, "Document Info..." + HK_documentInfo, "")
         document.AppendSeparator()
         document.AppendSeparator()
@@ -213,6 +215,7 @@ class mainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.onDocumentSave, id=ID_documentSaveAs)
         self.Bind(wx.EVT_MENU, self.onDocumentSaveAll, id=ID_documentSaveAll)
         self.Bind(wx.EVT_MENU, self.onDocumentExport, id=ID_documentExport)
+        self.Bind(wx.EVT_MENU, self.onDocumentSettings, id=ID_documentSettings)
         self.Bind(wx.EVT_MENU, self.onDocumentInfo, id=ID_documentInfo)
         self.Bind(
             wx.EVT_MENU, self.onDocumentPrintSpectrum, id=ID_documentPrintSpectrum
@@ -2152,6 +2155,13 @@ class mainFrame(wx.Frame):
             self.documentExportPanel.Show(True)
 
         self.documentExportPanel.Raise()
+
+    # ----
+
+    def onDocumentSettings(self, evt=None):
+        """Show settings dialog."""
+        dlg = dlgSettings(self)
+        dlg.Show() # Open modelessly so the user can see updates live
 
     # ----
 

@@ -268,6 +268,7 @@ spectrum = {
     "notationMarks": 1,
     "notationLabels": 0,
     "notationMZ": 0,
+    "filterSize": 1,
 }
 
 match = {

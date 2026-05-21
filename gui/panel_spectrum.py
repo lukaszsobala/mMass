@@ -816,6 +816,7 @@ class panelSpectrum(wx.Panel):
         self.spectrumCanvas.setProperties(
             showMinorTicks=config.spectrum["showMinorTicks"]
         )
+        self.spectrumCanvas.setProperties(filterSize=config.spectrum.get("filterSize", 1.0))
 
         # set y-axis label
         self.spectrumCanvas.setProperties(yLabel=config.spectrum["yLabel"])

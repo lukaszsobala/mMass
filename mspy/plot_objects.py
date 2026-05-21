@@ -533,12 +533,15 @@ class annotations:
             brush = wx.Brush(self.properties["pointColour"], wx.SOLID)
             dc.SetPen(pen)
             dc.SetBrush(brush)
-            for point in self.pointsScaled:
-                dc.DrawCircle(
-                    int(point[0]),
-                    int(point[1]),
-                    int(self.properties["pointSize"] * printerScale["drawings"]),
-                )
+            import numpy
+            radius = int(self.properties["pointSize"] * printerScale["drawings"])
+            diameter = max(1, radius * 2)
+            ellipses = numpy.empty((len(self.pointsScaled), 4), dtype=numpy.int32)
+            ellipses[:, 0] = self.pointsScaled[:, 0] - radius
+            ellipses[:, 1] = self.pointsScaled[:, 1] - radius
+            ellipses[:, 2] = diameter
+            ellipses[:, 3] = diameter
+            dc.DrawEllipseList(ellipses)
 
     # ----
 
@@ -908,12 +911,15 @@ class points:
 
             dc.SetPen(pen)
             dc.SetBrush(brush)
-            for point in self.scaled:
-                dc.DrawCircle(
-                    int(point[0]),
-                    int(point[1]),
-                    int(self.properties["pointSize"] * printerScale["drawings"]),
-                )
+            import numpy
+            radius = int(self.properties["pointSize"] * printerScale["drawings"])
+            diameter = max(1, radius * 2)
+            ellipses = numpy.empty((len(self.scaled), 4), dtype=numpy.int32)
+            ellipses[:, 0] = self.scaled[:, 0] - radius
+            ellipses[:, 1] = self.scaled[:, 1] - radius
+            ellipses[:, 2] = diameter
+            ellipses[:, 3] = diameter
+            dc.DrawEllipseList(ellipses)
 
     # ----
 
@@ -1471,15 +1477,15 @@ class spectrum:
             > (6 * printerScale["drawings"])
         ):
 
-            for point in self.spectrumScaled:
-                try:
-                    dc.DrawCircle(
-                        int(int(point[0])),
-                        int(int(point[1])),
-                        int(int(2 * printerScale["drawings"])),
-                    )
-                except OverflowError:
-                    pass
+            import numpy
+            radius = int(2 * printerScale["drawings"])
+            diameter = max(1, radius * 2)
+            ellipses = numpy.empty((len(self.spectrumScaled), 4), dtype=numpy.int32)
+            ellipses[:, 0] = self.spectrumScaled[:, 0] - radius
+            ellipses[:, 1] = self.spectrumScaled[:, 1] - radius
+            ellipses[:, 2] = diameter
+            ellipses[:, 3] = diameter
+            dc.DrawEllipseList(ellipses)
 
     # ----
 

@@ -108,16 +108,6 @@ class canvas(wx.Window):
         self.pointScale = 1
         self.pointShift = 0
         self._last_draw_time = 0.0
-        self._min_filter_size = 1.0
-        self._max_filter_size = 8.0
-        self._progressive_filter_size = self._min_filter_size
-        self._reveal_delay_ms = 90
-        self._reveal_interval_ms = 16
-        self._reveal_timer = None
-        self._wheel_interaction_until = 0.0
-        self._wheel_interaction_hold_s = 0.12
-        self._target_points_per_px = 20.0
-        self._count_cull_deadband = 1.4
 
         # set events
         self.Bind(wx.EVT_PAINT, self.onPaint)
@@ -1090,24 +1080,18 @@ class canvas(wx.Window):
     # ----
 
     def draw(
-        self, graphics, xAxis=None, yAxis=None, dc=None, filterSize=1.0, adaptive=True
+        self, graphics, xAxis=None, yAxis=None, dc=None, filterSize=None, adaptive=True
     ):
         """Draw axis and plot graphics."""
+        
+        if filterSize is None:
+            filterSize = self.properties.get("filterSize", 1.0)
 
-        time.perf_counter()
-        now = time.perf_counter()
-        interactive = self.mouseEvent in (
-            "xShift",
-            "yShift",
-            "xScale",
-            "yScale",
-        ) or now < self._wheel_interaction_until
+        start = time.perf_counter()
 
         # reset tracker
         self.mouseTracker = False
 
-        # Compute point-based dynamic filter size
-        # We do this before applying scale so the graphics crop limits compute visible counts
         if dc is None:
             dc = wx.MemoryDC(self.plotBuffer)
             wx.CallAfter(self.Refresh, False)
@@ -1188,16 +1172,7 @@ class canvas(wx.Window):
         # crop, recalculate and filter points
         graphics.cropPoints(p1[0], p2[0])
 
-        effective_filter = filterSize
-        if adaptive:
-            if interactive:
-                visible_count = self._estimateVisiblePointCount(graphics)
-                effective_filter = self._getCountAdaptiveFilter(visible_count, width, filterSize)
-                self._progressive_filter_size = max(self._progressive_filter_size, effective_filter)
-            else:
-                effective_filter = max(filterSize, self._progressive_filter_size)
-
-        graphics.scaleAndShift(scale, shift, effective_filter)
+        graphics.scaleAndShift(scale, shift, filterSize)
 
         # draw axis labels
         xLabelPos = (
@@ -1245,9 +1220,6 @@ class canvas(wx.Window):
             wx.Rect(0, 0, *self.plotBuffer.GetSize())
         )
 
-        if adaptive and interactive:
-            self._scheduleProgressiveRefine(self._reveal_delay_ms)
-
     # ----
 
     def drawOutside(self, dc, filterSize):
@@ -1256,92 +1228,6 @@ class canvas(wx.Window):
         if self.lastDraw is not None:
             graphics, xAxis, yAxis = self.lastDraw
             self.draw(graphics, xAxis, yAxis, dc, filterSize=filterSize, adaptive=False)
-
-    # ----
-
-    def _scheduleProgressiveRefine(self, delay=None):
-        """Queue incremental redraws that gradually restore full detail."""
-
-        if delay is None:
-            delay = self._reveal_interval_ms
-
-        if self._reveal_timer and self._reveal_timer.IsRunning():
-            self._reveal_timer.Stop()
-        self._reveal_timer = wx.CallLater(delay, self._progressiveRefineTick)
-
-    # ----
-
-    def _progressiveRefineTick(self):
-        """Redraw with lower decimation in small steps to avoid single-frame spikes."""
-
-        if not self.lastDraw:
-            return
-
-        if self.mouseEvent in ("xShift", "yShift", "xScale", "yScale"):
-            self._scheduleProgressiveRefine(self._reveal_delay_ms)
-            return
-
-        if time.perf_counter() < self._wheel_interaction_until:
-            self._scheduleProgressiveRefine(self._reveal_delay_ms)
-            return
-
-        if self._progressive_filter_size <= self._min_filter_size + 1e-9:
-            self._progressive_filter_size = self._min_filter_size
-            return
-
-        self._progressive_filter_size = max(
-            self._min_filter_size, self._progressive_filter_size * 0.3
-        )
-        self.draw(
-            self.lastDraw[0],
-            self.lastDraw[1],
-            self.lastDraw[2],
-            filterSize=self._min_filter_size,
-        )
-
-        if self._progressive_filter_size > self._min_filter_size + 1e-9:
-            self._scheduleProgressiveRefine(self._reveal_interval_ms)
-
-    # ----
-
-    def _estimateVisiblePointCount(self, graphics):
-        """Estimate visible point pressure from already cropped object buffers."""
-
-        count = 0
-        objects = getattr(graphics, "objects", [])
-        for obj in objects:
-            try:
-                if not obj.properties.get("visible", True):
-                    continue
-            except Exception:
-                pass
-
-            if hasattr(obj, "cropped"):
-                count += len(obj.cropped)
-            if hasattr(obj, "spectrumCropped"):
-                count += len(obj.spectrumCropped)
-            if hasattr(obj, "peaklistCropped"):
-                count += len(obj.peaklistCropped)
-
-        return count
-
-    # ----
-
-    def _getCountAdaptiveFilter(self, visible_count, plot_width_px, base_filter):
-        """Convert visible-point pressure into a temporary filter size."""
-
-        if visible_count <= 0:
-            return base_filter
-
-        target_points = max(800.0, float(plot_width_px) * self._target_points_per_px)
-        ratio = visible_count / target_points
-
-        # Keep low-density views detailed, then scale linearly.
-        if ratio <= self._count_cull_deadband:
-            return base_filter
-
-        cull_factor = ratio / self._count_cull_deadband
-        return min(self._max_filter_size, base_filter * cull_factor)
 
     # ----
 
