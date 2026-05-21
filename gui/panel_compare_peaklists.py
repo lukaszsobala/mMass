@@ -129,14 +129,17 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         self.unitsDa_radio = wx.RadioButton(panel, -1, "Da", style=wx.RB_GROUP)
         self.unitsDa_radio.SetFont(wx.SMALL_FONT)
         self.unitsDa_radio.SetValue(True)
+        self.unitsDa_radio.Bind(wx.EVT_RADIOBUTTON, self.onCompare)
 
         self.unitsPpm_radio = wx.RadioButton(panel, -1, "ppm")
         self.unitsPpm_radio.SetFont(wx.SMALL_FONT)
         self.unitsPpm_radio.SetValue((config.comparePeaklists["units"] == "ppm"))
+        self.unitsPpm_radio.Bind(wx.EVT_RADIOBUTTON, self.onCompare)
 
         self.ignoreCharge_check = wx.CheckBox(panel, -1, "Ignore charge")
         self.ignoreCharge_check.SetFont(wx.SMALL_FONT)
         self.ignoreCharge_check.SetValue(config.comparePeaklists["ignoreCharge"])
+        self.ignoreCharge_check.Bind(wx.EVT_CHECKBOX, self.onCompare)
 
         self.ratioCheck_check = wx.CheckBox(panel, -1, "Int. ratio:")
         self.ratioCheck_check.SetFont(wx.SMALL_FONT)
@@ -153,19 +156,22 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         self.ratioDirection_choice.Select(0)
         if config.comparePeaklists["ratioDirection"] == -1:
             self.ratioDirection_choice.Select(1)
+        self.ratioDirection_choice.Bind(wx.EVT_CHOICE, self.onCompare)
 
         self.ratioThreshold_value = wx.TextCtrl(
             panel,
             -1,
             str(config.comparePeaklists["ratioThreshold"]),
             size=wx.Size(50, -1),
+            style=wx.TE_PROCESS_ENTER,
             validator=mwx.validator("floatPos"),
         )
+        self.ratioThreshold_value.Bind(wx.EVT_TEXT_ENTER, self.onCompare)
 
-        self.compare_butt = wx.Button(
-            panel, -1, "Compare", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
+        self.consensus_butt = wx.Button(
+            panel, -1, "Consensus", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
         )
-        self.compare_butt.Bind(wx.EVT_BUTTON, self.onCompare)
+        self.consensus_butt.Bind(wx.EVT_BUTTON, self.onConsensus)
 
         self.onRatioCheckChanged()
 
@@ -190,7 +196,7 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         sizer.Add(self.ratioThreshold_value, 0, wx.ALIGN_CENTER_VERTICAL)
         sizer.AddStretchSpacer()
         sizer.AddSpacer(20)
-        sizer.Add(self.compare_butt, 0, wx.ALIGN_CENTER_VERTICAL)
+        sizer.Add(self.consensus_butt, 0, wx.ALIGN_CENTER_VERTICAL)
         sizer.AddSpacer(mwx.CONTROLBAR_RSPACE)
 
         mainSizer = wx.BoxSizer(wx.VERTICAL)
@@ -397,6 +403,52 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         enabled = self.ratioCheck_check.IsChecked()
         self.ratioDirection_choice.Enable(enabled)
         self.ratioThreshold_value.Enable(enabled)
+        if evt is not None:
+            self.onCompare(evt)
+
+    # ----
+
+    def onConsensus(self, evt):
+        """Create consensus peaklist."""
+
+        # check processing
+        if self.processing:
+            return
+
+        # check documents
+        if not self.currentDocuments:
+            wx.Bell()
+            return
+
+        # generate matched groups
+        matched_groups = []
+        for p in self.currentPeaklist:
+            group_found = False
+            for group in matched_groups:
+                mz_avg = sum(x[0] for x in group) / len(group)
+                error = mspy.delta(mz_avg, p[0], config.comparePeaklists["units"])
+                if abs(error) <= config.comparePeaklists["tolerance"]:
+                    group.append(p)
+                    group_found = True
+                    break
+            if not group_found:
+                matched_groups.append([p])
+
+        # create new document
+        from . import doc
+        new_doc = doc.document()
+        new_doc.title = "Consensus"
+        new_doc.colour = self.parent.getFreeColour()
+
+        new_peaks = []
+        for group in matched_groups:
+            mz_avg = sum(x[0] for x in group) / len(group)
+            ai_avg = sum(x[3] for x in group) / len(group)
+            p_obj = mspy.peak(mz=mz_avg, ai=ai_avg)
+            new_peaks.append(p_obj)
+
+        new_doc.spectrum.peaklist = mspy.peaklist(new_peaks)
+        self.parent.onDocumentNew(document=new_doc)
 
     # ----
 
@@ -546,7 +598,7 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
 
         # show processing gauge
         self.onProcessing(True)
-        self.compare_butt.Enable(False)
+        self.consensus_butt.Enable(False)
 
         # do processing to get peaklists
         self.processing = threading.Thread(target=self.runGetPeaklists)
@@ -584,7 +636,7 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
 
         # hide processing gauge
         self.onProcessing(False)
-        self.compare_butt.Enable(True)
+        self.consensus_butt.Enable(True)
 
     # ----
 
@@ -627,7 +679,7 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
 
         # show processing gauge
         self.onProcessing(True)
-        self.compare_butt.Enable(False)
+        self.consensus_butt.Enable(False)
 
         # do processing to get peaklists
         self.processing = threading.Thread(target=self.runGetPeaklists)
@@ -665,7 +717,7 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
 
         # hide processing gauge
         self.onProcessing(False)
-        self.compare_butt.Enable(True)
+        self.consensus_butt.Enable(True)
 
     # ----
 
