@@ -110,9 +110,7 @@ class canvas(wx.Window):
         self._last_draw_time = 0.0
         self._min_filter_size = 1.0
         self._max_filter_size = 8.0
-        self._interactive_filter_size = self._min_filter_size
         self._progressive_filter_size = self._min_filter_size
-        self._draw_budget_s = 0.04
         self._reveal_delay_ms = 90
         self._reveal_interval_ms = 16
         self._reveal_timer = None
@@ -120,9 +118,6 @@ class canvas(wx.Window):
         self._wheel_interaction_hold_s = 0.12
         self._target_points_per_px = 20.0
         self._count_cull_deadband = 1.4
-        self._count_cull_knee = 3.0
-        self._count_cull_soft_exp = 0.55
-        self._count_cull_hard_exp = 1.2
 
         # set events
         self.Bind(wx.EVT_PAINT, self.onPaint)
@@ -1099,7 +1094,7 @@ class canvas(wx.Window):
     ):
         """Draw axis and plot graphics."""
 
-        start = time.perf_counter()
+        time.perf_counter()
         now = time.perf_counter()
         interactive = self.mouseEvent in (
             "xShift",
@@ -1107,16 +1102,12 @@ class canvas(wx.Window):
             "xScale",
             "yScale",
         ) or now < self._wheel_interaction_until
-        effective_filter = filterSize
-        if adaptive:
-            effective_filter = max(filterSize, self._progressive_filter_size)
-            if interactive:
-                effective_filter = max(effective_filter, self._interactive_filter_size)
 
         # reset tracker
         self.mouseTracker = False
 
-        # set DC
+        # Compute point-based dynamic filter size
+        # We do this before applying scale so the graphics crop limits compute visible counts
         if dc is None:
             dc = wx.MemoryDC(self.plotBuffer)
             wx.CallAfter(self.Refresh, False)
@@ -1197,12 +1188,14 @@ class canvas(wx.Window):
         # crop, recalculate and filter points
         graphics.cropPoints(p1[0], p2[0])
 
-        if adaptive and interactive:
-            visible_count = self._estimateVisiblePointCount(graphics)
-            count_filter = self._getCountAdaptiveFilter(visible_count, width, filterSize)
-            if count_filter > self._interactive_filter_size:
-                self._interactive_filter_size = min(self._max_filter_size, count_filter)
-            effective_filter = max(effective_filter, self._interactive_filter_size)
+        effective_filter = filterSize
+        if adaptive:
+            if interactive:
+                visible_count = self._estimateVisiblePointCount(graphics)
+                effective_filter = self._getCountAdaptiveFilter(visible_count, width, filterSize)
+                self._progressive_filter_size = max(self._progressive_filter_size, effective_filter)
+            else:
+                effective_filter = max(filterSize, self._progressive_filter_size)
 
         graphics.scaleAndShift(scale, shift, effective_filter)
 
@@ -1252,25 +1245,8 @@ class canvas(wx.Window):
             wx.Rect(0, 0, *self.plotBuffer.GetSize())
         )
 
-        elapsed = time.perf_counter() - start
         if adaptive and interactive:
-            if elapsed > self._draw_budget_s:
-                self._interactive_filter_size = min(
-                    self._max_filter_size, self._interactive_filter_size * 1.5
-                )
-            elif elapsed < (self._draw_budget_s * 0.7):
-                self._interactive_filter_size = max(
-                    self._min_filter_size, self._interactive_filter_size * 0.90
-                )
-
-            self._progressive_filter_size = max(
-                self._progressive_filter_size, self._interactive_filter_size
-            )
             self._scheduleProgressiveRefine(self._reveal_delay_ms)
-        elif adaptive:
-            self._interactive_filter_size = max(
-                self._min_filter_size, self._interactive_filter_size * 0.95
-            )
 
     # ----
 
@@ -1360,20 +1336,11 @@ class canvas(wx.Window):
         target_points = max(800.0, float(plot_width_px) * self._target_points_per_px)
         ratio = visible_count / target_points
 
-        # Keep low-density views detailed, then increase culling in two stages.
+        # Keep low-density views detailed, then scale linearly.
         if ratio <= self._count_cull_deadband:
             return base_filter
 
-        normalized = ratio / self._count_cull_deadband
-        if ratio <= self._count_cull_knee:
-            cull_factor = normalized**self._count_cull_soft_exp
-        else:
-            soft_at_knee = (
-                self._count_cull_knee / self._count_cull_deadband
-            ) ** self._count_cull_soft_exp
-            hard_ratio = ratio / self._count_cull_knee
-            cull_factor = soft_at_knee * (hard_ratio**self._count_cull_hard_exp)
-
+        cull_factor = ratio / self._count_cull_deadband
         return min(self._max_filter_size, base_filter * cull_factor)
 
     # ----

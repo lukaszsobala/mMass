@@ -1,5 +1,5 @@
 import numpy as np
-from numba import njit
+from numba import njit, prange
 
 
 def signal_interpolate_x(x1, y1, x2, y2, y):
@@ -286,11 +286,11 @@ def signal_filter(array, resol):
     return buff[:count].copy()
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, fastmath=True, parallel=True)
 def signal_rescale(array, scaleX, scaleY, shiftX, shiftY):
     n = len(array)
     out = np.empty((n, 2), dtype=np.int32)
-    for i in range(n):
+    for i in prange(n):
         out[i, 0] = int(round(array[i, 0] * scaleX + shiftX))
         out[i, 1] = int(round(array[i, 1] * scaleY + shiftY))
     return out
