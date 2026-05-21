@@ -105,6 +105,7 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         self.compare_choice = wx.Choice(
             panel, -1, choices=choices, size=wx.Size(180, mwx.SMALL_CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.compare_choice, min_width=180)
         self.compare_choice.Bind(wx.EVT_CHOICE, self.onUpdatePeaklist)
         self.compare_choice.Select(0)
         if config.comparePeaklists["compare"] == "measured":
@@ -148,6 +149,7 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
             choices=["Above", "Below"],
             size=wx.Size(80, mwx.SMALL_CHOICE_HEIGHT),
         )
+        mwx.fitChoice(self.ratioDirection_choice, min_width=80)
         self.ratioDirection_choice.Select(0)
         if config.comparePeaklists["ratioDirection"] == -1:
             self.ratioDirection_choice.Select(1)

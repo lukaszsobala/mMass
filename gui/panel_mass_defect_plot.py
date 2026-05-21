@@ -83,7 +83,10 @@ class panelMassDefectPlot(wx.Frame):
 
         # init toolbar
         panel = mwx.bgrPanel(
-            self, -1, images.lib["bgrToolbar"], size=(-1, mwx.TOOLBAR_HEIGHT)
+            self,
+            -1,
+            images.lib["bgrToolbarNoBorder"],
+            size=(-1, mwx.TOOLBAR_HEIGHT),
         )
 
         # make tools
@@ -98,6 +101,7 @@ class panelMassDefectPlot(wx.Frame):
         self.yAxis_choice = wx.Choice(
             panel, -1, choices=choices, size=(175, mwx.SMALL_CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.yAxis_choice)
         self.yAxis_choice.Select(1)
         choices = ["fraction", "standard", "relative", "kendrick"]
         if config.massDefectPlot["yAxis"] in choices:
@@ -110,6 +114,7 @@ class panelMassDefectPlot(wx.Frame):
         self.nominalMass_choice = wx.Choice(
             panel, -1, choices=choices, size=(80, mwx.SMALL_CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.nominalMass_choice)
         self.nominalMass_choice.Select(1)
         if config.massDefectPlot["nominalMass"].title() in choices:
             self.nominalMass_choice.Select(

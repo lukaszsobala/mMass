@@ -92,7 +92,10 @@ class panelDocumentInfo(wx.Frame):
 
         # init toolbar
         panel = mwx.bgrPanel(
-            self, -1, images.lib["bgrToolbar"], size=(-1, mwx.TOOLBAR_HEIGHT)
+            self,
+            -1,
+            images.lib["bgrToolbarNoBorder"],
+            size=(-1, mwx.TOOLBAR_HEIGHT),
         )
 
         # make buttons
@@ -273,6 +276,7 @@ class panelDocumentInfo(wx.Frame):
             choices=["Unknown", "Positive", "Negative"],
             size=(180, mwx.SMALL_CHOICE_HEIGHT),
         )
+        mwx.fitChoice(self.polarity_choice)
         self.polarity_choice.Bind(wx.EVT_CHOICE, self.onSave)
 
         points_label = wx.StaticText(panel, -1, "Spectrum points:")

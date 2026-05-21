@@ -233,6 +233,35 @@ def appInit():
 # ----
 
 
+def fitChoice(choice, min_width=None, extra_padding=35):
+    """Fit wx.Choice control width to the longest available label."""
+
+    best_width = 0
+    dc = wx.ClientDC(choice)
+    dc.SetFont(choice.GetFont())
+
+    for i in range(choice.GetCount()):
+        text_width, _ = dc.GetTextExtent(choice.GetString(i))
+        best_width = max(best_width, text_width)
+
+    best_width += int(extra_padding)
+    if min_width is not None:
+        best_width = max(best_width, int(min_width))
+
+    _, current_height = choice.GetSize()
+    best_height = choice.GetBestSize().GetHeight()
+    if current_height <= 0:
+        current_height = best_height
+    else:
+        # Never allow a forced small height to clip native choice text rendering.
+        current_height = max(current_height, best_height)
+
+    choice.SetMinSize(wx.Size(best_width, current_height))
+
+
+# ----
+
+
 # MODIFIED WX OBJECTS
 # -------------------
 

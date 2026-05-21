@@ -1215,6 +1215,7 @@ class dlgThreshold(wx.Dialog):
         self.thresholdType_choice = wx.Choice(
             self, -1, choices=choices, size=(150, mwx.CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.thresholdType_choice)
         self.thresholdType_choice.Select(0)
 
         cancel_butt = wx.Button(self, wx.ID_CANCEL, "Cancel")

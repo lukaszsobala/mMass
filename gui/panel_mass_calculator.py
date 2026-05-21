@@ -100,7 +100,10 @@ class panelMassCalculator(wx.Frame):
 
         # init toolbar
         panel = mwx.bgrPanel(
-            self, -1, images.lib["bgrToolbar"], size=(-1, mwx.TOOLBAR_HEIGHT)
+            self,
+            -1,
+            images.lib["bgrToolbarNoBorder"],
+            size=(-1, mwx.TOOLBAR_HEIGHT),
         )
 
         # make buttons
@@ -334,6 +337,7 @@ class panelMassCalculator(wx.Frame):
             choices=["Symmetrical", "Asymmetrical"],
             size=(125, mwx.CHOICE_HEIGHT),
         )
+        mwx.fitChoice(self.patternPeakShape_choice)
         self.patternPeakShape_choice.Select(0)
         if config.massCalculator["patternPeakShape"] == "gausslorentzian":
             self.patternPeakShape_choice.Select(1)

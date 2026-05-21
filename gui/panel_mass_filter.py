@@ -100,6 +100,7 @@ class panelMassFilter(wx.Frame):
         self.references_choice = wx.Choice(
             panel, -1, choices=choices, size=(200, mwx.SMALL_CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.references_choice)
         self.references_choice.Select(0)
         self.references_choice.Bind(wx.EVT_CHOICE, self.onReferencesSelected)
 

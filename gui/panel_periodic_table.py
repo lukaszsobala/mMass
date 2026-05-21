@@ -287,7 +287,10 @@ class panelPeriodicTable(wx.Frame):
 
         # init toolbar
         panel = mwx.bgrPanel(
-            self, -1, images.lib["bgrToolbar"], size=(-1, mwx.TOOLBAR_HEIGHT)
+            self,
+            -1,
+            images.lib["bgrToolbarNoBorder"],
+            size=(-1, mwx.TOOLBAR_HEIGHT),
         )
 
         # make highlights
@@ -315,6 +318,7 @@ class panelPeriodicTable(wx.Frame):
         self.highlight_choice = wx.Choice(
             panel, -1, choices=choices, size=wx.Size(-1, mwx.SMALL_CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.highlight_choice)
         self.highlight_choice.Select(0)
         self.highlight_choice.Bind(wx.EVT_CHOICE, self.onHighlightGroup)
 

@@ -110,7 +110,10 @@ class panelMascot(wx.Frame, MakeModalMixin):
 
         # init toolbar
         panel = mwx.bgrPanel(
-            self, -1, images.lib["bgrToolbar"], size=(-1, mwx.TOOLBAR_HEIGHT)
+            self,
+            -1,
+            images.lib["bgrToolbarNoBorder"],
+            size=(-1, mwx.TOOLBAR_HEIGHT),
         )
 
         # make tools
@@ -160,6 +163,7 @@ class panelMascot(wx.Frame, MakeModalMixin):
         self.server_choice = wx.Choice(
             panel, -1, choices=choices, size=(220, mwx.SMALL_CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.server_choice)
         if config.mascot["common"]["server"] in libs.mascot:
             self.server_choice.SetStringSelection(config.mascot["common"]["server"])
         else:
@@ -236,16 +240,19 @@ class panelMascot(wx.Frame, MakeModalMixin):
         self.paramPMFTaxonomy_choice = wx.Choice(
             panel, -1, choices=[], size=(300, mwx.CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.paramPMFTaxonomy_choice)
 
         paramPMFDatabase_label = wx.StaticText(panel, -1, "Database:")
         self.paramPMFDatabase_choice = wx.Choice(
             panel, -1, choices=[], size=(150, mwx.CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.paramPMFDatabase_choice)
 
         paramPMFEnzyme_label = wx.StaticText(panel, -1, " Enzyme:")
         self.paramPMFEnzyme_choice = wx.Choice(
             panel, -1, choices=[], size=(130, mwx.CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.paramPMFEnzyme_choice)
 
         paramPMFMiscleavages_label = wx.StaticText(panel, -1, " Miscl.:")
         self.paramPMFMiscleavages_choice = wx.Choice(
@@ -254,6 +261,7 @@ class panelMascot(wx.Frame, MakeModalMixin):
             choices=["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"],
             size=(50, mwx.CHOICE_HEIGHT),
         )
+        mwx.fitChoice(self.paramPMFMiscleavages_choice)
         self.paramPMFMiscleavages_choice.SetStringSelection(
             str(config.mascot["pmf"]["miscleavages"])
         )
@@ -301,6 +309,7 @@ class panelMascot(wx.Frame, MakeModalMixin):
         self.paramPMFPeptideTolUnits_choice = wx.Choice(
             panel, -1, choices=["Da", "mmu", "%", "ppm"], size=(80, mwx.CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.paramPMFPeptideTolUnits_choice)
         self.paramPMFPeptideTolUnits_choice.SetStringSelection(
             config.mascot["pmf"]["peptideTolUnits"]
         )
@@ -312,6 +321,7 @@ class panelMascot(wx.Frame, MakeModalMixin):
             choices=["Monoisotopic", "Average"],
             size=(150, mwx.CHOICE_HEIGHT),
         )
+        mwx.fitChoice(self.paramPMFMassType_choice)
         self.paramPMFMassType_choice.SetStringSelection(
             config.mascot["pmf"]["massType"]
         )
@@ -320,6 +330,7 @@ class panelMascot(wx.Frame, MakeModalMixin):
         self.paramPMFCharge_choice = wx.Choice(
             panel, -1, choices=["1+", "Mr", "1-"], size=(150, mwx.CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.paramPMFCharge_choice)
         self.paramPMFCharge_choice.SetStringSelection(config.mascot["pmf"]["charge"])
 
         # make other elements
@@ -333,6 +344,7 @@ class panelMascot(wx.Frame, MakeModalMixin):
             choices=["AUTO", "5", "10", "20", "30", "50"],
             size=(80, mwx.CHOICE_HEIGHT),
         )
+        mwx.fitChoice(self.paramPMFReport_choice)
         self.paramPMFReport_choice.SetStringSelection(config.mascot["pmf"]["report"])
 
         # pack elements
@@ -513,16 +525,19 @@ class panelMascot(wx.Frame, MakeModalMixin):
         self.paramMISTaxonomy_choice = wx.Choice(
             panel, -1, choices=[], size=(300, mwx.CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.paramMISTaxonomy_choice)
 
         paramMISDatabase_label = wx.StaticText(panel, -1, "Database:")
         self.paramMISDatabase_choice = wx.Choice(
             panel, -1, choices=[], size=(150, mwx.CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.paramMISDatabase_choice)
 
         paramMISEnzyme_label = wx.StaticText(panel, -1, " Enzyme:")
         self.paramMISEnzyme_choice = wx.Choice(
             panel, -1, choices=[], size=(130, mwx.CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.paramMISEnzyme_choice)
 
         paramMISMiscleavages_label = wx.StaticText(panel, -1, " Miscl.:")
         self.paramMISMiscleavages_choice = wx.Choice(
@@ -531,6 +546,7 @@ class panelMascot(wx.Frame, MakeModalMixin):
             choices=["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"],
             size=(50, mwx.CHOICE_HEIGHT),
         )
+        mwx.fitChoice(self.paramMISMiscleavages_choice)
         self.paramMISMiscleavages_choice.SetStringSelection(
             str(config.mascot["mis"]["miscleavages"])
         )
@@ -577,6 +593,7 @@ class panelMascot(wx.Frame, MakeModalMixin):
         self.paramMISPeptideTolUnits_choice = wx.Choice(
             panel, -1, choices=["Da", "mmu", "%", "ppm"], size=(80, mwx.CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.paramMISPeptideTolUnits_choice)
         self.paramMISPeptideTolUnits_choice.SetStringSelection(
             config.mascot["mis"]["peptideTolUnits"]
         )
@@ -592,6 +609,7 @@ class panelMascot(wx.Frame, MakeModalMixin):
         self.paramMISMSMSTolUnits_choice = wx.Choice(
             panel, -1, choices=["Da", "ppm"], size=(80, mwx.CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.paramMISMSMSTolUnits_choice)
         self.paramMISMSMSTolUnits_choice.SetStringSelection(
             config.mascot["mis"]["msmsTolUnits"]
         )
@@ -603,6 +621,7 @@ class panelMascot(wx.Frame, MakeModalMixin):
             choices=["Monoisotopic", "Average"],
             size=(150, mwx.CHOICE_HEIGHT),
         )
+        mwx.fitChoice(self.paramMISMassType_choice)
         self.paramMISMassType_choice.SetStringSelection(
             config.mascot["mis"]["massType"]
         )
@@ -636,17 +655,20 @@ class panelMascot(wx.Frame, MakeModalMixin):
             ],
             size=(150, mwx.CHOICE_HEIGHT),
         )
+        mwx.fitChoice(self.paramMISCharge_choice)
         self.paramMISCharge_choice.SetStringSelection(config.mascot["mis"]["charge"])
 
         paramMISInstrument_label = wx.StaticText(panel, -1, "Instrument:")
         self.paramMISInstrument_choice = wx.Choice(
             panel, -1, choices=[], size=(150, mwx.CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.paramMISInstrument_choice)
 
         paramMISQuantitation_label = wx.StaticText(panel, -1, "Quantitation:")
         self.paramMISQuantitation_choice = wx.Choice(
             panel, -1, choices=[], size=(150, mwx.CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.paramMISQuantitation_choice)
 
         # make other elements
         self.paramMISDecoy_check = wx.CheckBox(panel, -1, "Decoy")
@@ -662,6 +684,7 @@ class panelMascot(wx.Frame, MakeModalMixin):
             choices=["AUTO", "5", "10", "20", "30", "50"],
             size=(80, mwx.CHOICE_HEIGHT),
         )
+        mwx.fitChoice(self.paramMISReport_choice)
         self.paramMISReport_choice.SetStringSelection(
             str(config.mascot["mis"]["report"])
         )
@@ -876,16 +899,19 @@ class panelMascot(wx.Frame, MakeModalMixin):
         self.paramSQTaxonomy_choice = wx.Choice(
             panel, -1, choices=[], size=(300, mwx.CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.paramSQTaxonomy_choice)
 
         paramSQDatabase_label = wx.StaticText(panel, -1, "Database:")
         self.paramSQDatabase_choice = wx.Choice(
             panel, -1, choices=[], size=(150, mwx.CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.paramSQDatabase_choice)
 
         paramSQEnzyme_label = wx.StaticText(panel, -1, " Enzyme:")
         self.paramSQEnzyme_choice = wx.Choice(
             panel, -1, choices=[], size=(130, mwx.CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.paramSQEnzyme_choice)
 
         paramSQMiscleavages_label = wx.StaticText(panel, -1, " Miscl.:")
         self.paramSQMiscleavages_choice = wx.Choice(
@@ -894,6 +920,7 @@ class panelMascot(wx.Frame, MakeModalMixin):
             choices=["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"],
             size=(50, mwx.CHOICE_HEIGHT),
         )
+        mwx.fitChoice(self.paramSQMiscleavages_choice)
         self.paramSQMiscleavages_choice.SetStringSelection(
             str(config.mascot["sq"]["miscleavages"])
         )
@@ -935,6 +962,7 @@ class panelMascot(wx.Frame, MakeModalMixin):
         self.paramSQPeptideTolUnits_choice = wx.Choice(
             panel, -1, choices=["Da", "mmu", "%", "ppm"], size=(80, mwx.CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.paramSQPeptideTolUnits_choice)
         self.paramSQPeptideTolUnits_choice.SetStringSelection(
             config.mascot["sq"]["peptideTolUnits"]
         )
@@ -950,6 +978,7 @@ class panelMascot(wx.Frame, MakeModalMixin):
         self.paramSQMSMSTolUnits_choice = wx.Choice(
             panel, -1, choices=["Da", "ppm"], size=(80, mwx.CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.paramSQMSMSTolUnits_choice)
         self.paramSQMSMSTolUnits_choice.SetStringSelection(
             config.mascot["sq"]["msmsTolUnits"]
         )
@@ -961,6 +990,7 @@ class panelMascot(wx.Frame, MakeModalMixin):
             choices=["Monoisotopic", "Average"],
             size=(150, mwx.CHOICE_HEIGHT),
         )
+        mwx.fitChoice(self.paramSQMassType_choice)
         self.paramSQMassType_choice.SetStringSelection(config.mascot["sq"]["massType"])
 
         paramSQCharge_label = wx.StaticText(panel, -1, "Charge:")
@@ -992,17 +1022,20 @@ class panelMascot(wx.Frame, MakeModalMixin):
             ],
             size=(150, mwx.CHOICE_HEIGHT),
         )
+        mwx.fitChoice(self.paramSQCharge_choice)
         self.paramSQCharge_choice.SetStringSelection(config.mascot["sq"]["charge"])
 
         paramSQInstrument_label = wx.StaticText(panel, -1, "Instrument:")
         self.paramSQInstrument_choice = wx.Choice(
             panel, -1, choices=[], size=(150, mwx.CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.paramSQInstrument_choice)
 
         paramSQQuantitation_label = wx.StaticText(panel, -1, "Quantitation:")
         self.paramSQQuantitation_choice = wx.Choice(
             panel, -1, choices=[], size=(150, mwx.CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.paramSQQuantitation_choice)
 
         # make other elements
         self.paramSQDecoy_check = wx.CheckBox(panel, -1, "Decoy")
@@ -1015,6 +1048,7 @@ class panelMascot(wx.Frame, MakeModalMixin):
             choices=["AUTO", "5", "10", "20", "30", "50"],
             size=(80, mwx.CHOICE_HEIGHT),
         )
+        mwx.fitChoice(self.paramSQReport_choice)
         self.paramSQReport_choice.SetStringSelection(config.mascot["sq"]["report"])
 
         # pack elements

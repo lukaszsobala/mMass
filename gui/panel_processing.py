@@ -131,7 +131,10 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
         # init toolbar
         panel = mwx.bgrPanel(
-            self, -1, images.lib["bgrToolbar"], size=wx.Size(-1, mwx.TOOLBAR_HEIGHT)
+            self,
+            -1,
+            images.lib["bgrToolbarNoBorder"],
+            size=wx.Size(-1, mwx.TOOLBAR_HEIGHT),
         )
 
         # make tools
@@ -339,12 +342,14 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         self.mathSpectrumA_choice = wx.Choice(
             panel, -1, choices=[], size=wx.Size(200, mwx.CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.mathSpectrumA_choice)
         self.mathSpectrumA_choice.Disable()
 
         mathSpectrumB_label = wx.StaticText(panel, -1, "Spectrum B:")
         self.mathSpectrumB_choice = wx.Choice(
             panel, -1, choices=[], size=wx.Size(200, mwx.CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.mathSpectrumB_choice)
         self.mathSpectrumB_choice.Disable()
 
         self.mathPreservePeaks_check = wx.CheckBox(panel, -1, "Preserve peaks")
@@ -538,6 +543,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             choices=["Moving Average", "Gaussian", "Savitzky-Golay"],
             size=wx.Size(150, mwx.CHOICE_HEIGHT),
         )
+        mwx.fitChoice(self.smoothingMethod_choice)
         self.smoothingMethod_choice.Select(0)
         if config.processing["smoothing"]["method"] == "GA":
             self.smoothingMethod_choice.Select(1)
@@ -852,6 +858,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             ],
             size=wx.Size(160, mwx.CHOICE_HEIGHT),
         )
+        mwx.fitChoice(self.deisotopingLabelEnvelopeTool_choice)
         self.deisotopingLabelEnvelopeTool_choice.Select(1)
         choices = ["1st", "monoisotope", "centroid", "isotopes"]
         if config.processing["deisotoping"]["labelEnvelope"] in choices:
@@ -869,6 +876,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             choices=["Envelope Maximum", "Summed Isotopes", "Averaged Isotopes"],
             size=wx.Size(160, mwx.CHOICE_HEIGHT),
         )
+        mwx.fitChoice(self.deisotopingEnvelopeIntensity_choice)
         self.deisotopingEnvelopeIntensity_choice.Select(0)
         choices = ["maximum", "sum", "average"]
         if config.processing["deisotoping"]["envelopeIntensity"] in choices:
@@ -976,6 +984,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             choices=["Monoisotopic", "Average"],
             size=wx.Size(150, mwx.CHOICE_HEIGHT),
         )
+        mwx.fitChoice(self.deconvolutionMassType_choice)
         self.deconvolutionMassType_choice.Select(
             config.processing["deconvolution"]["massType"]
         )

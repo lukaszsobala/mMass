@@ -431,11 +431,11 @@ massToFormula = {
     "SCMax": 3,
     "RDBEMin": -1,
     "RDBEMax": 40,
-    "PubChemScript": "http://pubchem.ncbi.nlm.nih.gov/search/search.cgi",
-    "ChemSpiderScript": "http://www.chemspider.com/Search.aspx",
-    "METLINScript": "http://metlin.scripps.edu/metabo_list_adv.php",
-    "HMDBScript": "http://www.hmdb.ca/search",
-    "LipidMAPSScript": "http://www.lipidmaps.org/data/structure/LMSDSearch.php",
+    "PubChemScript": "https://pubchem.ncbi.nlm.nih.gov/search/search.cgi",
+    "ChemSpiderScript": "https://www.chemspider.com/Search.aspx",
+    "METLINScript": "https://metlin.scripps.edu/metabo_list_adv.php",
+    "HMDBScript": "https://www.hmdb.ca/search",
+    "LipidMAPSScript": "https://www.lipidmaps.org/data/structure/LMSDSearch.php",
 }
 
 massDefectPlot = {
@@ -572,7 +572,7 @@ mascot = {
 }
 
 profound = {
-    "script": "http://prowl.rockefeller.edu/prowl-cgi/profound.exe",
+    "script": "https://prowl.rockefeller.edu/prowl-cgi/profound.exe",
     "title": "",
     "database": "NCBI nr",
     "taxonomy": "All taxa",
@@ -601,7 +601,7 @@ profound = {
 prospector = {
     "common": {
         "title": "",
-        "script": "http://prospector.ucsf.edu/prospector/cgi-bin/mssearch.cgi",
+        "script": "https://prospector.ucsf.edu/prospector/cgi-bin/mssearch.cgi",
         "searchType": "msfit",
         "filterAnnotations": 0,
         "filterMatches": 0,
@@ -652,64 +652,64 @@ prospector = {
 links = {
     "mMassHomepage": "https://github.com/lukaszsobala/mMass",
     "mMassForum": "https://github.com/lukaszsobala/mMass",
-    "mMassTwitter": "http://www.twitter.com/mmassorg/",
+    "mMassTwitter": "https://www.twitter.com/mmassorg/",
     "mMassCite": "https://web.archive.org/web/20220307182056/http://www.mmass.org/donate/papers.php",
     "mMassDonate": "https://web.archive.org/web/20220123052313/http://www.mmass.org/donate/",
     "mMassDownload": "https://github.com/lukaszsobala/mMass/",
     "mMassWhatsNew": "https://github.com/lukaszsobala/mMass/releases",
-    "biomedmstools": "http://ms.biomed.cas.cz/MSTools/",
-    "blast": "http://www.ebi.ac.uk/Tools/blastall/",
-    "clustalw": "http://www.ebi.ac.uk/Tools/clustalw/",
-    "deltamass": "http://www.abrf.org/index.cfm/dm.home",
-    "emblebi": "http://www.ebi.ac.uk/services/",
-    "expasy": "http://www.expasy.org/",
-    "fasta": "http://www.ebi.ac.uk/Tools/fasta33/",
-    "matrixscience": "http://www.matrixscience.com/",
-    "muscle": "http://phylogenomics.berkeley.edu/cgi-bin/muscle/input_muscle.py",
-    "ncbi": "http://www.ncbi.nlm.nih.gov/Entrez/",
-    "pdb": "http://www.rcsb.org/pdb/",
-    "pir": "http://pir.georgetown.edu/",
-    "profound": "http://prowl.rockefeller.edu/prowl-cgi/profound.exe",
-    "prospector": "http://prospector.ucsf.edu/",
-    "unimod": "http://www.unimod.org/",
-    "uniprot": "http://www.uniprot.org/",
+    "biomedmstools": "https://ms.biomed.cas.cz/MSTools/",
+    "blast": "https://www.ebi.ac.uk/Tools/blastall/",
+    "clustalw": "https://www.ebi.ac.uk/Tools/clustalw/",
+    "deltamass": "https://www.abrf.org/index.cfm/dm.home",
+    "emblebi": "https://www.ebi.ac.uk/services/",
+    "expasy": "https://www.expasy.org/",
+    "fasta": "https://www.ebi.ac.uk/Tools/fasta33/",
+    "matrixscience": "https://www.matrixscience.com/",
+    "muscle": "https://phylogenomics.berkeley.edu/cgi-bin/muscle/input_muscle.py",
+    "ncbi": "https://www.ncbi.nlm.nih.gov/Entrez/",
+    "pdb": "https://www.rcsb.org/pdb/",
+    "pir": "https://pir.georgetown.edu/",
+    "profound": "https://prowl.rockefeller.edu/prowl-cgi/profound.exe",
+    "prospector": "https://prospector.ucsf.edu/",
+    "unimod": "https://www.unimod.org/",
+    "uniprot": "https://www.uniprot.org/",
 }
 
 replacements = {
     "sequences": {
         "general": {
             "pattern": r"^([A-Z0-9_]+[\.0-9]*)$",
-            "url": "http://www.ncbi.nlm.nih.gov/protein/%s",
+            "url": "https://www.ncbi.nlm.nih.gov/protein/%s",
         },
         "gi": {
             "pattern": r"^gi\|?([0-9]+[\.0-9]*)$",
-            "url": "http://www.ncbi.nlm.nih.gov/protein/%s",
+            "url": "https://www.ncbi.nlm.nih.gov/protein/%s",
         },
         "gb": {
             "pattern": r"^gb\|?([A-Z]{3}[0-9]{5}[\.0-9]*)$",
-            "url": "http://www.ncbi.nlm.nih.gov/protein/%s",
+            "url": "https://www.ncbi.nlm.nih.gov/protein/%s",
         },
         "sp": {
             "pattern": r"^sp\|?([A-Z][A-Z0-9]+)$",
-            "url": "http://www.uniprot.org/uniprot/%s",
+            "url": "https://www.uniprot.org/uniprot/%s",
         },
         "ref": {
             "pattern": r"^ref\|?([A-Z]{2}_[0-9]+[\.0-9]*)$",
-            "url": "http://www.ncbi.nlm.nih.gov/protein/%s",
+            "url": "https://www.ncbi.nlm.nih.gov/protein/%s",
         },
     },
     "compounds": {
         "PubChemC": {
             "pattern": "CID([0-9]{1,10})",
-            "url": "http://pubchem.ncbi.nlm.nih.gov/summary/summary.cgi?cid=%s",
+            "url": "https://pubchem.ncbi.nlm.nih.gov/summary/summary.cgi?cid=%s",
         },
         "LipidMaps": {
             "pattern": "(LM[A-Z]{2}[0-9]{4}[0-9A-Z]{2}[0-9]{2})",
-            "url": "http://www.lipidmaps.org/data/LMSDRecord.php?LMID=%s",
+            "url": "https://www.lipidmaps.org/data/LMSDRecord.php?LMID=%s",
         },
         "NORINE": {
             "pattern": "(NOR[0-9]{5})",
-            "url": "http://bioinfo.lifl.fr/norine/result.jsp?ID=%s",
+            "url": "https://bioinfo.lifl.fr/norine/result.jsp?ID=%s",
         },
     },
 }

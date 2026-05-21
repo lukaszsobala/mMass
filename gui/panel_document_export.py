@@ -97,7 +97,10 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
 
         # init toolbar
         panel = mwx.bgrPanel(
-            self, -1, images.lib["bgrToolbar"], size=(-1, mwx.TOOLBAR_HEIGHT)
+            self,
+            -1,
+            images.lib["bgrToolbarNoBorder"],
+            size=(-1, mwx.TOOLBAR_HEIGHT),
         )
 
         # make buttons
@@ -194,12 +197,14 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
         self.imageUnits_choice = wx.Choice(
             panel, -1, choices=["cm", "in", "px"], size=(60, mwx.CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.imageUnits_choice)
         self.imageUnits_choice.SetStringSelection(config.export["imageUnits"])
 
         imageFormat_label = wx.StaticText(panel, -1, "Format:")
         self.imageFormat_choice = wx.Choice(
             panel, -1, choices=["PNG", "TIFF", "JPEG"], size=(140, mwx.CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.imageFormat_choice)
         self.imageFormat_choice.SetStringSelection(config.export["imageFormat"])
 
         imageResolution_label = wx.StaticText(panel, -1, "Resolution:")
@@ -208,6 +213,7 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
         self.imageResolution_choice = wx.Choice(
             panel, -1, choices=choices, size=(140, mwx.CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.imageResolution_choice)
         self.imageResolution_choice.Select(0)
         if str(config.export["imageResolution"]) in choices:
             self.imageResolution_choice.Select(
@@ -361,6 +367,7 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
             choices=["All Peaks", "Selected Peaks"],
             size=(200, mwx.CHOICE_HEIGHT),
         )
+        mwx.fitChoice(self.peaklistSelect_choice)
         self.peaklistSelect_choice.Select(0)
 
         peaklistFormat_label = wx.StaticText(panel, -1, "Format:")
@@ -370,6 +377,7 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
             choices=["ASCII", "ASCII with Headers", "MGF"],
             size=(200, mwx.CHOICE_HEIGHT),
         )
+        mwx.fitChoice(self.peaklistFormat_choice)
         self.peaklistFormat_choice.SetStringSelection(config.export["peaklistFormat"])
         self.peaklistFormat_choice.Bind(wx.EVT_CHOICE, self.onPeaklistFormatChanged)
 
@@ -380,6 +388,7 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
             choices=["Comma", "Semicolon", "Tab"],
             size=(200, mwx.CHOICE_HEIGHT),
         )
+        mwx.fitChoice(self.peaklistSeparator_choice)
         self.peaklistSeparator_choice.SetStringSelection(
             config.export["peaklistSeparator"]
         )
@@ -445,6 +454,7 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
             choices=["Full Spectrum", "Current View"],
             size=(130, mwx.CHOICE_HEIGHT),
         )
+        mwx.fitChoice(self.spectrumRange_choice)
         self.spectrumRange_choice.Select(0)
 
         spectrumSeparator_label = wx.StaticText(panel, -1, "Separator:")
@@ -454,6 +464,7 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
             choices=["Comma", "Semicolon", "Tab"],
             size=(130, mwx.CHOICE_HEIGHT),
         )
+        mwx.fitChoice(self.spectrumSeparator_choice)
         self.spectrumSeparator_choice.SetStringSelection(
             config.export["spectrumSeparator"]
         )

@@ -104,7 +104,10 @@ class panelCompoundsSearch(wx.Frame, MakeModalMixin):
 
         # init toolbar
         panel = mwx.bgrPanel(
-            self, -1, images.lib["bgrToolbar"], size=(-1, mwx.TOOLBAR_HEIGHT)
+            self,
+            -1,
+            images.lib["bgrToolbarNoBorder"],
+            size=(-1, mwx.TOOLBAR_HEIGHT),
         )
 
         # make tools
@@ -137,6 +140,7 @@ class panelCompoundsSearch(wx.Frame, MakeModalMixin):
         self.compounds_choice = wx.Choice(
             panel, -1, choices=choices, size=(250, mwx.SMALL_CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.compounds_choice)
         self.compounds_choice.Select(0)
         self.compounds_choice.Bind(wx.EVT_CHOICE, self.onGenerate)
 

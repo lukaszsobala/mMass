@@ -96,7 +96,10 @@ class panelSpectrumGenerator(wx.Frame, MakeModalMixin):
 
         # init toolbar
         panel = mwx.bgrPanel(
-            self, -1, images.lib["bgrToolbar"], size=(-1, mwx.TOOLBAR_HEIGHT)
+            self,
+            -1,
+            images.lib["bgrToolbarNoBorder"],
+            size=(-1, mwx.TOOLBAR_HEIGHT),
         )
 
         # make elements
@@ -108,6 +111,7 @@ class panelSpectrumGenerator(wx.Frame, MakeModalMixin):
             choices=["Symmetrical", "Asymmetrical"],
             size=(125, mwx.CHOICE_HEIGHT),
         )
+        mwx.fitChoice(self.peakShape_choice)
         self.peakShape_choice.Select(0)
         if config.spectrumGenerator["peakShape"] == "gausslorentzian":
             self.peakShape_choice.Select(1)

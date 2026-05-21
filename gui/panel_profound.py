@@ -96,7 +96,10 @@ class panelProfound(wx.Frame):
 
         # init toolbar
         panel = mwx.bgrPanel(
-            self, -1, images.lib["bgrToolbar"], size=(-1, mwx.TOOLBAR_HEIGHT)
+            self,
+            -1,
+            images.lib["bgrToolbarNoBorder"],
+            size=(-1, mwx.TOOLBAR_HEIGHT),
         )
 
         # make tools
@@ -164,21 +167,25 @@ class panelProfound(wx.Frame):
         self.paramTaxonomy_choice = wx.Choice(
             panel, -1, choices=[], size=(300, mwx.CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.paramTaxonomy_choice)
 
         paramDatabase_label = wx.StaticText(panel, -1, "Database:")
         self.paramDatabase_choice = wx.Choice(
             panel, -1, choices=[], size=(150, mwx.CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.paramDatabase_choice)
 
         paramEnzyme_label = wx.StaticText(panel, -1, " Enzyme:")
         self.paramEnzyme_choice = wx.Choice(
             panel, -1, choices=[], size=(130, mwx.CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.paramEnzyme_choice)
 
         paramMiscleavages_label = wx.StaticText(panel, -1, " Miscl.:")
         self.paramMiscleavages_choice = wx.Choice(
             panel, -1, choices=["0", "1", "2", "3", "4"], size=(50, mwx.CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.paramMiscleavages_choice)
         self.paramMiscleavages_choice.SetStringSelection(
             str(config.profound["miscleavages"])
         )
@@ -231,6 +238,7 @@ class panelProfound(wx.Frame):
         self.paramPeptideTolUnits_choice = wx.Choice(
             panel, -1, choices=["Da", "%", "ppm"], size=(80, mwx.CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.paramPeptideTolUnits_choice)
         self.paramPeptideTolUnits_choice.SetStringSelection(
             config.profound["peptideTolUnits"]
         )
@@ -242,12 +250,14 @@ class panelProfound(wx.Frame):
             choices=["Monoisotopic", "Average"],
             size=(150, mwx.CHOICE_HEIGHT),
         )
+        mwx.fitChoice(self.paramMassType_choice)
         self.paramMassType_choice.SetStringSelection(config.profound["massType"])
 
         paramCharge_label = wx.StaticText(panel, -1, "Charge:")
         self.paramCharge_choice = wx.Choice(
             panel, -1, choices=["MH+", "M"], size=(150, mwx.CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.paramCharge_choice)
         self.paramCharge_choice.SetStringSelection(config.profound["charge"])
 
         # results elements

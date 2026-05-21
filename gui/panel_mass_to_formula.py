@@ -99,7 +99,10 @@ class panelMassToFormula(wx.Frame, MakeModalMixin):
 
         # init toolbar
         panel = mwx.bgrPanel(
-            self, -1, images.lib["bgrToolbar"], size=(-1, mwx.TOOLBAR_HEIGHT)
+            self,
+            -1,
+            images.lib["bgrToolbarNoBorder"],
+            size=(-1, mwx.TOOLBAR_HEIGHT),
         )
 
         # make elements
@@ -129,6 +132,7 @@ class panelMassToFormula(wx.Frame, MakeModalMixin):
         self.ionization_choice = wx.Choice(
             panel, -1, choices=choices, size=(80, mwx.SMALL_CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.ionization_choice)
         choices = ["", "e", "H", "Na", "K", "Li", "NH4"]
         if config.massToFormula["ionization"] in choices:
             self.ionization_choice.Select(
@@ -198,7 +202,7 @@ class panelMassToFormula(wx.Frame, MakeModalMixin):
         panel = mwx.bgrPanel(
             self,
             -1,
-            images.lib["bgrControlbarBorder"],
+            images.lib["bgrControlbar"],
             size=(-1, mwx.CONTROLBAR_HEIGHT),
         )
 

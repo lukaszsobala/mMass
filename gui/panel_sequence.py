@@ -116,7 +116,10 @@ class panelSequence(wx.Frame, MakeModalMixin):
 
         # init toolbar
         panel = mwx.bgrPanel(
-            self, -1, images.lib["bgrToolbar"], size=(-1, mwx.TOOLBAR_HEIGHT)
+            self,
+            -1,
+            images.lib["bgrToolbarNoBorder"],
+            size=(-1, mwx.TOOLBAR_HEIGHT),
         )
 
         # make buttons
@@ -247,6 +250,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
             choices=["Regular amino acids", "Custom"],
             size=(-1, mwx.SMALL_CHOICE_HEIGHT),
         )
+        mwx.fitChoice(self.sequenceType_choice)
         self.sequenceType_choice.Select(0)
         self.sequenceType_choice.Bind(wx.EVT_CHOICE, self.onSequenceType)
 
@@ -643,11 +647,13 @@ class panelSequence(wx.Frame, MakeModalMixin):
         self.modsResidue_choice = wx.Choice(
             ctrlPanel, -1, choices=[], size=(130, mwx.SMALL_CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.modsResidue_choice)
         self.modsResidue_choice.Bind(wx.EVT_CHOICE, self.onResidueSelected)
 
         self.modsPosition_choice = wx.Choice(
             ctrlPanel, -1, choices=[], size=(80, mwx.SMALL_CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.modsPosition_choice)
         self.modsPosition_choice.Bind(wx.EVT_CHOICE, self.onPositionSelected)
 
         modsMod_label = wx.StaticText(ctrlPanel, -1, "Modification:")
@@ -656,6 +662,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
         self.modsMod_choice = wx.Choice(
             ctrlPanel, -1, choices=[], size=(170, mwx.SMALL_CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.modsMod_choice)
 
         self.modsType_choice = wx.Choice(
             ctrlPanel,
@@ -663,6 +670,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
             choices=["Fixed", "Variable"],
             size=(90, mwx.SMALL_CHOICE_HEIGHT),
         )
+        mwx.fitChoice(self.modsType_choice)
         self.modsType_choice.Select(0)
 
         self.makeModificationsList()
@@ -711,6 +719,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
         self.digestEnzyme_choice = wx.Choice(
             ctrlPanel, -1, choices=enzymes, size=(140, mwx.SMALL_CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.digestEnzyme_choice)
         if config.sequence["digest"]["enzyme"] in enzymes:
             self.digestEnzyme_choice.Select(
                 enzymes.index(config.sequence["digest"]["enzyme"])
@@ -1018,6 +1027,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
         self.searchEnzyme_choice = wx.Choice(
             ctrlPanel, -1, choices=enzymes, size=(150, mwx.SMALL_CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.searchEnzyme_choice)
         if config.sequence["search"]["enzyme"] in enzymes:
             self.searchEnzyme_choice.Select(
                 enzymes.index(config.sequence["search"]["enzyme"])

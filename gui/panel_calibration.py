@@ -99,7 +99,10 @@ class panelCalibration(wx.Frame, MakeModalMixin):
 
         # init toolbar
         panel = mwx.bgrPanel(
-            self, -1, images.lib["bgrToolbar"], size=(-1, mwx.TOOLBAR_HEIGHT)
+            self,
+            -1,
+            images.lib["bgrToolbarNoBorder"],
+            size=(-1, mwx.TOOLBAR_HEIGHT),
         )
 
         # make buttons
@@ -211,6 +214,7 @@ class panelCalibration(wx.Frame, MakeModalMixin):
         self.references_choice = wx.Choice(
             ctrlPanel, -1, choices=choices, size=(250, mwx.SMALL_CHOICE_HEIGHT)
         )
+        mwx.fitChoice(self.references_choice)
         self.references_choice.Select(0)
         self.references_choice.Bind(wx.EVT_CHOICE, self.onReferencesSelected)
 
