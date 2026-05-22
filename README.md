@@ -25,6 +25,7 @@ cd mMass
 
 # Install via uv
 uv venv
+source .venv/bin/activate
 uv pip install -e .
 
 # Or using standard pip
