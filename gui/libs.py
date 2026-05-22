@@ -18,7 +18,6 @@
 # load libs
 import sys
 import os.path
-import shutil
 import xml.dom.minidom
 import copy
 
@@ -38,13 +37,7 @@ for item in (
     "mascot.xml",
 ):
     if not os.path.exists(os.path.join(config.confdir, item)):
-        try:
-            shutil.copyfile(
-                config.get_default_config_source_path(item),
-                os.path.join(config.confdir, item),
-            )
-        except Exception:
-            pass
+        config.copy_default_config_file(item, os.path.join(config.confdir, item))
 
 
 # LOAD USER'S LIBS INTO MSPY

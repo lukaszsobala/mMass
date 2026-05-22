@@ -20,28 +20,46 @@
 import sys
 import os
 import xml.dom.minidom
+from importlib import resources
 from xdgenvpy import XDGPackage  # type: ignore[import-untyped]
 
 
 MODULE_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.dirname(MODULE_DIR)
 
 
 def get_default_config_source_dir():
     """Return location of bundled default config XML files."""
 
-    candidates = [
-        os.path.join(MODULE_DIR, "configs"),
-        os.path.join(PROJECT_ROOT, "configs"),
-    ]
-    for path in candidates:
-        if os.path.isdir(path):
-            return path
-    return candidates[0]
+    return os.path.join(MODULE_DIR, "configs")
 
 
 def get_default_config_source_path(filename):
     return os.path.join(get_default_config_source_dir(), filename)
+
+
+def copy_default_config_file(filename, destination):
+    """Copy bundled default XML config to destination.
+
+    Uses package resources first so installed distributions do not depend on
+    source-tree paths.
+    """
+
+    try:
+        resource = resources.files("gui").joinpath("configs", filename)
+        with resources.as_file(resource) as source_path:
+            with open(source_path, "rb") as src, open(destination, "wb") as dst:
+                dst.write(src.read())
+        return True
+    except Exception:
+        pass
+
+    try:
+        source_path = get_default_config_source_path(filename)
+        with open(source_path, "rb") as src, open(destination, "wb") as dst:
+            dst.write(src.read())
+        return True
+    except Exception:
+        return False
 
 # SET VERSION
 # -----------
