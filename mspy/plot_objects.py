@@ -22,7 +22,7 @@ import copy
 
 # load modules
 from . import mod_signal
-import calculations
+from . import calculations
 
 # MAIN PLOT OBJECTS
 # -----------------

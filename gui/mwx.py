@@ -20,7 +20,7 @@ import time
 import copy
 import wx
 import numpy as np
-import display_scale
+from . import display_scale
 
 # load modules
 from .ids import *

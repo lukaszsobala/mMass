@@ -21,7 +21,7 @@ import time
 # load libs
 import wx
 import numpy
-import display_scale
+from gui import display_scale
 
 # MAIN PLOT CANVAS OBJECT
 # -----------------------

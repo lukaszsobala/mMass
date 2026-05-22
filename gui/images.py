@@ -15,7 +15,7 @@
 #     main directory of the program.
 # -------------------------------------------------------------------------
 import pdb
-import display_scale
+from . import display_scale
 
 # load libs
 import wx

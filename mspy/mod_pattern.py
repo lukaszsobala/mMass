@@ -30,7 +30,7 @@ from . import obj_compound
 from . import obj_peaklist
 
 # load modules
-import calculations
+from . import calculations
 from . import mod_basics
 from . import mod_signal
 from . import mod_peakpicking
