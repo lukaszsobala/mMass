@@ -24,13 +24,14 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    project_root = Path(__file__).resolve().parents[1]
+    script_path = Path(__file__).resolve()
+    project_root = script_path.parents[2]
 
     if not sys.platform.startswith("win") and not args.force:
         print("This build procedure targets Windows. Re-run on Windows or use --force.")
         return 2
 
-    spec_file = project_root / "packaging" / "windows" / "mMass.spec"
+    spec_file = script_path.with_name("mMass.spec")
     entry_file = project_root / "src" / "mmass_app" / "app.py"
     config_dir = project_root / "src" / "gui" / "configs"
 
