@@ -20,6 +20,7 @@ import time
 import copy
 import wx
 import numpy as np
+import display_scale
 
 # load modules
 from .ids import *
@@ -188,6 +189,58 @@ elif wx.Platform == "__WXGTK__":
     )
 
     PERIODIC_TABLE_GRID = (-7, -7)
+
+
+UI_SCALE = display_scale.get_ui_scale()
+
+
+def _scale_int(value):
+    return display_scale.scale_metric(value, UI_SCALE)
+
+
+def _scale_pair(pair):
+    return (_scale_int(pair[0]), _scale_int(pair[1]))
+
+
+if UI_SCALE != 1.0:
+    SMALL_FONT_SIZE = _scale_int(SMALL_FONT_SIZE)
+    NORMAL_FONT_SIZE = _scale_int(NORMAL_FONT_SIZE)
+    SASH_SIZE = _scale_int(SASH_SIZE)
+    GRIPPER_SIZE = _scale_int(GRIPPER_SIZE)
+    PANEL_SPACE_MAIN = _scale_int(PANEL_SPACE_MAIN)
+    GRIDBAG_VSPACE = _scale_int(GRIDBAG_VSPACE)
+    GRIDBAG_HSPACE = _scale_int(GRIDBAG_HSPACE)
+
+    GAUGE_HEIGHT = _scale_int(GAUGE_HEIGHT)
+    GAUGE_SPACE = _scale_int(GAUGE_SPACE)
+
+    MAIN_TOOLBAR_TOOLSIZE = _scale_pair(MAIN_TOOLBAR_TOOLSIZE)
+
+    TOOLBAR_HEIGHT = _scale_int(TOOLBAR_HEIGHT)
+    TOOLBAR_LSPACE = _scale_int(TOOLBAR_LSPACE)
+    TOOLBAR_RSPACE = _scale_int(TOOLBAR_RSPACE)
+    TOOLBAR_TOOLSIZE = _scale_pair(TOOLBAR_TOOLSIZE)
+    CONTROLBAR_HEIGHT = _scale_int(CONTROLBAR_HEIGHT)
+    CONTROLBAR_DOUBLE_HEIGHT = _scale_int(CONTROLBAR_DOUBLE_HEIGHT)
+    CONTROLBAR_LSPACE = _scale_int(CONTROLBAR_LSPACE)
+    CONTROLBAR_RSPACE = _scale_int(CONTROLBAR_RSPACE)
+    BOTTOMBAR_HEIGHT = _scale_int(BOTTOMBAR_HEIGHT)
+    BOTTOMBAR_LSPACE = _scale_int(BOTTOMBAR_LSPACE)
+    BOTTOMBAR_RSPACE = _scale_int(BOTTOMBAR_RSPACE)
+    BOTTOMBAR_TOOLSIZE = _scale_pair(BOTTOMBAR_TOOLSIZE)
+    SMALL_CHOICE_HEIGHT = _scale_int(SMALL_CHOICE_HEIGHT)
+    SMALL_BUTTON_HEIGHT = _scale_int(SMALL_BUTTON_HEIGHT)
+    SMALL_TEXTCTRL_HEIGHT = _scale_int(SMALL_TEXTCTRL_HEIGHT)
+    SMALL_SEARCH_HEIGHT = _scale_int(SMALL_SEARCH_HEIGHT)
+    BUTTON_SIZE_CORRECTION = _scale_int(BUTTON_SIZE_CORRECTION)
+    CHOICE_HEIGHT = _scale_int(CHOICE_HEIGHT)
+
+    LISTCTRL_NO_SPACE = _scale_int(LISTCTRL_NO_SPACE)
+    LISTCTRL_SPACE = _scale_int(LISTCTRL_SPACE)
+    DOCTREE_BULLETSIZE = _scale_int(DOCTREE_BULLETSIZE)
+    SEQUENCE_FONT_SIZE = _scale_int(SEQUENCE_FONT_SIZE)
+    PERIODIC_TABLE_GRID = _scale_pair(PERIODIC_TABLE_GRID)
+    PERIODIC_TABLE_FONT_SIZE = _scale_int(PERIODIC_TABLE_FONT_SIZE)
 
 
 def cmp(a, b):

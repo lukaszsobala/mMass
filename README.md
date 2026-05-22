@@ -48,6 +48,21 @@ You can also run it generically:
 python mmass.py
 ```
 
+### High-DPI tuning
+
+Legacy parts of the UI still use pixel-oriented sizing. To safely scale tool icons,
+control metrics, and spectrum line thickness without changing default behavior,
+set `MMASS_UI_SCALE` when launching.
+
+Example (200% equivalent):
+
+```sh
+MMASS_UI_SCALE=2 mmass
+```
+
+This is especially useful when forcing X11 paths such as:
+`GDK_SCALE=1 WINIT_X11_SCALE_FACTOR=1 GDK_BACKEND=x11`.
+
 ## Packaging
 Because the legacy C extensions have been removed, pre-building ABI-specific wheels targeting `manylinux` arrays via Docker is **no longer required**. 
 

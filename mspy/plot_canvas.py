@@ -21,6 +21,7 @@ import time
 # load libs
 import wx
 import numpy
+import display_scale
 
 # MAIN PLOT CANVAS OBJECT
 # -----------------------
@@ -97,7 +98,11 @@ class canvas(wx.Window):
         self.currentIsotopes = []
         self.currentIsotopeLines = 0
         self.gelsCount = 0
-        self.printerScale = {"drawings": 1, "fonts": 1}
+        self.basePrinterScale = max(display_scale.get_ui_scale(), 1.0)
+        self.printerScale = {
+            "drawings": self.basePrinterScale,
+            "fonts": self.basePrinterScale,
+        }
         self.viewMemory = [[], []]
 
         self.cursorPosition = [0, 0, 0, 0]
@@ -840,8 +845,8 @@ class canvas(wx.Window):
 
         # rescale back to original
         self.setSize()
-        self.printerScale["drawings"] = 1
-        self.printerScale["fonts"] = 1
+        self.printerScale["drawings"] = self.basePrinterScale
+        self.printerScale["fonts"] = self.basePrinterScale
         self.refresh()
 
         return tmpBitmap
@@ -1022,9 +1027,13 @@ class canvas(wx.Window):
 
     # ----
 
-    def setPrinterScale(self, drawings=1, fonts=1):
+    def setPrinterScale(self, drawings=None, fonts=None):
         """Used to thicken lines and increase marker size for printouts."""
 
+        if drawings is None:
+            drawings = self.basePrinterScale
+        if fonts is None:
+            fonts = self.basePrinterScale
         self.printerScale["drawings"] = drawings
         self.printerScale["fonts"] = fonts
 

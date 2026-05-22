@@ -30,7 +30,7 @@ Repository = "https://github.com/lukaszsobala/mMass"
 mmass = "mmass:main"
 
 [tool.setuptools]
-py-modules = ["mmass", "calculations"]
+py-modules = ["mmass", "calculations", "display_scale"]
 
 [tool.setuptools.packages.find]
 where = ["."]

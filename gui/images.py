@@ -15,6 +15,7 @@
 #     main directory of the program.
 # -------------------------------------------------------------------------
 import pdb
+import display_scale
 
 # load libs
 import wx
@@ -27,6 +28,36 @@ from wx.tools import img2py
 # ------
 
 lib = {}
+
+
+def _scale_bitmap(bitmap, scale):
+    """Return a scaled copy of a bitmap."""
+
+    width = bitmap.GetWidth()
+    height = bitmap.GetHeight()
+    new_w = max(1, int(round(width * scale)))
+    new_h = max(1, int(round(height * scale)))
+    if new_w == width and new_h == height:
+        return bitmap
+
+    image = bitmap.ConvertToImage()
+    image = image.Scale(new_w, new_h, wx.IMAGE_QUALITY_HIGH)
+    return wx.Bitmap(image)
+
+
+def _apply_ui_scale_to_small_bitmaps(scale):
+    """Scale icon-sized bitmaps while leaving large tiled backgrounds unchanged."""
+
+    for key, value in list(lib.items()):
+        if not isinstance(value, wx.Bitmap):
+            continue
+
+        width = value.GetWidth()
+        height = value.GetHeight()
+        if max(width, height) > 64:
+            continue
+
+        lib[key] = _scale_bitmap(value, scale)
 
 
 def loadImages():
@@ -647,6 +678,10 @@ def loadImages():
     lib["periodicTableMdSel"] = ptableSel.GetSubBitmap(wx.Rect(336, 228, 25, 27))
     lib["periodicTableNoSel"] = ptableSel.GetSubBitmap(wx.Rect(360, 228, 25, 27))
     lib["periodicTableLrSel"] = ptableSel.GetSubBitmap(wx.Rect(384, 228, 25, 27))
+
+    ui_scale = display_scale.get_ui_scale()
+    if ui_scale != 1.0:
+        _apply_ui_scale_to_small_bitmaps(ui_scale)
 
 
 # ----
