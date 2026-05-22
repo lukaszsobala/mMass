@@ -1198,12 +1198,20 @@ class parseMSD:
                     intData, compression, precision, endian
                 )
 
+            # mSD documents may store only a peaklist with an empty spectrum.
+            # In such case, keep the profile empty and continue.
+            if not mzArrayTags and not intArrayTags:
+                return
+
             # check data
             if mzData is None or mzData is False:
                 raise ValueError("mzData could not be handled")
 
             if intData is None or intData is False:
                 raise ValueError("mzData could not be handled")
+
+            if len(mzData) != len(intData):
+                raise ValueError("m/z and intensity arrays have different lengths")
 
             # format data
             mzData = numpy.array(mzData)
