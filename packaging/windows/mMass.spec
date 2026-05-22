@@ -4,7 +4,7 @@ from PyInstaller.utils.hooks import collect_data_files
 from PyInstaller.utils.hooks import collect_submodules
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(SPECPATH).resolve().parents[1]
 
 datas = [
     (str(PROJECT_ROOT / "src" / "gui" / "configs"), "gui/configs"),
