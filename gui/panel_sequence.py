@@ -29,8 +29,8 @@ from . import libs
 from .mixins import MakeModalMixin
 import mspy
 
-from gui.panel_match import panelMatch
-from gui.panel_monomer_library import panelMonomerLibrary
+from .panel_match import panelMatch
+from .panel_monomer_library import panelMonomerLibrary
 
 # FLOATING PANEL WITH SEQUENCE TOOLS
 # ----------------------------------

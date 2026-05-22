@@ -30,7 +30,7 @@ from .mixins import MakeModalMixin
 import mspy
 from . import doc
 
-from gui.panel_match import panelMatch
+from .panel_match import panelMatch
 
 # FLOATING PANEL WITH COUPOUND SEARCH TOOL
 # ----------------------------------------
