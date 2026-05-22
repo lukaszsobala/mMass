@@ -2194,6 +2194,7 @@ class canvas(wx.Window):
 
         dc = wx.MemoryDC(self.plotBuffer)
         wx.CallAfter(self.Refresh, False)
+        dc.SetBackground(wx.Brush(self.properties["canvasColour"], wx.SOLID))
         dc.Clear()
         self.lastDraw = None
 
