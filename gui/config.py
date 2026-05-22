@@ -22,6 +22,27 @@ import os
 import xml.dom.minidom
 from xdgenvpy import XDGPackage  # type: ignore[import-untyped]
 
+
+MODULE_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(MODULE_DIR)
+
+
+def get_default_config_source_dir():
+    """Return location of bundled default config XML files."""
+
+    candidates = [
+        os.path.join(MODULE_DIR, "configs"),
+        os.path.join(PROJECT_ROOT, "configs"),
+    ]
+    for path in candidates:
+        if os.path.isdir(path):
+            return path
+    return candidates[0]
+
+
+def get_default_config_source_path(filename):
+    return os.path.join(get_default_config_source_dir(), filename)
+
 # SET VERSION
 # -----------
 
@@ -45,7 +66,7 @@ nightbuild = ""
 
 # set config folder for MAC OS X
 if sys.platform == "darwin":
-    confdir = "configs"
+    confdir = get_default_config_source_dir()
     support = os.path.expanduser("~/Library/Application Support/")
     userconf = os.path.join(support, "mMass")
     if os.path.exists(support) and not os.path.exists(userconf):
@@ -58,7 +79,7 @@ if sys.platform == "darwin":
 
 # set config folder for Linux
 elif sys.platform.startswith("linux") or sys.platform.startswith("freebsd"):
-    confdir = "configs"
+    confdir = get_default_config_source_dir()
     home = os.path.expanduser("~")
     userconf = XDGPackage("mmass").XDG_CONFIG_HOME
     if os.path.exists(home) and not os.path.exists(userconf):

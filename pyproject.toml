@@ -35,3 +35,6 @@ py-modules = ["mmass"]
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["gui", "gui.*", "mspy", "mspy.*", "mmass_app", "mmass_app.*"]
+
+[tool.setuptools.package-data]
+gui = ["configs/*.xml"]

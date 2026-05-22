@@ -26,25 +26,25 @@ import copy
 from . import config
 import mspy
 
-# ENSURE DEFAULT LIBS ARE AVAILABLE AFTER MAC INSTALLATION
-# --------------------------------------------------------
-if sys.platform == "darwin":
-    for item in (
-        "monomers.xml",
-        "modifications.xml",
-        "enzymes.xml",
-        "presets.xml",
-        "references.xml",
-        "compounds.xml",
-        "mascot.xml",
-    ):
-        if not os.path.exists(os.path.join(config.confdir, item)):
-            try:
-                shutil.copyfile(
-                    os.path.join("configs", item), os.path.join(config.confdir, item)
-                )
-            except:
-                pass
+# ENSURE DEFAULT LIBS ARE AVAILABLE IN USER CONFIG DIRECTORY
+# ----------------------------------------------------------
+for item in (
+    "monomers.xml",
+    "modifications.xml",
+    "enzymes.xml",
+    "presets.xml",
+    "references.xml",
+    "compounds.xml",
+    "mascot.xml",
+):
+    if not os.path.exists(os.path.join(config.confdir, item)):
+        try:
+            shutil.copyfile(
+                config.get_default_config_source_path(item),
+                os.path.join(config.confdir, item),
+            )
+        except Exception:
+            pass
 
 
 # LOAD USER'S LIBS INTO MSPY
