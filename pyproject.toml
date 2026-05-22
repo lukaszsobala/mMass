@@ -27,11 +27,11 @@ Homepage = "https://github.com/lukaszsobala/mMass"
 Repository = "https://github.com/lukaszsobala/mMass"
 
 [project.scripts]
-mmass = "mmass:main"
+mmass = "mmass_app.app:main"
 
 [tool.setuptools]
 py-modules = ["mmass"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["gui", "gui.*", "mspy", "mspy.*"]
+include = ["gui", "gui.*", "mspy", "mspy.*", "mmass_app", "mmass_app.*"]

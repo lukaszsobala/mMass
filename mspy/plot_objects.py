@@ -842,10 +842,8 @@ class points:
 
         # filter and scale data
         if filterSize and len(self.cropped) and self.properties.get("showLines", True):
-            from calculations import signal_filter
-
             data_res = filterSize / abs(xScale)
-            filtered = signal_filter(self.cropped, data_res)
+            filtered = calculations.signal_filter(self.cropped, data_res)
             self.scaled = _scaleAndShift(filtered, xScale, yScale, xShift, yShift)
         elif len(self.cropped):
             self.scaled = _scaleAndShift(self.cropped, xScale, yScale, xShift, yShift)
@@ -1263,10 +1261,8 @@ class spectrum:
 
         # filter and scale spectrum data
         if filterSize and len(self.spectrumCropped) and self.properties["showSpectrum"]:
-            from calculations import signal_filter
-
             data_res = filterSize / abs(xScale)
-            filtered = signal_filter(self.spectrumCropped, data_res)
+            filtered = calculations.signal_filter(self.spectrumCropped, data_res)
             self.spectrumScaled = _scaleAndShift(
                 filtered, xScale, yScale, xShift, yShift
             )
@@ -1283,10 +1279,10 @@ class spectrum:
                 self.properties.get("showLabels", True)
                 or self.properties.get("showTicks", True)
             ):
-                from calculations import peaklist_filter_indices
-
                 data_res = filterSize / abs(xScale)
-                keep_idx = peaklist_filter_indices(self.peaklistCropped, data_res)
+                keep_idx = calculations.peaklist_filter_indices(
+                    self.peaklistCropped, data_res
+                )
 
                 # We need to filter BOTH the numpy array and the python list representing the data model
                 self.peaklistCropped = self.peaklistCropped[keep_idx]
