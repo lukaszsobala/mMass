@@ -30,10 +30,10 @@ Repository = "https://github.com/lukaszsobala/mMass"
 mmass = "mmass_app.app:main"
 
 [tool.setuptools]
-py-modules = ["mmass"]
+package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
-where = ["."]
+where = ["src"]
 include = ["gui", "gui.*", "mspy", "mspy.*", "mmass_app", "mmass_app.*"]
 
 [tool.setuptools.package-data]
