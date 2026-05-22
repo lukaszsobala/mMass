@@ -1210,7 +1210,7 @@ class canvas(wx.Window):
             self.drawGelView(dc, graphics)
 
         # draw data
-        dc.SetClippingRegion(x, y, width, height)
+        dc.SetClippingRegion(int(x), int(y), int(width), int(height))
         graphics.draw(
             dc,
             printerScale=self.printerScale,
@@ -1536,7 +1536,7 @@ class canvas(wx.Window):
         gelY1 = plotY1 - height - 8 * self.printerScale["drawings"]
 
         # set clipping area
-        dc.SetClippingRegion(plotX1, gelY1, width, height)
+        dc.SetClippingRegion(int(plotX1), int(gelY1), int(width), int(height))
 
         # draw background
         dc.SetPen(wx.TRANSPARENT_PEN)
