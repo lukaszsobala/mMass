@@ -201,8 +201,8 @@ class parseMZDATA:
         intData = base64.b64decode(scanData["intData"])
 
         # get endian
-        mzEndian = "!"
-        intEndian = "!"
+        mzEndian = ">"
+        intEndian = ">"
         if scanData["mzEndian"] == "little":
             mzEndian = "<"
         elif scanData["mzEndian"] == "big":

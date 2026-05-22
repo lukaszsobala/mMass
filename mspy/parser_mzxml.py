@@ -206,7 +206,7 @@ class parseMZXML:
             precision = "d"
 
         # get endian
-        endian = "!"
+        endian = ">"
         if scanData["byteOrder"] == "little":
             endian = "<"
         elif scanData["byteOrder"] == "big":
