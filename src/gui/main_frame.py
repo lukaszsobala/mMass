@@ -2108,13 +2108,27 @@ class mainFrame(wx.Frame):
             imagePath = os.path.join(tmpDir, "mmass_spectrum.png")
             reportPath = os.path.join(tmpDir, "mmass_report.html")
 
-            # make spetrum file
-            reportBitmap = self.spectrumPanel.getBitmap(600, 400, None)
+            # Render report image off-screen at explicit pixel dimensions so
+            # desktop UI scaling does not reduce output resolution.
+            canvas_width, canvas_height = self.spectrumPanel.spectrumCanvas.GetClientSize()
+            canvas_width = max(1, int(round(canvas_width)))
+            canvas_height = max(1, int(round(canvas_height)))
+            aspect_ratio = float(canvas_height) / float(canvas_width)
+
+            target_width = max(1600, min(3200, canvas_width * 2))
+            target_height = max(1, int(round(target_width * aspect_ratio)))
+
+            reportBitmap = self.spectrumPanel.getBitmap(
+                target_width, target_height, None
+            )
+            if not reportBitmap.IsOk():
+                reportBitmap = self.spectrumPanel.getCurrentBitmap()
             reportImage = reportBitmap.ConvertToImage()
+
             reportImage.SetOption(wx.IMAGE_OPTION_QUALITY, "100")
-            reportImage.SetOption(wx.IMAGE_OPTION_RESOLUTION, "72")
-            reportImage.SetOption(wx.IMAGE_OPTION_RESOLUTIONX, "72")
-            reportImage.SetOption(wx.IMAGE_OPTION_RESOLUTIONY, "72")
+            reportImage.SetOption(wx.IMAGE_OPTION_RESOLUTION, "144")
+            reportImage.SetOption(wx.IMAGE_OPTION_RESOLUTIONX, "144")
+            reportImage.SetOption(wx.IMAGE_OPTION_RESOLUTIONY, "144")
             reportImage.SetOption(wx.IMAGE_OPTION_RESOLUTIONUNIT, "1")
             reportImage.SaveFile(imagePath, wx.BITMAP_TYPE_PNG)
 
@@ -2125,7 +2139,7 @@ class mainFrame(wx.Frame):
 
             # show report
             path = "file://%s?%s" % (reportPath, time.time())
-            import wx; wx.LaunchDefaultBrowser(path, flags=0)
+            wx.LaunchDefaultBrowser(path, flags=0)
 
         except IOError:
             wx.Bell()

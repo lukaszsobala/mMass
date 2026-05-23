@@ -827,20 +827,30 @@ class canvas(wx.Window):
         # get width/height if not set
         if not width or not height:
             width, height = self.GetClientSize()
+        width = max(1, int(round(width)))
+        height = max(1, int(round(height)))
 
         # create empty bitmap
-        tmpBitmap = wx.Bitmap(width, height)
+        tmpBitmap = wx.Bitmap(width, height, 24)
+        if hasattr(tmpBitmap, "SetScaleFactor"):
+            tmpBitmap.SetScaleFactor(1.0)
         tmpDC = wx.MemoryDC()
         tmpDC.SelectObject(tmpBitmap)
         tmpDC.Clear()
 
+        # On HiDPI systems the DC drawable size may differ from bitmap pixel size.
+        # Use the DC size for plot geometry to prevent top-left quadrant clipping.
+        drawWidth, drawHeight = tmpDC.GetSize()
+        drawWidth = max(1, int(round(drawWidth)))
+        drawHeight = max(1, int(round(drawHeight)))
+
         # rescale plot
-        self.setSize(width, height)
+        self.setSize(drawWidth, drawHeight)
 
         # thicken up pens and fonts
         if not printerScale:
-            ratioW = float(width) / 750
-            ratioH = float(height) / 750
+            ratioW = float(drawWidth) / 750
+            ratioH = float(drawHeight) / 750
             scale = max(min(ratioW, ratioH), 1)
             self.printerScale["drawings"] = scale
             self.printerScale["fonts"] = scale
@@ -862,6 +872,30 @@ class canvas(wx.Window):
         self.refresh()
 
         return tmpBitmap
+
+    # ----
+
+    def getCurrentBitmap(self):
+        """Get bitmap of the currently rendered plot buffer."""
+
+        image = self.plotBuffer.ConvertToImage()
+
+        scale_factor = 1.0
+        if hasattr(self.plotBuffer, "GetScaleFactor"):
+            try:
+                scale_factor = float(self.plotBuffer.GetScaleFactor())
+            except Exception:
+                scale_factor = 1.0
+
+        if scale_factor > 1.0:
+            logical_width = max(1, int(round(image.GetWidth() / scale_factor)))
+            logical_height = max(1, int(round(image.GetHeight() / scale_factor)))
+            image = image.GetSubImage(wx.Rect(0, 0, logical_width, logical_height))
+
+        bitmap = image.ConvertToBitmap()
+        if hasattr(bitmap, "SetScaleFactor"):
+            bitmap.SetScaleFactor(1.0)
+        return bitmap
 
     # ----
 
@@ -1113,6 +1147,7 @@ class canvas(wx.Window):
         # reset tracker
         self.mouseTracker = False
 
+        own_dc = dc is None
         if dc is None:
             dc = wx.MemoryDC(self.plotBuffer)
             wx.CallAfter(self.Refresh, False)
@@ -1235,14 +1270,14 @@ class canvas(wx.Window):
         if self.properties["showLegend"]:
             self.drawLegend(dc, graphics)
 
-        # save plot state before any dynamic content is drawn
-        # used for quick refreshing
-        # MSW can return a blank sub-bitmap here when sourced from a bitmap
-        # participating in active DC drawing; image round-trip is more robust.
-        self.cleanPlotBuffer = self.plotBuffer.ConvertToImage().ConvertToBitmap()
-        
-        # apply any dynamic overlays
-        self.quickRefresh(dc)
+        # Save plot state only for live on-screen draws and apply dynamic
+        # overlays there. Off-screen export/print DCs must keep only the
+        # rendered plot content.
+        if own_dc:
+            # MSW can return a blank sub-bitmap here when sourced from a bitmap
+            # participating in active DC drawing; image round-trip is more robust.
+            self.cleanPlotBuffer = self.plotBuffer.ConvertToImage().ConvertToBitmap()
+            self.quickRefresh(dc)
 
     # ----
 

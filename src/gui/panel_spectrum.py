@@ -1478,6 +1478,12 @@ class panelSpectrum(wx.Panel):
 
     # ----
 
+    def getCurrentBitmap(self):
+        """Get currently rendered spectrum image."""
+        return self.spectrumCanvas.getCurrentBitmap()
+
+    # ----
+
     def getPrintout(self, filterSize, title):
         """Get spectrum printout."""
         return self.spectrumCanvas.getPrintout(filterSize, title)

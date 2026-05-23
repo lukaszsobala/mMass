@@ -430,9 +430,13 @@ class document:
 
         # show spectrum
         if image:
+            with open(image, "rb") as image_handle:
+                image_src = "data:image/png;base64,%s" % base64.b64encode(
+                    image_handle.read()
+                ).decode("ascii")
             buff += (
-                '  <div id="spectrum"><img src="mmass_spectrum.png?%s" alt="Mass Spectrum" width="600" height="400" /></div>\n'
-                % time.time()
+                '  <div id="spectrum"><img src="%s" alt="Mass Spectrum" style="max-width: 100%%; height: auto;" /></div>\n'
+                % image_src
             )
 
         # notes
