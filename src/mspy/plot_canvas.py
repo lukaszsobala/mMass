@@ -1,6 +1,4 @@
 import time
-import os
-import tempfile
 
 # pyright: reportAttributeAccessIssue=false, reportArgumentType=false, reportCallIssue=false, reportGeneralTypeIssues=false, reportIndexIssue=false, reportOperatorIssue=false, reportOptionalSubscript=false
 
@@ -32,36 +30,11 @@ from gui import display_scale
 class canvas(wx.Window):
     """Plot canvas"""
 
-    def _debug(self, message):
-        if not os.environ.get("MMASS_CANVAS_DEBUG"):
-            return
-
-        line = f"[canvas] {message}"
-
-        # Linux/dev runs often have a console attached.
-        try:
-            print(line)
-        except Exception:
-            pass
-
-        # Windows PyInstaller GUI builds (console=False) hide stdout,
-        # so also write to a temp log file.
-        try:
-            log_path = os.environ.get(
-                "MMASS_CANVAS_DEBUG_FILE",
-                os.path.join(tempfile.gettempdir(), "mmass-canvas-debug.log"),
-            )
-            with open(log_path, "a", encoding="utf-8") as fh:
-                fh.write(line + "\n")
-        except Exception:
-            pass
-
     def __init__(
         self, parent, id=-1, size=wx.DefaultSize, style=wx.DEFAULT_FRAME_STYLE, **attr
     ):
         wx.Window.__init__(self, parent, id, size=size, style=style)
         self.SetBackgroundStyle(wx.BG_STYLE_PAINT)
-        self._debug("init")
 
         self.parent = parent
         self.SetBackgroundColour("white")
@@ -166,7 +139,6 @@ class canvas(wx.Window):
 
     def onPaint(self, evt):
         """Repaint plot."""
-        self._debug(f"onPaint buffer={self.plotBuffer.GetSize()}")
         dc = wx.AutoBufferedPaintDC(self)
         dc.SetBackground(wx.Brush(self.properties["canvasColour"], wx.SOLID))
         dc.Clear()
@@ -182,7 +154,6 @@ class canvas(wx.Window):
 
     def onSize(self, evt):
         """Repaint plot when size changed."""
-        self._debug(f"onSize client={self.GetClientSize()}")
 
         # get size
         width, height = self.GetClientSize()
@@ -1133,10 +1104,7 @@ class canvas(wx.Window):
         self, graphics, xAxis=None, yAxis=None, dc=None, filterSize=None, adaptive=True
     ):
         """Draw axis and plot graphics."""
-        self._debug(
-            f"draw dc={'memory' if dc is None else type(dc).__name__} graphics={type(graphics).__name__}"
-        )
-        
+
         if filterSize is None:
             filterSize = self.properties.get("filterSize", 1.0)
 
@@ -1240,7 +1208,6 @@ class canvas(wx.Window):
 
         # draw plot axis
         self.drawAxis(dc, xAxisTicks, yAxisTicks)
-        self._debug("draw axis complete")
 
         # draw plot x position box
         if self.properties["showXPosBar"]:
@@ -1253,40 +1220,29 @@ class canvas(wx.Window):
         # draw gel
         if self.properties["showGel"]:
             self.drawGelView(dc, graphics)
-            self._debug("draw gel complete")
 
         # draw data
         dc.SetClippingRegion(int(x), int(y), int(width), int(height))
-        self._debug("draw graphics.draw start")
-        try:
-            graphics.draw(
-                dc,
-                printerScale=self.printerScale,
-                overlapLabels=self.properties["overlapLabels"],
-                reverse=self.properties["reverseDrawing"],
-            )
-        except Exception as exc:
-            self._debug(f"draw graphics.draw error: {exc!r}")
-            raise
-        else:
-            self._debug("draw graphics.draw end")
+        graphics.draw(
+            dc,
+            printerScale=self.printerScale,
+            overlapLabels=self.properties["overlapLabels"],
+            reverse=self.properties["reverseDrawing"],
+        )
         dc.DestroyClippingRegion()
 
         # draw legend
         if self.properties["showLegend"]:
             self.drawLegend(dc, graphics)
-            self._debug("draw legend complete")
 
         # save plot state before any dynamic content is drawn
         # used for quick refreshing
         # MSW can return a blank sub-bitmap here when sourced from a bitmap
         # participating in active DC drawing; image round-trip is more robust.
         self.cleanPlotBuffer = self.plotBuffer.ConvertToImage().ConvertToBitmap()
-        self._debug("draw clean buffer captured")
         
         # apply any dynamic overlays
         self.quickRefresh(dc)
-        self._debug("draw quick refresh complete")
 
     # ----
 
@@ -2246,7 +2202,6 @@ class canvas(wx.Window):
     def clear(self):
         """Clear plot window"""
 
-        self._debug("clear")
         dc = wx.MemoryDC(self.plotBuffer)
         wx.CallAfter(self.Refresh, False)
         dc.SetBackground(wx.Brush(self.properties["canvasColour"], wx.SOLID))
