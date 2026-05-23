@@ -190,10 +190,10 @@ class canvas(wx.Window):
         height = max(1, height)
 
         # make new offscreen bitmap
-        # depth omitted: forcing 32-bit on Windows leaves alpha=0 everywhere,
-        # causing DrawBitmap to composite a transparent image onto a black screen DC.
-        self.plotBuffer = wx.Bitmap(width, height)
-        self.cleanPlotBuffer = wx.Bitmap(width, height)
+        # Use 24-bit RGB to avoid alpha-channel artifacts on MSW where a
+        # transparent (alpha=0) 32-bit buffer can hide the full plot content.
+        self.plotBuffer = wx.Bitmap(width, height, 24)
+        self.cleanPlotBuffer = wx.Bitmap(width, height, 24)
         self.setSize()
 
         # redraw plot or clear area
