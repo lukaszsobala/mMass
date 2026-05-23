@@ -1218,6 +1218,7 @@ class canvas(wx.Window):
 
         # draw plot axis
         self.drawAxis(dc, xAxisTicks, yAxisTicks)
+        self._debug("draw axis complete")
 
         # draw plot x position box
         if self.properties["showXPosBar"]:
@@ -1230,31 +1231,40 @@ class canvas(wx.Window):
         # draw gel
         if self.properties["showGel"]:
             self.drawGelView(dc, graphics)
+            self._debug("draw gel complete")
 
         # draw data
         dc.SetClippingRegion(int(x), int(y), int(width), int(height))
         self._debug("draw graphics.draw start")
-        graphics.draw(
-            dc,
-            printerScale=self.printerScale,
-            overlapLabels=self.properties["overlapLabels"],
-            reverse=self.properties["reverseDrawing"],
-        )
-        self._debug("draw graphics.draw end")
+        try:
+            graphics.draw(
+                dc,
+                printerScale=self.printerScale,
+                overlapLabels=self.properties["overlapLabels"],
+                reverse=self.properties["reverseDrawing"],
+            )
+        except Exception as exc:
+            self._debug(f"draw graphics.draw error: {exc!r}")
+            raise
+        else:
+            self._debug("draw graphics.draw end")
         dc.DestroyClippingRegion()
 
         # draw legend
         if self.properties["showLegend"]:
             self.drawLegend(dc, graphics)
+            self._debug("draw legend complete")
 
         # save plot state before any dynamic content is drawn
         # used for quick refreshing
         self.cleanPlotBuffer = self.plotBuffer.GetSubBitmap(
             wx.Rect(0, 0, *self.plotBuffer.GetSize())
         )
+        self._debug("draw clean buffer captured")
         
         # apply any dynamic overlays
         self.quickRefresh(dc)
+        self._debug("draw quick refresh complete")
 
     # ----
 
