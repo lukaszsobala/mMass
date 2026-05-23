@@ -1,5 +1,6 @@
 import time
 import os
+import tempfile
 
 # pyright: reportAttributeAccessIssue=false, reportArgumentType=false, reportCallIssue=false, reportGeneralTypeIssues=false, reportIndexIssue=false, reportOperatorIssue=false, reportOptionalSubscript=false
 
@@ -32,14 +33,35 @@ class canvas(wx.Window):
     """Plot canvas"""
 
     def _debug(self, message):
-        if os.environ.get("MMASS_CANVAS_DEBUG"):
-            print(f"[canvas] {message}")
+        if not os.environ.get("MMASS_CANVAS_DEBUG"):
+            return
+
+        line = f"[canvas] {message}"
+
+        # Linux/dev runs often have a console attached.
+        try:
+            print(line)
+        except Exception:
+            pass
+
+        # Windows PyInstaller GUI builds (console=False) hide stdout,
+        # so also write to a temp log file.
+        try:
+            log_path = os.environ.get(
+                "MMASS_CANVAS_DEBUG_FILE",
+                os.path.join(tempfile.gettempdir(), "mmass-canvas-debug.log"),
+            )
+            with open(log_path, "a", encoding="utf-8") as fh:
+                fh.write(line + "\n")
+        except Exception:
+            pass
 
     def __init__(
         self, parent, id=-1, size=wx.DefaultSize, style=wx.DEFAULT_FRAME_STYLE, **attr
     ):
         wx.Window.__init__(self, parent, id, size=size, style=style)
         self.SetBackgroundStyle(wx.BG_STYLE_PAINT)
+        self._debug("init")
 
         self.parent = parent
         self.SetBackgroundColour("white")
