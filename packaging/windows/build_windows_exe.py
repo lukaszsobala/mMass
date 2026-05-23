@@ -70,6 +70,13 @@ def main() -> int:
     subprocess.run(cmd, check=True, cwd=str(project_root))
 
     output = dist_dir / "mMass"
+    root_exe = dist_dir / "mMass.exe"
+    if root_exe.exists():
+        # Keep one-folder output canonical even if a spec/tooling variation
+        # leaves a top-level executable in dist.
+        root_exe.unlink()
+        print("Removed duplicate top-level executable:", root_exe)
+
     print("Windows bundle ready:", output)
     print("Main executable:", output / "mMass.exe")
     return 0
