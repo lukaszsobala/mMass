@@ -1279,9 +1279,9 @@ class canvas(wx.Window):
 
         # save plot state before any dynamic content is drawn
         # used for quick refreshing
-        self.cleanPlotBuffer = self.plotBuffer.GetSubBitmap(
-            wx.Rect(0, 0, *self.plotBuffer.GetSize())
-        )
+        # MSW can return a blank sub-bitmap here when sourced from a bitmap
+        # participating in active DC drawing; image round-trip is more robust.
+        self.cleanPlotBuffer = self.plotBuffer.ConvertToImage().ConvertToBitmap()
         self._debug("draw clean buffer captured")
         
         # apply any dynamic overlays
