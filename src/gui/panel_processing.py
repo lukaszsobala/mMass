@@ -1238,6 +1238,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             self.toolbar.Show(10)
             self.mainSizer.Show(4)
             self.smoothing_butt.SetBitmapLabel(images.lib["processingSmoothingOn"])
+            self.onSmoothingChanged()
 
         elif tool == "peakpicking":
             self.SetTitle("Peak Picking")
@@ -1792,6 +1793,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
         # update gui
         self.onBaselineChanged()
+        self.onSmoothingChanged()
         self.onPeakpickingChanged()
 
     # ----
