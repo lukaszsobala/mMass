@@ -631,6 +631,13 @@ class panelDocuments(wx.Panel):
         item = self.documentTree.GetSelection()
         itemType = self.documentTree.getItemType(item)
         itemData = self.documentTree.GetItemData(item)
+        docIndex = self._getDocumentIndex(item)
+
+        # backup editable data before mutation
+        if itemType == "annotation":
+            self.documents[docIndex].backup(("annotations"))
+        elif itemType == "match":
+            self.documents[docIndex].backup(("sequences"))
 
         # show dialog
         dlg = dlgNotation(self.parent, itemData, button="Update")
@@ -644,6 +651,8 @@ class panelDocuments(wx.Panel):
 
         else:
             dlg.Destroy()
+            if itemType in ("annotation", "match"):
+                self.documents[docIndex].backup(None)
 
     # ----
 

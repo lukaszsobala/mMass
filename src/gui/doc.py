@@ -66,9 +66,17 @@ class document:
 
         # undo buffers
         self.undo = None
+        self.redo = None
         self._spectrumBuff = None
         self._annotationsBuff = None
         self._sequencesBuff = None
+        self._infoBuff = None
+
+        # redo buffers
+        self._redoSpectrumBuff = None
+        self._redoAnnotationsBuff = None
+        self._redoSequencesBuff = None
+        self._redoInfoBuff = None
 
     # ----
 
@@ -76,11 +84,17 @@ class document:
         """Backup current state for undo."""
 
         self.undo = items
+        self.redo = None
 
         # delete old
         self._spectrumBuff = None
         self._annotationsBuff = None
         self._sequencesBuff = None
+        self._infoBuff = None
+        self._redoSpectrumBuff = None
+        self._redoAnnotationsBuff = None
+        self._redoSequencesBuff = None
+        self._redoInfoBuff = None
 
         if not items:
             return
@@ -95,6 +109,24 @@ class document:
         if "notations" in items:
             self._annotationsBuff = copy.deepcopy(self.annotations)
             self._sequencesBuff = copy.deepcopy(self.sequences)
+        if "doctitle" in items:
+            self._infoBuff = {"title": self.title}
+        if "info" in items:
+            self._infoBuff = {
+                "title": self.title,
+                "date": self.date,
+                "operator": self.operator,
+                "contact": self.contact,
+                "institution": self.institution,
+                "instrument": self.instrument,
+                "notes": self.notes,
+                "scanNumber": self.spectrum.scanNumber,
+                "retentionTime": self.spectrum.retentionTime,
+                "msLevel": self.spectrum.msLevel,
+                "precursorMZ": self.spectrum.precursorMZ,
+                "precursorCharge": self.spectrum.precursorCharge,
+                "polarity": self.spectrum.polarity,
+            }
 
     # ----
 
@@ -105,8 +137,42 @@ class document:
         if not self.undo:
             return False
 
-        # revert data
+        # backup current state for redo
         items = self.undo
+        self.redo = items
+        self._redoSpectrumBuff = None
+        self._redoAnnotationsBuff = None
+        self._redoSequencesBuff = None
+        self._redoInfoBuff = None
+        if "spectrum" in items:
+            self._redoSpectrumBuff = copy.deepcopy(self.spectrum)
+        if "annotations" in items:
+            self._redoAnnotationsBuff = copy.deepcopy(self.annotations)
+        if "sequences" in items:
+            self._redoSequencesBuff = copy.deepcopy(self.sequences)
+        if "notations" in items:
+            self._redoAnnotationsBuff = copy.deepcopy(self.annotations)
+            self._redoSequencesBuff = copy.deepcopy(self.sequences)
+        if "doctitle" in items:
+            self._redoInfoBuff = {"title": self.title}
+        if "info" in items:
+            self._redoInfoBuff = {
+                "title": self.title,
+                "date": self.date,
+                "operator": self.operator,
+                "contact": self.contact,
+                "institution": self.institution,
+                "instrument": self.instrument,
+                "notes": self.notes,
+                "scanNumber": self.spectrum.scanNumber,
+                "retentionTime": self.spectrum.retentionTime,
+                "msLevel": self.spectrum.msLevel,
+                "precursorMZ": self.spectrum.precursorMZ,
+                "precursorCharge": self.spectrum.precursorCharge,
+                "polarity": self.spectrum.polarity,
+            }
+
+        # revert data
         if "spectrum" in items:
             self.spectrum = self._spectrumBuff
         if "annotations" in items:
@@ -117,12 +183,110 @@ class document:
             self.annotations[:] = self._annotationsBuff[:]
             for x in range(len(self.sequences)):
                 self.sequences[x].matches[:] = self._sequencesBuff[x].matches[:]
+        if "doctitle" in items:
+            self.title = self._infoBuff["title"]
+        if "info" in items:
+            self.title = self._infoBuff["title"]
+            self.date = self._infoBuff["date"]
+            self.operator = self._infoBuff["operator"]
+            self.contact = self._infoBuff["contact"]
+            self.institution = self._infoBuff["institution"]
+            self.instrument = self._infoBuff["instrument"]
+            self.notes = self._infoBuff["notes"]
+            self.spectrum.scanNumber = self._infoBuff["scanNumber"]
+            self.spectrum.retentionTime = self._infoBuff["retentionTime"]
+            self.spectrum.msLevel = self._infoBuff["msLevel"]
+            self.spectrum.precursorMZ = self._infoBuff["precursorMZ"]
+            self.spectrum.precursorCharge = self._infoBuff["precursorCharge"]
+            self.spectrum.polarity = self._infoBuff["polarity"]
 
         # clear buffers
         self.undo = None
         self._spectrumBuff = None
         self._annotationsBuff = None
         self._sequencesBuff = None
+        self._infoBuff = None
+
+        return items
+
+    # ----
+
+    def forward(self):
+        """Re-apply last undone state."""
+
+        # check redo
+        if not self.redo:
+            return False
+
+        # backup current state for undo
+        items = self.redo
+        self.undo = items
+        self._spectrumBuff = None
+        self._annotationsBuff = None
+        self._sequencesBuff = None
+        self._infoBuff = None
+        if "spectrum" in items:
+            self._spectrumBuff = copy.deepcopy(self.spectrum)
+        if "annotations" in items:
+            self._annotationsBuff = copy.deepcopy(self.annotations)
+        if "sequences" in items:
+            self._sequencesBuff = copy.deepcopy(self.sequences)
+        if "notations" in items:
+            self._annotationsBuff = copy.deepcopy(self.annotations)
+            self._sequencesBuff = copy.deepcopy(self.sequences)
+        if "doctitle" in items:
+            self._infoBuff = {"title": self.title}
+        if "info" in items:
+            self._infoBuff = {
+                "title": self.title,
+                "date": self.date,
+                "operator": self.operator,
+                "contact": self.contact,
+                "institution": self.institution,
+                "instrument": self.instrument,
+                "notes": self.notes,
+                "scanNumber": self.spectrum.scanNumber,
+                "retentionTime": self.spectrum.retentionTime,
+                "msLevel": self.spectrum.msLevel,
+                "precursorMZ": self.spectrum.precursorMZ,
+                "precursorCharge": self.spectrum.precursorCharge,
+                "polarity": self.spectrum.polarity,
+            }
+
+        # restore redone data
+        if "spectrum" in items:
+            self.spectrum = self._redoSpectrumBuff
+        if "annotations" in items:
+            self.annotations[:] = self._redoAnnotationsBuff[:]
+        if "sequences" in items:
+            self.sequences[:] = self._redoSequencesBuff[:]
+        if "notations" in items:
+            self.annotations[:] = self._redoAnnotationsBuff[:]
+            for x in range(len(self.sequences)):
+                self.sequences[x].matches[:] = self._redoSequencesBuff[x].matches[:]
+        if "doctitle" in items:
+            self.title = self._redoInfoBuff["title"]
+        if "info" in items:
+            self.title = self._redoInfoBuff["title"]
+            self.date = self._redoInfoBuff["date"]
+            self.operator = self._redoInfoBuff["operator"]
+            self.contact = self._redoInfoBuff["contact"]
+            self.institution = self._redoInfoBuff["institution"]
+            self.instrument = self._redoInfoBuff["instrument"]
+            self.notes = self._redoInfoBuff["notes"]
+            self.spectrum.scanNumber = self._redoInfoBuff["scanNumber"]
+            self.spectrum.retentionTime = self._redoInfoBuff["retentionTime"]
+            self.spectrum.msLevel = self._redoInfoBuff["msLevel"]
+            self.spectrum.precursorMZ = self._redoInfoBuff["precursorMZ"]
+            self.spectrum.precursorCharge = self._redoInfoBuff["precursorCharge"]
+            self.spectrum.polarity = self._redoInfoBuff["polarity"]
+
+        # clear redo buffers
+        self.redo = None
+        self._redoSpectrumBuff = None
+        self._redoAnnotationsBuff = None
+        self._redoSequencesBuff = None
+        self._redoInfoBuff = None
 
         return items
 

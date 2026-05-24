@@ -2657,6 +2657,34 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         self.batchChanged = []
         current = self.currentDocument
 
+        apply_swap = self.batchSwap_check.GetValue()
+        apply_math = self.batchMath_check.GetValue()
+        apply_crop = self.batchCrop_check.GetValue()
+        apply_baseline = self.batchBaseline_check.GetValue()
+        apply_smoothing = self.batchSmoothing_check.GetValue()
+        apply_peakpicking = self.batchPeakpicking_check.GetValue()
+        apply_deisotoping = self.batchDeisotoping_check.GetValue()
+        apply_deconvolution = self.batchDeconvolution_check.GetValue()
+        math_operation = config.processing["math"]["operation"]
+        math_is_global = apply_math and math_operation in (
+            "averageall",
+            "combineall",
+            "overlayall",
+        )
+
+        apply_in_place = (
+            apply_swap
+            or (apply_math and not math_is_global)
+            or apply_crop
+            or apply_baseline
+            or apply_smoothing
+            or apply_peakpicking
+            or apply_deisotoping
+        )
+
+        if not (apply_in_place or apply_deconvolution):
+            return
+
         # run task
         try:
 
@@ -2671,42 +2699,47 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
                 # select document
                 self.currentDocument = self.parent.documents[docIndex]
-                self.batchChanged.append(docIndex)
 
-                # backup document
-                self.currentDocument.backup(("spectrum", "notations"))
+                # backup document only for in-place processing operations
+                if apply_in_place:
+                    self.currentDocument.backup(("spectrum", "notations"))
+                    self.batchChanged.append(docIndex)
 
                 # apply swap
-                if self.batchSwap_check.GetValue():
+                if apply_swap:
                     self.runApplySwap(batch=True)
 
                 # apply math
-                if self.batchMath_check.GetValue():
+                if apply_math and not math_is_global:
                     self.runApplyMath(batch=True)
 
                 # apply crop
-                if self.batchCrop_check.GetValue():
+                if apply_crop:
                     self.runApplyCrop(batch=True)
 
                 # apply baseline correction
-                if self.batchBaseline_check.GetValue():
+                if apply_baseline:
                     self.runApplyBaseline(batch=True)
 
                 # apply smoothing
-                if self.batchSmoothing_check.GetValue():
+                if apply_smoothing:
                     self.runApplySmoothing(batch=True)
 
                 # apply peak picking
-                if self.batchPeakpicking_check.GetValue():
+                if apply_peakpicking:
                     self.runApplyPeakpicking(batch=True)
 
                 # apply deisotoping
-                if self.batchDeisotoping_check.GetValue():
+                if apply_deisotoping:
                     self.runApplyDeisotoping(batch=True)
 
                 # apply deconvolution
-                if self.batchDeconvolution_check.GetValue():
+                if apply_deconvolution:
                     self.runApplyDeconvolution(batch=True)
+
+            # global math operations create a new document and don't modify sources
+            if documents and math_is_global:
+                self.runApplyMath(batch=True)
 
             # select original document
             self.currentDocument = current

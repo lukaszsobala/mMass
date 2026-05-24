@@ -2303,6 +2303,9 @@ class panelSequence(wx.Frame, MakeModalMixin):
             wx.Bell()
             return
 
+        # backup previous matches
+        self.currentDocument.backup(("sequences"))
+
         # store matches
         self.currentSequence.matches = matches
         self.parent.onDocumentChanged(items=("matches"))

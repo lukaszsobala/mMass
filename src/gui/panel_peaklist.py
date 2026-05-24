@@ -659,6 +659,7 @@ class panelPeaklist(wx.Panel):
             return
 
         # add annotation
+        self.currentDocument.backup(("annotations"))
         self.currentDocument.annotations.append(annot)
         self.currentDocument.sortAnnotations()
         self.parent.onDocumentChanged(items=("annotations"))

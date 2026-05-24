@@ -505,6 +505,7 @@ class mainFrame(wx.Frame):
         # processing
         processing = wx.Menu()
         processing.Append(ID_processingUndo, "Undo" + HK_processingUndo, "")
+        processing.Append(ID_processingRedo, "Redo" + HK_processingRedo, "")
         processing.AppendSeparator()
         processing.Append(
             ID_processingPeakpicking, "Peak Picking..." + HK_processingPeakpicking, ""
@@ -536,6 +537,7 @@ class mainFrame(wx.Frame):
         processing.Append(ID_toolsSwapData, "Swap Data", "")
 
         self.Bind(wx.EVT_MENU, self.onToolsUndo, id=ID_processingUndo)
+        self.Bind(wx.EVT_MENU, self.onToolsRedo, id=ID_processingRedo)
         self.Bind(wx.EVT_MENU, self.onToolsProcessing, id=ID_processingPeakpicking)
         self.Bind(wx.EVT_MENU, self.onToolsProcessing, id=ID_processingDeisotoping)
         self.Bind(wx.EVT_MENU, self.onToolsProcessing, id=ID_processingDeconvolution)
@@ -2828,6 +2830,25 @@ class mainFrame(wx.Frame):
 
     # ----
 
+    def onToolsRedo(self, evt):
+        """Redo last undone operation."""
+
+        # check document
+        if self.currentDocument is None:
+            wx.Bell()
+            return
+
+        # redo last operation
+        items = self.documents[self.currentDocument].forward()
+        if not items:
+            wx.Bell()
+            return
+
+        # update gui
+        self.onDocumentChanged(items=items)
+
+    # ----
+
     def onToolsSpectrum(self, evt):
         """Toggle spectrum tools."""
 
@@ -4738,6 +4759,7 @@ class mainFrame(wx.Frame):
             ID_documentOffset, bool(enable and not config.spectrum["normalize"])
         )
         self.menubar.Enable(ID_processingUndo, bool(enable and document.undo))
+        self.menubar.Enable(ID_processingRedo, bool(enable and document.redo))
         self.menubar.Enable(ID_processingPeakpicking, enable)
         self.menubar.Enable(ID_processingDeisotoping, enable)
         self.menubar.Enable(ID_processingDeconvolution, enable)

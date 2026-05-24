@@ -145,6 +145,7 @@ HK_viewCanvasProperties = "\tCtrl+J"
 
 # processing
 ID_processingUndo = wx.NewId()
+ID_processingRedo = wx.NewId()
 ID_processingPeakpicking = wx.NewId()
 ID_processingDeisotoping = wx.NewId()
 ID_processingDeconvolution = wx.NewId()
@@ -156,6 +157,7 @@ ID_processingBatch = wx.NewId()
 ID_toolsSwapData = wx.NewId()
 
 HK_processingUndo = "\tCtrl+Z"
+HK_processingRedo = "\tCtrl+Y"
 HK_processingPeakpicking = "\tCtrl+F"
 HK_processingDeisotoping = "\tCtrl+D"
 HK_processingDeconvolution = ""
