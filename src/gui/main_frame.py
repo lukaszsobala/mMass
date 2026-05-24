@@ -4847,8 +4847,12 @@ class mainFrame(wx.Frame):
     def getFreeColour(self):
         """Get free colour from config or generate random."""
 
+        palette = config.colours
+        if images.is_dark_mode():
+            palette = [[255 - c[0], 255 - c[1], 255 - c[2]] for c in config.colours]
+
         # get colour from config
-        for colour in config.colours:
+        for colour in palette:
             if not colour in self.usedColours:
                 self.usedColours.append(colour)
                 return colour

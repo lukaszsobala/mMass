@@ -1102,7 +1102,11 @@ class documentsTree(wx.TreeCtrl):
 
         # set font and colour
         self.SetFont(wx.SMALL_FONT)
-        self.SetOwnBackgroundColour(mwx.DOCTREE_COLOUR)
+        if images.is_dark_mode():
+            self.SetOwnBackgroundColour(wx.Colour(30, 30, 30))
+            self.SetForegroundColour(wx.Colour(220, 220, 220))
+        else:
+            self.SetOwnBackgroundColour(mwx.DOCTREE_COLOUR)
 
         # init bullets
         self.bullets = wx.ImageList(13, 12)
@@ -1231,10 +1235,10 @@ class documentsTree(wx.TreeCtrl):
 
         # set text colour
         if enable:
-            self.SetItemTextColour(item, (0, 0, 0))
+            self.SetItemTextColour(item, (220, 220, 220) if images.is_dark_mode() else (0, 0, 0))
             self.SetItemBold(item, False)
         else:
-            self.SetItemTextColour(item, (150, 150, 150))
+            self.SetItemTextColour(item, (100, 100, 100) if images.is_dark_mode() else (150, 150, 150))
             self.SetItemBold(item, False)
 
         # set document bullet
@@ -1418,7 +1422,7 @@ class documentsTree(wx.TreeCtrl):
 
         # clear background
         if wx.Platform != "__WXMAC__":
-            dc.SetBackground(wx.Brush(mwx.DOCTREE_COLOUR, wx.SOLID))
+            dc.SetBackground(wx.Brush(self.GetBackgroundColour(), wx.SOLID))
             dc.Clear()
 
         # set pen and brush
@@ -1431,7 +1435,10 @@ class documentsTree(wx.TreeCtrl):
             dc.SetBrush(wx.TRANSPARENT_BRUSH)
 
         # draw circle
-        dc.DrawCircle(6, 7, mwx.DOCTREE_BULLETSIZE)
+        # Keep the circle inside the 13x12 image box while making it larger.
+        radius = int(round(mwx.DOCTREE_BULLETSIZE * 1.33))
+        radius = min(radius, 6)
+        dc.DrawCircle(6, 6, radius)
         dc.SelectObject(wx.NullBitmap)
 
         return bitmap

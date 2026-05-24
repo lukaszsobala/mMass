@@ -24,6 +24,14 @@ import copy
 from . import mod_signal
 from . import calculations
 
+
+def _is_dark_mode():
+    """Return True when the system colour theme has a dark window background."""
+    bg = wx.SystemSettings.GetColour(wx.SYS_COLOUR_WINDOW)
+    luminance = 0.299 * bg.Red() + 0.587 * bg.Green() + 0.114 * bg.Blue()
+    return luminance < 128
+
+
 # MAIN PLOT OBJECTS
 # -----------------
 
@@ -354,6 +362,11 @@ class annotations:
 
         # convert points to array
         self.points = numpy.array([[p[0], p[1]] for p in points])
+        # apply dark-mode label colour overrides
+        if _is_dark_mode():
+            self.properties["labelColour"] = (220, 220, 220)
+            self.properties["labelBgrColour"] = (30, 30, 30)
+
         self.pointsCropped = self.points
         self.pointsScaled = self.pointsCropped
         if len(self.points):
@@ -1007,6 +1020,11 @@ class spectrum:
 
         # convert spectrum points to array
         self.spectrumPoints = numpy.array(scan.profile)
+        # apply dark-mode label colour overrides
+        if _is_dark_mode():
+            self.properties["labelColour"] = (220, 220, 220)
+            self.properties["labelBgrColour"] = (30, 30, 30)
+
         self.spectrumCropped = self.spectrumPoints
         self.spectrumScaled = self.spectrumCropped
         if len(self.spectrumPoints):
@@ -1508,7 +1526,8 @@ class spectrum:
 
         # init brush
         dc.SetPen(wx.TRANSPARENT_PEN)
-        brush = wx.Brush((255, 255, 255), wx.SOLID)
+        _dark = _is_dark_mode()
+        brush = wx.Brush((0, 0, 0) if _dark else (255, 255, 255), wx.SOLID)
         dc.SetBrush(brush)
 
         # get first point and color
@@ -1536,7 +1555,8 @@ class spectrum:
 
                 # set color if different
                 if lastY != maxY:
-                    brush.SetColour((maxY, maxY, maxY))
+                    shade = 255 - maxY if _dark else maxY
+                    brush.SetColour((shade, shade, shade))
                     dc.SetBrush(brush)
 
                 # draw point rectangle
@@ -1553,7 +1573,8 @@ class spectrum:
                 # empty space
                 if maxY < previousY and xPos - previousX > printerScale["drawings"]:
                     maxY = previousY
-                    brush.SetColour((maxY, maxY, maxY))
+                    shade = 255 - maxY if _dark else maxY
+                    brush.SetColour((shade, shade, shade))
                     dc.SetBrush(brush)
                     try:
                         dc.DrawRectangle(
@@ -1687,7 +1708,8 @@ class spectrum:
 
         # init brush
         dc.SetPen(wx.TRANSPARENT_PEN)
-        brush = wx.Brush((255, 255, 255), wx.SOLID)
+        _dark = _is_dark_mode()
+        brush = wx.Brush((0, 0, 0) if _dark else (255, 255, 255), wx.SOLID)
         dc.SetBrush(brush)
 
         # get first point and color
@@ -1711,7 +1733,8 @@ class spectrum:
 
             # draw first
             if x == 0:
-                brush.SetColour((intens, intens, intens))
+                shade = 255 - intens if _dark else intens
+                brush.SetColour((shade, shade, shade))
                 dc.SetBrush(brush)
                 try:
                     dc.DrawRectangle(
@@ -1730,7 +1753,8 @@ class spectrum:
 
                 # set color if different
                 if lastY != maxY:
-                    brush.SetColour((maxY, maxY, maxY))
+                    shade = 255 - maxY if _dark else maxY
+                    brush.SetColour((shade, shade, shade))
                     dc.SetBrush(brush)
 
                 # draw peak line
@@ -1751,7 +1775,8 @@ class spectrum:
 
                 # draw last
                 if x == last:
-                    brush.SetColour((maxY, maxY, maxY))
+                    shade = 255 - maxY if _dark else maxY
+                    brush.SetColour((shade, shade, shade))
                     dc.SetBrush(brush)
                     try:
                         dc.DrawRectangle(

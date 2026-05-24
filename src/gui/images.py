@@ -20,6 +20,7 @@ from . import display_scale
 # load libs
 import wx
 from wx.tools import img2py
+import numpy as np
 
 # from . import ids
 
@@ -43,6 +44,30 @@ def _scale_bitmap(bitmap, scale):
     image = bitmap.ConvertToImage()
     image = image.Scale(new_w, new_h, wx.IMAGE_QUALITY_HIGH)
     return wx.Bitmap(image)
+
+
+def is_dark_mode():
+    """Return True if the system is currently using a dark colour theme."""
+    bg = wx.SystemSettings.GetColour(wx.SYS_COLOUR_WINDOW)
+    luminance = 0.299 * bg.Red() + 0.587 * bg.Green() + 0.114 * bg.Blue()
+    return luminance < 128
+
+
+def _invert_bitmap(bitmap):
+    """Return a copy of bitmap with RGB channels inverted (alpha preserved)."""
+    image = bitmap.ConvertToImage()
+    buf = image.GetDataBuffer()  # writable memoryview of raw RGB bytes
+    arr = np.frombuffer(buf, dtype=np.uint8)
+    arr[:] = 255 - arr
+    return wx.Bitmap(image)
+
+
+def _apply_dark_mode_to_bitmaps():
+    """Invert all wx.Bitmap entries in lib for dark-mode display."""
+    for key in list(lib.keys()):
+        value = lib[key]
+        if isinstance(value, wx.Bitmap):
+            lib[key] = _invert_bitmap(value)
 
 
 def _apply_ui_scale_to_small_bitmaps(scale):
@@ -682,6 +707,9 @@ def loadImages():
     ui_scale = display_scale.get_ui_scale()
     if ui_scale != 1.0:
         _apply_ui_scale_to_small_bitmaps(ui_scale)
+
+    if is_dark_mode():
+        _apply_dark_mode_to_bitmaps()
 
 
 # ----

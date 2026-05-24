@@ -236,6 +236,12 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
     def makeDocumentsGrid(self, panel):
         """Make documents grid."""
 
+        dark = images.is_dark_mode()
+        cell_bg = wx.Colour(30, 30, 30) if dark else wx.WHITE
+        cell_fg = wx.Colour(220, 220, 220) if dark else wx.BLACK
+        label_bg = wx.Colour(45, 45, 45) if dark else wx.Colour(245, 245, 245)
+        grid_line = wx.Colour(70, 70, 70) if dark else wx.Colour(220, 220, 220)
+
         # make table
         self.documentsGrid = wx.grid.Grid(
             panel, -1, size=wx.Size(550, 500), style=mwx.GRID_STYLE
@@ -248,11 +254,14 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         self.documentsGrid.SetDefaultRowSize(19)
         self.documentsGrid.AutoSizeColumns(True)
         self.documentsGrid.SetLabelFont(wx.SMALL_FONT)
+        self.documentsGrid.SetLabelBackgroundColour(label_bg)
+        self.documentsGrid.SetLabelTextColour(cell_fg)
         self.documentsGrid.SetDefaultCellFont(wx.SMALL_FONT)
         self.documentsGrid.SetDefaultCellAlignment(wx.ALIGN_RIGHT, wx.ALIGN_TOP)
-        self.documentsGrid.SetDefaultCellBackgroundColour(wx.WHITE)
+        self.documentsGrid.SetDefaultCellBackgroundColour(cell_bg)
+        self.documentsGrid.SetDefaultCellTextColour(cell_fg)
         self.documentsGrid.EnableGridLines(True)
-        self.documentsGrid.SetGridLineColour(wx.Colour(220, 220, 220))
+        self.documentsGrid.SetGridLineColour(grid_line)
 
         self.documentsGrid.Bind(
             wx.grid.EVT_GRID_SELECT_CELL, self.onDocumentsCellSelected
@@ -263,6 +272,12 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
 
     def makePeaklistGrid(self, panel):
         """Make total peaklist grid."""
+
+        dark = images.is_dark_mode()
+        cell_bg = wx.Colour(30, 30, 30) if dark else wx.WHITE
+        cell_fg = wx.Colour(220, 220, 220) if dark else wx.BLACK
+        label_bg = wx.Colour(45, 45, 45) if dark else wx.Colour(245, 245, 245)
+        grid_line = wx.Colour(70, 70, 70) if dark else wx.Colour(220, 220, 220)
 
         # make table
         self.peaklistGrid = wx.grid.Grid(
@@ -276,11 +291,14 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         self.peaklistGrid.SetDefaultRowSize(19)
         self.peaklistGrid.AutoSizeColumns(True)
         self.peaklistGrid.SetLabelFont(wx.SMALL_FONT)
+        self.peaklistGrid.SetLabelBackgroundColour(label_bg)
+        self.peaklistGrid.SetLabelTextColour(cell_fg)
         self.peaklistGrid.SetDefaultCellFont(wx.SMALL_FONT)
         self.peaklistGrid.SetDefaultCellAlignment(wx.ALIGN_RIGHT, wx.ALIGN_TOP)
-        self.peaklistGrid.SetDefaultCellBackgroundColour(wx.WHITE)
+        self.peaklistGrid.SetDefaultCellBackgroundColour(cell_bg)
+        self.peaklistGrid.SetDefaultCellTextColour(cell_fg)
         self.peaklistGrid.EnableGridLines(True)
-        self.peaklistGrid.SetGridLineColour(wx.Colour(220, 220, 220))
+        self.peaklistGrid.SetGridLineColour(grid_line)
 
         self.peaklistGrid.Bind(
             wx.grid.EVT_GRID_SELECT_CELL, self.onPeaklistCellSelected
@@ -291,6 +309,12 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
 
     def makeMatchesGrid(self, panel):
         """Make matches grid."""
+
+        dark = images.is_dark_mode()
+        cell_bg = wx.Colour(30, 30, 30) if dark else wx.WHITE
+        cell_fg = wx.Colour(220, 220, 220) if dark else wx.BLACK
+        label_bg = wx.Colour(45, 45, 45) if dark else wx.Colour(245, 245, 245)
+        grid_line = wx.Colour(70, 70, 70) if dark else wx.Colour(220, 220, 220)
 
         # make table
         self.matchesGrid = wx.grid.Grid(
@@ -304,11 +328,14 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         self.matchesGrid.SetDefaultRowSize(19)
         self.matchesGrid.AutoSizeColumns(True)
         self.matchesGrid.SetLabelFont(wx.SMALL_FONT)
+        self.matchesGrid.SetLabelBackgroundColour(label_bg)
+        self.matchesGrid.SetLabelTextColour(cell_fg)
         self.matchesGrid.SetDefaultCellFont(wx.SMALL_FONT)
         self.matchesGrid.SetDefaultCellAlignment(wx.ALIGN_RIGHT, wx.ALIGN_TOP)
-        self.matchesGrid.SetDefaultCellBackgroundColour(wx.WHITE)
+        self.matchesGrid.SetDefaultCellBackgroundColour(cell_bg)
+        self.matchesGrid.SetDefaultCellTextColour(cell_fg)
         self.matchesGrid.EnableGridLines(True)
-        self.matchesGrid.SetGridLineColour(wx.Colour(220, 220, 220))
+        self.matchesGrid.SetGridLineColour(grid_line)
 
         self.matchesGrid.Bind(wx.EVT_KEY_DOWN, self.onMatchesKey)
 
@@ -893,6 +920,7 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
 
                 if x == item[1]:
                     self.documentsGrid.SetCellValue(row, col + x + 1, "*")
+                    self.documentsGrid.SetCellTextColour(row, col + x + 1, wx.BLACK)
                     self.documentsGrid.SetCellAlignment(
                         row, col + x + 1, wx.ALIGN_CENTER, wx.ALIGN_CENTER
                     )
@@ -950,6 +978,9 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
                     )
                 else:
                     self.peaklistGrid.SetCellBackgroundColour(i, x + 1, defaultColour)
+
+                if x == item[1]:
+                    self.peaklistGrid.SetCellTextColour(i, x + 1, wx.BLACK)
 
                 if x == item[1]:
                     self.peaklistGrid.SetCellValue(i, x + 1, "*")

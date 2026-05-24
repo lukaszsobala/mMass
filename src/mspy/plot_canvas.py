@@ -23,6 +23,14 @@ import wx
 import numpy
 from gui import display_scale
 
+
+def _is_dark_mode():
+    """Return True when the system colour theme has a dark window background."""
+    bg = wx.SystemSettings.GetColour(wx.SYS_COLOUR_WINDOW)
+    luminance = 0.299 * bg.Red() + 0.587 * bg.Green() + 0.114 * bg.Blue()
+    return luminance < 128
+
+
 # MAIN PLOT CANVAS OBJECT
 # -----------------------
 
@@ -83,6 +91,14 @@ class canvas(wx.Window):
                 10, wx.SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL, 0
             ),
         }
+
+        # apply dark-mode colour overrides before caller overrides
+        if _is_dark_mode():
+            self.SetBackgroundColour(wx.Colour(30, 30, 30))
+            self.properties["canvasColour"] = (30, 30, 30)
+            self.properties["plotColour"] = (30, 30, 30)
+            self.properties["axisColour"] = (200, 200, 200)
+            self.properties["gridColour"] = (60, 60, 60)
 
         # get new attributes
         for name, value in list(attr.items()):
@@ -1236,6 +1252,7 @@ class canvas(wx.Window):
             self.plotBoxOrigin[1] - xAxisLabelWH[1] - 3,
         )
         yLabelPos = (3, spaceTop + yAxisLabelWH[0])
+        dc.SetTextForeground(self.properties["axisColour"])
         dc.DrawText(self.properties["xLabel"], int(xLabelPos[0]), int(xLabelPos[1]))
         dc.DrawRotatedText(
             self.properties["yLabel"], int(yLabelPos[0]), int(yLabelPos[1]), 90
@@ -1270,13 +1287,20 @@ class canvas(wx.Window):
         if self.properties["showLegend"]:
             self.drawLegend(dc, graphics)
 
-        # Save plot state only for live on-screen draws and apply dynamic
-        # overlays there. Off-screen export/print DCs must keep only the
+        # Always update the clean buffer from plotBuffer so that quickRefresh
+        # (called on subsequent mouse events and on mouse-up) reflects the
+        # latest drawn state. cleanPlotBuffer always reads from self.plotBuffer,
+        # so this is correct even when dc is an off-screen export DC (in that
+        # case plotBuffer was not touched by this draw call and its content is
+        # unchanged from the previous on-screen draw).
+        # MSW can return a blank sub-bitmap here when sourced from a bitmap
+        # participating in active DC drawing; image round-trip is more robust.
+        self.cleanPlotBuffer = self.plotBuffer.ConvertToImage().ConvertToBitmap()
+
+        # Apply dynamic overlays (highlighted points etc.) only for live
+        # on-screen draws. Off-screen export/print DCs must keep only the
         # rendered plot content.
         if own_dc:
-            # MSW can return a blank sub-bitmap here when sourced from a bitmap
-            # participating in active DC drawing; image round-trip is more robust.
-            self.cleanPlotBuffer = self.plotBuffer.ConvertToImage().ConvertToBitmap()
             self.quickRefresh(dc)
 
     # ----
@@ -2141,8 +2165,8 @@ class canvas(wx.Window):
     def drawInvertedText(self, dc, text, x, y, font):
         """Special function for drawing inverted text"""
 
-        # draw normal text as inverted text seems impossible to implement in wx
-        dc.SetTextForeground(wx.BLACK)
+        # draw normal text using the axis colour so it respects dark mode
+        dc.SetTextForeground(self.properties["axisColour"])
         dc.SetFont(font)
         dc.DrawText(text, int(x), int(y))
         return

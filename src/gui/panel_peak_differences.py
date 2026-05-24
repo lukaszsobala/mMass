@@ -209,6 +209,12 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
     def makeDifferencesGrid(self, panel):
         """Make differences grid."""
 
+        dark = images.is_dark_mode()
+        cell_bg = wx.Colour(30, 30, 30) if dark else wx.WHITE
+        cell_fg = wx.Colour(220, 220, 220) if dark else wx.BLACK
+        label_bg = wx.Colour(45, 45, 45) if dark else wx.Colour(245, 245, 245)
+        grid_line = wx.Colour(70, 70, 70) if dark else wx.Colour(220, 220, 220)
+
         # make table
         self.differencesGrid = wx.grid.Grid(
             panel, -1, size=(700, 500), style=mwx.GRID_STYLE
@@ -219,11 +225,14 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
         self.differencesGrid.SetColLabelSize(19)
         self.differencesGrid.SetDefaultRowSize(19)
         self.differencesGrid.SetLabelFont(wx.SMALL_FONT)
+        self.differencesGrid.SetLabelBackgroundColour(label_bg)
+        self.differencesGrid.SetLabelTextColour(cell_fg)
         self.differencesGrid.SetDefaultCellFont(wx.SMALL_FONT)
         self.differencesGrid.SetDefaultCellAlignment(wx.ALIGN_RIGHT, wx.ALIGN_TOP)
-        self.differencesGrid.SetDefaultCellBackgroundColour(wx.WHITE)
+        self.differencesGrid.SetDefaultCellBackgroundColour(cell_bg)
+        self.differencesGrid.SetDefaultCellTextColour(cell_fg)
         self.differencesGrid.EnableGridLines(True)
-        self.differencesGrid.SetGridLineColour(wx.Colour(220, 220, 220))
+        self.differencesGrid.SetGridLineColour(grid_line)
 
         self.differencesGrid.Bind(wx.grid.EVT_GRID_SELECT_CELL, self.onCellSelected)
         self.differencesGrid.Bind(
@@ -234,6 +243,12 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
 
     def makeMatchesGrid(self, panel):
         """Make matches grid."""
+
+        dark = images.is_dark_mode()
+        cell_bg = wx.Colour(30, 30, 30) if dark else wx.WHITE
+        cell_fg = wx.Colour(220, 220, 220) if dark else wx.BLACK
+        label_bg = wx.Colour(45, 45, 45) if dark else wx.Colour(245, 245, 245)
+        grid_line = wx.Colour(70, 70, 70) if dark else wx.Colour(220, 220, 220)
 
         # make table
         self.matchesGrid = wx.grid.Grid(
@@ -247,9 +262,14 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
         self.matchesGrid.SetDefaultRowSize(19)
         self.matchesGrid.AutoSizeColumns(True)
         self.matchesGrid.SetLabelFont(wx.SMALL_FONT)
+        self.matchesGrid.SetLabelBackgroundColour(label_bg)
+        self.matchesGrid.SetLabelTextColour(cell_fg)
         self.matchesGrid.SetDefaultCellFont(wx.SMALL_FONT)
         self.matchesGrid.SetDefaultCellAlignment(wx.ALIGN_RIGHT, wx.ALIGN_TOP)
-        self.matchesGrid.SetDefaultCellBackgroundColour(wx.WHITE)
+        self.matchesGrid.SetDefaultCellBackgroundColour(cell_bg)
+        self.matchesGrid.SetDefaultCellTextColour(cell_fg)
+        self.matchesGrid.EnableGridLines(True)
+        self.matchesGrid.SetGridLineColour(grid_line)
 
     # ----
 
@@ -533,7 +553,8 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
                 if self.currentDifferences[i][j][1] == False:
                     continue
                 elif self.currentDifferences[i][j][1] == "value":
-                    self.differencesGrid.SetCellBackgroundColour(x, y, (100, 255, 100))
+                    self.differencesGrid.SetCellBackgroundColour(x, y, (0, 140, 70))
+                    self.differencesGrid.SetCellTextColour(x, y, wx.WHITE)
                 elif self.currentDifferences[i][j][1] == "amino":
                     self.differencesGrid.SetCellBackgroundColour(x, y, (0, 200, 255))
                 elif self.currentDifferences[i][j][1] == "dipep":
