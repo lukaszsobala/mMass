@@ -387,27 +387,35 @@ def applyWindowsDarkMode(window):
 
 _DARK_BG = wx.Colour(30, 30, 30)
 _DARK_FG = wx.Colour(220, 220, 220)
-
-# Widget types that should receive dark background propagation.
-_DARK_PANEL_TYPES = (wx.Panel, wx.ScrolledWindow)
-# Widget types that should receive foreground (text) propagation.
-_DARK_TEXT_TYPES = (wx.StaticText, wx.CheckBox, wx.RadioButton)
+_DARK_INPUT_BG = wx.Colour(50, 50, 50)
 
 
 def applyDarkModeToWindow(window):
     """Recursively apply dark background/foreground colours to *window* and
-    all its children.  Only affects panels and text-bearing widgets so that
-    native controls (buttons, spinners, etc.) are left to the system theme.
-    Call after the window's GUI has been fully constructed.
+    all its children.  Call after the window's GUI has been fully constructed.
     """
     if not images.is_dark_mode():
         return
 
     def _recurse(w):
-        if isinstance(w, _DARK_PANEL_TYPES):
+        if isinstance(w, (wx.Panel, wx.ScrolledWindow)):
             w.SetBackgroundColour(_DARK_BG)
             w.SetForegroundColour(_DARK_FG)
-        elif isinstance(w, _DARK_TEXT_TYPES):
+        elif isinstance(w, (wx.StaticText, wx.CheckBox, wx.RadioButton)):
+            w.SetBackgroundColour(_DARK_BG)
+            w.SetForegroundColour(_DARK_FG)
+        elif isinstance(w, (wx.TextCtrl, wx.SpinCtrl)):
+            w.SetBackgroundColour(_DARK_INPUT_BG)
+            w.SetForegroundColour(_DARK_FG)
+        elif isinstance(w, wx.Choice):
+            try:
+                w.EnableSystemTheme(False)
+            except Exception:
+                pass
+            w.SetBackgroundColour(_DARK_INPUT_BG)
+            w.SetForegroundColour(_DARK_FG)
+        elif isinstance(w, wx.Button):
+            w.SetBackgroundColour(_DARK_INPUT_BG)
             w.SetForegroundColour(_DARK_FG)
         for child in w.GetChildren():
             _recurse(child)

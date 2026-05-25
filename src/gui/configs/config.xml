@@ -143,7 +143,7 @@
       <param name="snThreshold" value="3.000000" type="float" />
       <param name="absIntThreshold" value="0.000000" type="float" />
       <param name="relIntThreshold" value="0.000000" type="float" />
-      <param name="pickingHeight" value="0.750000" type="float" />
+      <param name="pickingHeight" value="1.000000" type="float" />
       <param name="baseline" value="1" type="int" />
       <param name="smoothing" value="1" type="int" />
       <param name="deisotoping" value="1" type="int" />
