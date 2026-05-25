@@ -1143,6 +1143,11 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         )
         self.batchDocumentsList.SetFont(wx.SMALL_FONT)
         self.batchDocumentsList.setAltColour(mwx.LISTCTRL_ALTCOLOUR)
+        if images.is_dark_mode():
+            self.batchDocumentsList.EnableSystemTheme(False)
+            self.batchDocumentsList.SetBackgroundColour(wx.Colour(30, 30, 30))
+            self.batchDocumentsList.SetTextColour(wx.Colour(220, 220, 220))
+            self.batchDocumentsList.setAltColour(wx.Colour(40, 40, 40))
 
         # make columns
         self.batchDocumentsList.InsertColumn(0, "document title", wx.LIST_FORMAT_LEFT)
