@@ -48,6 +48,29 @@ def _scale_bitmap(bitmap, scale):
 
 def is_dark_mode():
     """Return True if the system is currently using a dark colour theme."""
+
+    # Prefer wx API when available.
+    try:
+        appearance_getter = getattr(wx.SystemSettings, "GetAppearance", None)
+        if appearance_getter is not None:
+            appearance = appearance_getter()
+            return bool(appearance.IsDark())
+    except Exception:
+        pass
+
+    # Windows app theme setting is exposed in the registry.
+    if wx.Platform == "__WXMSW__":
+        try:
+            import winreg
+
+            key_path = r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path) as key:
+                value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+                return int(value) == 0
+        except Exception:
+            pass
+
+    # Fallback: infer from current window background colour.
     bg = wx.SystemSettings.GetColour(wx.SYS_COLOUR_WINDOW)
     luminance = 0.299 * bg.Red() + 0.587 * bg.Green() + 0.114 * bg.Blue()
     return luminance < 128

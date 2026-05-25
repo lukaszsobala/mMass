@@ -27,6 +27,32 @@ from . import calculations
 
 def _is_dark_mode():
     """Return True when the system colour theme has a dark window background."""
+
+    # Prefer wx API when available.
+    try:
+        appearance_getter = getattr(wx.SystemSettings, "GetAppearance", None)
+        if appearance_getter is not None:
+            appearance = appearance_getter()
+            return bool(appearance.IsDark())
+    except Exception:
+        pass
+
+    # Windows app theme setting is exposed in the registry.
+    if wx.Platform == "__WXMSW__":
+        try:
+            winreg = __import__("winreg")
+            open_key = getattr(winreg, "OpenKey")
+            query_value_ex = getattr(winreg, "QueryValueEx")
+            hkey_current_user = getattr(winreg, "HKEY_CURRENT_USER")
+
+            key_path = r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
+            with open_key(hkey_current_user, key_path) as key:
+                value, _ = query_value_ex(key, "AppsUseLightTheme")
+                return int(value) == 0
+        except Exception:
+            pass
+
+    # Fallback: infer from current window background colour.
     bg = wx.SystemSettings.GetColour(wx.SYS_COLOUR_WINDOW)
     luminance = 0.299 * bg.Red() + 0.587 * bg.Green() + 0.114 * bg.Blue()
     return luminance < 128
