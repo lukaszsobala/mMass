@@ -560,7 +560,10 @@ class canvas(wx.Window):
         self._last_draw_time = now
 
         dc = wx.MemoryDC(self.plotBuffer)
-        immediate_paint = self.mouseEvent in ("xShift", "yShift", "xScale", "yScale")
+        immediate_paint = (
+            wx.Platform == "__WXGTK__"
+            and self.mouseEvent in ("xShift", "yShift", "xScale", "yScale")
+        )
 
         # guard against stacking multiple pending Refresh calls
         # For heavy drag redraws use immediate paint to avoid frame starvation
