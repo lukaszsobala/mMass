@@ -95,6 +95,12 @@ class mainFrame(wx.Frame):
             style=wx.DEFAULT_FRAME_STYLE | wx.NO_FULL_REPAINT_ON_RESIZE,
         )
 
+        if images.is_dark_mode():
+            self.SetBackgroundColour(wx.Colour(30, 30, 30))
+            self.SetForegroundColour(wx.Colour(220, 220, 220))
+
+        mwx.applyWindowsDarkMode(self)
+
         # init error handler
         sys.excepthook = self.onError
 
@@ -833,6 +839,9 @@ class mainFrame(wx.Frame):
         self.toolbar = self.CreateToolBar(mwx.MAIN_TOOLBAR_STYLE)
         self.toolbar.SetToolBitmapSize(mwx.MAIN_TOOLBAR_TOOLSIZE)
         self.toolbar.SetFont(wx.SMALL_FONT)
+        if images.is_dark_mode():
+            self.toolbar.SetBackgroundColour(wx.Colour(45, 45, 45))
+            self.toolbar.SetForegroundColour(wx.Colour(220, 220, 220))
 
         # document
         if wx.Platform != "__WXMAC__":

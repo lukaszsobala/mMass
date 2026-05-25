@@ -307,6 +307,15 @@ def appInit():
                     # 1 = AllowDark
                     set_preferred_app_mode(1)
 
+                # Refresh immersive colours when supported.
+                try:
+                    refresh_immersive = uxtheme[104]
+                    refresh_immersive.argtypes = []
+                    refresh_immersive.restype = None
+                    refresh_immersive()
+                except Exception:
+                    pass
+
                 if flush_menu_themes is not None:
                     flush_menu_themes.argtypes = []
                     flush_menu_themes.restype = None
@@ -320,6 +329,60 @@ def appInit():
 
 
 # ----
+
+
+def applyWindowsDarkMode(window):
+    """Apply best-effort native Windows dark mode to a top-level window."""
+
+    if wx.Platform != "__WXMSW__" or not images.is_dark_mode():
+        return
+
+    try:
+        import ctypes
+
+        hwnd = window.GetHandle()
+        if not hwnd:
+            return
+
+        # Prefer dark non-client rendering (title bar / frame) when available.
+        try:
+            dwmapi = ctypes.WinDLL("dwmapi", use_last_error=True)
+            use_dark = ctypes.c_int(1)
+            for attr in (20, 19):
+                if dwmapi.DwmSetWindowAttribute(
+                    ctypes.c_void_p(hwnd),
+                    ctypes.c_int(attr),
+                    ctypes.byref(use_dark),
+                    ctypes.sizeof(use_dark),
+                ) == 0:
+                    break
+        except Exception:
+            pass
+
+        # Allow dark rendering for this specific window and refresh menu themes.
+        try:
+            uxtheme = ctypes.WinDLL("uxtheme", use_last_error=True)
+            try:
+                allow_dark_for_window = uxtheme[133]
+                allow_dark_for_window.argtypes = [ctypes.c_void_p, ctypes.c_bool]
+                allow_dark_for_window.restype = ctypes.c_bool
+                allow_dark_for_window(ctypes.c_void_p(hwnd), True)
+            except Exception:
+                pass
+
+            try:
+                flush_menu_themes = uxtheme[136]
+                flush_menu_themes.argtypes = []
+                flush_menu_themes.restype = None
+                flush_menu_themes()
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    except Exception:
+        pass
+
 
 
 def fitChoice(choice, min_width=None, extra_padding=35):
