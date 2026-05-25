@@ -71,6 +71,13 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         self.makeGUI()
         self.Bind(wx.EVT_CLOSE, self.onClose)
 
+        # apply dark mode
+        if images.is_dark_mode():
+            self.SetBackgroundColour(wx.Colour(30, 30, 30))
+            self.SetForegroundColour(wx.Colour(220, 220, 220))
+            mwx.applyDarkModeToWindow(self)
+            mwx.applyWindowsDarkMode(self)
+
         # update documents lists
         self.updateAvailableDocuments()
 

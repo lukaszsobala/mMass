@@ -385,6 +385,37 @@ def applyWindowsDarkMode(window):
 
 
 
+_DARK_BG = wx.Colour(30, 30, 30)
+_DARK_FG = wx.Colour(220, 220, 220)
+
+# Widget types that should receive dark background propagation.
+_DARK_PANEL_TYPES = (wx.Panel, wx.ScrolledWindow)
+# Widget types that should receive foreground (text) propagation.
+_DARK_TEXT_TYPES = (wx.StaticText, wx.CheckBox, wx.RadioButton)
+
+
+def applyDarkModeToWindow(window):
+    """Recursively apply dark background/foreground colours to *window* and
+    all its children.  Only affects panels and text-bearing widgets so that
+    native controls (buttons, spinners, etc.) are left to the system theme.
+    Call after the window's GUI has been fully constructed.
+    """
+    if not images.is_dark_mode():
+        return
+
+    def _recurse(w):
+        if isinstance(w, _DARK_PANEL_TYPES):
+            w.SetBackgroundColour(_DARK_BG)
+            w.SetForegroundColour(_DARK_FG)
+        elif isinstance(w, _DARK_TEXT_TYPES):
+            w.SetForegroundColour(_DARK_FG)
+        for child in w.GetChildren():
+            _recurse(child)
+
+    _recurse(window)
+    window.Refresh()
+
+
 def fitChoice(choice, min_width=None, extra_padding=35):
     """Fit wx.Choice control width to the longest available label."""
 
@@ -421,14 +452,36 @@ def fitChoice(choice, min_width=None, extra_padding=35):
 class bgrPanel(wx.Panel):
     """Simple panel with image background."""
 
+    _DARK_BG = wx.Colour(30, 30, 30)
+
     def __init__(self, parent, id, image, size=(-1, -1)):
         wx.Panel.__init__(self, parent, id, size=size)
         self.SetMinSize(size)
 
         self.image = image
+        self._dark_mode = images.is_dark_mode()
 
-        # set paint event to tile image
-        self.Bind(wx.EVT_PAINT, self._onPaint)
+        if self._dark_mode:
+            self.SetBackgroundColour(self._DARK_BG)
+            self.SetBackgroundStyle(wx.BG_STYLE_COLOUR)
+            self.Bind(wx.EVT_SIZE, self._onDarkSize)
+        else:
+            # set paint event to tile image
+            self.Bind(wx.EVT_PAINT, self._onPaint)
+
+    # ----
+
+    def _onDarkSize(self, event):
+        """Propagate dark background to all BitmapButton children on first resize."""
+        event.Skip()
+        self._propagateDarkBg()
+
+    def _propagateDarkBg(self):
+        """Set background colour on all BitmapButton children to match the panel."""
+        colour = self.GetBackgroundColour()
+        for child in self.GetChildren():
+            if isinstance(child, wx.BitmapButton):
+                child.SetBackgroundColour(colour)
 
     # ----
 

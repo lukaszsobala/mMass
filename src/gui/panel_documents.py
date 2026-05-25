@@ -72,9 +72,14 @@ class panelDocuments(wx.Panel):
         """Make bottom toolbar."""
 
         # init toolbar panel
-        panel = mwx.bgrPanel(
-            self, -1, images.lib["bgrBottombar"], size=(-1, mwx.BOTTOMBAR_HEIGHT)
-        )
+        if images.is_dark_mode():
+            panel = wx.Panel(self, -1, size=(-1, mwx.BOTTOMBAR_HEIGHT))
+            panel.SetBackgroundColour(wx.Colour(30, 30, 30))
+            panel.SetForegroundColour(wx.Colour(220, 220, 220))
+        else:
+            panel = mwx.bgrPanel(
+                self, -1, images.lib["bgrBottombar"], size=(-1, mwx.BOTTOMBAR_HEIGHT)
+            )
 
         self.add_butt = wx.BitmapButton(
             panel,
@@ -95,6 +100,10 @@ class panelDocuments(wx.Panel):
         )
         self.delete_butt.SetToolTip(wx.ToolTip("Remove..."))
         self.delete_butt.Bind(wx.EVT_BUTTON, self.onDelete)
+
+        if images.is_dark_mode():
+            self.add_butt.SetBackgroundColour(panel.GetBackgroundColour())
+            self.delete_butt.SetBackgroundColour(panel.GetBackgroundColour())
 
         # pack elements
         sizer = wx.BoxSizer(wx.HORIZONTAL)
