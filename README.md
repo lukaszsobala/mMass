@@ -74,6 +74,32 @@ python -m build
 ```
 The universal wheel and source dist will be produced natively in `dist/`.
 
+### Windows installer
+
+The repository includes a two-step Windows packaging flow:
+
+1. Build a one-folder app bundle with PyInstaller.
+2. Wrap the bundle into a standard installer `.exe` using NSIS.
+
+Local build (Windows host):
+
+```powershell
+python -m pip install -e .
+python -m pip install pyinstaller
+# Install NSIS so `makensis` is on PATH.
+python packaging/windows/build_windows_installer.py
+```
+
+Installer output is written to `build/installer/windows/`.
+
+### GitHub Actions
+
+An automated Windows installer workflow is available at
+`.github/workflows/windows-installer.yml`.
+
+It runs on `workflow_dispatch` and on tags matching `v*`, and uploads the
+generated installer as an Actions artifact named `mMass-windows-installer`.
+
 ## Contributing
 
 Issues can be file in the GitHub bug tracker.  PRs welcomed!
