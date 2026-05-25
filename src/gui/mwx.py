@@ -281,6 +281,39 @@ def appInit():
     elif wx.Platform == "__WXMSW__":
         wx.SMALL_FONT.SetPointSize(SMALL_FONT_SIZE)
 
+        if images.is_dark_mode():
+            # Best-effort native dark menu support on newer Windows builds.
+            try:
+                import ctypes
+
+                uxtheme = ctypes.WinDLL("uxtheme", use_last_error=True)
+
+                # Undocumented ordinals used by many desktop apps.
+                # 135 = SetPreferredAppMode, 136 = FlushMenuThemes
+                set_preferred_app_mode = None
+                flush_menu_themes = None
+                try:
+                    set_preferred_app_mode = uxtheme[135]
+                except Exception:
+                    pass
+                try:
+                    flush_menu_themes = uxtheme[136]
+                except Exception:
+                    pass
+
+                if set_preferred_app_mode is not None:
+                    set_preferred_app_mode.argtypes = [ctypes.c_int]
+                    set_preferred_app_mode.restype = ctypes.c_int
+                    # 1 = AllowDark
+                    set_preferred_app_mode(1)
+
+                if flush_menu_themes is not None:
+                    flush_menu_themes.argtypes = []
+                    flush_menu_themes.restype = None
+                    flush_menu_themes()
+            except Exception:
+                pass
+
     # set GTK
     elif wx.Platform == "__WXGTK__":
         wx.SMALL_FONT.SetPointSize(SMALL_FONT_SIZE)
