@@ -153,6 +153,7 @@ class canvas(wx.Window):
         self.pointScale = 1
         self.pointShift = 0
         self._last_draw_time = 0.0
+        self._refresh_pending = False
 
         # set events
         self.Bind(wx.EVT_PAINT, self.onPaint)
@@ -534,11 +535,11 @@ class canvas(wx.Window):
     def onMMotion(self, evt):
         """Draw cursor on mouse motion."""
 
-        # store cursor positions
+        # Always update cursor position so any eventual draw uses latest coords
         self.cursorPosition[0], self.cursorPosition[1] = self.getXY(evt)
         self.cursorPosition[2], self.cursorPosition[3] = evt.GetPosition()
 
-        # throttle expensive dragged events
+        now = time.time()
         if self.mouseEvent in (
             "xShift",
             "yShift",
@@ -548,13 +549,24 @@ class canvas(wx.Window):
             "range",
             "rectangle",
         ):
-            now = time.time()
-            if now - self._last_draw_time < 0.03333:  # limit to ~30fps
+            # throttle expensive drag redraws to ~30 fps
+            if now - self._last_draw_time < 0.03333:
                 return
-            self._last_draw_time = now
+        elif not self.mouseEvent:
+            # throttle cursor-tracker redraws to ~60 fps to prevent event-queue backlog
+            if now - self._last_draw_time < 0.01667:
+                return
+
+        self._last_draw_time = now
 
         dc = wx.MemoryDC(self.plotBuffer)
-        wx.CallAfter(self.Refresh, False)
+        # guard against stacking multiple pending Refresh calls
+        if not self._refresh_pending:
+            self._refresh_pending = True
+            def _do_refresh(self=self):
+                self._refresh_pending = False
+                self.Refresh(False)
+            wx.CallAfter(_do_refresh)
         self.quickRefresh(dc)
 
         # draw cursor tracker if no event

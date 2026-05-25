@@ -363,6 +363,7 @@ class panelSpectrum(wx.Panel):
         if images.is_dark_mode():
             self.cursorInfo.SetForegroundColour(wx.Colour(220, 220, 220))
         self.cursorInfo.Bind(wx.EVT_RIGHT_UP, self.onCursorInfoRMU)
+        self._lastCursorLabel = ""
 
         # pack elements
         sizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -1002,8 +1003,10 @@ class panelSpectrum(wx.Panel):
         if len(label) < 100:
             label += " " * (100 - len(label))
 
-        # show info
-        self.cursorInfo.SetLabel(label)
+        # show info (skip redundant SetLabel calls to avoid unnecessary repaints)
+        if label != self._lastCursorLabel:
+            self._lastCursorLabel = label
+            self.cursorInfo.SetLabel(label)
 
     # ----
 
