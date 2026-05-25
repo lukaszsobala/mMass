@@ -53,9 +53,31 @@ def _is_dark_mode():
             pass
 
     # Fallback: infer from current window background colour.
-    bg = wx.SystemSettings.GetColour(wx.SYS_COLOUR_WINDOW)
-    luminance = 0.299 * bg.Red() + 0.587 * bg.Green() + 0.114 * bg.Blue()
-    return luminance < 128
+    # wx.SystemSettings may require an active wx.App; fail safely during import.
+    try:
+        bg = wx.SystemSettings.GetColour(wx.SYS_COLOUR_WINDOW)
+        luminance = 0.299 * bg.Red() + 0.587 * bg.Green() + 0.114 * bg.Blue()
+        return luminance < 128
+    except Exception:
+        return False
+
+
+_DARK_MODE = None
+
+
+def _is_dark_mode_cached():
+    """Return dark-mode state, caching once it can be safely resolved."""
+
+    global _DARK_MODE
+    if _DARK_MODE is not None:
+        return _DARK_MODE
+
+    # Defer evaluation until wx.App exists to avoid import-time crashes.
+    if wx.GetApp() is None:
+        return False
+
+    _DARK_MODE = _is_dark_mode()
+    return _DARK_MODE
 
 
 # MAIN PLOT OBJECTS
@@ -290,9 +312,6 @@ class container:
     # ----
 
     def drawGel(self, dc, gelCoords, gelHeight, printerScale):
-        import time
-
-        t0 = time.time()
         """Draw gel for all allowed objects."""
 
         # draw objects
@@ -556,9 +575,6 @@ class annotations:
     # ----
 
     def draw(self, dc, printerScale):
-        import time
-
-        t0 = time.time()
         """Draw object."""
 
         # check data
@@ -585,9 +601,6 @@ class annotations:
     # ----
 
     def drawGel(self, dc, gelCoords, gelHeight, printerScale):
-        import time
-
-        t0 = time.time()
         """Draw gel."""
         pass
 
@@ -1047,7 +1060,7 @@ class spectrum:
         # convert spectrum points to array
         self.spectrumPoints = numpy.array(scan.profile)
         # apply dark-mode label colour overrides
-        if _is_dark_mode():
+        if _is_dark_mode_cached():
             self.properties["labelColour"] = (220, 220, 220)
             self.properties["labelBgrColour"] = (30, 30, 30)
 
@@ -1365,9 +1378,6 @@ class spectrum:
     # ----
 
     def drawGel(self, dc, gelCoords, gelHeight, printerScale):
-        import time
-
-        t0 = time.time()
         """Draw gel."""
 
         # draw line spectrum gel
@@ -1382,9 +1392,6 @@ class spectrum:
         ):
             self._drawPeaklistGel(dc, gelCoords, gelHeight, printerScale)
 
-        import time
-
-        print(f"Objects drawGel() until legend took {time.time()-t0:.4f}s")
         # draw gel legend
         self._drawGelLegend(dc, gelCoords, gelHeight, printerScale)
 
@@ -1550,79 +1557,35 @@ class spectrum:
         if step == 0:
             return False
 
+        pixel_step = max(1, int(round(printerScale["drawings"])))
+
+        # Compute gel stripes in vectorized form from spectrum points.
+        # This reduces drag-time cost from O(number_of_points) Python loops
+        # to O(number_of_screen_columns) draw operations.
+        runs = _build_gel_runs(
+            self.spectrumScaled,
+            shift,
+            step,
+            self.properties["flipped"],
+            pixel_step,
+            plotX1,
+            plotX2,
+            dark_mode=_is_dark_mode_cached(),
+        )
+        if not runs:
+            return False
+
         # init brush
         dc.SetPen(wx.TRANSPARENT_PEN)
-        _dark = _is_dark_mode()
-        brush = wx.Brush((0, 0, 0) if _dark else (255, 255, 255), wx.SOLID)
+        brush = wx.Brush(
+            (0, 0, 0) if _is_dark_mode_cached() else (255, 255, 255), wx.SOLID
+        )
         dc.SetBrush(brush)
 
-        # get first point and color
-        lastX = round(self.spectrumScaled[0][0])
-        lastY = 255
-        previousX = lastX
-        previousY = lastY
-        maxY = 255
-
-        # draw gel
-        for point in self.spectrumScaled:
-
-            # get point
-            xPos = round(point[0])
-            intens = round((point[1] - shift) / step)
-            intens = min(intens, 255)
-            intens = max(intens, 0)
-
-            # reverse color for flipped spectra
-            if self.properties["flipped"]:
-                intens = 255 - intens
-
-            # filter points
-            if xPos - lastX >= printerScale["drawings"]:
-
-                # set color if different
-                if lastY != maxY:
-                    shade = 255 - maxY if _dark else maxY
-                    brush.SetColour((shade, shade, shade))
-                    dc.SetBrush(brush)
-
-                # draw point rectangle
-                try:
-                    dc.DrawRectangle(
-                        int(int(lastX)),
-                        int(int(gelY1)),
-                        int(int(xPos - lastX)),
-                        int(int(gelHeight)),
-                    )
-                except:
-                    pass
-
-                # empty space
-                if maxY < previousY and xPos - previousX > printerScale["drawings"]:
-                    maxY = previousY
-                    shade = 255 - maxY if _dark else maxY
-                    brush.SetColour((shade, shade, shade))
-                    dc.SetBrush(brush)
-                    try:
-                        dc.DrawRectangle(
-                            int(lastX + printerScale["drawings"]),
-                            int(gelY1),
-                            int(xPos - (lastX + printerScale["drawings"])),
-                            int(gelHeight),
-                        )
-                    except:
-                        pass
-
-                # save last
-                lastX = xPos
-                lastY = maxY
-                maxY = intens
-
-            # remember previous
-            previousX = xPos
-            previousY = intens
-
-            # get highest intensity
-            maxY = min(intens, maxY)
+        for x_start, width, shade in runs:
+            brush.SetColour((shade, shade, shade))
+            dc.SetBrush(brush)
+            dc.DrawRectangle(int(x_start), int(gelY1), int(width), int(gelHeight))
 
     # ----
 
@@ -1732,92 +1695,32 @@ class spectrum:
         if step == 0:
             return False
 
+        pixel_step = max(1, int(round(printerScale["drawings"])))
+
+        runs = _build_gel_runs(
+            self.peaklistScaled,
+            shift,
+            step,
+            self.properties["flipped"],
+            pixel_step,
+            plotX1,
+            plotX2,
+            dark_mode=_is_dark_mode_cached(),
+        )
+        if not runs:
+            return False
+
         # init brush
         dc.SetPen(wx.TRANSPARENT_PEN)
-        _dark = _is_dark_mode()
-        brush = wx.Brush((0, 0, 0) if _dark else (255, 255, 255), wx.SOLID)
+        brush = wx.Brush(
+            (0, 0, 0) if _is_dark_mode_cached() else (255, 255, 255), wx.SOLID
+        )
         dc.SetBrush(brush)
 
-        # get first point and color
-        lastX = round(self.peaklistScaled[0][0])
-        lastY = 255
-        maxY = 255
-
-        # draw rectangles
-        last = len(self.peaklistScaled) - 1
-        for x, point in enumerate(self.peaklistScaled):
-
-            # get intensity colour
-            xPos = round(point[0])
-            intens = round((point[1] - shift) / step)
-            intens = min(intens, 255)
-            intens = max(intens, 0)
-
-            # reverse color for flipped spectra
-            if self.properties["flipped"]:
-                intens = 255 - intens
-
-            # draw first
-            if x == 0:
-                shade = 255 - intens if _dark else intens
-                brush.SetColour((shade, shade, shade))
-                dc.SetBrush(brush)
-                try:
-                    dc.DrawRectangle(
-                        int(int(xPos)),
-                        int(int(gelY1)),
-                        int(int(printerScale["drawings"])),
-                        int(int(gelHeight)),
-                    )
-                except:
-                    pass
-                lastY = maxY
-                maxY = intens
-
-            # filter points
-            if xPos - lastX >= printerScale["drawings"]:
-
-                # set color if different
-                if lastY != maxY:
-                    shade = 255 - maxY if _dark else maxY
-                    brush.SetColour((shade, shade, shade))
-                    dc.SetBrush(brush)
-
-                # draw peak line
-                try:
-                    dc.DrawRectangle(
-                        int(int(lastX)),
-                        int(int(gelY1)),
-                        int(int(printerScale["drawings"])),
-                        int(int(gelHeight)),
-                    )
-                except:
-                    pass
-
-                # save last
-                lastX = xPos
-                lastY = maxY
-                maxY = intens
-
-                # draw last
-                if x == last:
-                    shade = 255 - maxY if _dark else maxY
-                    brush.SetColour((shade, shade, shade))
-                    dc.SetBrush(brush)
-                    try:
-                        dc.DrawRectangle(
-                            int(int(xPos)),
-                            int(int(gelY1)),
-                            int(int(printerScale["drawings"])),
-                            int(int(gelHeight)),
-                        )
-                    except:
-                        pass
-
-                continue
-
-            # get highest intensity
-            maxY = min(intens, maxY)
+        for x_start, width, shade in runs:
+            brush.SetColour((shade, shade, shade))
+            dc.SetBrush(brush)
+            dc.DrawRectangle(int(x_start), int(gelY1), int(width), int(gelHeight))
 
     # ----
 
@@ -1965,6 +1868,84 @@ def _filterPoints(points, resolution):
 
     # filter signal
     return calculations.signal_filter(points, float(resolution))
+
+
+def _build_gel_runs(
+    scaled_points,
+    shift,
+    step,
+    flipped,
+    pixel_step,
+    plot_x1,
+    plot_x2,
+    dark_mode,
+):
+    """Build run-length encoded gel stripes as (x_start, width, shade)."""
+
+    if len(scaled_points) == 0:
+        return []
+
+    x_values = numpy.rint(scaled_points[:, 0]).astype(numpy.int64)
+    intensity = numpy.rint((scaled_points[:, 1] - shift) / step).astype(numpy.int32)
+    intensity = numpy.clip(intensity, 0, 255)
+    if flipped:
+        intensity = 255 - intensity
+
+    # Quantize columns to drawing step so work scales with visible pixels,
+    # not with number of source data points.
+    bins = (x_values // pixel_step).astype(numpy.int64)
+    unique_bins, inverse = numpy.unique(bins, return_inverse=True)
+    min_intensity = numpy.full(unique_bins.shape, 255, dtype=numpy.int32)
+    numpy.minimum.at(min_intensity, inverse, intensity)
+
+    x_start = (unique_bins * pixel_step).astype(numpy.int64)
+    x_end = x_start + pixel_step
+
+    # Clip to visible plot area.
+    visible = (x_end > int(plot_x1)) & (x_start < int(plot_x2))
+    if not numpy.any(visible):
+        return []
+
+    x_start = x_start[visible]
+    x_end = x_end[visible]
+    min_intensity = min_intensity[visible]
+
+    x_start = numpy.maximum(x_start, int(plot_x1))
+    x_end = numpy.minimum(x_end, int(plot_x2))
+    widths = x_end - x_start
+
+    valid = widths > 0
+    if not numpy.any(valid):
+        return []
+
+    x_start = x_start[valid]
+    widths = widths[valid]
+    min_intensity = min_intensity[valid]
+
+    shades = (255 - min_intensity) if dark_mode else min_intensity
+
+    # Merge contiguous stripes with identical shades to minimize DC calls.
+    runs = []
+    cur_x = int(x_start[0])
+    cur_w = int(widths[0])
+    cur_shade = int(shades[0])
+
+    for i in range(1, len(x_start)):
+        next_x = int(x_start[i])
+        next_w = int(widths[i])
+        next_shade = int(shades[i])
+
+        if next_x == cur_x + cur_w and next_shade == cur_shade:
+            cur_w += next_w
+            continue
+
+        runs.append((cur_x, cur_w, cur_shade))
+        cur_x = next_x
+        cur_w = next_w
+        cur_shade = next_shade
+
+    runs.append((cur_x, cur_w, cur_shade))
+    return runs
 
 
 # ----
