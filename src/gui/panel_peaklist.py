@@ -83,9 +83,14 @@ class panelPeaklist(wx.Panel):
         """Make bottom toolbar."""
 
         # init toolbar panel
-        panel = mwx.bgrPanel(
-            self, -1, images.lib["bgrBottombar"], size=(-1, mwx.BOTTOMBAR_HEIGHT)
-        )
+        if images.is_dark_mode():
+            panel = wx.Panel(self, -1, size=(-1, mwx.BOTTOMBAR_HEIGHT))
+            panel.SetBackgroundColour(wx.Colour(30, 30, 30))
+            panel.SetForegroundColour(wx.Colour(220, 220, 220))
+        else:
+            panel = mwx.bgrPanel(
+                self, -1, images.lib["bgrBottombar"], size=(-1, mwx.BOTTOMBAR_HEIGHT)
+            )
 
         self.addPeak_butt = wx.BitmapButton(
             panel,
@@ -126,6 +131,15 @@ class panelPeaklist(wx.Panel):
         )
         self.editPeak_butt.SetToolTip(wx.ToolTip("Show / hide peak editor"))
         self.editPeak_butt.Bind(wx.EVT_BUTTON, self.onEdit)
+
+        if images.is_dark_mode():
+            for button in (
+                self.addPeak_butt,
+                self.deletePeak_butt,
+                self.annotatePeak_butt,
+                self.editPeak_butt,
+            ):
+                button.SetBackgroundColour(panel.GetBackgroundColour())
 
         self.peaksCount = wx.StaticText(panel, -1, "")
         self.peaksCount.SetFont(wx.SMALL_FONT)
@@ -187,7 +201,9 @@ class panelPeaklist(wx.Panel):
             try:
                 header_attr = wx.ItemAttr()
                 if wx.Platform == "__WXMSW__":
-                    header_attr.SetBackgroundColour(wx.Colour(245, 245, 245))
+                    # Native Windows headers may ignore background colour in themed mode.
+                    # Keep text readable in that case.
+                    header_attr.SetBackgroundColour(wx.Colour(45, 45, 45))
                     header_attr.SetTextColour(wx.BLACK)
                 else:
                     header_attr.SetBackgroundColour(wx.Colour(45, 45, 45))
