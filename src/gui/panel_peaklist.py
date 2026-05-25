@@ -180,9 +180,17 @@ class panelPeaklist(wx.Panel):
         self.peakList.setAltColour(mwx.LISTCTRL_ALTCOLOUR)
 
         if images.is_dark_mode():
+            self.peakList.EnableSystemTheme(False)
             self.peakList.SetBackgroundColour(wx.Colour(30, 30, 30))
             self.peakList.SetTextColour(wx.Colour(220, 220, 220))
             self.peakList.setAltColour(wx.Colour(40, 40, 40))
+            try:
+                header_attr = wx.ItemAttr()
+                header_attr.SetBackgroundColour(wx.Colour(45, 45, 45))
+                header_attr.SetTextColour(wx.Colour(220, 220, 220))
+                self.peakList.SetHeaderAttr(header_attr)
+            except Exception:
+                pass
             self.peakList.Refresh()
 
         # set events

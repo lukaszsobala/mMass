@@ -93,6 +93,31 @@ def _apply_dark_mode_to_bitmaps():
             lib[key] = _invert_bitmap(value)
 
 
+def _mask_bitmap_background_from_corner(bitmap):
+    """Treat top-left colour as transparent mask for toolbar-style bitmaps."""
+
+    image = bitmap.ConvertToImage()
+    if image.GetWidth() <= 0 or image.GetHeight() <= 0:
+        return bitmap
+
+    r = image.GetRed(0, 0)
+    g = image.GetGreen(0, 0)
+    b = image.GetBlue(0, 0)
+    image.SetMaskColour(r, g, b)
+    return wx.Bitmap(image)
+
+
+def _apply_dark_mode_toolbar_masks():
+    """Remove baked background colour from lower-toolbar icons in dark mode."""
+
+    icon_prefixes = ("documents", "peaklist", "spectrum")
+    for key, value in list(lib.items()):
+        if not isinstance(value, wx.Bitmap):
+            continue
+        if key.startswith(icon_prefixes):
+            lib[key] = _mask_bitmap_background_from_corner(value)
+
+
 def _apply_ui_scale_to_small_bitmaps(scale):
     """Scale icon-sized bitmaps while leaving large tiled backgrounds unchanged."""
 
@@ -733,6 +758,7 @@ def loadImages():
 
     if is_dark_mode():
         _apply_dark_mode_to_bitmaps()
+        _apply_dark_mode_toolbar_masks()
 
 
 # ----
