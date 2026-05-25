@@ -1147,6 +1147,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             self.batchDocumentsList.EnableSystemTheme(False)
             self.batchDocumentsList.SetBackgroundColour(wx.Colour(30, 30, 30))
             self.batchDocumentsList.SetTextColour(wx.Colour(220, 220, 220))
+            self.batchDocumentsList.setDefaultColour(wx.Colour(30, 30, 30))
             self.batchDocumentsList.setAltColour(wx.Colour(40, 40, 40))
 
         # make columns

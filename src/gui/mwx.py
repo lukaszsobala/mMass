@@ -693,6 +693,16 @@ class sortListCtrl(wx.ListCtrl):
 
     # ----
 
+    def setDefaultColour(self, colour):
+        """Set default (odd-row) background colour."""
+
+        if colour:
+            self._defaultColour = colour
+        else:
+            self._defaultColour = self.GetBackgroundColour()
+
+    # ----
+
     def setAltColour(self, colour):
         """Set alternate background colour."""
 
