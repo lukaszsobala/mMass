@@ -65,9 +65,9 @@ Section "Install"
   WriteRegDWORD HKLM "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\${APP_NAME}" "NoRepair" 1
 
   CreateDirectory "$SMPROGRAMS\\${APP_NAME}"
-  CreateShortcut "$SMPROGRAMS\\${APP_NAME}\\mMass.lnk" "$INSTDIR\\mMass.exe"
+  CreateShortcut "$SMPROGRAMS\\${APP_NAME}\\mMass.lnk" "$INSTDIR\\mMass.exe" "" "$INSTDIR\\mMass.exe" 0
   CreateShortcut "$SMPROGRAMS\\${APP_NAME}\\Uninstall mMass.lnk" "$INSTDIR\\Uninstall.exe"
-  CreateShortcut "$DESKTOP\\mMass.lnk" "$INSTDIR\\mMass.exe"
+  CreateShortcut "$DESKTOP\\mMass.lnk" "$INSTDIR\\mMass.exe" "" "$INSTDIR\\mMass.exe" 0
 
   WriteUninstaller "$INSTDIR\\Uninstall.exe"
 SectionEnd

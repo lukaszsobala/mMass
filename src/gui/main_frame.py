@@ -1,3 +1,4 @@
+# type: ignore
 #
 #     Copyright (C) 2005-2013 Martin Strohalm <www.mmass.org>
 
@@ -15,10 +16,12 @@
 #     main directory of the program.
 # -------------------------------------------------------------------------
 
+# ruff: noqa: F403, F405
+# pyright: reportGeneralTypeIssues=false, reportAttributeAccessIssue=false, reportArgumentType=false, reportCallIssue=false
+
 # load libs
 import traceback
 import sys
-import platform
 import time
 import copy
 import os
@@ -29,11 +32,9 @@ import re
 import random
 import mspy
 import requests
-import webbrowser
 import tempfile
 import wx
 import wx.aui
-import numpy
 
 # load modules
 from .ids import *
@@ -1245,7 +1246,7 @@ class mainFrame(wx.Frame):
     def onPreferences(self, evt):
         """Show mMass preferences."""
 
-        dlg = dlgPreferences(self)
+        dlg = dlgSettings(self)
         dlg.ShowModal()
         dlg.Destroy()
 
@@ -1263,7 +1264,7 @@ class mainFrame(wx.Frame):
             return
 
         # open document
-        if command and not command in ["mmass.exe", "mmass.py"]:
+        if command and command not in ["mmass.exe", "mmass.py"]:
             wx.CallAfter(self.onDocumentOpen, None, command)
             return
 
@@ -3310,7 +3311,7 @@ class mainFrame(wx.Frame):
             self.comparePeaklistsPanel.Show(True)
             try:
                 wx.SafeYield()
-            except:
+            except Exception:
                 pass
 
         # set documents
@@ -3429,7 +3430,7 @@ class mainFrame(wx.Frame):
         self.mascotPanel.Show(True)
         try:
             wx.SafeYield()
-        except:
+        except Exception:
             pass
         self.mascotPanel.updateServerParams()
 
@@ -3917,8 +3918,8 @@ class mainFrame(wx.Frame):
 
         # open webpage
         try:
-            import wx; wx.LaunchDefaultBrowser(link)
-        except:
+            wx.LaunchDefaultBrowser(link)
+        except Exception:
             pass
 
     # ----
@@ -4022,7 +4023,7 @@ class mainFrame(wx.Frame):
             wx.Bell()
             dlg = mwx.dlgMessage(
                 self,
-                title="User's Guide PDF doesn't exists.",
+                title="User's Guide PDF doesn't exist.",
                 message="Please go to the mMass website, download the User's Guide PDF\nand move it into your mMass application folder.",
             )
             dlg.ShowModal()
@@ -4031,14 +4032,14 @@ class mainFrame(wx.Frame):
 
         # try to open pdf
         try:
-            if wx.Platform == "__WXMSW__":
+            if wx.Platform == "__WXMSW__" and hasattr(os, "startfile"):
                 os.startfile(path)
             else:
                 try:
                     subprocess.Popen(["xdg-open", path])
-                except:
+                except Exception:
                     subprocess.Popen(["open", path])
-        except:
+        except Exception:
             wx.Bell()
             dlg = mwx.dlgMessage(
                 self,
@@ -4166,7 +4167,7 @@ class mainFrame(wx.Frame):
         if compassUsed and config.main["compassDeleteFile"]:
             try:
                 os.unlink(path)
-            except:
+            except Exception:
                 pass
 
         # update recent files
@@ -4312,7 +4313,7 @@ class mainFrame(wx.Frame):
             if retcode == 0:
                 self.tmpCompassXport = output
                 return
-        except:
+        except Exception:
             return
 
     # ----
@@ -4346,7 +4347,7 @@ class mainFrame(wx.Frame):
             return
 
         # make document for non-mSD formats
-        if spectrum != False:
+        if spectrum:
 
             # init document
             document = doc.document()
@@ -4356,7 +4357,7 @@ class mainFrame(wx.Frame):
 
             # get info
             info = parser.info()
-            if info:
+            if isinstance(info, dict):
                 document.title = info["title"]
                 document.operator = info["operator"]
                 document.contact = info["contact"]
@@ -4393,8 +4394,9 @@ class mainFrame(wx.Frame):
             self.documents.append(document)
 
             # precalculate baseline
-            if document.spectrum.hasprofile():
-                document.spectrum.baseline(
+            spectrum_data = getattr(document, "spectrum", None)
+            if spectrum_data and spectrum_data.hasprofile():
+                spectrum_data.baseline(
                     window=(1.0 / config.processing["baseline"]["precision"]),
                     offset=config.processing["baseline"]["offset"],
                 )
@@ -4767,8 +4769,8 @@ class mainFrame(wx.Frame):
         self.menubar.Enable(
             ID_documentOffset, bool(enable and not config.spectrum["normalize"])
         )
-        self.menubar.Enable(ID_processingUndo, bool(enable and document.undo))
-        self.menubar.Enable(ID_processingRedo, bool(enable and document.redo))
+        self.menubar.Enable(ID_processingUndo, bool(document and document.undo))
+        self.menubar.Enable(ID_processingRedo, bool(document and document.redo))
         self.menubar.Enable(ID_processingPeakpicking, enable)
         self.menubar.Enable(ID_processingDeisotoping, enable)
         self.menubar.Enable(ID_processingDeconvolution, enable)
@@ -4799,7 +4801,7 @@ class mainFrame(wx.Frame):
 
         # update toolbar
         if wx.Platform != "__WXMAC__":
-            self.toolbar.EnableTool(ID_documentSave, bool(enable and document.dirty))
+            self.toolbar.EnableTool(ID_documentSave, bool(document and document.dirty))
         self.toolbar.EnableTool(ID_toolsProcessing, bool(self.documents))
         self.toolbar.EnableTool(ID_toolsCalibration, enable)
         self.toolbar.EnableTool(ID_toolsMassFilter, enable)
@@ -4835,9 +4837,11 @@ class mainFrame(wx.Frame):
         self.menubar.Enable(ID_sequenceSendToMassCalculator, enable)
         self.menubar.Enable(ID_sequenceSendToEnvelopeFit, enable)
         self.menubar.Enable(
-            ID_sequenceMatchesCalibrateBy, bool(enable and sequence.matches)
+            ID_sequenceMatchesCalibrateBy, bool(sequence and sequence.matches)
         )
-        self.menubar.Enable(ID_sequenceMatchesDelete, bool(enable and sequence.matches))
+        self.menubar.Enable(
+            ID_sequenceMatchesDelete, bool(sequence and sequence.matches)
+        )
         self.menubar.Enable(ID_sequenceDelete, enable)
 
     # ----
@@ -4884,7 +4888,7 @@ class mainFrame(wx.Frame):
 
         # get colour from config
         for colour in palette:
-            if not colour in self.usedColours:
+            if colour not in self.usedColours:
                 self.usedColours.append(colour)
                 return colour
 
@@ -4952,7 +4956,7 @@ class mainFrame(wx.Frame):
         for peak in whitelist:
             if "X" in filters and peak.charge is None:
                 continue
-            elif "I" in filters and not peak.isotope in (0, None):
+            elif "I" in filters and peak.isotope not in (0, None):
                 continue
             elif ("A" in filters or "M" in filters) and round(peak.mz, 6) in blacklist:
                 continue
@@ -5040,7 +5044,7 @@ class mainFrame(wx.Frame):
             config.main["updatesChecked"] = time.strftime("%Y%m%d", time.localtime())
             return True
 
-        except Exception as e:
+        except Exception:
             # print(e)
             return False
 
@@ -5080,13 +5084,13 @@ class mainFrame(wx.Frame):
             dlg.Destroy()
             if response == ID_helpDownload:
                 try:
-                    import wx; wx.LaunchDefaultBrowser(config.links["mMassDownload"], flags=0)
-                except:
+                    wx.LaunchDefaultBrowser(config.links["mMassDownload"], flags=0)
+                except Exception:
                     pass
             elif response == ID_helpWhatsNew:
                 try:
-                    import wx; wx.LaunchDefaultBrowser(config.links["mMassWhatsNew"], flags=0)
-                except:
+                    wx.LaunchDefaultBrowser(config.links["mMassWhatsNew"], flags=0)
+                except Exception:
                     pass
 
         # check for updates

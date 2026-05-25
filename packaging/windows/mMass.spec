@@ -5,6 +5,7 @@ from PyInstaller.utils.hooks import collect_submodules
 
 
 PROJECT_ROOT = Path(SPECPATH).resolve().parents[1]
+APP_ICON = PROJECT_ROOT / "src" / "gui" / "images" / "msw" / "icon.ico"
 
 datas = [
     (str(PROJECT_ROOT / "src" / "gui" / "configs"), "gui/configs"),
@@ -46,6 +47,7 @@ exe = EXE(
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
+    icon=str(APP_ICON),
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
