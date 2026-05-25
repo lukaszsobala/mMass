@@ -46,7 +46,7 @@ mmass
 You can also run it generically:
 
 ```sh
-python mmass.py
+python src/mmass_app/app.py
 ```
 
 ### High-DPI tuning
@@ -91,6 +91,13 @@ python packaging/windows/build_windows_installer.py
 ```
 
 Installer output is written to `build/installer/windows/`.
+
+On Windows, runtime user configuration XML files are stored in
+`%APPDATA%\\mMass` (with automatic migration from legacy install-local
+`gui\\configs` files on first run).
+
+During uninstall, user XML config is kept by default. The uninstaller offers an
+optional checkbox to remove `%APPDATA%\\mMass\\*.xml`.
 
 ### GitHub Actions
 

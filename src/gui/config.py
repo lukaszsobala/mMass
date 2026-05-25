@@ -61,6 +61,19 @@ def copy_default_config_file(filename, destination):
     except Exception:
         return False
 
+
+def get_legacy_windows_config_dir():
+    """Return legacy Windows config directory located next to gui package."""
+
+    confdir = os.path.sep
+    for folder in os.path.dirname(os.path.realpath(__file__)).split(os.path.sep)[:-1]:
+        path = os.path.join(confdir, folder)
+        if os.path.isdir(path):
+            confdir = path
+        if os.path.isfile(path):
+            break
+    return os.path.join(confdir, "configs")
+
 # SET VERSION
 # -----------
 
@@ -110,17 +123,37 @@ elif sys.platform.startswith("linux") or sys.platform.startswith("freebsd"):
 
 # set config folder for Windows
 else:
-    confdir = os.path.sep
-    for folder in os.path.dirname(os.path.realpath(__file__)).split(os.path.sep)[:-1]:
-        path = os.path.join(confdir, folder)
-        if os.path.isdir(path):
-            confdir = path
-        if os.path.isfile(path):
-            break
-    confdir = os.path.join(confdir, "configs")
+    legacy_confdir = get_legacy_windows_config_dir()
+    confdir = legacy_confdir
+
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        userconf = os.path.join(appdata, "mMass")
+        try:
+            os.makedirs(userconf, exist_ok=True)
+        except Exception:
+            pass
+
+        if os.path.exists(userconf):
+            confdir = userconf
+
+            # One-time migration from legacy install-local config files.
+            try:
+                if os.path.exists(legacy_confdir):
+                    for filename in os.listdir(legacy_confdir):
+                        if not filename.lower().endswith(".xml"):
+                            continue
+                        source = os.path.join(legacy_confdir, filename)
+                        target = os.path.join(userconf, filename)
+                        if os.path.isfile(source) and not os.path.exists(target):
+                            with open(source, "rb") as src, open(target, "wb") as dst:
+                                dst.write(src.read())
+            except Exception:
+                pass
+
     if not os.path.exists(confdir):
         try:
-            os.mkdir(confdir)
+            os.makedirs(confdir, exist_ok=True)
         except Exception:
             pass
 
