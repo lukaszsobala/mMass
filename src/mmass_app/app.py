@@ -3,6 +3,7 @@ from gui import config
 from gui import libs
 
 # load libs
+import os
 import sys
 import threading
 import socket
@@ -12,6 +13,22 @@ import wx
 # load modules
 from gui import mwx
 from gui.main_frame import mainFrame
+
+
+def _collect_startup_document_paths(argv):
+    """Return only valid document paths from launcher command-line args."""
+
+    ignored_placeholders = {"%f", "%F", "%u", "%U", "%i", "%c", "%k"}
+    paths = []
+    for item in argv:
+        candidate = item.strip().strip('"')
+        if not candidate:
+            continue
+        if candidate in ignored_placeholders:
+            continue
+        if os.path.exists(candidate):
+            paths.append(candidate)
+    return paths
 
 
 class mMass(wx.App):
@@ -33,9 +50,11 @@ class mMass(wx.App):
         except Exception:
             pass
 
-        # open file from commandline
-        if len(sys.argv) >= 2:
-            self.frame.onDocumentDropped(paths=sys.argv[1:])
+        # Open only valid file paths from command line. Some launchers
+        # (including Wine desktop integrations) pass non-file placeholders.
+        startup_paths = _collect_startup_document_paths(sys.argv[1:])
+        if startup_paths:
+            self.frame.onDocumentDropped(paths=startup_paths)
 
         return True
 

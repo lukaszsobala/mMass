@@ -4095,7 +4095,7 @@ class mainFrame(wx.Frame):
             wx.Bell()
             dlg = mwx.dlgMessage(
                 self,
-                title="Document doesn't exists.",
+                title="Document doesn't exist.",
                 message="Specified document path cannot be found or is temporarily\nunavailable.",
             )
             dlg.ShowModal()
