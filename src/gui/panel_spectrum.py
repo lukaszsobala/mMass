@@ -335,6 +335,8 @@ class panelSpectrum(wx.Panel):
         # make cursor info
         self.cursorInfo = wx.StaticText(panel, -1, "")
         self.cursorInfo.SetFont(wx.SMALL_FONT)
+        if images.is_dark_mode():
+            self.cursorInfo.SetForegroundColour(wx.Colour(220, 220, 220))
         self.cursorInfo.Bind(wx.EVT_RIGHT_UP, self.onCursorInfoRMU)
 
         # pack elements

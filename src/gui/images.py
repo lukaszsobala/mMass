@@ -107,6 +107,32 @@ def _mask_bitmap_background_from_corner(bitmap):
     return wx.Bitmap(image)
 
 
+def _transparentize_bitmap_background_from_corner(bitmap, tolerance=10):
+    """Convert corner-like background colour to alpha transparency."""
+
+    image = bitmap.ConvertToImage()
+    if image.GetWidth() <= 0 or image.GetHeight() <= 0:
+        return bitmap
+
+    rgb_buf = image.GetDataBuffer()
+    rgb = np.frombuffer(rgb_buf, dtype=np.uint8)
+    rgb = rgb.reshape((image.GetHeight(), image.GetWidth(), 3))
+
+    c0 = rgb[0, 0].astype(np.int16)
+    diff = np.abs(rgb.astype(np.int16) - c0)
+    bg_mask = np.all(diff <= int(tolerance), axis=2)
+
+    if not image.HasAlpha():
+        image.InitAlpha()
+
+    alpha_buf = image.GetAlphaBuffer()
+    alpha = np.frombuffer(alpha_buf, dtype=np.uint8)
+    alpha = alpha.reshape((image.GetHeight(), image.GetWidth()))
+    alpha[bg_mask] = 0
+
+    return wx.Bitmap(image)
+
+
 def _apply_dark_mode_toolbar_masks():
     """Remove baked background colour from lower-toolbar icons in dark mode."""
 
@@ -115,7 +141,8 @@ def _apply_dark_mode_toolbar_masks():
         if not isinstance(value, wx.Bitmap):
             continue
         if key.startswith(icon_prefixes):
-            lib[key] = _mask_bitmap_background_from_corner(value)
+            value = _mask_bitmap_background_from_corner(value)
+            lib[key] = _transparentize_bitmap_background_from_corner(value)
 
 
 def _apply_ui_scale_to_small_bitmaps(scale):

@@ -186,8 +186,12 @@ class panelPeaklist(wx.Panel):
             self.peakList.setAltColour(wx.Colour(40, 40, 40))
             try:
                 header_attr = wx.ItemAttr()
-                header_attr.SetBackgroundColour(wx.Colour(45, 45, 45))
-                header_attr.SetTextColour(wx.Colour(220, 220, 220))
+                if wx.Platform == "__WXMSW__":
+                    header_attr.SetBackgroundColour(wx.Colour(245, 245, 245))
+                    header_attr.SetTextColour(wx.BLACK)
+                else:
+                    header_attr.SetBackgroundColour(wx.Colour(45, 45, 45))
+                    header_attr.SetTextColour(wx.Colour(220, 220, 220))
                 self.peakList.SetHeaderAttr(header_attr)
             except Exception:
                 pass
