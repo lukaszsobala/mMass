@@ -560,12 +560,18 @@ class canvas(wx.Window):
         self._last_draw_time = now
 
         dc = wx.MemoryDC(self.plotBuffer)
+        immediate_paint = self.mouseEvent in ("xShift", "yShift", "xScale", "yScale")
+
         # guard against stacking multiple pending Refresh calls
-        if not self._refresh_pending:
+        # For heavy drag redraws use immediate paint to avoid frame starvation
+        # when motion events flood the queue.
+        if not immediate_paint and not self._refresh_pending:
             self._refresh_pending = True
+
             def _do_refresh(self=self):
                 self._refresh_pending = False
                 self.Refresh(False)
+
             wx.CallAfter(_do_refresh)
         self.quickRefresh(dc)
 
@@ -614,6 +620,13 @@ class canvas(wx.Window):
         # scale y axis
         elif self.mouseEvent == "yScale":
             self.scaleAxis("y", dc=dc)
+
+        # On Linux/GTK especially, deferred paint events can be starved by
+        # continuous motion events. Force paint for drag/axis-scale frames so
+        # users see intermediate frames while moving the mouse.
+        if immediate_paint:
+            self.Refresh(False)
+            self.Update()
 
     # ----
 

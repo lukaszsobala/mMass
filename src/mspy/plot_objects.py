@@ -915,9 +915,6 @@ class points:
     # ----
 
     def draw(self, dc, printerScale):
-        import time
-
-        t0 = time.time()
         """Draw object."""
 
         # check data
@@ -961,7 +958,6 @@ class points:
 
             dc.SetPen(pen)
             dc.SetBrush(brush)
-            import numpy
             radius = int(self.properties["pointSize"] * printerScale["drawings"])
             diameter = max(1, radius * 2)
             ellipses = numpy.empty((len(self.scaled), 4), dtype=numpy.int32)
@@ -974,9 +970,6 @@ class points:
     # ----
 
     def drawGel(self, dc, gelCoords, gelHeight, printerScale):
-        import time
-
-        t0 = time.time()
         """Draw gel."""
         pass
 
@@ -1503,7 +1496,21 @@ class spectrum:
 
         # draw lines
         if len(self.spectrumScaled) > 0:
-            dc.DrawLines(self.spectrumScaled)
+            # wxGTK can stutter on highly jagged, dense polylines because
+            # join-heavy path stroking is expensive. DrawLineList renders the
+            # same curve as independent segments and is often smoother there.
+            if wx.Platform == "__WXGTK__" and len(self.spectrumScaled) > 1500:
+                points = _compress_screen_polyline(self.spectrumScaled)
+                if len(points) < 2:
+                    return
+                segments = numpy.empty((len(points) - 1, 4), dtype=numpy.int32)
+                segments[:, 0] = points[:-1, 0]
+                segments[:, 1] = points[:-1, 1]
+                segments[:, 2] = points[1:, 0]
+                segments[:, 3] = points[1:, 1]
+                dc.DrawLineList(segments)
+            else:
+                dc.DrawLines(self.spectrumScaled)
 
         # set pen for points
         pen = wx.Pen(
@@ -1523,8 +1530,6 @@ class spectrum:
             and ((self.spectrumScaled[-1][0] - self.spectrumScaled[0][0]) / count)
             > (6 * printerScale["drawings"])
         ):
-
-            import numpy
             radius = int(2 * printerScale["drawings"])
             diameter = max(1, radius * 2)
             ellipses = numpy.empty((len(self.spectrumScaled), 4), dtype=numpy.int32)
@@ -1946,6 +1951,67 @@ def _build_gel_runs(
 
     runs.append((cur_x, cur_w, cur_shade))
     return runs
+
+
+def _compress_screen_polyline(points):
+    """Drop redundant vertices in integer screen-space polylines.
+
+    This is intended for dense, noisy traces where many source points map to
+    the same pixel columns during rendering.
+    """
+
+    if len(points) < 3:
+        return points
+
+    pts = points
+
+    # 1) Remove exact consecutive duplicates.
+    diffs = numpy.diff(pts, axis=0)
+    keep = numpy.ones(len(pts), dtype=bool)
+    keep[1:] = (diffs[:, 0] != 0) | (diffs[:, 1] != 0)
+    pts = pts[keep]
+    if len(pts) < 3:
+        return pts
+
+    # 2) For vertical runs (same x), keep only first/min/max/last points.
+    x = pts[:, 0]
+    run_starts = numpy.r_[0, numpy.where(x[1:] != x[:-1])[0] + 1]
+    run_ends = numpy.r_[run_starts[1:] - 1, len(pts) - 1]
+
+    selected = []
+    for start, end in zip(run_starts, run_ends):
+        run_len = end - start + 1
+        if run_len <= 2:
+            for idx in range(start, end + 1):
+                if not selected or selected[-1] != idx:
+                    selected.append(idx)
+            continue
+
+        ys = pts[start : end + 1, 1]
+        i_min = int(start + numpy.argmin(ys))
+        i_max = int(start + numpy.argmax(ys))
+        for idx in sorted({int(start), i_min, i_max, int(end)}):
+            if not selected or selected[-1] != idx:
+                selected.append(idx)
+
+    pts = pts[numpy.array(selected, dtype=numpy.int32)]
+    if len(pts) < 3:
+        return pts
+
+    # 3) Remove collinear middle points that continue in the same direction.
+    a = pts[:-2]
+    b = pts[1:-1]
+    c = pts[2:]
+
+    ab = b - a
+    bc = c - b
+    cross = ab[:, 0] * bc[:, 1] - ab[:, 1] * bc[:, 0]
+    same_dir = (ab[:, 0] * bc[:, 0] >= 0) & (ab[:, 1] * bc[:, 1] >= 0)
+
+    keep_mid = ~((cross == 0) & same_dir)
+    keep = numpy.ones(len(pts), dtype=bool)
+    keep[1:-1] = keep_mid
+    return pts[keep]
 
 
 # ----

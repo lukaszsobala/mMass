@@ -8,11 +8,40 @@ import sys
 import threading
 import socket
 import socketserver
+import faulthandler
 import wx
 
 # load modules
 from gui import mwx
 from gui.main_frame import mainFrame
+
+
+_FAULT_LOG_HANDLE = None
+
+
+def _setup_faulthandler():
+    """Enable faulthandler for temporary crash diagnostics.
+
+    Set MMASS_FAULTHANDLER=1 to enable.
+    """
+
+    if os.environ.get("MMASS_FAULTHANDLER", "0") != "1":
+        return
+
+    global _FAULT_LOG_HANDLE
+    try:
+        log_path = os.path.abspath("mmass-faulthandler.log")
+        _FAULT_LOG_HANDLE = open(log_path, "a", buffering=1)
+        _FAULT_LOG_HANDLE.write("\n=== mMass faulthandler enabled ===\n")
+        _FAULT_LOG_HANDLE.write(f"pid={os.getpid()}\n")
+        _FAULT_LOG_HANDLE.flush()
+        faulthandler.enable(file=_FAULT_LOG_HANDLE, all_threads=True)
+    except Exception:
+        # Fall back to stderr if file setup fails.
+        try:
+            faulthandler.enable(all_threads=True)
+        except Exception:
+            pass
 
 
 def _collect_startup_document_paths(argv):
@@ -131,6 +160,8 @@ class TCPServerHandler(socketserver.BaseRequestHandler):
 
 def main():
     server = None
+
+    _setup_faulthandler()
 
     # use server
     if False:  # TODO: fix this, having worked out what the server is for
