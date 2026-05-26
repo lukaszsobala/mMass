@@ -2,8 +2,8 @@
 <mMassConfig version="1.0">
 
   <main>
-    <param name="appWidth" value="1043" type="int" />
-    <param name="appHeight" value="620" type="int" />
+    <param name="appWidth" value="1600" type="int" />
+    <param name="appHeight" value="900" type="int" />
     <param name="appMaximized" value="0" type="int" />
     <param name="layout" value="default" type="str" />
     <param name="documentsWidth" value="195" type="int" />
@@ -65,8 +65,8 @@
   </colours>
 
   <export>
-    <param name="imageWidth" value="750.0" type="float" />
-    <param name="imageHeight" value="500.0" type="float" />
+    <param name="imageWidth" value="1920.0" type="float" />
+    <param name="imageHeight" value="1080.0" type="float" />
     <param name="imageUnits" value="px" type="str" />
     <param name="imageResolution" value="72" type="int" />
     <param name="imageFontsScale" value="1" type="int" />
@@ -95,7 +95,7 @@
     <param name="showTicks" value="1" type="int" />
     <param name="showCursorImage" value="1" type="int" />
     <param name="posBarSize" value="7" type="int" />
-    <param name="gelHeight" value="19" type="int" />
+    <param name="gelHeight" value="20" type="int" />
     <param name="autoscale" value="1" type="int" />
     <param name="overlapLabels" value="0" type="int" />
     <param name="checkLimits" value="1" type="int" />
@@ -131,16 +131,16 @@
       <param name="highMass" value="5000" type="int" />
     </crop>
     <baseline>
-      <param name="precision" value="15" type="int" />
+      <param name="precision" value="100" type="int" />
       <param name="offset" value="0.250000" type="float" />
     </baseline>
     <smoothing>
       <param name="method" value="SG" type="str" />
-      <param name="windowSize" value="0.300000" type="float" />
-      <param name="cycles" value="2" type="int" />
+      <param name="windowSize" value="0.150000" type="float" />
+      <param name="cycles" value="5" type="int" />
     </smoothing>
     <peakpicking>
-      <param name="snThreshold" value="3.000000" type="float" />
+      <param name="snThreshold" value="30.000000" type="float" />
       <param name="absIntThreshold" value="0.000000" type="float" />
       <param name="relIntThreshold" value="0.000000" type="float" />
       <param name="pickingHeight" value="1.000000" type="float" />
@@ -230,7 +230,7 @@
 
   <massToFormula>
     <param name="countLimit" value="1000" type="int" />
-    <param name="massLimit" value="3000" type="int" />
+    <param name="massLimit" value="6000" type="int" />
     <param name="charge" value="1" type="int" />
     <param name="ionization" value="H" type="str" />
     <param name="tolerance" value="1.000000" type="float" />
@@ -400,7 +400,7 @@
 
   <prospector>
     <common>
-      <param name="script" value="http://prospector.ucsf.edu/prospector/cgi-bin/mssearch.cgi" type="unicode" />
+      <param name="script" value="https://prospector.ucsf.edu/prospector/cgi-bin/mssearch.cgi" type="unicode" />
       <param name="searchType" value="msfit" type="str" />
       <param name="filterAnnotations" value="0" type="int" />
       <param name="filterMatches" value="0" type="int" />
@@ -448,23 +448,23 @@
   </prospector>
 
   <links>
-    <link name="unimod" value="http://www.unimod.org/" />
-    <link name="fasta" value="http://www.ebi.ac.uk/Tools/fasta33/" />
-    <link name="pir" value="http://pir.georgetown.edu/" />
-    <link name="expasy" value="http://www.expasy.org/" />
-    <link name="ncbi" value="http://www.ncbi.nlm.nih.gov/Entrez/" />
-    <link name="mMassWhatsNew" value="http://www.mmass.org/download/history.php" />
-    <link name="biomedmstools" value="http://ms.biomed.cas.cz/MSTools/" />
-    <link name="matrixscience" value="http://www.matrixscience.com/" />
-    <link name="emblebi" value="http://www.ebi.ac.uk/services/" />
-    <link name="deltamass" value="http://www.abrf.org/index.cfm/dm.home" />
-    <link name="blast" value="http://www.ebi.ac.uk/Tools/blastall/" />
-    <link name="prospector" value="http://prospector.ucsf.edu/" />
-    <link name="clustalw" value="http://www.ebi.ac.uk/Tools/clustalw/" />
+    <link name="unimod" value="https://www.unimod.org/" />
+    <link name="fasta" value="https://www.ebi.ac.uk/jdispatcher/sss/fasta" />
+    <link name="pir" value="https://proteininformationresource.org/" />
+    <link name="expasy" value="https://www.expasy.org/" />
+    <link name="ncbi" value="https://www.ncbi.nlm.nih.gov/search/" />
+    <link name="mMassWhatsNew" value="https://github.com/lukaszsobala/mMass/releases" />
+    <link name="biomedmstools" value="https://peterslab.org/MSTools/" />
+    <link name="matrixscience" value="https://www.matrixscience.com/" />
+    <link name="emblebi" value="https://www.ebi.ac.uk/services/" />
+    <link name="deltamass" value="https://abrf.org/resources/delta-mass/" />
+    <link name="blast" value="https://www.ebi.ac.uk/jdispatcher/sss/ncbiblast" />
+    <link name="prospector" value="https://prospector.ucsf.edu/prospector/mshome.htm" />
+    <link name="clustalw" value="https://www.ebi.ac.uk/jdispatcher/msa/clustalo" />
     <link name="profound" value="http://prowl.rockefeller.edu/prowl-cgi/profound.exe" />
-    <link name="uniprot" value="http://www.uniprot.org/" />
-    <link name="muscle" value="http://phylogenomics.berkeley.edu/cgi-bin/muscle/input_muscle.py" />
-    <link name="pdb" value="http://www.rcsb.org/pdb/" />
+    <link name="uniprot" value="https://www.uniprot.org/" />
+    <link name="muscle" value="https://www.ebi.ac.uk/jdispatcher/msa/muscle" />
+    <link name="pdb" value="https://www.rcsb.org/" />
   </links>
 
 </mMassConfig>
