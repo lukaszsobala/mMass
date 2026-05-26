@@ -430,7 +430,6 @@ class panelDocuments(wx.Panel):
 
         self.PopupMenu(menu)
         menu.Destroy()
-        self.SetFocus()
 
     # ----
 
@@ -544,7 +543,6 @@ class panelDocuments(wx.Panel):
 
         self.PopupMenu(menu)
         menu.Destroy()
-        self.SetFocus()
 
     # ----
 
@@ -629,7 +627,6 @@ class panelDocuments(wx.Panel):
 
         self.PopupMenu(menu)
         menu.Destroy()
-        self.SetFocus()
 
     # ----
 

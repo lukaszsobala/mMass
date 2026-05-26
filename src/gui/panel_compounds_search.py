@@ -562,7 +562,6 @@ class panelCompoundsSearch(wx.Frame, MakeModalMixin):
         # show menu
         self.PopupMenu(menu)
         menu.Destroy()
-        self.SetFocus()
 
     # ----
 

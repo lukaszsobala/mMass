@@ -237,7 +237,6 @@ class panelMassFilter(wx.Frame):
         # show menu
         self.PopupMenu(menu)
         menu.Destroy()
-        self.SetFocus()
 
     # ----
 

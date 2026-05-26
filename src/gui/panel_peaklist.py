@@ -500,7 +500,6 @@ class panelPeaklist(wx.Panel):
         # show menu
         self.PopupMenu(menu)
         menu.Destroy()
-        self.SetFocus()
 
     # ----
 
@@ -592,7 +591,6 @@ class panelPeaklist(wx.Panel):
 
         self.PopupMenu(menu)
         menu.Destroy()
-        self.SetFocus()
 
     # ----
 
@@ -667,7 +665,6 @@ class panelPeaklist(wx.Panel):
 
         self.PopupMenu(menu)
         menu.Destroy()
-        self.SetFocus()
 
     # ----
 

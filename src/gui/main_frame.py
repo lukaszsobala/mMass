@@ -149,7 +149,7 @@ class mainFrame(wx.Frame):
 
         # set size
         maximize = config.main["appMaximized"]
-        self.SetSize((config.main["appWidth"], config.main["appHeight"]))
+        self.SetSize(self._getStartupFrameSize())
         self.SetMinSize((855, 500))
         if maximize:
             self.Maximize()
@@ -167,6 +167,33 @@ class mainFrame(wx.Frame):
 
         # check for available updates
         self.checkVersions()
+
+    # ----
+
+    def _getStartupFrameSize(self):
+        """Clamp startup frame size to active display work area.
+
+        This only affects initial/restore size on app launch so users can
+        still resize larger after moving to a bigger screen.
+        """
+
+        width = max(1, int(config.main["appWidth"]))
+        height = max(1, int(config.main["appHeight"]))
+
+        try:
+            display_index = wx.Display.GetFromWindow(self)
+            if display_index == wx.NOT_FOUND:
+                display_index = wx.Display.GetFromPoint(wx.GetMousePosition())
+            if display_index == wx.NOT_FOUND:
+                display_index = 0
+
+            work_area = wx.Display(display_index).GetClientArea()
+            width = min(width, max(1, work_area.GetWidth()))
+            height = min(height, max(1, work_area.GetHeight()))
+        except Exception:
+            pass
+
+        return (width, height)
 
     # ----
 
@@ -2680,7 +2707,6 @@ class mainFrame(wx.Frame):
 
         # update spectrum
         self.spectrumPanel.updateCanvasProperties(ID)
-        self.spectrumPanel.spectrumCanvas.SetFocus()
 
         # update spectrum generator panel
         if self.spectrumGeneratorPanel:
@@ -2887,7 +2913,6 @@ class mainFrame(wx.Frame):
 
         # set tool in spectrum
         self.spectrumPanel.setCurrentTool(tool)
-        self.spectrumPanel.spectrumCanvas.SetFocus()
 
     # ----
 

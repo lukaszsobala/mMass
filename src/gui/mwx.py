@@ -1000,7 +1000,7 @@ class gauge(wx.Gauge):
 
         self.Pulse()
         try:
-            wx.GetApp().Yield()
+            wx.SafeYield()
         except:
             pass
         time.sleep(0.05)
@@ -1036,7 +1036,7 @@ class gaugePanel(wx.Dialog, MakeModalMixin):
         mainSizer.Fit(self)
         self.SetSizer(mainSizer)
         try:
-            wx.GetApp().Yield()
+            wx.SafeYield()
         except:
             pass
 
@@ -1047,7 +1047,7 @@ class gaugePanel(wx.Dialog, MakeModalMixin):
 
         self.label.SetLabel(label)
         try:
-            wx.GetApp().Yield()
+            wx.SafeYield()
         except:
             pass
 
@@ -1059,7 +1059,7 @@ class gaugePanel(wx.Dialog, MakeModalMixin):
         self.gauge.Pulse()
 
         try:
-            wx.GetApp().Yield()
+            wx.SafeYield()
         except:
             pass
         time.sleep(0.05)
@@ -1074,7 +1074,7 @@ class gaugePanel(wx.Dialog, MakeModalMixin):
         self.Show()
 
         try:
-            wx.GetApp().Yield()
+            wx.SafeYield()
         except:
             pass
 

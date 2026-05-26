@@ -2034,7 +2034,6 @@ class panelSequence(wx.Frame, MakeModalMixin):
         # show menu
         self.PopupMenu(menu)
         menu.Destroy()
-        self.SetFocus()
 
     # ----
 
@@ -3622,7 +3621,6 @@ class sequenceCanvas(wx.TextCtrl):
 
         self.parent.PopupMenu(menu)
         menu.Destroy()
-        self.SetFocus()
 
     # ----
 
