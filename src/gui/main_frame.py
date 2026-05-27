@@ -30,6 +30,7 @@ import threading
 import subprocess
 import re
 import random
+from pathlib import Path
 import mspy
 import requests
 import tempfile
@@ -2145,7 +2146,10 @@ class mainFrame(wx.Frame):
             # get tmp folder
             tmpDir = tempfile.gettempdir()
             imagePath = os.path.join(tmpDir, "mmass_spectrum.png")
-            reportPath = os.path.join(tmpDir, "mmass_report.html")
+            reportFd, reportPath = tempfile.mkstemp(
+                prefix="mmass_report_", suffix=".html", dir=tmpDir
+            )
+            os.close(reportFd)
 
             # Render report image off-screen at explicit pixel dimensions so
             # desktop UI scaling does not reduce output resolution.
@@ -2177,7 +2181,7 @@ class mainFrame(wx.Frame):
                 f.write(reportHTML.encode("utf-8"))
 
             # show report
-            path = "file://%s?%s" % (reportPath, time.time())
+            path = Path(reportPath).as_uri()
             wx.LaunchDefaultBrowser(path, flags=0)
 
         except IOError:
