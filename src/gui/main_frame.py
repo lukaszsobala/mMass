@@ -31,6 +31,7 @@ import subprocess
 import re
 import random
 from pathlib import Path
+from mspy import plot_objects
 import mspy
 import requests
 import tempfile
@@ -2161,11 +2162,35 @@ class mainFrame(wx.Frame):
             target_width = max(1600, min(3200, canvas_width * 2))
             target_height = max(1, int(round(target_width * aspect_ratio)))
 
-            reportBitmap = self.spectrumPanel.getBitmap(
-                target_width, target_height, None
-            )
-            if not reportBitmap.IsOk():
-                reportBitmap = self.spectrumPanel.getCurrentBitmap()
+            # Render reports with a fixed light palette regardless of app theme.
+            reportCanvas = self.spectrumPanel.spectrumCanvas
+            lightPalette = {
+                "canvasColour": (255, 255, 255),
+                "plotColour": (255, 255, 255),
+                "axisColour": (0, 0, 0),
+                "gridColour": (235, 235, 235),
+            }
+            originalPalette = {
+                key: reportCanvas.properties.get(key) for key in lightPalette
+            }
+            originalBgColour = reportCanvas.GetBackgroundColour()
+            originalDarkModeCache = plot_objects._DARK_MODE
+
+            try:
+                plot_objects._DARK_MODE = False
+                reportCanvas.setProperties(**lightPalette)
+                reportCanvas.SetBackgroundColour(wx.Colour(*lightPalette["canvasColour"]))
+                reportBitmap = self.spectrumPanel.getBitmap(
+                    target_width, target_height, None
+                )
+                if not reportBitmap.IsOk():
+                    reportBitmap = self.spectrumPanel.getCurrentBitmap()
+            finally:
+                plot_objects._DARK_MODE = originalDarkModeCache
+                reportCanvas.setProperties(**originalPalette)
+                reportCanvas.SetBackgroundColour(originalBgColour)
+                reportCanvas.refresh()
+
             reportImage = reportBitmap.ConvertToImage()
 
             reportImage.SetOption(wx.IMAGE_OPTION_QUALITY, "100")
