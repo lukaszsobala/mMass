@@ -1010,7 +1010,15 @@ class panelSpectrum(wx.Panel):
 
     # ----
 
-    def updateTmpSpectrum(self, points, flipped=False, refresh=True):
+    def updateTmpSpectrum(
+        self,
+        points,
+        flipped=False,
+        refresh=True,
+        fillUnder=False,
+        fillUnderAlpha=70,
+        showOutline=True,
+    ):
         """Set new data to tmp spectrum."""
 
         self.currentTmpSpectrum = points
@@ -1051,8 +1059,10 @@ class panelSpectrum(wx.Panel):
             xOffset=xOffset,
             yOffset=yOffset,
             showInGel=False,
-            showLines=True,
+            showLines=showOutline,
             showPoints=False,
+            fillUnder=fillUnder,
+            fillUnderAlpha=fillUnderAlpha,
             exactFit=True,
             pointColour=config.spectrum["tmpSpectrumColour"],
             lineColour=config.spectrum["tmpSpectrumColour"],
@@ -1388,73 +1398,85 @@ class panelSpectrum(wx.Panel):
         if self.documents[self.currentDocument].spectrum.polarity == -1:
             polarity = -1
 
-        # label 1st isotope
-        if config.processing["deisotoping"]["labelEnvelope"] == "1st":
+        # recalculate all envelope labels from current peaklist
+        if True:
+            spectrum = self.documents[self.currentDocument].spectrum
+            peaklist = spectrum.peaklist
+            tolerance = config.processing["deisotoping"]["massTolerance"]
 
-            basepeak = peaks[0]
-            sumIntensity = 0
-            sumBase = 0
+            isotopeShift = config.processing["deisotoping"]["isotopeShift"]
+            maxCharge = abs(int(config.processing["deisotoping"]["maxCharge"]))
+            maxCharge = max(1, maxCharge)
+            difference = (mspy.ISOTOPE_DISTANCE + isotopeShift) / float(maxCharge)
+            mzs = [peak.mz for peak in peaks]
+            margin = max(6.0 * difference, 8.0 * tolerance)
+            minMz = min(mzs) - margin
+            maxMz = max(mzs) + margin
+
+            localPeaks = []
+            outsidePeaks = []
+            for peak in peaklist:
+                if minMz <= peak.mz <= maxMz:
+                    localPeaks.append(peak)
+                else:
+                    outsidePeaks.append(peak)
+
+            localPeaklist = mspy.peaklist(localPeaks)
             for peak in peaks:
-                sumIntensity += peak.intensity
-                sumBase += peak.base
-                if peak.intensity > basepeak.intensity:
-                    basepeak = peak
+                matched = False
+                for current in localPeaklist:
+                    if abs(current.mz - peak.mz) <= tolerance:
+                        matched = True
+                        break
+                    if current.mz > (peak.mz + tolerance):
+                        break
+                if not matched:
+                    localPeaklist.append(peak)
 
-            base = basepeak.base
-            ai = basepeak.ai
-            sn = basepeak.sn
-            if config.processing["deisotoping"]["envelopeIntensity"] == "sum":
-                base = sumBase / len(peaks)
-                ai = base + sumIntensity
-                sn = (ai - base) * basepeak.sn / (basepeak.ai - basepeak.base)
-            elif config.processing["deisotoping"]["envelopeIntensity"] == "average":
-                base = sumBase / len(peaks)
-                ai = base + sumIntensity / len(isotopes)
-                sn = (ai - base) * basepeak.sn / (basepeak.ai - basepeak.base)
-
-            peak = mspy.peak(
-                mz=peaks[0].mz,
-                ai=ai,
-                base=base,
-                sn=sn,
-                charge=charge * polarity,
-                isotope=0,
-                fwhm=None,
+            localPeaklist.deisotope(
+                maxCharge=config.processing["deisotoping"]["maxCharge"],
+                mzTolerance=tolerance,
+                intTolerance=config.processing["deisotoping"]["intTolerance"],
+                isotopeShift=isotopeShift,
+                respectCharge=True,
+                seedCharge=(charge * polarity if charge else polarity),
             )
 
-            self.documents[self.currentDocument].spectrum.peaklist.append(peak)
+            defaultFwhm = 0.1
+            if localPeaklist.basepeak and localPeaklist.basepeak.fwhm:
+                defaultFwhm = localPeaklist.basepeak.fwhm
 
-        # label monoisotopic peak
-        elif config.processing["deisotoping"]["labelEnvelope"] == "monoisotope":
-            peak = mspy.envmono(
-                peaks,
-                charge=charge * polarity,
+            localPeaklist.labelenvelopes(
+                label=config.processing["deisotoping"]["labelEnvelope"],
                 intensity=config.processing["deisotoping"]["envelopeIntensity"],
+                mzTolerance=tolerance,
+                isotopeShift=isotopeShift,
+                signal=spectrum.profile,
+                defaultFwhm=defaultFwhm,
+                relaxed=True,
             )
-            if peak:
-                peak.setcharge(charge * polarity)
-                self.documents[self.currentDocument].spectrum.peaklist.append(peak)
 
-        # label envelope centroid
-        elif config.processing["deisotoping"]["labelEnvelope"] == "centroid":
-            peak = mspy.envcentroid(
-                peaks,
-                pickingHeight=0.5,
-                intensity=config.processing["deisotoping"]["envelopeIntensity"],
-            )
-            if peak:
-                peak.setcharge(charge * polarity)
-                self.documents[self.currentDocument].spectrum.peaklist.append(peak)
+            spectrum.peaklist = mspy.peaklist(outsidePeaks + list(localPeaklist))
 
-        # label all isotopes
+            # update gui
+            self.parent.onDocumentChanged(items=("spectrum"))
+            return
+
+        peaks = mspy.labelenvelope(
+            peaks,
+            charge=charge * polarity,
+            label=config.processing["deisotoping"]["labelEnvelope"],
+            intensity=config.processing["deisotoping"]["envelopeIntensity"],
+        )
         if config.processing["deisotoping"]["labelEnvelope"] == "isotopes":
             groupname = self.documents[
                 self.currentDocument
             ].spectrum.peaklist.groupname()
-            for x, peak in enumerate(peaks):
-                peak.setisotope(x)
-                peak.setcharge(charge * polarity)
+            for peak in peaks:
                 peak.setgroup(groupname)
+                self.documents[self.currentDocument].spectrum.peaklist.append(peak)
+        else:
+            for peak in peaks:
                 self.documents[self.currentDocument].spectrum.peaklist.append(peak)
 
         # update gui

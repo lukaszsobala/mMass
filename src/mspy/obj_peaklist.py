@@ -352,7 +352,13 @@ class peaklist:
     # ----
 
     def deisotope(
-        self, maxCharge=1, mzTolerance=0.15, intTolerance=0.5, isotopeShift=0.0
+        self,
+        maxCharge=1,
+        mzTolerance=0.15,
+        intTolerance=0.5,
+        isotopeShift=0.0,
+        respectCharge=False,
+        seedCharge=1,
     ):
         """Calculate peak charges and find isotopes.
         maxCharge (float) - max charge to be searched
@@ -372,7 +378,46 @@ class peaklist:
             mzTolerance=mzTolerance,
             intTolerance=intTolerance,
             isotopeShift=isotopeShift,
+            respectCharge=respectCharge,
+            seedCharge=seedCharge,
         )
+
+    # ----
+
+    def labelenvelopes(
+        self,
+        label="1st",
+        intensity="maximum",
+        mzTolerance=0.15,
+        isotopeShift=0.0,
+        signal=None,
+        defaultFwhm=0.1,
+        relaxed=False,
+    ):
+        """Convert deisotoped peak clusters to envelope labels."""
+
+        # check peaklist
+        if not self.peaks:
+            return
+
+        peaklist = mod_peakpicking.relabelenvelopes(
+            peaklist=self,
+            label=label,
+            intensity=intensity,
+            mzTolerance=mzTolerance,
+            isotopeShift=isotopeShift,
+            signal=signal,
+            defaultFwhm=defaultFwhm,
+            relaxed=relaxed,
+        )
+
+        # store data
+        self.peaks[:] = peaklist.peaks[:]
+
+        # update peaklist
+        self.sort()
+        self._setbasepeak()
+        self._setRelativeIntensities()
 
     # ----
 

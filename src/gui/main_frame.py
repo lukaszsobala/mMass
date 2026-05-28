@@ -360,6 +360,9 @@ class mainFrame(wx.Frame):
         viewPeaklistColumns.Append(ID_viewPeaklistColumnSn, "s/n", "", wx.ITEM_CHECK)
         viewPeaklistColumns.Append(ID_viewPeaklistColumnZ, "Charge", "", wx.ITEM_CHECK)
         viewPeaklistColumns.Append(ID_viewPeaklistColumnMass, "Mass", "", wx.ITEM_CHECK)
+        viewPeaklistColumns.Append(
+            ID_viewPeaklistColumnEnvArea, "Env. Area", "", wx.ITEM_CHECK
+        )
         viewPeaklistColumns.Append(ID_viewPeaklistColumnFwhm, "FWHM", "", wx.ITEM_CHECK)
         viewPeaklistColumns.Append(
             ID_viewPeaklistColumnResol, "Resolution", "", wx.ITEM_CHECK
@@ -439,6 +442,9 @@ class mainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.onViewPeaklistColumns, id=ID_viewPeaklistColumnSn)
         self.Bind(wx.EVT_MENU, self.onViewPeaklistColumns, id=ID_viewPeaklistColumnZ)
         self.Bind(wx.EVT_MENU, self.onViewPeaklistColumns, id=ID_viewPeaklistColumnMass)
+        self.Bind(
+            wx.EVT_MENU, self.onViewPeaklistColumns, id=ID_viewPeaklistColumnEnvArea
+        )
         self.Bind(wx.EVT_MENU, self.onViewPeaklistColumns, id=ID_viewPeaklistColumnFwhm)
         self.Bind(
             wx.EVT_MENU, self.onViewPeaklistColumns, id=ID_viewPeaklistColumnResol
@@ -524,6 +530,10 @@ class mainFrame(wx.Frame):
         )
         self.menubar.Check(
             ID_viewPeaklistColumnMass, bool("mass" in config.main["peaklistColumns"])
+        )
+        self.menubar.Check(
+            ID_viewPeaklistColumnEnvArea,
+            bool("envarea" in config.main["peaklistColumns"]),
         )
         self.menubar.Check(
             ID_viewPeaklistColumnFwhm, bool("fwhm" in config.main["peaklistColumns"])
@@ -2792,6 +2802,7 @@ class mainFrame(wx.Frame):
             ID_viewPeaklistColumnSn: "sn",
             ID_viewPeaklistColumnZ: "z",
             ID_viewPeaklistColumnMass: "mass",
+            ID_viewPeaklistColumnEnvArea: "envarea",
             ID_viewPeaklistColumnFwhm: "fwhm",
             ID_viewPeaklistColumnResol: "resol",
             ID_viewPeaklistColumnGroup: "group",
@@ -2824,6 +2835,8 @@ class mainFrame(wx.Frame):
                 config.main["peaklistColumns"].append("z")
             if "mass" in columns:
                 config.main["peaklistColumns"].append("mass")
+            if "envarea" in columns:
+                config.main["peaklistColumns"].append("envarea")
             if "fwhm" in columns:
                 config.main["peaklistColumns"].append("fwhm")
             if "resol" in columns:
@@ -4743,9 +4756,24 @@ class mainFrame(wx.Frame):
 
     # UTILITIES
 
-    def updateTmpSpectrum(self, points, flipped=False, refresh=True):
+    def updateTmpSpectrum(
+        self,
+        points,
+        flipped=False,
+        refresh=True,
+        fillUnder=False,
+        fillUnderAlpha=70,
+        showOutline=True,
+    ):
         """Update tmp spectrum in canvas."""
-        self.spectrumPanel.updateTmpSpectrum(points, flipped=flipped, refresh=refresh)
+        self.spectrumPanel.updateTmpSpectrum(
+            points,
+            flipped=flipped,
+            refresh=refresh,
+            fillUnder=fillUnder,
+            fillUnderAlpha=fillUnderAlpha,
+            showOutline=showOutline,
+        )
 
     # ----
 

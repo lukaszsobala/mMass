@@ -726,6 +726,8 @@ class points:
             "lineColour": (0, 0, 255),
             "lineWidth": 1,
             "lineStyle": wx.SOLID,
+            "fillUnder": False,
+            "fillUnderAlpha": 60,
             "xOffsetDigits": 2,
             "yOffsetDigits": 0,
         }
@@ -920,6 +922,69 @@ class points:
         # check data
         if not len(self.scaled):
             return
+
+        # draw shaded area under profile when requested
+        if self.properties.get("fillUnder") and len(self.scaled) > 1:
+                yScale = self.currentScale[1]
+                if self.properties["flipped"]:
+                    yScale *= -1
+                if self.properties["normalized"]:
+                    yScale /= self.normalization
+                baseline = int(
+                    round(self.currentShift[1] + self.properties["yOffset"] * yScale)
+                )
+
+                colour = self.properties["lineColour"]
+                if isinstance(colour, wx.Colour):
+                    fillColour = wx.Colour(
+                        colour.Red(),
+                        colour.Green(),
+                        colour.Blue(),
+                        int(self.properties.get("fillUnderAlpha", 60)),
+                    )
+                else:
+                    fillColour = wx.Colour(
+                        int(colour[0]),
+                        int(colour[1]),
+                        int(colour[2]),
+                        int(self.properties.get("fillUnderAlpha", 60)),
+                    )
+
+                polygon = numpy.empty((len(self.scaled) + 2, 2), dtype=numpy.int32)
+                polygon[0] = (self.scaled[0][0], baseline)
+                polygon[1:-1] = self.scaled
+                polygon[-1] = (self.scaled[-1][0], baseline)
+
+                drawDc = dc
+                fillBrush = wx.Brush(fillColour, wx.SOLID)
+                try:
+                    drawDc = wx.GCDC(dc)
+                except Exception:
+                    # Fallback when alpha-capable DC is unavailable.
+                    # Keep the shading visible using a lighter opaque tint.
+                    colour = self.properties["lineColour"]
+                    if isinstance(colour, wx.Colour):
+                        fillBrush = wx.Brush(
+                            wx.Colour(
+                                min(255, int(0.70 * colour.Red() + 0.30 * 255)),
+                                min(255, int(0.70 * colour.Green() + 0.30 * 255)),
+                                min(255, int(0.70 * colour.Blue() + 0.30 * 255)),
+                            ),
+                            wx.SOLID,
+                        )
+                    else:
+                        fillBrush = wx.Brush(
+                            wx.Colour(
+                                min(255, int(0.70 * int(colour[0]) + 0.30 * 255)),
+                                min(255, int(0.70 * int(colour[1]) + 0.30 * 255)),
+                                min(255, int(0.70 * int(colour[2]) + 0.30 * 255)),
+                            ),
+                            wx.SOLID,
+                        )
+
+                drawDc.SetPen(wx.TRANSPARENT_PEN)
+                drawDc.SetBrush(fillBrush)
+                drawDc.DrawPolygon(polygon)
 
         # draw lines
         if self.properties["showLines"] and len(self.scaled) > 1:

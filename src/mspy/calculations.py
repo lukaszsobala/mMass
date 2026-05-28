@@ -6,6 +6,8 @@ def signal_interpolate_x(x1, y1, x2, y2, y):
     if x1 == x2:
         return x1
     a = (y2 - y1) / (x2 - x1)
+    if a == 0:
+        return (x1 + x2) / 2.0
     b = y1 - a * x1
     return (y - b) / a
 

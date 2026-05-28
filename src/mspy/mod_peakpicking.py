@@ -421,13 +421,14 @@ def envcentroid(isotopes, pickingHeight=0.5, intensity="maximum"):
     sn = isotopes.basepeak.sn
     fwhm = isotopes.basepeak.fwhm
     if intensity == "sum":
-        ai = base + sumIntensity
+        displayAI = base + sumIntensity
     elif intensity == "average":
-        ai = base + sumIntensity / len(isotopes)
+        displayAI = base + sumIntensity / len(isotopes)
     else:
-        ai = isotopes.basepeak.ai
+        displayAI = isotopes.basepeak.ai
+    ai = isotopes.basepeak.ai
     if isotopes.basepeak.sn:
-        sn = (ai - base) * isotopes.basepeak.sn / (isotopes.basepeak.ai - base)
+        sn = (displayAI - base) * isotopes.basepeak.sn / (isotopes.basepeak.ai - base)
 
     # get envelope width
     minInt = isotopes.basepeak.intensity * pickingHeight
@@ -514,13 +515,14 @@ def envmono(isotopes, charge, intensity="maximum"):
     sn = isotopes.basepeak.sn
     fwhm = isotopes.basepeak.fwhm
     if intensity == "sum":
-        ai = base + sumIntensity
+        displayAI = base + sumIntensity
     elif intensity == "average":
-        ai = base + sumIntensity / len(isotopes)
+        displayAI = base + sumIntensity / len(isotopes)
     else:
-        ai = isotopes.basepeak.ai
+        displayAI = isotopes.basepeak.ai
+    ai = isotopes.basepeak.ai
     if isotopes.basepeak.sn:
-        sn = (ai - base) * isotopes.basepeak.sn / (isotopes.basepeak.ai - base)
+        sn = (displayAI - base) * isotopes.basepeak.sn / (isotopes.basepeak.ai - base)
 
     # make peak
     peak = obj_peak.peak(mz=mz, ai=ai, base=base, sn=sn, fwhm=fwhm, isotope=0)
@@ -531,8 +533,738 @@ def envmono(isotopes, charge, intensity="maximum"):
 # ----
 
 
+def labelenvelope(isotopes, charge=None, label="1st", intensity="maximum"):
+    """Convert isotope peaks to requested envelope labels."""
+
+    # check isotopes
+    if len(isotopes) == 0:
+        return []
+
+    # check peaklist object
+    if not isinstance(isotopes, obj_peaklist.peaklist):
+        isotopes = obj_peaklist.peaklist(isotopes)
+
+    if charge is None:
+        charge = isotopes[0].charge
+
+    # label monoisotopic peak
+    if label == "monoisotope":
+        peak = envmono(isotopes, charge=charge, intensity=intensity)
+        return [peak] if peak else []
+
+    # label envelope centroid
+    elif label == "centroid":
+        peak = envcentroid(isotopes, pickingHeight=0.5, intensity=intensity)
+        if peak:
+            peak.setcharge(charge)
+        return [peak] if peak else []
+
+    # label all isotopes
+    elif label == "isotopes":
+        peaks = copy.deepcopy(list(isotopes))
+        for x, peak in enumerate(peaks):
+            peak.setcharge(charge)
+            peak.setisotope(x)
+        return peaks
+
+    # label 1st isotope
+    basepeak = isotopes[0]
+    sumIntensity = 0.0
+    sumBase = 0.0
+    for peak in isotopes:
+        sumIntensity += peak.intensity
+        sumBase += peak.base
+        if peak.intensity > basepeak.intensity:
+            basepeak = peak
+
+    base = basepeak.base
+    ai = basepeak.ai
+    sn = basepeak.sn
+    if intensity == "sum":
+        displayAI = base + sumIntensity
+    elif intensity == "average":
+        displayAI = base + sumIntensity / len(isotopes)
+    else:
+        displayAI = basepeak.ai
+
+    if basepeak.sn and basepeak.ai != basepeak.base:
+        sn = (displayAI - base) * basepeak.sn / (basepeak.ai - basepeak.base)
+
+    peak = obj_peak.peak(
+        mz=isotopes[0].mz,
+        ai=ai,
+        base=base,
+        sn=sn,
+        charge=charge,
+        isotope=0,
+        fwhm=None,
+    )
+
+    return [peak]
+
+
+# ----
+
+
+def envelopeprofile(envelope, raster=None, points=30):
+    """Make Gaussian profile for one envelope metadata dict."""
+
+    if not envelope:
+        return numpy.array([])
+
+    isotopes = envelope.get("isotopes", [])
+    area = float(envelope.get("area", 0.0))
+    fwhm = float(envelope.get("fwhm", 0.1))
+    if not isotopes or area <= 0.0 or fwhm <= 0.0:
+        return numpy.array([])
+
+    sigma = _fwhm_to_sigma(fwhm)
+    if sigma <= 0.0:
+        return numpy.array([])
+
+    # build raster around isotope cluster
+    if raster is None:
+        mzs = [float(x[0]) for x in isotopes]
+        start = min(mzs) - 5.0 * fwhm
+        stop = max(mzs) + 5.0 * fwhm
+        step = max(fwhm / float(max(5, points)), 1e-5)
+        raster = numpy.arange(start, stop + step, step)
+    elif not isinstance(raster, numpy.ndarray):
+        raster = numpy.array(raster, dtype=float)
+
+    y = numpy.zeros(len(raster), dtype=float)
+    norm = sigma * math.sqrt(2.0 * math.pi)
+    for mz, weight in isotopes:
+        amplitude = area * float(weight) / norm
+        y += amplitude * numpy.exp(-0.5 * ((raster - float(mz)) / sigma) ** 2)
+
+    return numpy.column_stack((raster, y))
+
+
+# ----
+
+
+def _fwhm_to_sigma(fwhm):
+    """Convert FWHM to sigma for Gaussian profile."""
+
+    if fwhm <= 0.0:
+        return 0.0
+    return fwhm / (2.0 * math.sqrt(2.0 * math.log(2.0)))
+
+
+# ----
+
+
+def _cluster_weights(cluster):
+    """Get normalized isotope weights from theoretical pattern."""
+    
+    parent = cluster[0]
+    if parent.charge:
+        pattern = _cluster_pattern(parent, len(cluster))
+        if len(pattern) == len(cluster):
+            total = sum(pattern)
+            if total > 0:
+                return [p / total for p in pattern]
+                
+    intensities = [max(0.0, p.intensity) for p in cluster]
+    total = sum(intensities)
+    if total <= 0.0:
+        return [1.0 / len(cluster)] * len(cluster)
+    return [x / total for x in intensities]
+
+
+# ----
+
+
+def _cluster_fwhm(cluster, defaultFwhm):
+    """Get representative FWHM for isotope cluster."""
+
+    fwhm = [p.fwhm for p in cluster if p.fwhm and p.fwhm > 0.0]
+    if not fwhm:
+        return defaultFwhm
+    return sum(fwhm) / float(len(fwhm))
+
+
+# ----
+
+
+def _cluster_pattern(parent, size):
+    """Get expected isotope pattern slice for parent peak using Poisson Averagine approximation."""
+    if size <= 0:
+        return []
+
+    neutralMass = mod_basics.mz(parent.mz, charge=0, currentCharge=parent.charge, massType=1)
+    
+    # Averagine Poisson approximation: expected number of 13C atoms
+    # ~0.0444 carbons per Da, ~1.07% 13C naturally. 
+    import math
+    lam = neutralMass * 0.000475
+    
+    pattern = []
+    p = math.exp(-lam) if lam < 700 else 0.0
+    for i in range(size):
+        if i == 0:
+            pattern.append(p)
+        else:
+            p = p * (lam / i)
+            pattern.append(p)
+            
+    # If lambda is huge, exponential might underflow to 0. Fallback scaling:
+    if sum(pattern) <= 0.0:
+        return [1.0] + [0.0] * (size - 1)
+        
+    max_p = max(pattern)
+    return [x / max_p for x in pattern]
+
+
+# ----
+
+
+def _cluster_sn(cluster):
+    """Estimate local S/N for a cluster from peak-level S/N values."""
+
+    values = [p.sn for p in cluster if p.sn and p.sn > 0.0]
+    if not values:
+        return None
+
+    values.sort()
+    n = len(values)
+    if n % 2:
+        return values[n // 2]
+    return 0.5 * (values[(n // 2) - 1] + values[n // 2])
+
+
+# ----
+
+
+def _sn_quality(cluster):
+    """Map local S/N to [0, 1] quality where 1 means clean signal."""
+
+    sn = _cluster_sn(cluster)
+    if sn is None:
+        return 0.5
+
+    # 3 is near detection threshold, 25 is generally clean.
+    q = (sn - 3.0) / 22.0
+    if q < 0.0:
+        return 0.0
+    if q > 1.0:
+        return 1.0
+    return q
+
+
+# ----
+
+
+def _adaptive_mz_tolerance(baseTolerance, cluster):
+    """Relax m/z matching in noisy regions, tighten in clean regions."""
+
+    q = _sn_quality(cluster)
+    factor = 0.9 + (1.35 - 0.9) * (1.0 - q)
+    return baseTolerance * factor
+
+
+# ----
+
+
+def _cluster_observed_pattern(parent, cluster, isotopeShift=0.0):
+    """Build observed isotope intensities indexed by inferred isotope number."""
+
+    if not parent.charge:
+        return None, None
+
+    difference = (ISOTOPE_DISTANCE + isotopeShift) / abs(parent.charge)
+    if difference <= 0.0:
+        return None, None
+
+    inferred = []
+    maxMzError = 0.0
+    for peak in cluster:
+        isotope = int(round((peak.mz - parent.mz) / difference))
+        if isotope < 0:
+            return None, None
+        expected = parent.mz + isotope * difference
+        maxMzError = max(maxMzError, abs(peak.mz - expected))
+        inferred.append((isotope, max(0.0, peak.intensity)))
+
+    if not inferred:
+        return None, None
+
+    maxIsotope = max([x[0] for x in inferred])
+    observed = numpy.zeros(maxIsotope + 1, dtype=float)
+    for isotope, intensity in inferred:
+        observed[isotope] = max(observed[isotope], intensity)
+
+    return observed, maxMzError
+
+
+# ----
+
+
+def _cluster_pattern_error(parent, cluster, isotopeShift=0.0, relaxed=False):
+    """Return fit error for expected isotope pattern; None means invalid."""
+
+    if len(cluster) < 2:
+        return 0.0
+
+    observed, maxMzError = _cluster_observed_pattern(parent, cluster, isotopeShift)
+    if observed is None or len(observed) < 2:
+        return None
+
+    pattern = _cluster_pattern(parent, len(observed))
+    if len(pattern) < len(observed):
+        return None
+
+    quality = _sn_quality(cluster)
+
+    # Reject internal missing isotopes when expected abundance is non-trivial.
+    maxPattern = max(pattern)
+    gapThreshold = 0.20 - (0.12 * quality)
+    if relaxed:
+        gapThreshold *= 2.5  # Allow bigger gaps in manual mode
+    for isotope in range(1, len(observed) - 1):
+        if observed[isotope] > 0.0:
+            continue
+        relative = pattern[isotope] / maxPattern
+        if relative >= gapThreshold:
+            return None
+
+    # Fit one scale factor to expected pattern.
+    expected = numpy.array(pattern, dtype=float)
+    denom = float(numpy.dot(expected, expected))
+    if denom <= 0.0:
+        return None
+    scale = float(numpy.dot(observed, expected)) / denom
+    if scale <= 0.0:
+        return None
+
+    predicted = expected * scale
+    if float(numpy.max(predicted)) <= 0.0:
+        return None
+
+    # Weighted relative error for significant isotopes.
+    mask = predicted >= (float(numpy.max(predicted)) * 0.03)
+    if not numpy.any(mask):
+        return None
+
+    delta = observed - predicted
+    overError = numpy.maximum(delta, 0.0) / (predicted + 1e-12)
+    underError = numpy.maximum(-delta, 0.0) / (predicted + 1e-12)
+    # Undercalled isotopes are common in overlap/noise; penalize them less
+    # than overshoot while still enforcing no impossible internal gaps.
+    underWeight = 0.30 + (1.0 - quality) * 0.20
+    relError = overError + underWeight * underError
+    weights = expected / max(expected)
+    weightedError = float(
+        numpy.sum(relError[mask] * weights[mask]) / max(numpy.sum(weights[mask]), 1e-12)
+    )
+    maxOverError = float(numpy.max(overError[mask]))
+
+    # Mode can drift a bit in noisy overlap, but not arbitrarily.
+    expectedMode = int(numpy.argmax(expected))
+    observedMode = int(numpy.argmax(observed))
+    maxModeShift = 1
+    if quality < 0.35:
+        maxModeShift = 2
+    if relaxed:
+        maxModeShift = 100 # Disable mode-shift check in manual mode
+    if observedMode > expectedMode + maxModeShift:
+        return None
+
+    # Keep m/z-index consistency reasonably tight.
+    expectedDiff = (ISOTOPE_DISTANCE + isotopeShift) / abs(parent.charge)
+    mzErrorNorm = maxMzError / max(expectedDiff, 1e-12)
+
+    # Adaptive acceptance thresholds: strict at high S/N, relaxed at low S/N.
+    weightedLimit = 0.55 + ((1.0 - quality) * 1.05)
+    maxOverLimit = 1.20 + ((1.0 - quality) * 0.95)
+    mzNormLimit = 0.22 + ((1.0 - quality) * 0.18)
+    if relaxed:
+        weightedLimit *= 5.0 # Highly relaxed mode
+        maxOverLimit *= 5.0
+        mzNormLimit *= 2.0
+    if (
+        weightedError > weightedLimit
+        or maxOverError > maxOverLimit
+        or mzErrorNorm > mzNormLimit
+    ):
+        return None
+
+    return weightedError
+
+
+# ----
+
+
+def _is_plausible_cluster(parent, cluster, isotopeShift=0.0, relaxed=False):
+    """Reject clusters that do not fit expected isotopic pattern."""
+
+    return (
+        _cluster_pattern_error(
+            parent,
+            cluster,
+            isotopeShift,
+            relaxed=relaxed,
+        )
+        is not None
+    )
+
+
+# ----
+
+
+def _merge_adjacent_clusters(clusters, mzTolerance, isotopeShift, relaxed=False):
+    """Merge neighboring clusters when they are consistent with one envelope."""
+
+    if len(clusters) < 2:
+        return clusters
+
+    merged = list(clusters)
+    changed = True
+    while changed:
+        changed = False
+        i = 0
+        while i < len(merged) - 1:
+            left = merged[i]
+            right = merged[i + 1]
+            if not left or not right:
+                i += 1
+                continue
+
+            parent = left[0]
+            rightParent = right[0]
+            if not parent.charge or rightParent.charge != parent.charge:
+                i += 1
+                continue
+
+            difference = (ISOTOPE_DISTANCE + isotopeShift) / abs(parent.charge)
+            if difference <= 0.0:
+                i += 1
+                continue
+
+            delta = rightParent.mz - parent.mz
+            if delta <= 0.0:
+                i += 1
+                continue
+
+            expectedIsotope = int(round(delta / difference))
+            if expectedIsotope < 1:
+                i += 1
+                continue
+
+            expectedMz = parent.mz + expectedIsotope * difference
+            dynamicTol = max(
+                _adaptive_mz_tolerance(mzTolerance, left),
+                _adaptive_mz_tolerance(mzTolerance, right),
+            )
+            if abs(rightParent.mz - expectedMz) > dynamicTol:
+                i += 1
+                continue
+
+            trial = sorted(left + right, key=lambda p: p.mz)
+            # Enforce true envelope shape for merging even in relaxed mode,
+            # so overlapping envelopes don't get squashed together.
+            if not _is_plausible_cluster(
+                parent,
+                trial,
+                isotopeShift,
+                relaxed=False,
+            ):
+                i += 1
+                continue
+
+            merged[i] = trial
+            del merged[i + 1]
+            changed = True
+
+        # keep scanning after successful merge pass
+
+    return merged
+
+
+# ----
+
+
+def _fit_envelope_areas(clusters, signal, defaultFwhm):
+    """Fit envelope areas jointly against spectrum profile using non-negative LS."""
+
+    # fallback when profile is not available
+    if signal is None or len(signal) == 0:
+        areas = []
+        for cluster in clusters:
+            fwhm = _cluster_fwhm(cluster, defaultFwhm)
+            sigma = _fwhm_to_sigma(fwhm)
+            scale = sigma * math.sqrt(2.0 * math.pi)
+            areas.append(max(0.0, sum([p.intensity for p in cluster])) * scale)
+        return areas
+
+    x = signal[:, 0].astype(float)
+    y = signal[:, 1].astype(float)
+    if len(x) == 0:
+        return [0.0] * len(clusters)
+
+    # keep only local region around all clusters
+    minMz = min([c[0].mz for c in clusters])
+    maxMz = max([c[-1].mz for c in clusters])
+    maxFwhm = max([_cluster_fwhm(c, defaultFwhm) for c in clusters])
+    lo = minMz - 6.0 * maxFwhm
+    hi = maxMz + 6.0 * maxFwhm
+    mask = (x >= lo) & (x <= hi)
+    x = x[mask]
+    y = y[mask]
+    if len(x) == 0:
+        return [0.0] * len(clusters)
+
+    # remove baseline offset for local fit
+    y = y - float(numpy.min(y))
+    y[y < 0.0] = 0.0
+
+    # build envelope basis matrix (N points x K envelopes)
+    models = []
+    for cluster in clusters:
+        fwhm = _cluster_fwhm(cluster, defaultFwhm)
+        sigma = _fwhm_to_sigma(fwhm)
+        if sigma <= 0.0:
+            models.append(numpy.zeros(len(x), dtype=float))
+            continue
+        weights = _cluster_weights(cluster)
+        norm = sigma * math.sqrt(2.0 * math.pi)
+        model = numpy.zeros(len(x), dtype=float)
+        for i, peak in enumerate(cluster):
+            model += (weights[i] / norm) * numpy.exp(
+                -0.5 * ((x - peak.mz) / sigma) ** 2
+            )
+        models.append(model)
+
+    M = numpy.column_stack(models)
+    if M.size == 0:
+        return [0.0] * len(clusters)
+
+    # multiplicative updates for non-negative least squares
+    coeff = numpy.ones(M.shape[1], dtype=float)
+    mTy = numpy.dot(M.transpose(), y)
+    for i in range(120):
+        estimate = numpy.dot(M, coeff)
+        denom = numpy.dot(M.transpose(), estimate) + 1e-12
+        coeff *= mTy / denom
+        coeff[coeff < 0.0] = 0.0
+
+    return list(coeff)
+
+
+# ----
+
+
+def relabelenvelopes(
+    peaklist,
+    label="1st",
+    intensity="maximum",
+    mzTolerance=0.15,
+    isotopeShift=0.0,
+    signal=None,
+    defaultFwhm=0.1,
+    relaxed=False,
+):
+    """Convert deisotoped peak clusters to envelope labels."""
+
+    # check peaklist
+    if not isinstance(peaklist, obj_peaklist.peaklist):
+        raise TypeError("Peak list must be mspy.peaklist object!")
+
+    if not peaklist:
+        return obj_peaklist.peaklist([])
+
+    result = obj_peaklist.peaklist([])
+    used = set()
+    clusters = []
+
+    for x, parent in enumerate(peaklist):
+
+        CHECK_FORCE_QUIT()
+
+        if parent.charge is None or (parent.isotope is not None and parent.isotope != 0):
+            continue
+        # Also skip if it strictly fits inside an existing cluster and is not an overlap.
+        # NNLS will handle it if we spawn too many, but let's just use `x in used` normally, except wait.
+        if (not relaxed) and x in used:
+            continue
+
+
+        cluster = [copy.deepcopy(parent)]
+        indexes = [x]
+        next_isotope = 1
+        difference = (ISOTOPE_DISTANCE + isotopeShift) / abs(parent.charge)
+        while True:
+            found = None
+            found_isotope = None
+            best_error = None
+            best_pattern_error = None
+            dynamicTol = _adaptive_mz_tolerance(mzTolerance, cluster)
+
+            # Strictly forbid gaps; envelopes must be a continuous series.
+            for isotope in [next_isotope]:
+                expected = parent.mz + isotope * difference
+
+                for y in range(indexes[-1] + 1, len(peaklist)):
+                    peak = peaklist[y]
+                    if peak.mz > expected + dynamicTol:
+                        break
+                    if peak.charge != parent.charge:
+                        continue
+
+                    # Respect deisotoping assignments when available.
+                    if peak.isotope is not None and peak.isotope != isotope:
+                        continue
+
+                    error = abs(peak.mz - expected)
+                    if error > dynamicTol:
+                        continue
+
+                    trial_cluster = cluster + [copy.deepcopy(peak)]
+                    pattern_error = _cluster_pattern_error(
+                        parent,
+                        trial_cluster,
+                        isotopeShift,
+                        relaxed=relaxed,
+                    )
+                    if pattern_error is None:
+                        if relaxed:
+                            pattern_error = 999.0
+                        else:
+                            continue
+
+                    if (
+                        best_pattern_error is None
+                        or pattern_error < best_pattern_error
+                        or (
+                            pattern_error == best_pattern_error
+                            and (best_error is None or error < best_error)
+                        )
+                    ):
+                        found = y
+                        found_isotope = isotope
+                        best_error = error
+                        best_pattern_error = pattern_error
+
+            if found is None:
+                break
+
+            cluster.append(copy.deepcopy(peaklist[found]))
+            indexes.append(found)
+            next_isotope = found_isotope + 1
+
+        # Determine meaningful length from theoretical model; extend envelope to catch the full tail
+        # The user mandates "The envelope must be extended to at least 3".
+        ideal_pattern = _cluster_pattern(parent, 30)
+        max_p = max(ideal_pattern) if ideal_pattern else 1.0
+        
+        # Target length encompasses all theoretical peaks > 1% of the base peak (min 3)
+        target_length = 3
+        for i, p in enumerate(ideal_pattern):
+            if p >= max_p * 0.01:  # 1% threshold
+                target_length = max(target_length, i + 1)
+                
+        if len(cluster) < target_length:
+            for mi in range(len(cluster), target_length):
+                dummy = copy.deepcopy(parent)
+                dummy.mz = parent.mz + mi * difference
+                dummy.intensity = 0.0
+                dummy.charge = parent.charge
+                dummy.isotope = mi
+                cluster.append(dummy)
+
+        used.update(indexes)
+        clusters.append(cluster)
+
+    if not clusters:
+        return copy.deepcopy(peaklist)
+
+    clusters = _merge_adjacent_clusters(
+        clusters,
+        mzTolerance,
+        isotopeShift,
+        relaxed=relaxed,
+    )
+
+    if not clusters:
+        return copy.deepcopy(peaklist)
+
+    areas = _fit_envelope_areas(clusters, signal, defaultFwhm)
+    
+    # Re-calculate NNLS areas as fallbacks if needed, but mainly prune zero ones
+    max_area = max([a for a in areas]) if areas else 0.0
+    pruned_clusters = []
+    pruned_areas = []
+    for c, cluster in enumerate(clusters):
+        a = float(max(0.0, areas[c])) if c < len(areas) else 0.0
+        if a > max_area * 1e-6 or len(clusters) == 1:
+            pruned_clusters.append(cluster)
+            pruned_areas.append(a)
+    clusters = pruned_clusters
+    areas = pruned_areas
+
+    for c, cluster in enumerate(clusters):
+        parent = cluster[0]
+        weights = _cluster_weights(cluster)
+        fwhm = _cluster_fwhm(cluster, defaultFwhm)
+        
+        # Enforce exact intensities based on the first peak's intensity scaled by theoretical weights.
+        # This guarantees overlapping/padded peaks contribute to the shape properly!
+        for i, peak in enumerate(cluster):
+            if i > 0 and weights[0] > 0.0:
+                peak.intensity = parent.intensity * (weights[i] / weights[0])
+
+        envelope = {
+            "area": areas[c],
+            "fwhm": float(fwhm),
+            "shape": "gaussian",
+            "isotopes": [(float(cluster[i].mz), float(weights[i])) for i in range(len(cluster))],
+        }
+
+        peaks = labelenvelope(
+            cluster,
+            charge=parent.charge,
+            label=label,
+            intensity=intensity,
+        )
+
+        groupname = result.groupname()
+        if label == "isotopes":
+            for isotope, peak in enumerate(peaks):
+                peak.setcharge(parent.charge)
+                peak.setisotope(isotope)
+                peak.setgroup(groupname)
+                peak.attributes["envelope"] = envelope
+                result.append(peak)
+        else:
+            for peak in peaks:
+                peak.setcharge(parent.charge)
+                peak.setisotope(0)
+                peak.setgroup(groupname)
+                peak.attributes["envelope"] = envelope
+                result.append(peak)
+
+    for x, peak in enumerate(peaklist):
+        if x in used:
+            continue
+        peak = copy.deepcopy(peak)
+        peak.setgroup("")
+        result.append(peak)
+
+    return result
+
+
+# ----
+
+
 def deisotope(
-    peaklist, maxCharge=1, mzTolerance=0.15, intTolerance=0.5, isotopeShift=0.0
+    peaklist,
+    maxCharge=1,
+    mzTolerance=0.15,
+    intTolerance=0.5,
+    isotopeShift=0.0,
+    respectCharge=False,
+    seedCharge=1,
 ):
     """Isotopes determination and calculation of peaks charge.
     peaklist (mspy.peaklist) - peaklist to process
@@ -546,10 +1278,11 @@ def deisotope(
     if not isinstance(peaklist, obj_peaklist.peaklist):
         raise TypeError("Peak list must be mspy.peaklist object!")
 
-    # clear previous results
-    for peak in peaklist:
-        peak.setcharge(None)
-        peak.setisotope(None)
+    # clear previous results unless caller wants to preserve / respect charge
+    if not respectCharge:
+        for peak in peaklist:
+            peak.setcharge(None)
+            peak.setisotope(None)
 
     # get charges
     if maxCharge < 0:
@@ -568,8 +1301,16 @@ def deisotope(
         if parent.isotope is not None:
             continue
 
-        # try all charge states
-        for z in charges:
+        # try all charge states or the caller-provided charge seed
+        if respectCharge:
+            if parent.charge is None:
+                candidateCharges = [seedCharge]
+            else:
+                candidateCharges = [parent.charge]
+        else:
+            candidateCharges = charges
+
+        for z in candidateCharges:
             cluster = [parent]
 
             # search for next isotope within m/z tolerance
@@ -634,6 +1375,8 @@ def deisotope(
                 parent.setcharge(z)
                 break
 
+        if respectCharge and parent.charge is None:
+            parent.setcharge(seedCharge)
 
 # ----
 

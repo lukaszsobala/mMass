@@ -249,7 +249,16 @@ main = {
     "serverPort": 65456,
     "reverseScrolling": 0,
     "macListCtrlGeneric": 1,
-    "peaklistColumns": ["mz", "int", "rel", "sn", "z", "fwhm", "resol"],
+    "peaklistColumns": [
+        "mz",
+        "int",
+        "envarea",
+        "rel",
+        "sn",
+        "z",
+        "fwhm",
+        "resol",
+    ],
     "cursorInfo": ["mz", "dist", "ppm", "z"],
     "updatesEnabled": 1,
     "updatesChecked": "",
@@ -372,15 +381,15 @@ processing = {
     },
     "smoothing": {
         "method": "SG",
-        "windowSize": 0.3,
-        "cycles": 2,
+        "windowSize": 0.15,
+        "cycles": 5,
         "preservePeaks": 1,
     },
     "peakpicking": {
-        "snThreshold": 3.0,
+        "snThreshold": 25.0,
         "absIntThreshold": 0,
         "relIntThreshold": 0.0,
-        "pickingHeight": 0.75,
+        "pickingHeight": 1.00,
         "baseline": 1,
         "smoothing": 1,
         "deisotoping": 1,
@@ -389,14 +398,15 @@ processing = {
     },
     "deisotoping": {
         "maxCharge": 1,
-        "massTolerance": 0.1,
-        "intTolerance": 0.5,
+        "massTolerance": 0.03,
+        "intTolerance": 0.65,
         "isotopeShift": 0.0,
         "removeIsotopes": 1,
         "removeUnknown": 1,
         "labelEnvelope": "1st",
         "envelopeIntensity": "maximum",
         "setAsMonoisotopic": 0,
+        "convertToEnvelopes": 1,
     },
     "deconvolution": {
         "massType": 0,
@@ -1404,6 +1414,9 @@ def saveConfig(path=os.path.join(confdir, "config.xml")):
     )
     buff += '      <param name="setAsMonoisotopic" value="%d" type="int" />\n' % (
         bool(processing["deisotoping"]["setAsMonoisotopic"])
+    )
+    buff += '      <param name="convertToEnvelopes" value="%d" type="int" />\n' % (
+        bool(processing["deisotoping"].get("convertToEnvelopes", 0))
     )
     buff += "    </deisotoping>\n"
     buff += "    <deconvolution>\n"

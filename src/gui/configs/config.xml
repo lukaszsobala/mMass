@@ -13,7 +13,7 @@
     <param name="reverseScrolling" value="0" type="int" />
     <param name="macListCtrlGeneric" value="1" type="int" />
     <param name="cursorInfo" value="mz;dist;ppm;z" type="str" />
-    <param name="peaklistColumns" value="mz;int;rel;sn;z;fwhm;resol" type="str" />
+    <param name="peaklistColumns" value="mz;int;envarea;rel;sn;z;fwhm;resol" type="str" />
     <param name="mzDigits" value="4" type="int" />
     <param name="intDigits" value="0" type="int" />
     <param name="ppmDigits" value="1" type="int" />
@@ -140,7 +140,7 @@
       <param name="cycles" value="5" type="int" />
     </smoothing>
     <peakpicking>
-      <param name="snThreshold" value="30.000000" type="float" />
+      <param name="snThreshold" value="25.000000" type="float" />
       <param name="absIntThreshold" value="0.000000" type="float" />
       <param name="relIntThreshold" value="0.000000" type="float" />
       <param name="pickingHeight" value="1.000000" type="float" />
@@ -151,13 +151,14 @@
     </peakpicking>
     <deisotoping>
       <param name="maxCharge" value="1" type="int" />
-      <param name="massTolerance" value="0.100000" type="float" />
-      <param name="intTolerance" value="0.500000" type="float" />
+      <param name="massTolerance" value="0.030000" type="float" />
+      <param name="intTolerance" value="0.650000" type="float" />
       <param name="removeIsotopes" value="1" type="int" />
       <param name="removeUnknown" value="1" type="int" />
       <param name="labelEnvelope" value="1st" type="str" />
       <param name="envelopeIntensity" value="maximum" type="str" />
       <param name="setAsMonoisotopic" value="0" type="int" />
+      <param name="convertToEnvelopes" value="1" type="int" />
     </deisotoping>
     <deconvolution>
       <param name="massType" value="0" type="int" />

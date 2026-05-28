@@ -41,6 +41,7 @@
         <param name="labelEnvelope" value="1st" type="str" />
         <param name="envelopeIntensity" value="maximum" type="str" />
         <param name="setAsMonoisotopic" value="1" type="int" />
+        <param name="convertToEnvelopes" value="1" type="int" />
       </deisotoping>
       <deconvolution>
         <param name="massType" value="0" type="int" />
@@ -84,6 +85,7 @@
         <param name="labelEnvelope" value="1st" type="str" />
         <param name="envelopeIntensity" value="maximum" type="str" />
         <param name="setAsMonoisotopic" value="1" type="int" />
+        <param name="convertToEnvelopes" value="1" type="int" />
       </deisotoping>
       <deconvolution>
         <param name="massType" value="0" type="int" />
@@ -127,6 +129,7 @@
         <param name="labelEnvelope" value="1st" type="str" />
         <param name="envelopeIntensity" value="maximum" type="str" />
         <param name="setAsMonoisotopic" value="1" type="int" />
+        <param name="convertToEnvelopes" value="1" type="int" />
       </deisotoping>
       <deconvolution>
         <param name="massType" value="0" type="int" />
@@ -170,6 +173,7 @@
         <param name="labelEnvelope" value="1st" type="str" />
         <param name="envelopeIntensity" value="maximum" type="str" />
         <param name="setAsMonoisotopic" value="1" type="int" />
+        <param name="convertToEnvelopes" value="1" type="int" />
       </deisotoping>
       <deconvolution>
         <param name="massType" value="0" type="int" />
@@ -213,6 +217,7 @@
         <param name="labelEnvelope" value="1st" type="str" />
         <param name="envelopeIntensity" value="maximum" type="str" />
         <param name="setAsMonoisotopic" value="1" type="int" />
+        <param name="convertToEnvelopes" value="1" type="int" />
       </deisotoping>
       <deconvolution>
         <param name="massType" value="0" type="int" />
@@ -256,6 +261,7 @@
         <param name="labelEnvelope" value="1st" type="str" />
         <param name="envelopeIntensity" value="maximum" type="str" />
         <param name="setAsMonoisotopic" value="0" type="int" />
+        <param name="convertToEnvelopes" value="1" type="int" />
       </deisotoping>
       <deconvolution>
         <param name="massType" value="1" type="int" />

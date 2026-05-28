@@ -903,6 +903,17 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         )
         self.deisotopingSetAsMonoisotopic_check.Bind(wx.EVT_CHECKBOX, self.getParams)
 
+        deisotopingConvertToEnvelopes_label = wx.StaticText(
+            panel, -1, "Convert labeled peaks to envelopes:"
+        )
+        self.deisotopingConvertToEnvelopes_check = wx.CheckBox(panel, -1, "")
+        self.deisotopingConvertToEnvelopes_check.SetValue(
+            bool(config.processing["deisotoping"].get("convertToEnvelopes", 0))
+        )
+        self.deisotopingConvertToEnvelopes_check.Bind(
+            wx.EVT_CHECKBOX, self.getParams
+        )
+
         # pack elements
         grid = wx.GridBagSizer(mwx.GRIDBAG_VSPACE, mwx.GRIDBAG_HSPACE)
         grid.Add(
@@ -966,6 +977,12 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL,
         )
         grid.Add(self.deisotopingSetAsMonoisotopic_check, (9, 1))
+        grid.Add(
+            deisotopingConvertToEnvelopes_label,
+            (10, 0),
+            flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL,
+        )
+        grid.Add(self.deisotopingConvertToEnvelopes_check, (10, 1))
 
         mainSizer = wx.BoxSizer(wx.VERTICAL)
         mainSizer.Add(grid, 0, wx.ALIGN_CENTER | wx.ALL, mwx.PANEL_SPACE_MAIN)
@@ -1415,6 +1432,9 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         )
         self.deisotopingSetAsMonoisotopic_check.SetValue(
             bool(presets["deisotoping"]["setAsMonoisotopic"])
+        )
+        self.deisotopingConvertToEnvelopes_check.SetValue(
+            bool(presets["deisotoping"].get("convertToEnvelopes", 0))
         )
 
         choices = ["1st", "monoisotope", "centroid", "isotopes"]
@@ -1930,6 +1950,9 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             )
             config.processing["deisotoping"]["setAsMonoisotopic"] = bool(
                 self.deisotopingSetAsMonoisotopic_check.GetValue()
+            )
+            config.processing["deisotoping"]["convertToEnvelopes"] = bool(
+                self.deisotopingConvertToEnvelopes_check.GetValue()
             )
 
             labelEnvelope = (
@@ -2552,6 +2575,14 @@ class panelProcessing(wx.Frame, MakeModalMixin):
                     isotopeShift=config.processing["deisotoping"]["isotopeShift"],
                 )
 
+                if config.processing["deisotoping"].get("convertToEnvelopes"):
+                    self.currentDocument.spectrum.labelenvelopes(
+                        label=config.processing["deisotoping"]["labelEnvelope"],
+                        intensity=config.processing["deisotoping"]["envelopeIntensity"],
+                        mzTolerance=config.processing["deisotoping"]["massTolerance"],
+                        isotopeShift=config.processing["deisotoping"]["isotopeShift"],
+                    )
+
                 # remove isotopes
                 if config.processing["deisotoping"]["removeIsotopes"]:
                     self.currentDocument.spectrum.remisotopes()
@@ -2595,6 +2626,14 @@ class panelProcessing(wx.Frame, MakeModalMixin):
                 intTolerance=config.processing["deisotoping"]["intTolerance"],
                 isotopeShift=config.processing["deisotoping"]["isotopeShift"],
             )
+
+            if config.processing["deisotoping"].get("convertToEnvelopes"):
+                self.currentDocument.spectrum.labelenvelopes(
+                    label=config.processing["deisotoping"]["labelEnvelope"],
+                    intensity=config.processing["deisotoping"]["envelopeIntensity"],
+                    mzTolerance=config.processing["deisotoping"]["massTolerance"],
+                    isotopeShift=config.processing["deisotoping"]["isotopeShift"],
+                )
 
             # remove isotopes
             if config.processing["deisotoping"]["removeIsotopes"]:

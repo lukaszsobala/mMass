@@ -246,57 +246,50 @@ class panelPeaklist(wx.Panel):
 
             if column == "mz":
                 self.peakList.InsertColumn(x, "m/z", wx.LIST_FORMAT_RIGHT)
-                self.peakList.SetColumnWidth(x, 90)
                 x += 1
 
             elif column == "ai":
                 self.peakList.InsertColumn(x, "a.i.", wx.LIST_FORMAT_RIGHT)
-                self.peakList.SetColumnWidth(x, 90)
                 x += 1
 
             elif column == "int":
                 self.peakList.InsertColumn(x, "int.", wx.LIST_FORMAT_RIGHT)
-                self.peakList.SetColumnWidth(x, 90)
+                x += 1
+
+            elif column == "envarea":
+                self.peakList.InsertColumn(x, "env. area", wx.LIST_FORMAT_RIGHT)
                 x += 1
 
             elif column == "base":
                 self.peakList.InsertColumn(x, "base", wx.LIST_FORMAT_RIGHT)
-                self.peakList.SetColumnWidth(x, 60)
                 x += 1
 
             elif column == "rel":
                 self.peakList.InsertColumn(x, "r. int.", wx.LIST_FORMAT_RIGHT)
-                self.peakList.SetColumnWidth(x, 55)
                 x += 1
 
             elif column == "sn":
                 self.peakList.InsertColumn(x, "s/n", wx.LIST_FORMAT_RIGHT)
-                self.peakList.SetColumnWidth(x, 50)
                 x += 1
 
             elif column == "z":
                 self.peakList.InsertColumn(x, "z", wx.LIST_FORMAT_RIGHT)
-                self.peakList.SetColumnWidth(x, 30)
                 x += 1
 
             elif column == "mass":
                 self.peakList.InsertColumn(x, "mass", wx.LIST_FORMAT_RIGHT)
-                self.peakList.SetColumnWidth(x, 90)
                 x += 1
 
             elif column == "fwhm":
                 self.peakList.InsertColumn(x, "fwhm", wx.LIST_FORMAT_RIGHT)
-                self.peakList.SetColumnWidth(x, 60)
                 x += 1
 
             elif column == "resol":
                 self.peakList.InsertColumn(x, "resol.", wx.LIST_FORMAT_RIGHT)
-                self.peakList.SetColumnWidth(x, 60)
                 x += 1
 
             elif column == "group":
                 self.peakList.InsertColumn(x, "group", wx.LIST_FORMAT_LEFT)
-                self.peakList.SetColumnWidth(x, 60)
                 x += 1
 
             else:
@@ -463,10 +456,66 @@ class panelPeaklist(wx.Panel):
         # highlight point in the spectrum
         selected = self.peakList.getSelected()
         if len(selected) == 1:
-            self.parent.updateMassPoints([peak.mz])
+            envelope = self._getEnvelopeData(peak)
+            if envelope:
+                profile = mspy.envelopeprofile(envelope, points=40)
+                if len(profile):
+                    self.parent.updateTmpSpectrum(
+                        profile,
+                        fillUnder=True,
+                        fillUnderAlpha=115,
+                        showOutline=False,
+                    )
+                    self.parent.updateMassPoints([x[0] for x in envelope["isotopes"]])
+                else:
+                    self.parent.updateTmpSpectrum(None)
+                    self.parent.updateMassPoints([peak.mz])
+            else:
+                self.parent.updateTmpSpectrum(None)
+                self.parent.updateMassPoints([peak.mz])
+        else:
+            self.parent.updateTmpSpectrum(None)
 
         # show current peak in editing panel
         self.updatePeakEditor(peak)
+
+    # ----
+
+    def _getEnvelopeData(self, peak):
+        """Get envelope metadata for selected peak if available."""
+
+        envelope = peak.attributes.get("envelope")
+        if envelope and envelope.get("isotopes"):
+            return envelope
+
+        # try to infer from grouped isotope labels
+        if peak.group:
+            isotopes = [
+                p
+                for p in self.currentDocument.spectrum.peaklist
+                if p.group == peak.group and p.charge == peak.charge
+            ]
+            if len(isotopes) > 1:
+                isotopes.sort(key=lambda p: p.mz)
+                total = sum([max(0.0, p.intensity) for p in isotopes])
+                if total > 0.0:
+                    weights = [max(0.0, p.intensity) / total for p in isotopes]
+                else:
+                    weights = [1.0 / len(isotopes)] * len(isotopes)
+                fwhmValues = [p.fwhm for p in isotopes if p.fwhm]
+                fwhm = 0.1
+                if fwhmValues:
+                    fwhm = sum(fwhmValues) / float(len(fwhmValues))
+                sigma = fwhm / (2.0 * (2.0 * 0.69314718056) ** 0.5)
+                area = total * sigma * (2.0 * 3.14159265359) ** 0.5
+                return {
+                    "area": area,
+                    "fwhm": fwhm,
+                    "shape": "gaussian",
+                    "isotopes": [(p.mz, weights[i]) for i, p in enumerate(isotopes)],
+                }
+
+        return None
 
     # ----
 
@@ -482,7 +531,9 @@ class panelPeaklist(wx.Panel):
         evt.Skip()
 
         # check document and selected peak
-        if self.currentDocument is None or self.selectedPeak is None:
+        if self.currentDocument is None or (
+            self.selectedPeak is None and not self.peakList.getSelected()
+        ):
             return
 
         # popup menu
@@ -490,11 +541,17 @@ class panelPeaklist(wx.Panel):
         menu.Append(ID_peaklistAnnotate, "Annotate Peak...", "")
         menu.AppendSeparator()
         menu.Append(ID_peaklistSendToMassToFormula, "Send to Mass to Formula...", "")
+        menu.Append(ID_peaklistConvertToEnvelopes, "Convert to Envelopes", "")
 
         # bind events
         self.Bind(wx.EVT_MENU, self.onAnnotate, id=ID_peaklistAnnotate)
         self.Bind(
             wx.EVT_MENU, self.onSendToMassToFormula, id=ID_peaklistSendToMassToFormula
+        )
+        self.Bind(
+            wx.EVT_MENU,
+            self.convertSelectedPeaksToEnvelopes,
+            id=ID_peaklistConvertToEnvelopes,
         )
 
         # show menu
@@ -515,6 +572,7 @@ class panelPeaklist(wx.Panel):
         menu.Append(ID_viewPeaklistColumnSn, "s/n", "", wx.ITEM_CHECK)
         menu.Append(ID_viewPeaklistColumnZ, "Charge", "", wx.ITEM_CHECK)
         menu.Append(ID_viewPeaklistColumnMass, "Mass", "", wx.ITEM_CHECK)
+        menu.Append(ID_viewPeaklistColumnEnvArea, "Env. Area", "", wx.ITEM_CHECK)
         menu.Append(ID_viewPeaklistColumnFwhm, "FWHM", "", wx.ITEM_CHECK)
         menu.Append(ID_viewPeaklistColumnResol, "Resolution", "", wx.ITEM_CHECK)
         menu.Append(ID_viewPeaklistColumnGroup, "Group", "", wx.ITEM_CHECK)
@@ -540,6 +598,10 @@ class panelPeaklist(wx.Panel):
         menu.Check(ID_viewPeaklistColumnZ, bool("z" in config.main["peaklistColumns"]))
         menu.Check(
             ID_viewPeaklistColumnMass, bool("mass" in config.main["peaklistColumns"])
+        )
+        menu.Check(
+            ID_viewPeaklistColumnEnvArea,
+            bool("envarea" in config.main["peaklistColumns"]),
         )
         menu.Check(
             ID_viewPeaklistColumnFwhm, bool("fwhm" in config.main["peaklistColumns"])
@@ -574,6 +636,11 @@ class panelPeaklist(wx.Panel):
         )
         self.Bind(
             wx.EVT_MENU, self.parent.onViewPeaklistColumns, id=ID_viewPeaklistColumnMass
+        )
+        self.Bind(
+            wx.EVT_MENU,
+            self.parent.onViewPeaklistColumns,
+            id=ID_viewPeaklistColumnEnvArea,
         )
         self.Bind(
             wx.EVT_MENU, self.parent.onViewPeaklistColumns, id=ID_viewPeaklistColumnFwhm
@@ -903,6 +970,7 @@ class panelPeaklist(wx.Panel):
             self.peaksCount.SetLabel("")
             self.peakListMap = None
             self.peakList.setDataMap(None)
+            self.parent.updateTmpSpectrum(None)
             self._ignore_selection_events = False
             return
 
@@ -924,6 +992,9 @@ class panelPeaklist(wx.Panel):
                     row.append(peak.ai)
                 elif column == "int":
                     row.append(peak.intensity)
+                elif column == "envarea":
+                    envelope = peak.attributes.get("envelope", {})
+                    row.append(envelope.get("area"))
                 elif column == "base":
                     row.append(peak.base)
                 elif column == "rel":
@@ -954,6 +1025,7 @@ class panelPeaklist(wx.Panel):
 
         # sort data
         self.peakList.sort()
+        self._autosizePeakListColumns()
 
         # restore scroll position
         if len(self.currentDocument.spectrum.peaklist) > 0:
@@ -964,6 +1036,37 @@ class panelPeaklist(wx.Panel):
                 self.peakList.EnsureVisible(0)
 
         wx.CallAfter(lambda: setattr(self, '_ignore_selection_events', False))
+
+    # ----
+
+    def _autosizePeakListColumns(self):
+        """Autosize columns from content/header while preserving readable limits."""
+
+        minWidths = {
+            "mz": 80,
+            "ai": 70,
+            "int": 70,
+            "envarea": 85,
+            "base": 60,
+            "rel": 60,
+            "sn": 45,
+            "z": 35,
+            "mass": 80,
+            "fwhm": 65,
+            "resol": 65,
+            "group": 55,
+        }
+
+        maxWidth = 220
+        for colIndex, column in enumerate(config.main["peaklistColumns"]):
+            self.peakList.SetColumnWidth(colIndex, wx.LIST_AUTOSIZE)
+            dataWidth = self.peakList.GetColumnWidth(colIndex)
+            self.peakList.SetColumnWidth(colIndex, wx.LIST_AUTOSIZE_USEHEADER)
+            headerWidth = self.peakList.GetColumnWidth(colIndex)
+
+            width = max(dataWidth, headerWidth) + 10
+            width = max(minWidths.get(column, 55), min(maxWidth, width))
+            self.peakList.SetColumnWidth(colIndex, width)
 
     # ----
 
@@ -990,6 +1093,10 @@ class panelPeaklist(wx.Panel):
 
             elif column == "int":
                 data = intFormat % (item[x])
+
+            elif column == "envarea":
+                if item[x] is not None:
+                    data = intFormat % (item[x])
 
             elif column == "base":
                 data = intFormat % (item[x])
@@ -1153,6 +1260,98 @@ class panelPeaklist(wx.Panel):
 
     # ----
 
+    def convertSelectedPeaksToEnvelopes(self, evt=None):
+        """Recalculate selected peak neighborhood into envelope labels."""
+
+        if self.currentDocument is None:
+            wx.Bell()
+            return
+
+        peaks = self.getSelectedPeaks()
+        if not peaks and self.selectedPeak is not None:
+            peaks = [self.currentDocument.spectrum.peaklist[self.selectedPeak]]
+        if not peaks:
+            wx.Bell()
+            return
+
+        seedCharge = self._getConvertEnvelopeCharge(peaks)
+
+        spectrum = self.currentDocument.spectrum
+        peaklist = spectrum.peaklist
+
+        tolerance = config.processing["deisotoping"]["massTolerance"]
+        isotopeShift = config.processing["deisotoping"]["isotopeShift"]
+        maxCharge = max(1, abs(int(config.processing["deisotoping"]["maxCharge"])))
+        difference = (mspy.ISOTOPE_DISTANCE + isotopeShift) / float(maxCharge)
+
+        mzs = [peak.mz for peak in peaks]
+        margin = max(6.0 * difference, 8.0 * tolerance)
+        minMz = min(mzs) - margin
+        maxMz = max(mzs) + margin
+
+        localPeaks = []
+        outsidePeaks = []
+        for peak in peaklist:
+            if minMz <= peak.mz <= maxMz:
+                localPeaks.append(peak)
+            else:
+                outsidePeaks.append(peak)
+
+        if not localPeaks:
+            wx.Bell()
+            return
+
+        self.currentDocument.backup(("spectrum"))
+
+        localPeaklist = mspy.peaklist(localPeaks)
+        localPeaklist.deisotope(
+            maxCharge=config.processing["deisotoping"]["maxCharge"],
+            mzTolerance=tolerance,
+            intTolerance=config.processing["deisotoping"]["intTolerance"],
+            isotopeShift=isotopeShift,
+            respectCharge=True,
+            seedCharge=seedCharge,
+        )
+
+        defaultFwhm = 0.1
+        if localPeaklist.basepeak and localPeaklist.basepeak.fwhm:
+            defaultFwhm = localPeaklist.basepeak.fwhm
+
+        localPeaklist.labelenvelopes(
+            label=config.processing["deisotoping"]["labelEnvelope"],
+            intensity=config.processing["deisotoping"]["envelopeIntensity"],
+            mzTolerance=tolerance,
+            isotopeShift=isotopeShift,
+            signal=spectrum.profile if spectrum.hasprofile() else None,
+            defaultFwhm=defaultFwhm,
+            relaxed=True,
+        )
+
+        spectrum.peaklist = mspy.peaklist(outsidePeaks + list(localPeaklist))
+        self.parent.onDocumentChanged(items=("spectrum"))
+
+    # ----
+
+    def _getConvertEnvelopeCharge(self, peaks):
+        """Get user-specified charge for envelope conversion, defaulting to 1."""
+
+        charge = self.peakCharge_value.GetValue().strip()
+        if charge:
+            try:
+                value = int(charge)
+                if value:
+                    return value
+            except Exception:
+                pass
+
+        for peak in peaks:
+            if peak.charge:
+                return int(peak.charge)
+
+        return 1
+
+    # ----
+
     def copyToClipboard(self):
         """Copy current selection to clipboard."""
 
@@ -1195,6 +1394,12 @@ class panelPeaklist(wx.Panel):
                     line += str(peak.fwhm) + "\t"
                 if "resol" in config.export["peaklistColumns"]:
                     line += str(peak.resolution) + "\t"
+                if "envarea" in config.export["peaklistColumns"]:
+                    value = ""
+                    envelope = peak.attributes.get("envelope")
+                    if isinstance(envelope, dict) and "area" in envelope:
+                        value = str(envelope["area"])
+                    line += value + "\t"
                 if "group" in config.export["peaklistColumns"]:
                     line += str(peak.group) + "\t"
                 buff += "%s\n" % (line.rstrip())
@@ -1403,6 +1608,11 @@ class dlgCopy(wx.Dialog):
             config.export["peaklistColumns"].count("resol")
         )
 
+        self.peaklistColumnEnvArea_check = wx.CheckBox(self, -1, "Env. Area")
+        self.peaklistColumnEnvArea_check.SetValue(
+            config.export["peaklistColumns"].count("envarea")
+        )
+
         self.peaklistColumnGroup_check = wx.CheckBox(self, -1, "Group")
         self.peaklistColumnGroup_check.SetValue(
             config.export["peaklistColumns"].count("group")
@@ -1424,7 +1634,8 @@ class dlgCopy(wx.Dialog):
         grid.Add(self.peaklistColumnMass_check, (1, 2))
         grid.Add(self.peaklistColumnFwhm_check, (2, 2))
         grid.Add(self.peaklistColumnResol_check, (3, 2))
-        grid.Add(self.peaklistColumnGroup_check, (4, 2))
+        grid.Add(self.peaklistColumnEnvArea_check, (4, 2))
+        grid.Add(self.peaklistColumnGroup_check, (5, 2))
 
         staticSizer.Add(grid, 0, wx.ALL, 5)
 
@@ -1470,6 +1681,8 @@ class dlgCopy(wx.Dialog):
             config.export["peaklistColumns"].append("fwhm")
         if self.peaklistColumnResol_check.IsChecked():
             config.export["peaklistColumns"].append("resol")
+        if self.peaklistColumnEnvArea_check.IsChecked():
+            config.export["peaklistColumns"].append("envarea")
         if self.peaklistColumnGroup_check.IsChecked():
             config.export["peaklistColumns"].append("group")
 

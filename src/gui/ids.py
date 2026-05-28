@@ -130,6 +130,8 @@ ID_viewPeaklistColumnMass = wx.NewId()
 ID_viewPeaklistColumnFwhm = wx.NewId()
 ID_viewPeaklistColumnResol = wx.NewId()
 ID_viewPeaklistColumnGroup = wx.NewId()
+ID_viewPeaklistColumnEnvArea = wx.NewId()
+ID_peaklistConvertToEnvelopes = wx.NewId()
 
 HK_viewPosBars = "\tAlt+Ctrl+P"
 HK_viewGel = "\tAlt+Ctrl+G"

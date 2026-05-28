@@ -101,6 +101,7 @@ presets = {
                 "setAsMonoisotopic": 1,
                 "labelEnvelope": "1st",
                 "envelopeIntensity": "maximum",
+                "convertToEnvelopes": 1,
             },
             "deconvolution": {
                 "massType": 0,
@@ -153,6 +154,7 @@ presets = {
                 "setAsMonoisotopic": 1,
                 "labelEnvelope": "1st",
                 "envelopeIntensity": "maximum",
+                "convertToEnvelopes": 1,
             },
             "deconvolution": {
                 "massType": 0,
@@ -205,6 +207,7 @@ presets = {
                 "setAsMonoisotopic": 0,
                 "labelEnvelope": "1st",
                 "envelopeIntensity": "maximum",
+                "convertToEnvelopes": 1,
             },
             "deconvolution": {
                 "massType": 1,
@@ -257,6 +260,7 @@ presets = {
                 "setAsMonoisotopic": 1,
                 "labelEnvelope": "1st",
                 "envelopeIntensity": "maximum",
+                "convertToEnvelopes": 1,
             },
             "deconvolution": {
                 "massType": 0,
@@ -309,6 +313,7 @@ presets = {
                 "setAsMonoisotopic": 1,
                 "labelEnvelope": "1st",
                 "envelopeIntensity": "maximum",
+                "convertToEnvelopes": 1,
             },
             "deconvolution": {
                 "massType": 0,
@@ -361,6 +366,7 @@ presets = {
                 "setAsMonoisotopic": 1,
                 "labelEnvelope": "1st",
                 "envelopeIntensity": "maximum",
+                "convertToEnvelopes": 1,
             },
             "deconvolution": {
                 "massType": 0,
@@ -954,6 +960,9 @@ def savePresets(path=os.path.join(config.confdir, "presets.xml")):
         )
         buff += '        <param name="setAsMonoisotopic" value="%d" type="int" />\n' % (
             bool(item["deisotoping"]["setAsMonoisotopic"])
+        )
+        buff += '        <param name="convertToEnvelopes" value="%d" type="int" />\n' % (
+            bool(item["deisotoping"].get("convertToEnvelopes", 0))
         )
         buff += "      </deisotoping>\n"
         buff += "      <deconvolution>\n"

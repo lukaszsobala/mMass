@@ -720,6 +720,26 @@ class scan:
 
     # ----
 
+    def labelenvelopes(
+        self, label="1st", intensity="maximum", mzTolerance=0.15, isotopeShift=0.0
+    ):
+        """Convert deisotoped peak clusters to envelope labels."""
+
+        defaultFwhm = 0.1
+        if self.peaklist.basepeak and self.peaklist.basepeak.fwhm:
+            defaultFwhm = self.peaklist.basepeak.fwhm
+
+        self.peaklist.labelenvelopes(
+            label=label,
+            intensity=intensity,
+            mzTolerance=mzTolerance,
+            isotopeShift=isotopeShift,
+            signal=self.profile,
+            defaultFwhm=defaultFwhm,
+        )
+
+    # ----
+
     def deconvolute(self, massType=0):
         """Recalculate peaklist to singly charged.
         massType (0 or 1) - mass type used for m/z re-calculation, 0 = monoisotopic, 1 = average
