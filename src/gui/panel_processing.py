@@ -894,6 +894,19 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         if config.processing["deisotoping"]["labelEnvelope"] == "isotopes":
             self.deisotopingEnvelopeIntensity_choice.Disable()
 
+        deisotopingEnvelopeNonIdeality_label = wx.StaticText(
+            panel, -1, "Envelope non-ideality:"
+        )
+        self.deisotopingEnvelopeNonIdeality_value = wx.TextCtrl(
+            panel,
+            -1,
+            str(config.processing["deisotoping"].get("envelopeNonIdeality", 0.15) * 100),
+            size=wx.Size(70, -1),
+            validator=mwx.validator("floatPos"),
+        )
+        deisotopingEnvelopeNonIdealityUnits_label = wx.StaticText(panel, -1, "%")
+        self.deisotopingEnvelopeNonIdeality_value.Bind(wx.EVT_TEXT, self.getParams)
+
         deisotopingSetAsMonoisotopic_label = wx.StaticText(
             panel, -1, "Set labels as monoisotopes:"
         )
@@ -972,17 +985,28 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         )
         grid.Add(self.deisotopingEnvelopeIntensity_choice, (8, 1), (1, 2))
         grid.Add(
-            deisotopingSetAsMonoisotopic_label,
+            deisotopingEnvelopeNonIdeality_label,
             (9, 0),
             flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL,
         )
-        grid.Add(self.deisotopingSetAsMonoisotopic_check, (9, 1))
+        grid.Add(self.deisotopingEnvelopeNonIdeality_value, (9, 1))
         grid.Add(
-            deisotopingConvertToEnvelopes_label,
+            deisotopingEnvelopeNonIdealityUnits_label,
+            (9, 2),
+            flag=wx.ALIGN_CENTER_VERTICAL,
+        )
+        grid.Add(
+            deisotopingSetAsMonoisotopic_label,
             (10, 0),
             flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL,
         )
-        grid.Add(self.deisotopingConvertToEnvelopes_check, (10, 1))
+        grid.Add(self.deisotopingSetAsMonoisotopic_check, (10, 1))
+        grid.Add(
+            deisotopingConvertToEnvelopes_label,
+            (11, 0),
+            flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL,
+        )
+        grid.Add(self.deisotopingConvertToEnvelopes_check, (11, 1))
 
         mainSizer = wx.BoxSizer(wx.VERTICAL)
         mainSizer.Add(grid, 0, wx.ALIGN_CENTER | wx.ALL, mwx.PANEL_SPACE_MAIN)
@@ -1435,6 +1459,9 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         )
         self.deisotopingConvertToEnvelopes_check.SetValue(
             bool(presets["deisotoping"].get("convertToEnvelopes", 0))
+        )
+        self.deisotopingEnvelopeNonIdeality_value.SetValue(
+            str(presets["deisotoping"].get("envelopeNonIdeality", 0.15) * 100)
         )
 
         choices = ["1st", "monoisotope", "centroid", "isotopes"]
@@ -1976,6 +2003,13 @@ class panelProcessing(wx.Frame, MakeModalMixin):
                 config.processing["deisotoping"]["envelopeIntensity"] = "sum"
             elif envelopeIntensity == "Averaged Isotopes":
                 config.processing["deisotoping"]["envelopeIntensity"] = "average"
+
+            nonIdeality = (
+                float(self.deisotopingEnvelopeNonIdeality_value.GetValue()) / 100.0
+            )
+            config.processing["deisotoping"]["envelopeNonIdeality"] = min(
+                max(nonIdeality, 0.0), 0.5
+            )
 
             if config.processing["deisotoping"]["labelEnvelope"] == "isotopes":
                 self.deisotopingEnvelopeIntensity_choice.Disable()
@@ -2581,6 +2615,9 @@ class panelProcessing(wx.Frame, MakeModalMixin):
                         intensity=config.processing["deisotoping"]["envelopeIntensity"],
                         mzTolerance=config.processing["deisotoping"]["massTolerance"],
                         isotopeShift=config.processing["deisotoping"]["isotopeShift"],
+                        nonIdeality=config.processing["deisotoping"].get(
+                            "envelopeNonIdeality", 0.15
+                        ),
                     )
 
                 # remove isotopes
@@ -2633,6 +2670,9 @@ class panelProcessing(wx.Frame, MakeModalMixin):
                     intensity=config.processing["deisotoping"]["envelopeIntensity"],
                     mzTolerance=config.processing["deisotoping"]["massTolerance"],
                     isotopeShift=config.processing["deisotoping"]["isotopeShift"],
+                    nonIdeality=config.processing["deisotoping"].get(
+                        "envelopeNonIdeality", 0.15
+                    ),
                 )
 
             # remove isotopes

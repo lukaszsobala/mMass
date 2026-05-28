@@ -392,6 +392,7 @@ class peaklist:
         isotopeShift=0.0,
         signal=None,
         defaultFwhm=0.1,
+        nonIdeality=0.15,
         relaxed=False,
     ):
         """Convert deisotoped peak clusters to envelope labels."""
@@ -408,6 +409,7 @@ class peaklist:
             isotopeShift=isotopeShift,
             signal=signal,
             defaultFwhm=defaultFwhm,
+            nonIdeality=nonIdeality,
             relaxed=relaxed,
         )
 

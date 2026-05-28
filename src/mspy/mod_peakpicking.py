@@ -19,7 +19,6 @@
 import copy
 import math
 import numpy
-import time
 
 # load stopper
 from .mod_stopper import CHECK_FORCE_QUIT
@@ -676,7 +675,8 @@ def _cluster_weights(cluster):
         max_iso = 30
         for i, p in enumerate(cluster):
             iso_idx = getattr(p, 'isotope', i)
-            if iso_idx is None: iso_idx = i
+            if iso_idx is None:
+                iso_idx = i
             max_iso = max(max_iso, int(iso_idx) + 1)
             
         pattern = []
@@ -693,7 +693,8 @@ def _cluster_weights(cluster):
             weights = []
             for i, peak in enumerate(cluster):
                 iso_idx = getattr(peak, 'isotope', i)
-                if iso_idx is None: iso_idx = i
+                if iso_idx is None:
+                    iso_idx = i
                 iso_idx = int(iso_idx)
                 weights.append(pattern[iso_idx] / total if iso_idx < len(pattern) else 0.0)
             return weights
@@ -716,6 +717,101 @@ def _cluster_fwhm(cluster, defaultFwhm):
     if not fwhms:
         return defaultFwhm
     return sum(fwhms) / float(len(fwhms))
+
+
+# ----
+
+
+def _cluster_isotope_model(cluster, signal=None, defaultFwhm=0.1, nonIdeality=0.20):
+    """Get isotope weights for a cluster, optionally softened by profile evidence."""
+
+    fwhm = float(_cluster_fwhm(cluster, defaultFwhm))
+    weights = _cluster_weights(cluster)
+    isotopes = [(float(p.mz), float(w)) for p, w in zip(cluster, weights)]
+
+    if signal is None or len(signal) == 0 or fwhm <= 0.0:
+        return isotopes
+
+    x = signal[:, 0].astype(float)
+    y = signal[:, 1].astype(float)
+    if len(x) == 0:
+        return isotopes
+
+    mzs = [mz for mz, _ in isotopes]
+    lo = min(mzs) - 6.0 * fwhm
+    hi = max(mzs) + 6.0 * fwhm
+    mask = (x >= lo) & (x <= hi)
+    if not numpy.any(mask):
+        return isotopes
+
+    x = x[mask]
+    y = y[mask].copy()
+    y[y < 0.0] = 0.0
+
+    return _soft_isotope_model(
+        isotopes,
+        x,
+        y,
+        fwhm,
+        nonIdeality=nonIdeality,
+    )
+
+
+# ----
+
+
+def _soft_isotope_model(isotopes, x, y, fwhm, nonIdeality=0.20):
+    """Blend averagine isotopes with observed evidence while preserving continuity.
+
+    Theoretical averagine remains the hard backbone (no internal gaps), but later
+    isotopes are allowed a small data-driven influence for area fitting.
+    """
+
+    if not isotopes:
+        return []
+
+    ordered = sorted([(float(mz), max(0.0, float(weight))) for mz, weight in isotopes])
+    theory = numpy.array([w for _, w in ordered], dtype=float)
+    total = float(numpy.sum(theory))
+    if total <= 0.0:
+        return ordered
+    theory /= total
+
+    obs = numpy.zeros(len(ordered), dtype=float)
+    if len(x) and len(y) and fwhm > 0.0:
+        half_window = max(0.35 * float(fwhm), 1e-4)
+        for i, (mz, _) in enumerate(ordered):
+            i1 = numpy.searchsorted(x, mz - half_window, side='left')
+            i2 = numpy.searchsorted(x, mz + half_window, side='right')
+            if i1 < i2:
+                obs[i] = max(0.0, float(numpy.max(y[i1:i2])))
+
+    obs_total = float(numpy.sum(obs))
+    if obs_total > 0.0:
+        obs /= obs_total
+    else:
+        obs = theory.copy()
+
+    max_tail_influence = max(0.0, min(float(nonIdeality), 0.50))
+
+    n = len(ordered)
+    if n == 1:
+        blended = theory
+    else:
+        tail_axis = numpy.linspace(0.0, 1.0, n)
+        alpha = max_tail_influence * tail_axis
+        blended = ((1.0 - alpha) * theory) + (alpha * obs)
+
+    # Keep continuous support by enforcing a minimum theoretical share.
+    floor_fraction = max(0.35, 0.8 - max_tail_influence)
+    blended = numpy.maximum(blended, floor_fraction * theory)
+
+    blended_total = float(numpy.sum(blended))
+    if blended_total <= 0.0:
+        return ordered
+    blended /= blended_total
+
+    return [(ordered[i][0], float(blended[i])) for i in range(len(ordered))]
 
 
 # ----
@@ -1018,7 +1114,7 @@ def _merge_adjacent_clusters(clusters, mzTolerance, isotopeShift, relaxed=False)
 # ----
 
 
-def _fit_envelope_areas(clusters, signal, defaultFwhm):
+def _fit_envelope_areas(clusters, signal, defaultFwhm, nonIdeality=0.20):
     """Fit envelope areas jointly against spectrum profile, intelligently seeded by monoisotopic peaks."""
 
     # fallback when profile is not available
@@ -1056,14 +1152,8 @@ def _fit_envelope_areas(clusters, signal, defaultFwhm):
     all_fwhms = []
     all_mzs = []
     for c in clusters:
-        env = getattr(c[0], 'attributes', {}).get("envelope")
-        if env and "isotopes" in env:
-            all_mzs.extend([float(iso_mz) for iso_mz, w in env["isotopes"]])
-            all_fwhms.append(float(env.get("fwhm", defaultFwhm)))
-        else:
-            all_mzs.append(c[0].mz)
-            all_mzs.append(c[-1].mz)
-            all_fwhms.append(_cluster_fwhm(c, defaultFwhm))
+        all_mzs.extend([p.mz for p in c])
+        all_fwhms.append(_cluster_fwhm(c, defaultFwhm))
 
     minMz = min(all_mzs)
     maxMz = max(all_mzs)
@@ -1085,24 +1175,24 @@ def _fit_envelope_areas(clusters, signal, defaultFwhm):
     models = []
     initial_guesses = []
     for cluster in clusters:
-        parent = cluster[0]
-        env = getattr(parent, 'attributes', {}).get("envelope")
-        
-        if env and "isotopes" in env:
-            fwhm = float(env.get("fwhm", defaultFwhm))
-            sigma = _fwhm_to_sigma(fwhm)
-            isotopes = env["isotopes"]
-        else:
-            fwhm = _cluster_fwhm(cluster, defaultFwhm)
-            sigma = _fwhm_to_sigma(fwhm)
-            weights = _cluster_weights(cluster)
-            isotopes = [(p.mz, w) for p, w in zip(cluster, weights)]
+        fwhm = _cluster_fwhm(cluster, defaultFwhm)
+        sigma = _fwhm_to_sigma(fwhm)
+        weights = _cluster_weights(cluster)
+        isotopes = [(p.mz, w) for p, w in zip(cluster, weights)]
             
         if sigma <= 0.0 or not isotopes:
             models.append(numpy.zeros(len(x), dtype=float))
             initial_guesses.append(0.0)
             continue
             
+        isotopes = _soft_isotope_model(
+            isotopes,
+            x,
+            y,
+            fwhm,
+            nonIdeality=nonIdeality,
+        )
+
         norm = sigma * math.sqrt(2.0 * math.pi)
         model = numpy.zeros(len(x), dtype=float)
         for mz, weight in isotopes:
@@ -1149,6 +1239,7 @@ def relabelenvelopes(
     isotopeShift=0.0,
     signal=None,
     defaultFwhm=0.1,
+    nonIdeality=0.15,
     relaxed=False,
 ):
     """Convert deisotoped peak clusters to envelope labels."""
@@ -1275,7 +1366,12 @@ def relabelenvelopes(
     if not clusters:
         return copy.deepcopy(peaklist)
 
-    areas = _fit_envelope_areas(clusters, signal, defaultFwhm)
+    areas = _fit_envelope_areas(
+        clusters,
+        signal,
+        defaultFwhm,
+        nonIdeality=nonIdeality,
+    )
     
     # Re-calculate NNLS areas as fallbacks if needed, but mainly prune zero ones
     max_area = max([a for a in areas]) if areas else 0.0
@@ -1291,15 +1387,13 @@ def relabelenvelopes(
 
     for c, cluster in enumerate(clusters):
         parent = cluster[0]
-        weights = _cluster_weights(cluster)
-        
-        old_env = getattr(parent, 'attributes', {}).get("envelope")
-        if old_env and "isotopes" in old_env:
-            isotopes_data = old_env["isotopes"]
-            fwhm_val = float(old_env.get("fwhm", _cluster_fwhm(cluster, defaultFwhm)))
-        else:
-            isotopes_data = [(float(cluster[i].mz), float(weights[i])) for i in range(len(cluster))]
-            fwhm_val = float(_cluster_fwhm(cluster, defaultFwhm))
+        isotopes_data = _cluster_isotope_model(
+            cluster,
+            signal=signal,
+            defaultFwhm=defaultFwhm,
+            nonIdeality=nonIdeality,
+        )
+        fwhm_val = float(_cluster_fwhm(cluster, defaultFwhm))
         
         envelope = {
             "area": areas[c],

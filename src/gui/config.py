@@ -405,6 +405,7 @@ processing = {
         "removeUnknown": 1,
         "labelEnvelope": "1st",
         "envelopeIntensity": "maximum",
+        "envelopeNonIdeality": 0.20,
         "setAsMonoisotopic": 0,
         "convertToEnvelopes": 1,
     },
@@ -1411,6 +1412,9 @@ def saveConfig(path=os.path.join(confdir, "config.xml")):
     )
     buff += '      <param name="envelopeIntensity" value="%s" type="str" />\n' % (
         processing["deisotoping"]["envelopeIntensity"]
+    )
+    buff += '      <param name="envelopeNonIdeality" value="%f" type="float" />\n' % (
+        processing["deisotoping"].get("envelopeNonIdeality", 0.15)
     )
     buff += '      <param name="setAsMonoisotopic" value="%d" type="int" />\n' % (
         bool(processing["deisotoping"]["setAsMonoisotopic"])

@@ -721,9 +721,24 @@ class scan:
     # ----
 
     def labelenvelopes(
-        self, label="1st", intensity="maximum", mzTolerance=0.15, isotopeShift=0.0
+        self,
+        label="1st",
+        intensity="maximum",
+        mzTolerance=0.15,
+        isotopeShift=0.0,
+        nonIdeality=0.15,
     ):
         """Convert deisotoped peak clusters to envelope labels."""
+
+        # Imported peak lists may miss per-peak FWHM; recover it from profile
+        # so envelope conversion does not collapse to one fallback width.
+        if self.hasprofile():
+            for peak in self.peaklist:
+                if peak.fwhm and peak.fwhm > 0.0:
+                    continue
+                labeled = mod_peakpicking.labelpoint(signal=self.profile, mz=peak.mz)
+                if labeled and labeled.fwhm and labeled.fwhm > 0.0:
+                    peak.setfwhm(labeled.fwhm)
 
         defaultFwhm = 0.1
         if self.peaklist.basepeak and self.peaklist.basepeak.fwhm:
@@ -736,6 +751,7 @@ class scan:
             isotopeShift=isotopeShift,
             signal=self.profile,
             defaultFwhm=defaultFwhm,
+            nonIdeality=nonIdeality,
         )
 
     # ----

@@ -854,7 +854,12 @@ class panelPeaklist(wx.Panel):
             
         signal = spectrum.profile if spectrum.hasprofile() else None
         
-        areas = mspy.mod_peakpicking._fit_envelope_areas(clusters, signal, defaultFwhm)
+        areas = mspy.mod_peakpicking._fit_envelope_areas(
+            clusters,
+            signal,
+            defaultFwhm,
+            nonIdeality=config.processing["deisotoping"].get("envelopeNonIdeality", 0.15),
+        )
         
         for c, cluster in enumerate(clusters):
             for peak in cluster:
@@ -1368,6 +1373,8 @@ class panelPeaklist(wx.Panel):
         self.currentDocument.backup(("spectrum"))
 
         localPeaklist = mspy.peaklist(localPeaks)
+        self._refreshMissingFwhmFromProfile(localPeaklist, spectrum.profile)
+
         localPeaklist.deisotope(
             maxCharge=config.processing["deisotoping"]["maxCharge"],
             mzTolerance=tolerance,
@@ -1388,11 +1395,28 @@ class panelPeaklist(wx.Panel):
             isotopeShift=isotopeShift,
             signal=spectrum.profile if spectrum.hasprofile() else None,
             defaultFwhm=defaultFwhm,
+            nonIdeality=config.processing["deisotoping"].get("envelopeNonIdeality", 0.15),
             relaxed=True,
         )
 
         spectrum.peaklist = mspy.peaklist(outsidePeaks + list(localPeaklist))
         self.parent.onDocumentChanged(items=("spectrum"))
+
+    # ----
+
+    def _refreshMissingFwhmFromProfile(self, peaklist, profile):
+        """Fill missing FWHM values from profile signal at each peak m/z."""
+
+        if profile is None or len(profile) == 0:
+            return
+
+        for peak in peaklist:
+            if peak.fwhm and peak.fwhm > 0.0:
+                continue
+
+            labeled = mspy.labelpoint(signal=profile, mz=peak.mz)
+            if labeled and labeled.fwhm and labeled.fwhm > 0.0:
+                peak.setfwhm(labeled.fwhm)
 
     # ----
 
