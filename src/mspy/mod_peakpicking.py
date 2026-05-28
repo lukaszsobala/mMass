@@ -426,7 +426,7 @@ def envcentroid(isotopes, pickingHeight=0.5, intensity="maximum"):
         displayAI = base + sumIntensity / len(isotopes)
     else:
         displayAI = isotopes.basepeak.ai
-    ai = isotopes.basepeak.ai
+    ai = displayAI
     if isotopes.basepeak.sn:
         sn = (displayAI - base) * isotopes.basepeak.sn / (isotopes.basepeak.ai - base)
 
@@ -520,7 +520,7 @@ def envmono(isotopes, charge, intensity="maximum"):
         displayAI = base + sumIntensity / len(isotopes)
     else:
         displayAI = isotopes.basepeak.ai
-    ai = isotopes.basepeak.ai
+    ai = displayAI
     if isotopes.basepeak.sn:
         sn = (displayAI - base) * isotopes.basepeak.sn / (isotopes.basepeak.ai - base)
 
@@ -574,11 +574,8 @@ def labelenvelope(isotopes, charge=None, label="1st", intensity="maximum"):
     for peak in isotopes:
         sumIntensity += peak.intensity
         sumBase += peak.base
-        if peak.intensity > basepeak.intensity:
-            basepeak = peak
 
     base = basepeak.base
-    ai = basepeak.ai
     sn = basepeak.sn
     if intensity == "sum":
         displayAI = base + sumIntensity
@@ -592,7 +589,7 @@ def labelenvelope(isotopes, charge=None, label="1st", intensity="maximum"):
 
     peak = obj_peak.peak(
         mz=isotopes[0].mz,
-        ai=ai,
+        ai=displayAI,
         base=base,
         sn=sn,
         charge=charge,
@@ -714,10 +711,11 @@ def _cluster_weights(cluster):
 def _cluster_fwhm(cluster, defaultFwhm):
     """Get representative FWHM for isotope cluster."""
 
-    fwhm = [p.fwhm for p in cluster if p.fwhm and p.fwhm > 0.0]
-    if not fwhm:
+    fwhms = [p.fwhm for p in cluster if p.fwhm and p.fwhm > 0.0]
+    
+    if not fwhms:
         return defaultFwhm
-    return sum(fwhm) / float(len(fwhm))
+    return sum(fwhms) / float(len(fwhms))
 
 
 # ----

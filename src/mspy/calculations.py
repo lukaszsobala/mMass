@@ -167,18 +167,31 @@ def signal_centroid(array, x, height):
 @njit
 def signal_width(array, x, height):
     idx = np.searchsorted(array[:, 0], x)
-    if idx == 0 or idx == len(array):
+    if idx == 0 or idx >= len(array):
         return 0.0
+
+    # Make sure we use the closest actual peak apex
+    if idx > 0 and abs(array[idx - 1, 0] - x) < abs(array[idx, 0] - x):
+        idx = idx - 1
+        
+    apex_height = array[idx, 1]
 
     ileft = idx - 1
     while ileft > 0 and array[ileft, 1] > height:
+        # If we climb up another peak that is higher than this peak's apex, stop.
+        # This prevents shoulder peaks from claiming the width of the giant main peak.
+        # Allow a tiny 1% noise tolerance.
+        if array[ileft, 1] > apex_height * 1.01:
+            break
         ileft -= 1
 
-    iright = idx
-    while iright < len(array) - 1 and array[iright, 1] > height:
+    iright = idx + 1
+    while iright < len(array) and array[iright, 1] > height:
+        if array[iright, 1] > apex_height * 1.01:
+            break
         iright += 1
 
-    if ileft == iright:
+    if ileft >= iright:
         return 0.0
     return array[iright, 0] - array[ileft, 0]
 

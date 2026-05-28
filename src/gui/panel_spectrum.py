@@ -1406,86 +1406,54 @@ class panelSpectrum(wx.Panel):
         if self.documents[self.currentDocument].spectrum.polarity == -1:
             polarity = -1
 
-        # recalculate all envelope labels from current peaklist
-        if True:
-            spectrum = self.documents[self.currentDocument].spectrum
-            peaklist = spectrum.peaklist
-            tolerance = config.processing["deisotoping"]["massTolerance"]
+        # Manually assemble exactly ONE envelope from the picked isotopes
+        spectrum = self.documents[self.currentDocument].spectrum
+        
+        defaultFwhm = 0.1
+        if spectrum.peaklist.basepeak and spectrum.peaklist.basepeak.fwhm:
+            defaultFwhm = spectrum.peaklist.basepeak.fwhm
 
-            isotopeShift = config.processing["deisotoping"]["isotopeShift"]
-            maxCharge = abs(int(config.processing["deisotoping"]["maxCharge"]))
-            maxCharge = max(1, maxCharge)
-            difference = (mspy.ISOTOPE_DISTANCE + isotopeShift) / float(maxCharge)
-            mzs = [peak.mz for peak in peaks]
-            margin = max(6.0 * difference, 8.0 * tolerance)
-            minMz = min(mzs) - margin
-            maxMz = max(mzs) + margin
+        cluster = sorted(peaks, key=lambda p: p.mz)
+        for x, peak in enumerate(cluster):
+            peak.charge = charge * polarity
+            peak.isotope = x
 
-            localPeaks = []
-            outsidePeaks = []
-            for peak in peaklist:
-                if minMz <= peak.mz <= maxMz:
-                    localPeaks.append(peak)
-                else:
-                    outsidePeaks.append(peak)
+        areas = mspy.mod_peakpicking._fit_envelope_areas([cluster], spectrum.profile, defaultFwhm)
+        area_val = max(0.0, float(areas[0])) if areas else 0.0
 
-            localPeaklist = mspy.peaklist(localPeaks)
-            for peak in peaks:
-                matched = False
-                for current in localPeaklist:
-                    if abs(current.mz - peak.mz) <= tolerance:
-                        matched = True
-                        break
-                    if current.mz > (peak.mz + tolerance):
-                        break
-                if not matched:
-                    localPeaklist.append(peak)
+        weights = mspy.mod_peakpicking._cluster_weights(cluster)
+        envelope_data = {
+            "area": area_val,
+            "fwhm": float(mspy.mod_peakpicking._cluster_fwhm(cluster, defaultFwhm)),
+            "shape": "gaussian",
+            "isotopes": [
+                (float(cluster[i].mz), float(weights[i])) for i in range(len(cluster))
+            ],
+        }
 
-            localPeaklist.deisotope(
-                maxCharge=config.processing["deisotoping"]["maxCharge"],
-                mzTolerance=tolerance,
-                intTolerance=config.processing["deisotoping"]["intTolerance"],
-                isotopeShift=isotopeShift,
-                respectCharge=True,
-                seedCharge=(charge * polarity if charge else polarity),
-            )
-
-            defaultFwhm = 0.1
-            if localPeaklist.basepeak and localPeaklist.basepeak.fwhm:
-                defaultFwhm = localPeaklist.basepeak.fwhm
-
-            localPeaklist.labelenvelopes(
-                label=config.processing["deisotoping"]["labelEnvelope"],
-                intensity=config.processing["deisotoping"]["envelopeIntensity"],
-                mzTolerance=tolerance,
-                isotopeShift=isotopeShift,
-                signal=spectrum.profile,
-                defaultFwhm=defaultFwhm,
-                relaxed=True,
-            )
-
-            spectrum.peaklist = mspy.peaklist(outsidePeaks + list(localPeaklist))
-
-            # update gui
-            self.parent.onDocumentChanged(items=("spectrum"))
-            return
-
-        peaks = mspy.labelenvelope(
-            peaks,
+        labeled_peaks = mspy.labelenvelope(
+            cluster,
             charge=charge * polarity,
             label=config.processing["deisotoping"]["labelEnvelope"],
             intensity=config.processing["deisotoping"]["envelopeIntensity"],
         )
-        if config.processing["deisotoping"]["labelEnvelope"] == "isotopes":
-            groupname = self.documents[
-                self.currentDocument
-            ].spectrum.peaklist.groupname()
-            for peak in peaks:
+
+        for peak in labeled_peaks:
+            import copy
+            if not hasattr(peak, "attributes"):
+                peak.attributes = {}
+            peak.attributes["envelope"] = copy.deepcopy(envelope_data)
+
+            if config.processing["deisotoping"]["labelEnvelope"] == "isotopes":
+                groupname = spectrum.peaklist.groupname()
                 peak.setgroup(groupname)
-                self.documents[self.currentDocument].spectrum.peaklist.append(peak)
-        else:
-            for peak in peaks:
-                self.documents[self.currentDocument].spectrum.peaklist.append(peak)
+
+            spectrum.peaklist.append(peak)
+
+        if hasattr(self.parent, "peaklistPanel") and hasattr(
+            self.parent.peaklistPanel, "_recalculateNeighborhoodEnvelopes"
+        ):
+            self.parent.peaklistPanel._recalculateNeighborhoodEnvelopes([cluster[0].mz])
 
         # update gui
         self.parent.onDocumentChanged(items=("spectrum"))
