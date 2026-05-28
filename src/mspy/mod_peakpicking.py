@@ -1021,7 +1021,7 @@ def _merge_adjacent_clusters(clusters, mzTolerance, isotopeShift, relaxed=False)
 
 
 def _fit_envelope_areas(clusters, signal, defaultFwhm):
-    """Fit envelope areas jointly against spectrum profile using non-negative LS."""
+    """Fit envelope areas jointly against spectrum profile, intelligently seeded by monoisotopic peaks."""
 
     # fallback when profile is not available
     if signal is None or len(signal) == 0:
@@ -1075,16 +1075,17 @@ def _fit_envelope_areas(clusters, signal, defaultFwhm):
     hi = maxMz + 6.0 * maxFwhm
     mask = (x >= lo) & (x <= hi)
     x = x[mask]
-    y = y[mask]
+    # copy y to avoid modifying original spectrum
+    y = y[mask].copy() 
     if len(x) == 0:
         return [0.0] * len(clusters)
 
-    # Instead of subtracting a local minimum (which shrinks peaks if the window is narrow),
-    # we'll add a flat baseline model to the NNLS matrix to absorb any constant offset.
+    # Floor at zero, but don't subtract min(y) as it causes jumpy area shrinking.
     y[y < 0.0] = 0.0
 
     # build envelope basis matrix (N points x K envelopes)
     models = []
+    initial_guesses = []
     for cluster in clusters:
         parent = cluster[0]
         env = getattr(parent, 'attributes', {}).get("envelope")
@@ -1092,47 +1093,51 @@ def _fit_envelope_areas(clusters, signal, defaultFwhm):
         if env and "isotopes" in env:
             fwhm = float(env.get("fwhm", defaultFwhm))
             sigma = _fwhm_to_sigma(fwhm)
-            if sigma <= 0.0:
-                models.append(numpy.zeros(len(x), dtype=float))
-                continue
-            
-            norm = sigma * math.sqrt(2.0 * math.pi)
-            model = numpy.zeros(len(x), dtype=float)
-            for mz, weight in env["isotopes"]:
-                model += (weight / norm) * numpy.exp(-0.5 * ((x - float(mz)) / sigma) ** 2)
-            models.append(model)
+            isotopes = env["isotopes"]
         else:
             fwhm = _cluster_fwhm(cluster, defaultFwhm)
             sigma = _fwhm_to_sigma(fwhm)
-            if sigma <= 0.0:
-                models.append(numpy.zeros(len(x), dtype=float))
-                continue
             weights = _cluster_weights(cluster)
-            norm = sigma * math.sqrt(2.0 * math.pi)
-            model = numpy.zeros(len(x), dtype=float)
-            for i, peak in enumerate(cluster):
-                model += (weights[i] / norm) * numpy.exp(
-                    -0.5 * ((x - peak.mz) / sigma) ** 2
-                )
-            models.append(model)
+            isotopes = [(p.mz, w) for p, w in zip(cluster, weights)]
+            
+        if sigma <= 0.0 or not isotopes:
+            models.append(numpy.zeros(len(x), dtype=float))
+            initial_guesses.append(0.0)
+            continue
+            
+        norm = sigma * math.sqrt(2.0 * math.pi)
+        model = numpy.zeros(len(x), dtype=float)
+        for mz, weight in isotopes:
+            model += (float(weight) / norm) * numpy.exp(-0.5 * ((x - float(mz)) / sigma) ** 2)
+        models.append(model)
         
-    # flat baseline component
-    models.append(numpy.ones(len(x), dtype=float))
+        # Smart greedy initialization based strictly on the monoisotopic peak
+        mz0, w0 = isotopes[0]
+        w0 = float(w0) if float(w0) > 0 else 1.0
+        
+        idx_lo = numpy.searchsorted(x, mz0 - fwhm, side='left')
+        idx_hi = numpy.searchsorted(x, mz0 + fwhm, side='right')
+        current_obs_int = numpy.max(y[idx_lo:idx_hi]) if idx_lo < idx_hi else 0.0
+            
+        area_guess = max(0.0, current_obs_int / w0) * norm
+        initial_guesses.append(area_guess)
 
     M = numpy.column_stack(models)
     if M.size == 0:
         return [0.0] * len(clusters)
 
-    # multiplicative updates for non-negative least squares
-    coeff = numpy.ones(M.shape[1], dtype=float)
+    # Multiplicative updates for joint non-negative least squares,
+    # seeded correctly using monoisotopic peaks to avoid getting lost!
+    coeff = numpy.array(initial_guesses, dtype=float)
+    coeff[coeff < 1e-6] = 1e-6 # prevent stuck-at-zero
+    
     mTy = numpy.dot(M.transpose(), y)
     for i in range(120):
         estimate = numpy.dot(M, coeff)
         denom = numpy.dot(M.transpose(), estimate) + 1e-12
         coeff *= mTy / denom
-        coeff[coeff < 0.0] = 0.0
 
-    return list(coeff[:-1])
+    return list(coeff)
 
 
 # ----
