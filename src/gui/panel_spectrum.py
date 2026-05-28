@@ -1308,6 +1308,10 @@ class panelSpectrum(wx.Panel):
             # update document
             self.documents[self.currentDocument].backup(("spectrum"))
             self.documents[self.currentDocument].spectrum.peaklist.append(peak)
+            
+            if hasattr(self.parent, "peaklistPanel") and hasattr(self.parent.peaklistPanel, "_recalculateNeighborhoodEnvelopes"):
+                self.parent.peaklistPanel._recalculateNeighborhoodEnvelopes([peak.mz])
+                
             self.parent.onDocumentChanged(items=("spectrum"))
 
     # ----
@@ -1348,6 +1352,10 @@ class panelSpectrum(wx.Panel):
             # update document
             self.documents[self.currentDocument].backup(("spectrum"))
             self.documents[self.currentDocument].spectrum.peaklist.append(peak)
+
+            if hasattr(self.parent, "peaklistPanel") and hasattr(self.parent.peaklistPanel, "_recalculateNeighborhoodEnvelopes"):
+                self.parent.peaklistPanel._recalculateNeighborhoodEnvelopes([peak.mz])
+
             self.parent.onDocumentChanged(items=("spectrum"))
 
     # ----

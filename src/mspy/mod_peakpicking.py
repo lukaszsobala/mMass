@@ -658,13 +658,48 @@ def _fwhm_to_sigma(fwhm):
 def _cluster_weights(cluster):
     """Get normalized isotope weights from theoretical pattern."""
     
+    if not cluster:
+        return []
+        
     parent = cluster[0]
     if parent.charge:
-        pattern = _cluster_pattern(parent, len(cluster))
-        if len(pattern) == len(cluster):
-            total = sum(pattern)
-            if total > 0:
-                return [p / total for p in pattern]
+        # Reconstruct true monoisotopic mass to scale Poisson correctly
+        mono_mz = parent.mz
+        first_iso = getattr(parent, 'isotope', 0)
+        if first_iso is None:
+            first_iso = 0
+        if first_iso > 0:
+            mono_mz -= first_iso * (ISOTOPE_DISTANCE / abs(parent.charge))
+            
+        neutralMass = mod_basics.mz(mono_mz, charge=0, currentCharge=parent.charge, massType=1)
+        import math
+        lam = max(0.0, neutralMass * 0.000475)
+        
+        # Find maximum required isotope index
+        max_iso = 30
+        for i, p in enumerate(cluster):
+            iso_idx = getattr(p, 'isotope', i)
+            if iso_idx is None: iso_idx = i
+            max_iso = max(max_iso, int(iso_idx) + 1)
+            
+        pattern = []
+        p_val = math.exp(-lam) if lam < 700 else 0.0
+        for i in range(max_iso):
+            if i == 0:
+                pattern.append(p_val)
+            else:
+                p_val = p_val * (lam / i)
+                pattern.append(p_val)
+                
+        total = sum(pattern)
+        if total > 0.0:
+            weights = []
+            for i, peak in enumerate(cluster):
+                iso_idx = getattr(peak, 'isotope', i)
+                if iso_idx is None: iso_idx = i
+                iso_idx = int(iso_idx)
+                weights.append(pattern[iso_idx] / total if iso_idx < len(pattern) else 0.0)
+            return weights
                 
     intensities = [max(0.0, p.intensity) for p in cluster]
     total = sum(intensities)
@@ -992,10 +1027,26 @@ def _fit_envelope_areas(clusters, signal, defaultFwhm):
     if signal is None or len(signal) == 0:
         areas = []
         for cluster in clusters:
+            env = getattr(cluster[0], 'attributes', {}).get("envelope")
+            if env and "area" in env:
+                areas.append(float(env["area"]))
+                continue
+
             fwhm = _cluster_fwhm(cluster, defaultFwhm)
             sigma = _fwhm_to_sigma(fwhm)
             scale = sigma * math.sqrt(2.0 * math.pi)
-            areas.append(max(0.0, sum([p.intensity for p in cluster])) * scale)
+            
+            # Find the most intense peak to securely anchor the area prediction
+            best_idx = 0
+            best_int = 0.0
+            for i, p in enumerate(cluster):
+                if p.intensity > best_int:
+                    best_int = p.intensity
+                    best_idx = i
+                    
+            weights = _cluster_weights(cluster)
+            w = weights[best_idx] if best_idx < len(weights) and weights[best_idx] > 0 else 1.0
+            areas.append(max(0.0, best_int / w) * scale)
         return areas
 
     x = signal[:, 0].astype(float)
@@ -1004,9 +1055,22 @@ def _fit_envelope_areas(clusters, signal, defaultFwhm):
         return [0.0] * len(clusters)
 
     # keep only local region around all clusters
-    minMz = min([c[0].mz for c in clusters])
-    maxMz = max([c[-1].mz for c in clusters])
-    maxFwhm = max([_cluster_fwhm(c, defaultFwhm) for c in clusters])
+    all_fwhms = []
+    all_mzs = []
+    for c in clusters:
+        env = getattr(c[0], 'attributes', {}).get("envelope")
+        if env and "isotopes" in env:
+            all_mzs.extend([float(iso_mz) for iso_mz, w in env["isotopes"]])
+            all_fwhms.append(float(env.get("fwhm", defaultFwhm)))
+        else:
+            all_mzs.append(c[0].mz)
+            all_mzs.append(c[-1].mz)
+            all_fwhms.append(_cluster_fwhm(c, defaultFwhm))
+
+    minMz = min(all_mzs)
+    maxMz = max(all_mzs)
+    maxFwhm = max(all_fwhms)
+    
     lo = minMz - 6.0 * maxFwhm
     hi = maxMz + 6.0 * maxFwhm
     mask = (x >= lo) & (x <= hi)
@@ -1015,26 +1079,45 @@ def _fit_envelope_areas(clusters, signal, defaultFwhm):
     if len(x) == 0:
         return [0.0] * len(clusters)
 
-    # remove baseline offset for local fit
-    y = y - float(numpy.min(y))
+    # Instead of subtracting a local minimum (which shrinks peaks if the window is narrow),
+    # we'll add a flat baseline model to the NNLS matrix to absorb any constant offset.
     y[y < 0.0] = 0.0
 
     # build envelope basis matrix (N points x K envelopes)
     models = []
     for cluster in clusters:
-        fwhm = _cluster_fwhm(cluster, defaultFwhm)
-        sigma = _fwhm_to_sigma(fwhm)
-        if sigma <= 0.0:
-            models.append(numpy.zeros(len(x), dtype=float))
-            continue
-        weights = _cluster_weights(cluster)
-        norm = sigma * math.sqrt(2.0 * math.pi)
-        model = numpy.zeros(len(x), dtype=float)
-        for i, peak in enumerate(cluster):
-            model += (weights[i] / norm) * numpy.exp(
-                -0.5 * ((x - peak.mz) / sigma) ** 2
-            )
-        models.append(model)
+        parent = cluster[0]
+        env = getattr(parent, 'attributes', {}).get("envelope")
+        
+        if env and "isotopes" in env:
+            fwhm = float(env.get("fwhm", defaultFwhm))
+            sigma = _fwhm_to_sigma(fwhm)
+            if sigma <= 0.0:
+                models.append(numpy.zeros(len(x), dtype=float))
+                continue
+            
+            norm = sigma * math.sqrt(2.0 * math.pi)
+            model = numpy.zeros(len(x), dtype=float)
+            for mz, weight in env["isotopes"]:
+                model += (weight / norm) * numpy.exp(-0.5 * ((x - float(mz)) / sigma) ** 2)
+            models.append(model)
+        else:
+            fwhm = _cluster_fwhm(cluster, defaultFwhm)
+            sigma = _fwhm_to_sigma(fwhm)
+            if sigma <= 0.0:
+                models.append(numpy.zeros(len(x), dtype=float))
+                continue
+            weights = _cluster_weights(cluster)
+            norm = sigma * math.sqrt(2.0 * math.pi)
+            model = numpy.zeros(len(x), dtype=float)
+            for i, peak in enumerate(cluster):
+                model += (weights[i] / norm) * numpy.exp(
+                    -0.5 * ((x - peak.mz) / sigma) ** 2
+                )
+            models.append(model)
+        
+    # flat baseline component
+    models.append(numpy.ones(len(x), dtype=float))
 
     M = numpy.column_stack(models)
     if M.size == 0:
@@ -1049,7 +1132,7 @@ def _fit_envelope_areas(clusters, signal, defaultFwhm):
         coeff *= mTy / denom
         coeff[coeff < 0.0] = 0.0
 
-    return list(coeff)
+    return list(coeff[:-1])
 
 
 # ----
@@ -1206,19 +1289,20 @@ def relabelenvelopes(
     for c, cluster in enumerate(clusters):
         parent = cluster[0]
         weights = _cluster_weights(cluster)
-        fwhm = _cluster_fwhm(cluster, defaultFwhm)
         
-        # Enforce exact intensities based on the first peak's intensity scaled by theoretical weights.
-        # This guarantees overlapping/padded peaks contribute to the shape properly!
-        for i, peak in enumerate(cluster):
-            if i > 0 and weights[0] > 0.0:
-                peak.intensity = parent.intensity * (weights[i] / weights[0])
-
+        old_env = getattr(parent, 'attributes', {}).get("envelope")
+        if old_env and "isotopes" in old_env:
+            isotopes_data = old_env["isotopes"]
+            fwhm_val = float(old_env.get("fwhm", _cluster_fwhm(cluster, defaultFwhm)))
+        else:
+            isotopes_data = [(float(cluster[i].mz), float(weights[i])) for i in range(len(cluster))]
+            fwhm_val = float(_cluster_fwhm(cluster, defaultFwhm))
+        
         envelope = {
             "area": areas[c],
-            "fwhm": float(fwhm),
+            "fwhm": fwhm_val,
             "shape": "gaussian",
-            "isotopes": [(float(cluster[i].mz), float(weights[i])) for i in range(len(cluster))],
+            "isotopes": isotopes_data,
         }
 
         peaks = labelenvelope(

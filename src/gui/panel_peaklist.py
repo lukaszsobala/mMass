@@ -801,8 +801,68 @@ class panelPeaklist(wx.Panel):
 
         # update data
         self.currentDocument.backup(("spectrum"))
+        
+        peaklist = self.currentDocument.spectrum.peaklist
+        deleted_mzs = [peaklist[i].mz for i in indexes]
+        
         self.currentDocument.spectrum.peaklist.delete(indexes)
+        
+        # recalculate local envelope areas for remaining overlapping clusters
+        self._recalculateNeighborhoodEnvelopes(deleted_mzs)
+        
         self.parent.onDocumentChanged(items=("spectrum"))
+
+    def _recalculateNeighborhoodEnvelopes(self, mzs):
+        """Recalculate NNLS areas for envelopes in the neighborhood of deleted peaks."""
+        if not mzs:
+            return
+            
+        import mspy
+        spectrum = self.currentDocument.spectrum
+        peaklist = spectrum.peaklist
+
+        tolerance = config.processing["deisotoping"]["massTolerance"]
+        isotopeShift = config.processing["deisotoping"]["isotopeShift"]
+        maxCharge = max(1, abs(int(config.processing["deisotoping"]["maxCharge"])))
+        difference = (mspy.ISOTOPE_DISTANCE + isotopeShift) / float(maxCharge)
+
+        margin = max(6.0 * difference, 8.0 * tolerance)
+        minMz = min(mzs) - margin
+        maxMz = max(mzs) + margin
+
+        # Collect all remaining clusters in the neighborhood
+        groups = {}
+        for peak in peaklist:
+            if minMz <= peak.mz <= maxMz:
+                if peak.group and peak.attributes.get("envelope"):
+                    if peak.group not in groups:
+                        groups[peak.group] = []
+                    groups[peak.group].append(peak)
+
+        if not groups:
+            return
+
+        clusters = []
+        cluster_keys = []
+        for g_id, g_peaks in groups.items():
+            clusters.append(sorted(g_peaks, key=lambda p: p.mz))
+            cluster_keys.append(g_id)
+            
+        defaultFwhm = 0.1
+        if peaklist.basepeak and peaklist.basepeak.fwhm:
+            defaultFwhm = peaklist.basepeak.fwhm
+            
+        signal = spectrum.profile if spectrum.hasprofile() else None
+        
+        areas = mspy.mod_peakpicking._fit_envelope_areas(clusters, signal, defaultFwhm)
+        
+        for c, cluster in enumerate(clusters):
+            for peak in cluster:
+                # Need to explicitly check if peak attributes contain envelope
+                if "envelope" in peak.attributes:
+                    peak.attributes["envelope"]["area"] = float(areas[c])
+
+    # ----
 
     # ---
 
@@ -893,6 +953,10 @@ class panelPeaklist(wx.Panel):
         if peak:
             self.currentDocument.backup(("spectrum"))
             self.currentDocument.spectrum.peaklist.append(peak)
+            
+            # Recalculate neighborhood if we just added a peak
+            self._recalculateNeighborhoodEnvelopes([peak.mz])
+            
             self.parent.onDocumentChanged(items=("spectrum"))
 
         # set focus to mz
