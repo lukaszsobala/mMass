@@ -2395,8 +2395,13 @@ class canvas(wx.Window):
             maxX = max(points) + center * zoom / 100
         else:
             xRange = self.getCurrentXRange()
-            minX = min(points) - (xRange[1] - xRange[0]) / 2
-            maxX = max(points) + (xRange[1] - xRange[0]) / 2
+            current_width = xRange[1] - xRange[0]
+            if max(points) - min(points) > current_width:
+                minX = min(points) - current_width / 2
+                maxX = max(points) + current_width / 2
+            else:
+                minX = center - current_width / 2
+                maxX = center + current_width / 2
 
         # check overscaling
         xRangeMax = self.getMaxXRange()
