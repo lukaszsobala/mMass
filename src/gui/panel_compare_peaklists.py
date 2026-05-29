@@ -619,7 +619,7 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
                 peak_mz = document.spectrum.peaklist[idx].mz
                 document.spectrum.peaklist.delete([idx])
                 if self.parent.peaklistPanel:
-                    self.parent.peaklistPanel._recalculateNeighborhoodEnvelopes([peak_mz])
+                    self.parent.peaklistPanel._recalculateNeighborhoodEnvelopes([peak_mz], document=document)
                 wx.CallAfter(self.parent.onDocumentChanged, items=("spectrum"))
                 deleted = True
         elif config.comparePeaklists["compare"] in ("measured", "theoretical"):

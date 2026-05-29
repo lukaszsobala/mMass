@@ -812,13 +812,17 @@ class panelPeaklist(wx.Panel):
         
         self.parent.onDocumentChanged(items=("spectrum"))
 
-    def _recalculateNeighborhoodEnvelopes(self, mzs):
+    def _recalculateNeighborhoodEnvelopes(self, mzs, document=None):
         """Recalculate NNLS areas for envelopes in the neighborhood of deleted peaks."""
         if not mzs:
             return
+
+        targetDocument = document or self.currentDocument
+        if targetDocument is None:
+            return
             
         import mspy
-        spectrum = self.currentDocument.spectrum
+        spectrum = targetDocument.spectrum
         peaklist = spectrum.peaklist
 
         tolerance = config.processing["deisotoping"]["massTolerance"]
