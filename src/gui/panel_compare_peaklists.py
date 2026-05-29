@@ -291,6 +291,7 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
             panel, -1, size=wx.Size(225, 400), style=mwx.GRID_STYLE
         )
         self.peaklistGrid.CreateGrid(0, 0)
+        self.peaklistGrid.SetSelectionMode(wx.grid.Grid.GridSelectRows)
         self.peaklistGrid.DisableDragColSize()
         self.peaklistGrid.DisableDragRowSize()
         self.peaklistGrid.SetColLabelSize(19)
@@ -592,56 +593,127 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
     # ----
 
     def onDeleteSelected(self):
-        """Delete selected peak."""
+        """Delete selected peaks."""
 
-        # get selection
-        try:
-            sel_row = self.peaklistGrid.GetGridCursorRow()
-        except:
+        if not self.currentPeaklist:
             return
 
-        if sel_row < 0 or not self.currentPeaklist or sel_row >= len(self.currentPeaklist):
+        selectedRows = self._getSelectedPeaklistRows()
+        selectedRows = [
+            row for row in selectedRows if 0 <= row < len(self.currentPeaklist)
+        ]
+        if not selectedRows:
             return
 
-        p_info = self.currentPeaklist[sel_row]
-        docIndex = p_info[1]
-        item = p_info[5]
-        document = p_info[6]
-
-        # try to delete
-        deleted = False
-        import gui.config as config
-        import wx
+        changedDocIndexes = []
 
         if config.comparePeaklists["compare"] == "peaklists":
-            if item in document.spectrum.peaklist.peaks:
-                idx = document.spectrum.peaklist.peaks.index(item)
-                document.backup(("spectrum"))
-                peak_mz = document.spectrum.peaklist[idx].mz
-                document.spectrum.peaklist.delete([idx])
-                if self.parent.peaklistPanel:
-                    self.parent.peaklistPanel._recalculateNeighborhoodEnvelopes([peak_mz], document=document)
-                wx.CallAfter(
-                    self.parent.onDocumentChangedMulti,
-                    indexes=[docIndex],
-                    items=("spectrum"),
-                )
-                deleted = True
-        elif config.comparePeaklists["compare"] in ("measured", "theoretical"):
-            if item in document.annotations:
-                idx = document.annotations.index(item)
-                document.backup(("annotations"))
-                del document.annotations[idx]
-                wx.CallAfter(
-                    self.parent.onDocumentChangedMulti,
-                    indexes=[docIndex],
-                    items=("annotations"),
-                )
-                deleted = True
+            indexesByDoc = {}
+            documentsByDoc = {}
 
-        if deleted:
+            for row in selectedRows:
+                p_info = self.currentPeaklist[row]
+                docIndex = p_info[1]
+                item = p_info[5]
+                document = p_info[6]
+                documentsByDoc[docIndex] = document
+
+                if item in document.spectrum.peaklist.peaks:
+                    idx = document.spectrum.peaklist.peaks.index(item)
+                    indexesByDoc.setdefault(docIndex, set()).add(idx)
+
+            for docIndex in sorted(indexesByDoc):
+                document = documentsByDoc[docIndex]
+                indexes = sorted(indexesByDoc[docIndex])
+                if not indexes:
+                    continue
+
+                document.backup(("spectrum"))
+                peaklist = document.spectrum.peaklist
+                deletedMzs = [peaklist[i].mz for i in indexes]
+                peaklist.delete(indexes)
+
+                if self.parent.peaklistPanel and deletedMzs:
+                    self.parent.peaklistPanel._recalculateNeighborhoodEnvelopes(
+                        deletedMzs, document=document
+                    )
+
+                changedDocIndexes.append(docIndex)
+
+        elif config.comparePeaklists["compare"] in ("measured", "theoretical"):
+            indexesByDoc = {}
+            documentsByDoc = {}
+
+            for row in selectedRows:
+                p_info = self.currentPeaklist[row]
+                docIndex = p_info[1]
+                item = p_info[5]
+                document = p_info[6]
+                documentsByDoc[docIndex] = document
+
+                if item in document.annotations:
+                    idx = document.annotations.index(item)
+                    indexesByDoc.setdefault(docIndex, set()).add(idx)
+
+            for docIndex in sorted(indexesByDoc):
+                document = documentsByDoc[docIndex]
+                indexes = sorted(indexesByDoc[docIndex], reverse=True)
+                if not indexes:
+                    continue
+
+                document.backup(("annotations"))
+                for idx in indexes:
+                    del document.annotations[idx]
+
+                changedDocIndexes.append(docIndex)
+
+        if changedDocIndexes:
+            if config.comparePeaklists["compare"] == "peaklists":
+                items = ("spectrum",)
+            else:
+                items = ("annotations",)
+
+            wx.CallAfter(
+                self.parent.onDocumentChangedMulti,
+                indexes=changedDocIndexes,
+                items=items,
+            )
+
             # immediately trigger an update logic
             self.onUpdatePeaklist()
+
+    # ----
+
+    def _getSelectedPeaklistRows(self):
+        """Return unique selected rows from grid row selections, blocks, or cursor."""
+
+        rows = set()
+
+        try:
+            rows.update(self.peaklistGrid.GetSelectedRows())
+        except Exception:
+            pass
+
+        try:
+            topLeft = self.peaklistGrid.GetSelectionBlockTopLeft()
+            bottomRight = self.peaklistGrid.GetSelectionBlockBottomRight()
+            for i in range(min(len(topLeft), len(bottomRight))):
+                topRow = topLeft[i][0]
+                bottomRow = bottomRight[i][0]
+                for row in range(topRow, bottomRow + 1):
+                    rows.add(row)
+        except Exception:
+            pass
+
+        if not rows:
+            try:
+                row = self.peaklistGrid.GetGridCursorRow()
+                if row >= 0:
+                    rows.add(row)
+            except Exception:
+                pass
+
+        return sorted(rows)
 
     # ----
 
