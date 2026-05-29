@@ -31,6 +31,64 @@ import mspy
 # ------------------------------------------
 
 
+def _peak_intensity(peak_obj):
+    """Return best intensity for proportional fill: envelope area first, then ai-base."""
+    envelope = None
+    if hasattr(peak_obj, 'attributes'):
+        envelope = peak_obj.attributes.get('envelope')
+    if envelope:
+        area = envelope.get('area')
+        if area and area > 0:
+            return float(area)
+    ai = getattr(peak_obj, 'ai', 0.0)
+    base = getattr(peak_obj, 'base', 0.0)
+    return max(0.0, float(ai) - float(base))
+
+
+class _IntensityFillRenderer(wx.grid.PyGridCellRenderer):
+    """Fill a grid cell from the bottom proportionally to intensity."""
+
+    def __init__(self, colour, fraction):
+        super().__init__()
+        if isinstance(colour, (list, tuple)):
+            colour = wx.Colour(*colour)
+        self._colour = colour
+        self._fraction = max(0.0, min(1.0, fraction))
+
+    def Draw(self, grid, attr, dc, rect, row, col, isSelected):
+        if isSelected:
+            bgColour = grid.GetSelectionBackground()
+        else:
+            bgColour = grid.GetDefaultCellBackgroundColour()
+        dc.SetBrush(wx.Brush(bgColour))
+        dc.SetPen(wx.TRANSPARENT_PEN)
+        dc.DrawRectangle(rect)
+
+        if self._fraction > 0.0 and self._colour.IsOk():
+            fillHeight = max(1, int(round(rect.height * self._fraction)))
+            fillRect = wx.Rect(
+                rect.x,
+                rect.y + rect.height - fillHeight,
+                rect.width,
+                fillHeight,
+            )
+            dc.SetBrush(wx.Brush(self._colour))
+            dc.DrawRectangle(fillRect)
+
+        value = grid.GetCellValue(row, col)
+        if value:
+            dc.SetFont(attr.GetFont() if attr.HasFont() else grid.GetFont())
+            textColour = wx.BLACK if not isSelected else grid.GetSelectionForeground()
+            dc.SetTextForeground(textColour)
+            dc.DrawLabel(value, rect, wx.ALIGN_CENTER | wx.ALIGN_CENTER_VERTICAL)
+
+    def GetBestSize(self, grid, attr, dc, row, col):
+        return wx.Size(20, 19)
+
+    def Clone(self):
+        return _IntensityFillRenderer(self._colour, self._fraction)
+
+
 class panelComparePeaklists(wx.Frame, MakeModalMixin):
     """Compare peaklists tool."""
 
@@ -982,7 +1040,6 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
 
         # set formats
         mzFormat = "%0." + repr(config.main["mzDigits"]) + "f"
-        defaultColour = self.documentsGrid.GetDefaultCellBackgroundColour()
 
         # add data
         rows = [0] * len(self.currentDocuments)
@@ -999,14 +1056,21 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
             self.documentsGrid.SetCellValue(row, col, mz)
 
             # add matches
+            rowMax = max((v for v in item[4] if v is not None), default=0.0)
             for x in range(count):
-                if item[4][x]:
-                    self.documentsGrid.SetCellBackgroundColour(
-                        row, col + x + 1, self.currentDocuments[x].colour
+                intensity = item[4][x]
+                if intensity is not None:
+                    fraction = float(intensity) / rowMax if rowMax > 0 else 1.0
+                    self.documentsGrid.SetCellRenderer(
+                        row,
+                        col + x + 1,
+                        _IntensityFillRenderer(self.currentDocuments[x].colour, fraction),
                     )
                 else:
-                    self.documentsGrid.SetCellBackgroundColour(
-                        row, col + x + 1, defaultColour
+                    self.documentsGrid.SetCellRenderer(
+                        row,
+                        col + x + 1,
+                        _IntensityFillRenderer(wx.NullColour, 0.0),
                     )
 
                 if x == item[1]:
@@ -1051,7 +1115,6 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
 
         # set formats
         mzFormat = "%0." + repr(config.main["mzDigits"]) + "f"
-        defaultColour = self.peaklistGrid.GetDefaultCellBackgroundColour()
 
         # add data
         count = len(self.currentDocuments)
@@ -1062,13 +1125,22 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
             self.peaklistGrid.SetCellValue(i, 0, mz)
 
             # add matches
+            rowMax = max((v for v in item[4] if v is not None), default=0.0)
             for x in range(count):
-                if item[4][x]:
-                    self.peaklistGrid.SetCellBackgroundColour(
-                        i, x + 1, self.currentDocuments[x].colour
+                intensity = item[4][x]
+                if intensity is not None:
+                    fraction = float(intensity) / rowMax if rowMax > 0 else 1.0
+                    self.peaklistGrid.SetCellRenderer(
+                        i,
+                        x + 1,
+                        _IntensityFillRenderer(self.currentDocuments[x].colour, fraction),
                     )
                 else:
-                    self.peaklistGrid.SetCellBackgroundColour(i, x + 1, defaultColour)
+                    self.peaklistGrid.SetCellRenderer(
+                        i,
+                        x + 1,
+                        _IntensityFillRenderer(wx.NullColour, 0.0),
+                    )
 
                 if x == item[1]:
                     self.peaklistGrid.SetCellTextColour(i, x + 1, wx.BLACK)
@@ -1172,12 +1244,12 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
                                 x,
                                 item.charge,
                                 item.ai - item.base,
-                                count * [False],
+                                count * [None],
                                 item,
                                 document,
                             ]
                         )
-                        self.currentPeaklist[-1][4][x] = True
+                        self.currentPeaklist[-1][4][x] = _peak_intensity(item)
                         size += 1
 
                 # use theoretical notations
@@ -1197,12 +1269,12 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
                                 x,
                                 item.charge,
                                 item.ai - item.base,
-                                count * [False],
+                                count * [None],
                                 item,
                                 document,
                             ]
                         )
-                        self.currentPeaklist[-1][4][x] = True
+                        self.currentPeaklist[-1][4][x] = _peak_intensity(item)
                         size += 1
 
                 # use peaklists
@@ -1214,12 +1286,12 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
                                 x,
                                 item.charge,
                                 item.ai - item.base,
-                                count * [False],
+                                count * [None],
                                 item,
                                 document,
                             ]
                         )
-                        self.currentPeaklist[-1][4][x] = True
+                        self.currentPeaklist[-1][4][x] = _peak_intensity(item)
                         size += 1
 
                 # remember max peaklist size
@@ -1247,8 +1319,8 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
             # erase previous matches
             count = len(self.currentDocuments)
             for i, item in enumerate(self.currentPeaklist):
-                item[4] = count * [False]
-                item[4][item[1]] = True
+                item[4] = count * [None]
+                item[4][item[1]] = _peak_intensity(item[5])
 
             # compare peaklists
             count = len(self.currentPeaklist)
@@ -1301,12 +1373,13 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
 
                     # save matched
                     if matched:
-                        p1[4][p2[1]] = True
-                        p2[4][p1[1]] = True
+                        p1[4][p2[1]] = _peak_intensity(p2[5])
+                        p2[4][p1[1]] = _peak_intensity(p1[5])
 
         # task canceled
         except mspy.ForceQuit:
             return
+
 
     # ----
 
