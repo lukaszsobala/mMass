@@ -40,6 +40,8 @@ from .mixins import MakeModalMixin
 import mspy
 from . import doc
 
+WX_DEAD_OBJECT_ERROR = getattr(wx, "PyDeadObjectError", RuntimeError)
+
 # FLOATING PANEL WITH PROCESSING TOOLS
 # ------------------------------------
 
@@ -66,6 +68,16 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         self.currentDocument = None
         self.previewData = None
         self.batchChanged = []
+        self.baselinePreviewLock = threading.Lock()
+        self.baselinePreviewThread = None
+        self.baselinePreviewRequest = None
+        self.baselinePreviewRequestId = 0
+        self.baselinePreviewGeneration = 0
+        self.baselinePreviewLastAppliedId = 0
+        self.baselinePreviewClosed = False
+        self.baselinePreviewTimer = wx.Timer(self)
+        self.baselinePreviewInterval = 33
+        self.Bind(wx.EVT_TIMER, self.onBaselinePreviewTimer, self.baselinePreviewTimer)
 
         # make gui items
         self.makeGUI()
@@ -481,7 +493,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         )
         self.baselinePrecision_slider.SetTick(1)
         self.baselinePrecision_slider.SetTickFreq(10)
-        self.baselinePrecision_slider.Bind(wx.EVT_SCROLL, self.onBaselineChanged)
+        self.baselinePrecision_slider.Bind(wx.EVT_SCROLL, self.onBaselineSliderChanged)
 
         baselineOffset_label = wx.StaticText(panel, -1, "Relative offset:")
         self.baselineOffset_slider = wx.Slider(
@@ -495,7 +507,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         )
         self.baselinePrecision_slider.SetTick(1)
         self.baselineOffset_slider.SetTickFreq(10)
-        self.baselineOffset_slider.Bind(wx.EVT_SCROLL, self.onBaselineChanged)
+        self.baselineOffset_slider.Bind(wx.EVT_SCROLL, self.onBaselineSliderChanged)
 
         self.baselineAllowNegative_check = wx.CheckBox(
             panel, -1, "Allow negative values"
@@ -1205,6 +1217,8 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             wx.Bell()
             return
 
+        self.baselinePreviewClosed = True
+        self._stopBaselinePreviewTimer()
         self.clearPreview()
         self.Destroy()
 
@@ -1578,6 +1592,23 @@ class panelProcessing(wx.Frame, MakeModalMixin):
     def onBaselineChanged(self, evt=None):
         """Show baseline while params are changing."""
 
+        self.queueBaselinePreview(throttled=False)
+
+    # ----
+
+    def onBaselineSliderChanged(self, evt=None):
+        """Show baseline while slider params are changing."""
+
+        self.queueBaselinePreview(throttled=True)
+
+    # ----
+
+    def queueBaselinePreview(self, throttled=True):
+        """Queue a baseline preview update, optionally throttled for slider drags."""
+
+        if self.baselinePreviewClosed:
+            return
+
         # check tool
         if self.currentTool != "baseline":
             return
@@ -1590,20 +1621,69 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         if not self.getParams():
             return
 
-        # get baseline
-        baseline = self.currentDocument.spectrum.baseline(
-            window=(1.0 / config.processing["baseline"]["precision"]),
-            offset=config.processing["baseline"]["offset"],
-        )
+        request = {
+            "id": self._nextBaselinePreviewRequestId(),
+            "generation": self._getBaselinePreviewGeneration(),
+            "document": self.currentDocument,
+            "precision": config.processing["baseline"]["precision"],
+            "offset": config.processing["baseline"]["offset"],
+        }
 
-        # make tmp spectrum
-        points = []
-        for x in baseline:
-            points.append([x[0], x[1]])
+        with self.baselinePreviewLock:
+            self.baselinePreviewRequest = request
+        if throttled:
+            self._startBaselinePreviewTimer()
+        else:
+            self.dispatchBaselinePreview()
 
-        # send tmp spectrum to plot canvas
-        self.previewData = points
-        self.parent.updateTmpSpectrum(points)
+    # ----
+
+    def onBaselinePreviewTimer(self, evt=None):
+        """Dispatch throttled baseline preview work while dragging sliders."""
+
+        if self.baselinePreviewClosed:
+            self._stopBaselinePreviewTimer()
+            return
+
+        self.dispatchBaselinePreview()
+
+        with self.baselinePreviewLock:
+            has_pending = self.baselinePreviewRequest is not None
+            thread_alive = (
+                self.baselinePreviewThread is not None
+                and self.baselinePreviewThread.is_alive()
+            )
+
+        if not has_pending and not thread_alive:
+            self._stopBaselinePreviewTimer()
+
+    # ----
+
+    def dispatchBaselinePreview(self):
+        """Start a single background baseline preview for the newest request."""
+
+        if self.baselinePreviewClosed:
+            with self.baselinePreviewLock:
+                self.baselinePreviewRequest = None
+            return
+
+        with self.baselinePreviewLock:
+            if (
+                self.baselinePreviewThread is not None
+                and self.baselinePreviewThread.is_alive()
+            ):
+                return
+
+            request = self.baselinePreviewRequest
+            self.baselinePreviewRequest = None
+            if request is None:
+                return
+
+            self.baselinePreviewThread = threading.Thread(
+                target=self.runBaselinePreviewLoop, args=(request,)
+            )
+            self.baselinePreviewThread.daemon = True
+            self.baselinePreviewThread.start()
 
     # ----
 
@@ -2237,6 +2317,119 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         # task canceled
         except mspy.ForceQuit:
             return
+
+    # ----
+
+    def runBaselinePreviewLoop(self, request):
+        """Process one baseline preview request off the UI thread."""
+
+        points = self.makeBaselinePreviewPoints(
+            document=request["document"],
+            precision=request["precision"],
+            offset=request["offset"],
+        )
+
+        with self.baselinePreviewLock:
+            self.baselinePreviewThread = None
+
+        wx.CallAfter(
+            self.applyBaselinePreview,
+            request["id"],
+            request["generation"],
+            request["document"],
+            points,
+        )
+        wx.CallAfter(self.dispatchBaselinePreview)
+
+    # ----
+
+    def makeBaselinePreviewPoints(self, document, precision, offset):
+        """Calculate baseline preview points for a single request."""
+
+        try:
+            baseline = document.spectrum.baseline(window=(1.0 / precision), offset=offset)
+        except mspy.ForceQuit:
+            return None
+
+        return [[point[0], point[1]] for point in baseline]
+
+    # ----
+
+    def applyBaselinePreview(self, requestId, generation, document, points):
+        """Apply completed baseline preview results on the UI thread."""
+
+        if self.baselinePreviewClosed:
+            return
+        if points is None:
+            return
+        if self.currentTool != "baseline":
+            return
+        if self.currentDocument is not document:
+            return
+
+        with self.baselinePreviewLock:
+            if generation != self.baselinePreviewGeneration:
+                return
+            if requestId <= self.baselinePreviewLastAppliedId:
+                return
+            self.baselinePreviewLastAppliedId = requestId
+
+        self.previewData = points
+        self.parent.updateTmpSpectrum(points)
+
+    # ----
+
+    def _discardBaselinePreview(self):
+        """Invalidate pending baseline preview results."""
+
+        with self.baselinePreviewLock:
+            self.baselinePreviewRequest = None
+            self.baselinePreviewGeneration += 1
+            self.baselinePreviewLastAppliedId = 0
+
+        self._stopBaselinePreviewTimer()
+
+    # ----
+
+    def _startBaselinePreviewTimer(self):
+        """Start the baseline preview timer if the window is still alive."""
+
+        if self.baselinePreviewClosed:
+            return
+
+        try:
+            if not self.baselinePreviewTimer.IsRunning():
+                self.baselinePreviewTimer.Start(self.baselinePreviewInterval)
+        except (RuntimeError, WX_DEAD_OBJECT_ERROR):
+            self.baselinePreviewClosed = True
+
+    # ----
+
+    def _stopBaselinePreviewTimer(self):
+        """Stop the baseline preview timer if the window is still alive."""
+
+        try:
+            if self.baselinePreviewTimer.IsRunning():
+                self.baselinePreviewTimer.Stop()
+        except (RuntimeError, WX_DEAD_OBJECT_ERROR):
+            self.baselinePreviewClosed = True
+
+    # ----
+
+    def _getBaselinePreviewGeneration(self):
+        """Return the current baseline preview generation."""
+
+        with self.baselinePreviewLock:
+            return self.baselinePreviewGeneration
+
+    # ----
+
+    def _nextBaselinePreviewRequestId(self):
+        """Return the next baseline preview request id."""
+
+        with self.baselinePreviewLock:
+            self.baselinePreviewRequestId += 1
+            return self.baselinePreviewRequestId
 
     # ----
 
@@ -2939,6 +3132,8 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
     def clearPreview(self):
         """Clear tmp preview spectrum."""
+
+        self._discardBaselinePreview()
 
         if self.previewData is not None:
             self.previewData = None
