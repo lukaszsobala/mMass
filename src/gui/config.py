@@ -1414,7 +1414,7 @@ def saveConfig(path=os.path.join(confdir, "config.xml")):
         processing["deisotoping"]["envelopeIntensity"]
     )
     buff += '      <param name="envelopeNonIdeality" value="%f" type="float" />\n' % (
-        processing["deisotoping"].get("envelopeNonIdeality", 0.15)
+        processing["deisotoping"]["envelopeNonIdeality"]
     )
     buff += '      <param name="setAsMonoisotopic" value="%d" type="int" />\n' % (
         bool(processing["deisotoping"]["setAsMonoisotopic"])

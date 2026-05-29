@@ -1422,7 +1422,7 @@ class panelSpectrum(wx.Panel):
             [cluster],
             spectrum.profile,
             defaultFwhm,
-            nonIdeality=config.processing["deisotoping"].get("envelopeNonIdeality", 0.15),
+            nonIdeality=config.processing["deisotoping"]["envelopeNonIdeality"],
         )
         area_val = max(0.0, float(areas[0])) if areas else 0.0
 
@@ -1430,7 +1430,7 @@ class panelSpectrum(wx.Panel):
             cluster,
             signal=spectrum.profile,
             defaultFwhm=defaultFwhm,
-            nonIdeality=config.processing["deisotoping"].get("envelopeNonIdeality", 0.20),
+            nonIdeality=config.processing["deisotoping"]["envelopeNonIdeality"],
         )
         envelope_data = {
             "area": area_val,

@@ -858,7 +858,7 @@ class panelPeaklist(wx.Panel):
             clusters,
             signal,
             defaultFwhm,
-            nonIdeality=config.processing["deisotoping"].get("envelopeNonIdeality", 0.15),
+            nonIdeality=config.processing["deisotoping"]["envelopeNonIdeality"],
         )
         
         for c, cluster in enumerate(clusters):
@@ -1395,7 +1395,7 @@ class panelPeaklist(wx.Panel):
             isotopeShift=isotopeShift,
             signal=spectrum.profile if spectrum.hasprofile() else None,
             defaultFwhm=defaultFwhm,
-            nonIdeality=config.processing["deisotoping"].get("envelopeNonIdeality", 0.15),
+            nonIdeality=config.processing["deisotoping"]["envelopeNonIdeality"],
             relaxed=True,
         )
 

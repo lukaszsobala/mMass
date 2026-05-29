@@ -900,7 +900,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         self.deisotopingEnvelopeNonIdeality_value = wx.TextCtrl(
             panel,
             -1,
-            str(config.processing["deisotoping"].get("envelopeNonIdeality", 0.15) * 100),
+            str(config.processing["deisotoping"]["envelopeNonIdeality"] * 100),
             size=wx.Size(70, -1),
             validator=mwx.validator("floatPos"),
         )
@@ -1461,7 +1461,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             bool(presets["deisotoping"].get("convertToEnvelopes", 0))
         )
         self.deisotopingEnvelopeNonIdeality_value.SetValue(
-            str(presets["deisotoping"].get("envelopeNonIdeality", 0.15) * 100)
+            str(presets["deisotoping"]["envelopeNonIdeality"] * 100)
         )
 
         choices = ["1st", "monoisotope", "centroid", "isotopes"]
@@ -2616,7 +2616,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
                         mzTolerance=config.processing["deisotoping"]["massTolerance"],
                         isotopeShift=config.processing["deisotoping"]["isotopeShift"],
                         nonIdeality=config.processing["deisotoping"].get(
-                            "envelopeNonIdeality", 0.15
+                            "envelopeNonIdeality"
                         ),
                     )
 
@@ -2671,7 +2671,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
                     mzTolerance=config.processing["deisotoping"]["massTolerance"],
                     isotopeShift=config.processing["deisotoping"]["isotopeShift"],
                     nonIdeality=config.processing["deisotoping"].get(
-                        "envelopeNonIdeality", 0.15
+                        "envelopeNonIdeality"
                     ),
                 )
 

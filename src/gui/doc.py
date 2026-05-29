@@ -413,7 +413,41 @@ class document:
                     attributes += ' fwhm="%.6f"' % peak.fwhm
                 if peak.group:
                     attributes += ' group="%s"' % self._escape(peak.group)
-                buff += "    <peak %s />\n" % attributes
+                envelope = None
+                if hasattr(peak, "attributes"):
+                    envelope = peak.attributes.get("envelope")
+
+                if envelope and isinstance(envelope, dict):
+                    buff += "    <peak %s>\n" % attributes
+
+                    envAttributes = []
+                    if envelope.get("area") is not None:
+                        envAttributes.append('area="%.12g"' % float(envelope.get("area")))
+                    if envelope.get("fwhm") is not None:
+                        envAttributes.append('fwhm="%.12g"' % float(envelope.get("fwhm")))
+                    if envelope.get("shape") is not None:
+                        envAttributes.append('shape="%s"' % self._escape(str(envelope.get("shape"))))
+
+                    if envAttributes:
+                        buff += "      <envelope %s>\n" % " ".join(envAttributes)
+                    else:
+                        buff += "      <envelope>\n"
+
+                    for isotope in envelope.get("isotopes", []):
+                        try:
+                            isoMZ = float(isotope[0])
+                            isoIntensity = float(isotope[1])
+                        except (TypeError, ValueError, IndexError):
+                            continue
+                        buff += (
+                            '        <isotope mz="%.12g" intensity="%.12g" />\n'
+                            % (isoMZ, isoIntensity)
+                        )
+
+                    buff += "      </envelope>\n"
+                    buff += "    </peak>\n"
+                else:
+                    buff += "    <peak %s />\n" % attributes
             buff += "  </peaklist>\n\n"
 
         # format annotations
@@ -1449,6 +1483,42 @@ class parseMSD:
                     fwhm=fwhm,
                     group=group,
                 )
+
+                # Restore optional envelope metadata saved in mSD.
+                envelopeTags = peakTag.getElementsByTagName("envelope")
+                if envelopeTags:
+                    envelopeTag = envelopeTags[0]
+                    envelope = {
+                        "area": 0.0,
+                        "fwhm": fwhm if fwhm is not None else 0.1,
+                        "shape": "gaussian",
+                        "isotopes": [],
+                    }
+
+                    try:
+                        if envelopeTag.hasAttribute("area"):
+                            envelope["area"] = float(envelopeTag.getAttribute("area"))
+                        if envelopeTag.hasAttribute("fwhm"):
+                            envelope["fwhm"] = float(envelopeTag.getAttribute("fwhm"))
+                    except ValueError:
+                        envelope = None
+
+                    if envelope is not None:
+                        if envelopeTag.hasAttribute("shape"):
+                            envelope["shape"] = envelopeTag.getAttribute("shape")
+
+                        isotopeTags = envelopeTag.getElementsByTagName("isotope")
+                        for isotopeTag in isotopeTags:
+                            try:
+                                isoMZ = float(isotopeTag.getAttribute("mz"))
+                                isoIntensity = float(isotopeTag.getAttribute("intensity"))
+                            except ValueError:
+                                continue
+                            envelope["isotopes"].append((isoMZ, isoIntensity))
+
+                        if envelope["isotopes"]:
+                            peak.attributes["envelope"] = envelope
+
                 peaklist.append(peak)
 
         # add peaklist to document

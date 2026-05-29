@@ -41,6 +41,7 @@ from . import mod_signal
 ISOTOPE_DISTANCE = 1.00287
 AVERAGE_AMINO = {"C": 4.9384, "H": 7.7583, "N": 1.3577, "O": 1.4773, "S": 0.0417}
 AVERAGE_BASE = {"C": 9.75, "H": 12.25, "N": 3.75, "O": 6, "P": 1}
+ENVELOPE_NON_IDEALITY_DEFAULT = 0.20
 
 
 # PEAK PICKING FUNCTIONS
@@ -722,7 +723,7 @@ def _cluster_fwhm(cluster, defaultFwhm):
 # ----
 
 
-def _cluster_isotope_model(cluster, signal=None, defaultFwhm=0.1, nonIdeality=0.20):
+def _cluster_isotope_model(cluster, signal=None, defaultFwhm=0.1, nonIdeality=None):
     """Get isotope weights for a cluster, optionally softened by profile evidence."""
 
     fwhm = float(_cluster_fwhm(cluster, defaultFwhm))
@@ -760,7 +761,7 @@ def _cluster_isotope_model(cluster, signal=None, defaultFwhm=0.1, nonIdeality=0.
 # ----
 
 
-def _soft_isotope_model(isotopes, x, y, fwhm, nonIdeality=0.20):
+def _soft_isotope_model(isotopes, x, y, fwhm, nonIdeality=None):
     """Blend averagine isotopes with observed evidence while preserving continuity.
 
     Theoretical averagine remains the hard backbone (no internal gaps), but later
@@ -792,6 +793,8 @@ def _soft_isotope_model(isotopes, x, y, fwhm, nonIdeality=0.20):
     else:
         obs = theory.copy()
 
+    if nonIdeality is None:
+        nonIdeality = ENVELOPE_NON_IDEALITY_DEFAULT
     max_tail_influence = max(0.0, min(float(nonIdeality), 0.50))
 
     n = len(ordered)
@@ -1114,7 +1117,7 @@ def _merge_adjacent_clusters(clusters, mzTolerance, isotopeShift, relaxed=False)
 # ----
 
 
-def _fit_envelope_areas(clusters, signal, defaultFwhm, nonIdeality=0.20):
+def _fit_envelope_areas(clusters, signal, defaultFwhm, nonIdeality=None):
     """Fit envelope areas jointly against spectrum profile, intelligently seeded by monoisotopic peaks."""
 
     # fallback when profile is not available
@@ -1239,7 +1242,7 @@ def relabelenvelopes(
     isotopeShift=0.0,
     signal=None,
     defaultFwhm=0.1,
-    nonIdeality=0.15,
+    nonIdeality=None,
     relaxed=False,
 ):
     """Convert deisotoped peak clusters to envelope labels."""

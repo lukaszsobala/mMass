@@ -726,7 +726,7 @@ class scan:
         intensity="maximum",
         mzTolerance=0.15,
         isotopeShift=0.0,
-        nonIdeality=0.15,
+        nonIdeality=None,
     ):
         """Convert deisotoped peak clusters to envelope labels."""
 
