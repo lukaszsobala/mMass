@@ -604,6 +604,7 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
             return
 
         p_info = self.currentPeaklist[sel_row]
+        docIndex = p_info[1]
         item = p_info[5]
         document = p_info[6]
 
@@ -620,14 +621,22 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
                 document.spectrum.peaklist.delete([idx])
                 if self.parent.peaklistPanel:
                     self.parent.peaklistPanel._recalculateNeighborhoodEnvelopes([peak_mz], document=document)
-                wx.CallAfter(self.parent.onDocumentChanged, items=("spectrum"))
+                wx.CallAfter(
+                    self.parent.onDocumentChangedMulti,
+                    indexes=[docIndex],
+                    items=("spectrum"),
+                )
                 deleted = True
         elif config.comparePeaklists["compare"] in ("measured", "theoretical"):
             if item in document.annotations:
                 idx = document.annotations.index(item)
                 document.backup(("annotations"))
                 del document.annotations[idx]
-                wx.CallAfter(self.parent.onDocumentChanged, items=("annotations"))
+                wx.CallAfter(
+                    self.parent.onDocumentChangedMulti,
+                    indexes=[docIndex],
+                    items=("annotations"),
+                )
                 deleted = True
 
         if deleted:
