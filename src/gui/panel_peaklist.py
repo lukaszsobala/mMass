@@ -833,8 +833,9 @@ class panelPeaklist(wx.Panel):
         localPeaks = []
         outsidePeaks = []
         for peak in peaklist:
-            # We want to re-run "Convert to envelopes" on any envelope peaks in the neighborhood
-            if minMz <= peak.mz <= maxMz and "envelope" in peak.attributes:
+            # We want to re-run "Convert to envelopes" on all peaks in the neighborhood 
+            # so that isotopic peaks can be correctly mapped back into envelopes.
+            if minMz <= peak.mz <= maxMz:
                 localPeaks.append(peak)
             else:
                 outsidePeaks.append(peak)
@@ -972,10 +973,7 @@ class panelPeaklist(wx.Panel):
         if peak:
             self.currentDocument.backup(("spectrum"))
             self.currentDocument.spectrum.peaklist.append(peak)
-            
-            # Recalculate neighborhood if we just added a peak
-            self._recalculateNeighborhoodEnvelopes([peak.mz])
-            
+
             self.parent.onDocumentChanged(items=("spectrum"))
 
         # set focus to mz
@@ -992,10 +990,15 @@ class panelPeaklist(wx.Panel):
             return
 
         # set new data to peak
-        peak = self.getPeakEditorData()
+        original_peak = self.currentDocument.spectrum.peaklist[self.selectedPeak]
+        peak = self.getPeakEditorData(original_peak=original_peak)
         if peak:
             self.currentDocument.backup(("spectrum"))
             self.currentDocument.spectrum.peaklist[self.selectedPeak] = peak
+
+            if original_peak.charge != peak.charge:
+                self._recalculateNeighborhoodEnvelopes([original_peak.mz, peak.mz])
+
             self.parent.onDocumentChanged(items=("spectrum"))
 
     # ----
@@ -1260,7 +1263,7 @@ class panelPeaklist(wx.Panel):
 
     # ----
 
-    def getPeakEditorData(self):
+    def getPeakEditorData(self, original_peak=None):
         """Get data of edited peak."""
 
         try:
@@ -1320,6 +1323,8 @@ class panelPeaklist(wx.Panel):
                 fwhm=fwhm,
                 group=group,
             )
+            if original_peak:
+                peak.attributes = getattr(original_peak, 'attributes', {}).copy()
             return peak
 
         except:
@@ -1437,6 +1442,11 @@ class panelPeaklist(wx.Panel):
     def _getConvertEnvelopeCharge(self, peaks):
         """Get user-specified charge for envelope conversion, defaulting to 1."""
 
+        # Prefer the selected peak charge so conversion respects user-edited values.
+        for peak in peaks:
+            if peak.charge:
+                return int(peak.charge)
+
         charge = self.peakCharge_value.GetValue().strip()
         if charge:
             try:
@@ -1445,10 +1455,6 @@ class panelPeaklist(wx.Panel):
                     return value
             except Exception:
                 pass
-
-        for peak in peaks:
-            if peak.charge:
-                return int(peak.charge)
 
         return 1
 

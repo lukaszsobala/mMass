@@ -898,6 +898,9 @@ def loadConfig(path=os.path.join(confdir, "config.xml")):
         deisotopingTags = processingTags[0].getElementsByTagName("deisotoping")
         if deisotopingTags:
             _getParams(deisotopingTags[0], processing["deisotoping"])
+            processing["deisotoping"]["envelopeNonIdeality"] = min(
+                max(processing["deisotoping"]["envelopeNonIdeality"], 0.0), 0.5
+            )
 
         deconvolutionTags = processingTags[0].getElementsByTagName("deconvolution")
         if deconvolutionTags:
