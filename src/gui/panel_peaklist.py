@@ -830,42 +830,49 @@ class panelPeaklist(wx.Panel):
         minMz = min(mzs) - margin
         maxMz = max(mzs) + margin
 
-        # Collect all remaining clusters in the neighborhood
-        groups = {}
+        localPeaks = []
+        outsidePeaks = []
         for peak in peaklist:
-            if minMz <= peak.mz <= maxMz:
-                if peak.group and peak.attributes.get("envelope"):
-                    if peak.group not in groups:
-                        groups[peak.group] = []
-                    groups[peak.group].append(peak)
+            # We want to re-run "Convert to envelopes" on any envelope peaks in the neighborhood
+            if minMz <= peak.mz <= maxMz and "envelope" in peak.attributes:
+                localPeaks.append(peak)
+            else:
+                outsidePeaks.append(peak)
 
-        if not groups:
+
+
+        if not localPeaks:
             return
 
-        clusters = []
-        cluster_keys = []
-        for g_id, g_peaks in groups.items():
-            clusters.append(sorted(g_peaks, key=lambda p: p.mz))
-            cluster_keys.append(g_id)
-            
-        defaultFwhm = 0.1
-        if peaklist.basepeak and peaklist.basepeak.fwhm:
-            defaultFwhm = peaklist.basepeak.fwhm
-            
-        signal = spectrum.profile if spectrum.hasprofile() else None
-        
-        areas = mspy.mod_peakpicking._fit_envelope_areas(
-            clusters,
-            signal,
-            defaultFwhm,
-            nonIdeality=config.processing["deisotoping"]["envelopeNonIdeality"],
+        localPeaklist = mspy.peaklist(localPeaks)
+        self._refreshMissingFwhmFromProfile(localPeaklist, spectrum.profile)
+
+        # We assume the peaks retain their existing charges, so seedCharge = 1 is just a fallback
+        localPeaklist.deisotope(
+            maxCharge=config.processing["deisotoping"]["maxCharge"],
+            mzTolerance=tolerance,
+            intTolerance=config.processing["deisotoping"]["intTolerance"],
+            isotopeShift=isotopeShift,
+            respectCharge=True,
+            seedCharge=1,
         )
-        
-        for c, cluster in enumerate(clusters):
-            for peak in cluster:
-                # Need to explicitly check if peak attributes contain envelope
-                if "envelope" in peak.attributes:
-                    peak.attributes["envelope"]["area"] = float(areas[c])
+
+        defaultFwhm = 0.1
+        if localPeaklist.basepeak and localPeaklist.basepeak.fwhm:
+            defaultFwhm = localPeaklist.basepeak.fwhm
+
+        localPeaklist.labelenvelopes(
+            label=config.processing["deisotoping"]["labelEnvelope"],
+            intensity=config.processing["deisotoping"]["envelopeIntensity"],
+            mzTolerance=tolerance,
+            isotopeShift=isotopeShift,
+            signal=spectrum.profile if spectrum.hasprofile() else None,
+            defaultFwhm=defaultFwhm,
+            nonIdeality=config.processing["deisotoping"]["envelopeNonIdeality"],
+            relaxed=True,
+        )
+
+        spectrum.peaklist = mspy.peaklist(outsidePeaks + list(localPeaklist))
 
     # ----
 
@@ -921,7 +928,14 @@ class panelPeaklist(wx.Panel):
             # delete peaks
             if indexes:
                 self.currentDocument.backup(("spectrum"))
+                
+                peaklist = self.currentDocument.spectrum.peaklist
+                deleted_mzs = [peaklist[i].mz for i in indexes]
+                
                 self.currentDocument.spectrum.peaklist.delete(indexes)
+                
+                self._recalculateNeighborhoodEnvelopes(deleted_mzs)
+                
                 self.parent.onDocumentChanged(items=("spectrum"))
 
         else:

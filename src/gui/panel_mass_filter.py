@@ -362,7 +362,15 @@ class panelMassFilter(wx.Frame):
         # delete peaks
         if indexes:
             self.currentDocument.backup(("spectrum"))
+            
+            peaklist = self.currentDocument.spectrum.peaklist
+            deleted_mzs = [peaklist[i].mz for i in indexes]
+            
             self.currentDocument.spectrum.peaklist.delete(indexes)
+            
+            if self.parent.peaklistPanel:
+                self.parent.peaklistPanel._recalculateNeighborhoodEnvelopes(deleted_mzs)
+                
             self.parent.onDocumentChanged(items=("spectrum"))
 
     # ----

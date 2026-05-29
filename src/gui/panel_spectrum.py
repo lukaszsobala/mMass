@@ -1477,6 +1477,7 @@ class panelSpectrum(wx.Panel):
 
         # remove peaks
         indexes = []
+        deleted_mzs = []
         for x, peak in enumerate(
             self.documents[self.currentDocument].spectrum.peaklist
         ):
@@ -1484,11 +1485,13 @@ class panelSpectrum(wx.Panel):
                 selection[1] < peak.ai < selection[3]
             ):
                 indexes.append(x)
+                deleted_mzs.append(peak.mz)
 
         # update document
         if indexes:
             self.documents[self.currentDocument].backup(("spectrum"))
             self.documents[self.currentDocument].spectrum.peaklist.delete(indexes)
+            self.parent.peaklistPanel._recalculateNeighborhoodEnvelopes(deleted_mzs)
             self.parent.onDocumentChanged(items=("spectrum"))
 
     # ----
