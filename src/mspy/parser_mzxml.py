@@ -17,6 +17,7 @@
 
 # load libs
 import xml.sax
+from xml.sax.handler import ContentHandler
 import xml.dom.minidom
 import base64
 import zlib
@@ -25,9 +26,6 @@ import re
 import os.path
 import numpy
 from copy import deepcopy
-
-# load stopper
-from .mod_stopper import CHECK_FORCE_QUIT
 
 # load objects
 from . import obj_peak
@@ -137,7 +135,7 @@ class parseMZXML:
         """Get spectrum from document."""
 
         # use preloaded data if available
-        if self._scans and scanID in self._scans:
+        if isinstance(self._scans, dict) and scanID in self._scans:
             data = self._scans[scanID]
 
         # parse file
@@ -169,9 +167,8 @@ class parseMZXML:
         # parse peaks
         points = self._parsePoints(scanData)
         if scanData["spectrumType"] == "discrete":
-            for x, p in enumerate(points):
-                points[x] = obj_peak.peak(p[0], p[1])
-            scan = obj_scan.scan(peaklist=obj_peaklist.peaklist(points))
+            peaks = [obj_peak.peak(p[0], p[1]) for p in points]
+            scan = obj_scan.scan(peaklist=obj_peaklist.peaklist(peaks))
         else:
             scan = obj_scan.scan(profile=points)
 
@@ -235,7 +232,7 @@ class parseMZXML:
     # ----
 
 
-class infoHandler(xml.sax.handler.ContentHandler):
+class infoHandler(ContentHandler):
     """Get info data."""
 
     def __init__(self):
@@ -277,14 +274,14 @@ class infoHandler(xml.sax.handler.ContentHandler):
     # ----
 
 
-class scanlistHandler(xml.sax.handler.ContentHandler):
+class scanlistHandler(ContentHandler):
     """Get list of all scans in the document."""
 
     def __init__(self):
         self.data = {}
         self.currentID = None
         self._isPrecursor = False
-        self._scanHierarchy = [None]
+        self._scanHierarchy: list[int | None] = [None]
         self._spectrumType = "unknown"
 
     # ----
@@ -294,7 +291,7 @@ class scanlistHandler(xml.sax.handler.ContentHandler):
 
         # get data type
         if name == "dataProcessing":
-            centroided = attrs.get("centroided", False)
+            centroided = attrs.get("centroided", "0")
             if centroided and centroided != "0":
                 self._spectrumType = "discrete"
 
@@ -329,7 +326,7 @@ class scanlistHandler(xml.sax.handler.ContentHandler):
             }
 
             # get ms level
-            attribute = attrs.get("msLevel", 1)
+            attribute = attrs.get("msLevel", "1")
             if attribute:
                 scan["msLevel"] = int(attribute)
 
@@ -419,27 +416,27 @@ class scanlistHandler(xml.sax.handler.ContentHandler):
 
     # ----
 
-    def characters(self, ch):
+    def characters(self, content):
         """Grab characters."""
 
         # get precursor mz
         if self._isPrecursor:
-            self.data[self.currentID]["precursorMZ"] += ch
+            self.data[self.currentID]["precursorMZ"] += content
 
     # ----
 
 
-class scanHandler(xml.sax.handler.ContentHandler):
+class scanHandler(ContentHandler):
     """Get scan data."""
 
     def __init__(self, scanID):
-        self.data = False
+        self.data = {}
         self.scanID = scanID
 
         self._isMatch = False
         self._isPeaks = False
         self._isPrecursor = False
-        self._scanHierarchy = [None]
+        self._scanHierarchy: list[int | None] = [None]
         self._spectrumType = "unknown"
 
     # ----
@@ -449,7 +446,7 @@ class scanHandler(xml.sax.handler.ContentHandler):
 
         # get data type
         if name == "dataProcessing":
-            centroided = attrs.get("centroided", False)
+            centroided = attrs.get("centroided", "0")
             if centroided and centroided != "0":
                 self._spectrumType = "discrete"
 
@@ -493,7 +490,7 @@ class scanHandler(xml.sax.handler.ContentHandler):
                 }
 
                 # get ms level
-                attribute = attrs.get("msLevel", 1)
+                attribute = attrs.get("msLevel", "1")
                 if attribute:
                     self.data["msLevel"] = int(attribute)
 
@@ -553,7 +550,7 @@ class scanHandler(xml.sax.handler.ContentHandler):
                 self.data["compression"] = attribute
 
             # get precision
-            attribute = attrs.get("precision", 32)
+            attribute = attrs.get("precision", "32")
             if attribute:
                 self.data["precision"] = int(attribute)
 
@@ -606,21 +603,21 @@ class scanHandler(xml.sax.handler.ContentHandler):
 
     # ----
 
-    def characters(self, ch):
+    def characters(self, content):
         """Grab characters."""
 
         # get peaks
         if self._isPeaks:
-            self.data["points"].append(ch)
+            self.data["points"].append(content)
 
         # get precursor
         if self._isPrecursor:
-            self.data["precursorMZ"] += ch
+            self.data["precursorMZ"] += content
 
     # ----
 
 
-class runHandler(xml.sax.handler.ContentHandler):
+class runHandler(ContentHandler):
     """Get whole run."""
 
     def __init__(self):
@@ -629,7 +626,7 @@ class runHandler(xml.sax.handler.ContentHandler):
 
         self._isPeaks = False
         self._isPrecursor = False
-        self._scanHierarchy = [None]
+        self._scanHierarchy: list[int | None] = [None]
         self._spectrumType = "unknown"
 
     # ----
@@ -639,7 +636,7 @@ class runHandler(xml.sax.handler.ContentHandler):
 
         # get data type
         if name == "dataProcessing":
-            centroided = attrs.get("centroided", False)
+            centroided = attrs.get("centroided", "0")
             if centroided and centroided != "0":
                 self._spectrumType = "discrete"
 
@@ -678,7 +675,7 @@ class runHandler(xml.sax.handler.ContentHandler):
             }
 
             # get ms level
-            attribute = attrs.get("msLevel", 1)
+            attribute = attrs.get("msLevel", "1")
             if attribute:
                 scan["msLevel"] = int(attribute)
 
@@ -741,7 +738,7 @@ class runHandler(xml.sax.handler.ContentHandler):
                 self.data[self.currentID]["compression"] = attribute
 
             # get precision
-            attribute = attrs.get("precision", 32)
+            attribute = attrs.get("precision", "32")
             if attribute:
                 self.data[self.currentID]["precision"] = int(attribute)
 
@@ -795,16 +792,16 @@ class runHandler(xml.sax.handler.ContentHandler):
 
     # ----
 
-    def characters(self, ch):
+    def characters(self, content):
         """Grab characters."""
 
         # get peaks
         if self._isPeaks:
-            self.data[self.currentID]["points"].append(ch)
+            self.data[self.currentID]["points"].append(content)
 
         # get precursor mz
         if self._isPrecursor:
-            self.data[self.currentID]["precursorMZ"] += ch
+            self.data[self.currentID]["precursorMZ"] += content
 
     # ----
 

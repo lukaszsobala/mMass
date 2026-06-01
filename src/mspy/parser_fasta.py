@@ -19,9 +19,6 @@
 import re
 import os.path
 
-# load stopper
-from .mod_stopper import CHECK_FORCE_QUIT
-
 # load objects
 from . import obj_sequence
 
@@ -53,9 +50,8 @@ class parseFASTA:
 
         # open document
         try:
-            with open(self.path, "rb") as document:
+            with open(self.path, "r", encoding="utf-8", errors="ignore") as document:
                 rawData = document.readlines()
-            document.close()
         except IOError:
             return False
 
@@ -83,7 +79,7 @@ class parseFASTA:
                             chain, title=title, accession=accession
                         )
                         data.append(sequence)
-                    except:
+                    except Exception:
                         pass
 
                 # start new sequence
@@ -93,20 +89,23 @@ class parseFASTA:
                 reading = True
 
                 # get accession
-                if spPattern.match(title):
-                    match = spPattern.match(title)
+                match = spPattern.match(title)
+                if match:
                     accession = match.group(1)
                     title = match.group(2)
-                elif giPattern.match(title):
+                else:
                     match = giPattern.match(title)
+                if match and not accession:
                     accession = match.group(1)
                     title = match.group(2)
-                elif gbPattern.match(title):
+                else:
                     match = gbPattern.match(title)
+                if match and not accession:
                     accession = match.group(1)
                     title = match.group(2)
-                elif refPattern.match(title):
+                else:
                     match = refPattern.match(title)
+                if match and not accession:
                     accession = match.group(1)
                     title = match.group(2)
 
@@ -123,7 +122,7 @@ class parseFASTA:
                     chain, title=title, accession=accession
                 )
                 data.append(sequence)
-            except:
+            except Exception:
                 pass
 
         return data

@@ -1,5 +1,3 @@
-import pdb
-
 # -------------------------------------------------------------------------
 #     Copyright (C) 2008-2011 Martin Strohalm <www.mmass.org>
 
@@ -19,6 +17,7 @@ import pdb
 
 # load libs
 import xml.sax
+from xml.sax.handler import ContentHandler
 import xml.dom.minidom
 import base64
 import zlib
@@ -27,9 +26,6 @@ import re
 import os.path
 import numpy
 from copy import deepcopy
-
-# load stopper
-from .mod_stopper import CHECK_FORCE_QUIT
 
 # load objects
 from . import obj_peak
@@ -141,7 +137,7 @@ class parseMZML:
         """Get spectrum from document."""
 
         # use preloaded data if available
-        if self._scans and scanID in self._scans:
+        if isinstance(self._scans, dict) and scanID in self._scans:
             data = self._scans[scanID]
 
         # parse file
@@ -173,9 +169,8 @@ class parseMZML:
         # parse peaks
         points = self._parsePoints(scanData)
         if scanData["spectrumType"] == "discrete":
-            for x, p in enumerate(points):
-                points[x] = obj_peak.peak(p[0], p[1])
-            scan = obj_scan.scan(peaklist=obj_peaklist.peaklist(points))
+            peaks = [obj_peak.peak(p[0], p[1]) for p in points]
+            scan = obj_scan.scan(peaklist=obj_peaklist.peaklist(peaks))
         else:
             scan = obj_scan.scan(profile=points)
 
@@ -242,7 +237,7 @@ class parseMZML:
     # ----
 
 
-class infoHandler(xml.sax.handler.ContentHandler):
+class infoHandler(ContentHandler):
     """Get info data."""
 
     def __init__(self):
@@ -300,14 +295,14 @@ class infoHandler(xml.sax.handler.ContentHandler):
     # ----
 
 
-class scanlistHandler(xml.sax.handler.ContentHandler):
+class scanlistHandler(ContentHandler):
     """Get list of all scans in the document."""
 
     def __init__(self):
         self.data = {}
         self._isSpectrum = False
         self._isPrecursor = False
-        self._scanHierarchy = [None]
+        self._scanHierarchy: list[int | None] = [None]
 
     # ----
 
@@ -320,7 +315,7 @@ class scanlistHandler(xml.sax.handler.ContentHandler):
 
             # get scan ID
             self.currentID = None
-            attribute = attrs.get("id", False)
+            attribute = attrs.get("id", "")
             if attribute:
                 self.currentID = _parseScanNumber(attribute)
 
@@ -344,7 +339,7 @@ class scanlistHandler(xml.sax.handler.ContentHandler):
             }
 
             # get points count
-            attribute = attrs.get("defaultArrayLength", False)
+            attribute = attrs.get("defaultArrayLength", "")
             if attribute:
                 scan["pointsCount"] = int(attribute)
 
@@ -356,7 +351,7 @@ class scanlistHandler(xml.sax.handler.ContentHandler):
             self._isPrecursor = True
 
             # get parent scan number
-            attribute = attrs.get("spectrumRef", False)
+            attribute = attrs.get("spectrumRef", "")
             if attribute:
                 self.data[self.currentID]["parentScanNumber"] = _parseScanNumber(
                     attribute
@@ -439,25 +434,25 @@ class scanlistHandler(xml.sax.handler.ContentHandler):
 
     # ----
 
-    def characters(self, ch):
+    def characters(self, content):
         """Grab characters."""
         pass
 
     # ----
 
 
-class scanHandler(xml.sax.handler.ContentHandler):
+class scanHandler(ContentHandler):
     """Get scan data."""
 
     def __init__(self, scanID):
-        self.data = False
+        self.data = {}
         self.scanID = scanID
 
         self._isMatch = False
         self._isPrecursor = False
         self._isBinaryDataArray = False
         self._isData = False
-        self._scanHierarchy = [None]
+        self._scanHierarchy: list[int | None] = [None]
 
         self.tmpBinaryData = None
         self.tmpPrecision = None
@@ -475,7 +470,7 @@ class scanHandler(xml.sax.handler.ContentHandler):
 
             # get scan ID
             scanID = None
-            attribute = attrs.get("id", False)
+            attribute = attrs.get("id", "")
             if attribute:
                 scanID = _parseScanNumber(attribute)
 
@@ -509,7 +504,7 @@ class scanHandler(xml.sax.handler.ContentHandler):
                 }
 
                 # get points count
-                attribute = attrs.get("defaultArrayLength", False)
+                attribute = attrs.get("defaultArrayLength", "")
                 if attribute:
                     self.data["pointsCount"] = int(attribute)
 
@@ -518,7 +513,7 @@ class scanHandler(xml.sax.handler.ContentHandler):
             self._isPrecursor = True
 
             # get parent scan number
-            attribute = attrs.get("spectrumRef", False)
+            attribute = attrs.get("spectrumRef", "")
             if attribute:
                 self.data["parentScanNumber"] = _parseScanNumber(attribute)
 
@@ -640,13 +635,13 @@ class scanHandler(xml.sax.handler.ContentHandler):
 
             # mz array
             if self.tmpArrayType == "mzArray":
-                self.data["mzData"] = "".join(self.tmpBinaryData)
+                self.data["mzData"] = "".join(self.tmpBinaryData or [])
                 self.data["mzPrecision"] = self.tmpPrecision
                 self.data["mzCompression"] = self.tmpCompression
 
             # intensity array
             elif self.tmpArrayType == "intArray":
-                self.data["intData"] = "".join(self.tmpBinaryData)
+                self.data["intData"] = "".join(self.tmpBinaryData or [])
                 self.data["intPrecision"] = self.tmpPrecision
                 self.data["intCompression"] = self.tmpCompression
 
@@ -660,17 +655,17 @@ class scanHandler(xml.sax.handler.ContentHandler):
 
     # ----
 
-    def characters(self, ch):
+    def characters(self, content):
         """Grab characters."""
 
         # get peaks
-        if self._isData:
-            self.tmpBinaryData.append(ch)
+        if self._isData and self.tmpBinaryData is not None:
+            self.tmpBinaryData.append(content)
 
     # ----
 
 
-class runHandler(xml.sax.handler.ContentHandler):
+class runHandler(ContentHandler):
     """Get whole run."""
 
     def __init__(self):
@@ -698,7 +693,7 @@ class runHandler(xml.sax.handler.ContentHandler):
 
             # get scan ID
             self.currentID = None
-            attribute = attrs.get("id", False)
+            attribute = attrs.get("id", "")
             if attribute:
                 self.currentID = _parseScanNumber(attribute)
 
@@ -728,7 +723,7 @@ class runHandler(xml.sax.handler.ContentHandler):
             }
 
             # get points count
-            attribute = attrs.get("defaultArrayLength", False)
+            attribute = attrs.get("defaultArrayLength", "")
             if attribute:
                 scan["pointsCount"] = int(attribute)
 
@@ -740,7 +735,7 @@ class runHandler(xml.sax.handler.ContentHandler):
             self._isPrecursor = True
 
             # get parent scan number
-            attribute = attrs.get("spectrumRef", False)
+            attribute = attrs.get("spectrumRef", "")
             if attribute:
                 self.data[self.currentID]["parentScanNumber"] = _parseScanNumber(
                     attribute
@@ -862,13 +857,13 @@ class runHandler(xml.sax.handler.ContentHandler):
 
             # mz array
             if self.tmpArrayType == "mzArray":
-                self.data[self.currentID]["mzData"] = "".join(self.tmpBinaryData)
+                self.data[self.currentID]["mzData"] = "".join(self.tmpBinaryData or [])
                 self.data[self.currentID]["mzPrecision"] = self.tmpPrecision
                 self.data[self.currentID]["mzCompression"] = self.tmpCompression
 
             # intensity array
             elif self.tmpArrayType == "intArray":
-                self.data[self.currentID]["intData"] = "".join(self.tmpBinaryData)
+                self.data[self.currentID]["intData"] = "".join(self.tmpBinaryData or [])
                 self.data[self.currentID]["intPrecision"] = self.tmpPrecision
                 self.data[self.currentID]["intCompression"] = self.tmpCompression
 
@@ -882,12 +877,12 @@ class runHandler(xml.sax.handler.ContentHandler):
 
     # ----
 
-    def characters(self, ch):
+    def characters(self, content):
         """Grab characters."""
 
         # get peaks
-        if self._isData:
-            self.tmpBinaryData.append(ch)
+        if self._isData and self.tmpBinaryData is not None:
+            self.tmpBinaryData.append(content)
 
     # ----
 
@@ -909,7 +904,7 @@ def _parseScanNumber(string):
     # convert to int
     try:
         return int(match.group(1))
-    except:
+    except Exception:
         return None
 
 

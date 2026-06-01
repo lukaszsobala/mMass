@@ -17,15 +17,13 @@
 
 # load libs
 import xml.sax
+from xml.sax.handler import ContentHandler
 import xml.dom.minidom
 import base64
 import struct
 import os.path
 import numpy
 from copy import deepcopy
-
-# load stopper
-from .mod_stopper import CHECK_FORCE_QUIT
 
 # load objects
 from . import obj_peak
@@ -133,7 +131,7 @@ class parseMZDATA:
         """Get spectrum from document."""
 
         # use preloaded data if available
-        if self._scans and scanID in self._scans:
+        if isinstance(self._scans, dict) and scanID in self._scans:
             data = self._scans[scanID]
 
         # parse file
@@ -165,9 +163,8 @@ class parseMZDATA:
         # parse peaks
         points = self._parsePoints(scanData)
         if scanData["spectrumType"] == "discrete":
-            for x, p in enumerate(points):
-                points[x] = obj_peak.peak(p[0], p[1])
-            scan = obj_scan.scan(peaklist=obj_peaklist.peaklist(points))
+            peaks = [obj_peak.peak(p[0], p[1]) for p in points]
+            scan = obj_scan.scan(peaklist=obj_peaklist.peaklist(peaks))
         else:
             scan = obj_scan.scan(profile=points)
 
@@ -240,7 +237,7 @@ class parseMZDATA:
     # ----
 
 
-class infoHandler(xml.sax.handler.ContentHandler):
+class infoHandler(ContentHandler):
     """Get info data."""
 
     def __init__(self):
@@ -307,25 +304,25 @@ class infoHandler(xml.sax.handler.ContentHandler):
 
     # ----
 
-    def characters(self, ch):
+    def characters(self, content):
         """Grab characters."""
 
         # get data
         if self._isSampleName:
-            self.data["title"] += ch
+            self.data["title"] += content
         elif self._isName:
-            self.data["operator"] += ch
+            self.data["operator"] += content
         elif self._isInstitution:
-            self.data["institution"] += ch
+            self.data["institution"] += content
         elif self._isContactInfo:
-            self.data["contact"] += ch
+            self.data["contact"] += content
         elif self._isInstrumentName:
-            self.data["instrument"] += ch
+            self.data["instrument"] += content
 
     # ----
 
 
-class scanlistHandler(xml.sax.handler.ContentHandler):
+class scanlistHandler(ContentHandler):
     """Get list of all scans in the document."""
 
     def __init__(self):
@@ -369,7 +366,7 @@ class scanlistHandler(xml.sax.handler.ContentHandler):
 
         # get spectrum type
         elif name == "acqSpecification":
-            attribute = attrs.get("spectrumType", False)
+            attribute = attrs.get("spectrumType", "")
             if attribute:
                 self.data[self.currentID]["spectrumType"] = attribute
 
@@ -377,7 +374,7 @@ class scanlistHandler(xml.sax.handler.ContentHandler):
         elif name == "spectrumInstrument":
 
             # get ms level
-            attribute = attrs.get("msLevel", 1)
+            attribute = attrs.get("msLevel", "1")
             if attribute:
                 self.data[self.currentID]["msLevel"] = int(attribute)
 
@@ -451,18 +448,18 @@ class scanlistHandler(xml.sax.handler.ContentHandler):
 
     # ----
 
-    def characters(self, ch):
+    def characters(self, content):
         """Grab characters."""
         pass
 
     # ----
 
 
-class scanHandler(xml.sax.handler.ContentHandler):
+class scanHandler(ContentHandler):
     """Get scan data."""
 
     def __init__(self, scanID):
-        self.data = False
+        self.data = {}
         self.scanID = scanID
 
         self._isMatch = False
@@ -514,7 +511,7 @@ class scanHandler(xml.sax.handler.ContentHandler):
 
         # get spectrum type
         elif name == "acqSpecification" and self._isMatch:
-            attribute = attrs.get("spectrumType", False)
+            attribute = attrs.get("spectrumType", "")
             if attribute:
                 self.data["spectrumType"] = attribute
 
@@ -522,7 +519,7 @@ class scanHandler(xml.sax.handler.ContentHandler):
         elif name == "spectrumInstrument" and self._isMatch:
 
             # get ms level
-            attribute = attrs.get("msLevel", 1)
+            attribute = attrs.get("msLevel", "1")
             if attribute:
                 self.data["msLevel"] = int(attribute)
 
@@ -602,7 +599,7 @@ class scanHandler(xml.sax.handler.ContentHandler):
 
             # get array params
             endian = attrs.get("endian", "network")
-            precision = attrs.get("precision", 32)
+            precision = attrs.get("precision", "32")
 
             if self._isMzArray:
                 self.data["mzEndian"] = endian
@@ -641,21 +638,21 @@ class scanHandler(xml.sax.handler.ContentHandler):
 
     # ----
 
-    def characters(self, ch):
+    def characters(self, content):
         """Grab characters."""
 
         # get m/z array
         if self._isMzArray:
-            self.data["mzData"].append(ch)
+            self.data["mzData"].append(content)
 
         # get intensity array
         elif self._isIntArray:
-            self.data["intData"].append(ch)
+            self.data["intData"].append(content)
 
     # ----
 
 
-class runHandler(xml.sax.handler.ContentHandler):
+class runHandler(ContentHandler):
     """Get whole run."""
 
     def __init__(self):
@@ -708,7 +705,7 @@ class runHandler(xml.sax.handler.ContentHandler):
 
         # get spectrum type
         elif name == "acqSpecification":
-            attribute = attrs.get("spectrumType", False)
+            attribute = attrs.get("spectrumType", "")
             if attribute:
                 self.data[self.currentID]["spectrumType"] = attribute
 
@@ -716,7 +713,7 @@ class runHandler(xml.sax.handler.ContentHandler):
         elif name == "spectrumInstrument":
 
             # get ms level
-            attribute = attrs.get("msLevel", 1)
+            attribute = attrs.get("msLevel", "1")
             if attribute:
                 self.data[self.currentID]["msLevel"] = int(attribute)
 
@@ -796,7 +793,7 @@ class runHandler(xml.sax.handler.ContentHandler):
 
             # get array params
             endian = attrs.get("endian", "network")
-            precision = attrs.get("precision", 32)
+            precision = attrs.get("precision", "32")
 
             if self._isMzArray:
                 self.data[self.currentID]["mzEndian"] = endian
@@ -835,16 +832,16 @@ class runHandler(xml.sax.handler.ContentHandler):
 
     # ----
 
-    def characters(self, ch):
+    def characters(self, content):
         """Grab characters."""
 
         # get m/z array
         if self._isMzArray:
-            self.data[self.currentID]["mzData"].append(ch)
+            self.data[self.currentID]["mzData"].append(content)
 
         # get intensity array
         elif self._isIntArray:
-            self.data[self.currentID]["intData"].append(ch)
+            self.data[self.currentID]["intData"].append(content)
 
     # ----
 

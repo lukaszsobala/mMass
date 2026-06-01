@@ -19,9 +19,6 @@
 import re
 import os.path
 
-# load stopper
-from .mod_stopper import CHECK_FORCE_QUIT
-
 # load objects
 from . import obj_peak
 from . import obj_peaklist

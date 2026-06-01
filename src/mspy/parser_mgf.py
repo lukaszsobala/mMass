@@ -20,9 +20,6 @@ import re
 import os.path
 from copy import deepcopy
 
-# load stopper
-from .mod_stopper import CHECK_FORCE_QUIT
-
 # load objects
 from . import obj_peak
 from . import obj_peaklist
@@ -114,7 +111,7 @@ class parseMGF:
 
         # open document
         try:
-            with open(self.path, "rb") as document:
+            with open(self.path, "r", encoding="utf-8", errors="ignore") as document:
                 rawData = document.readlines()
         except IOError:
             return False
@@ -170,7 +167,7 @@ class parseMGF:
                         self._scans[currentID]["precursorMZ"] = float(
                             pointPattern.split(parts.group(2))[0]
                         )
-                    except:
+                    except Exception:
                         pass
                 elif parts.group(1) == "CHARGE":
                     charge = parts.group(2).strip()
@@ -178,7 +175,7 @@ class parseMGF:
                         charge = charge[-1] + charge[:-1]
                     try:
                         self._scans[currentID]["precursorCharge"] = int(charge)
-                    except:
+                    except Exception:
                         pass
                 continue
 
@@ -192,7 +189,7 @@ class parseMGF:
                     continue
                 try:
                     point[1] = float(parts[1])
-                except ValueError as IndexError:
+                except (ValueError, IndexError):
                     pass
                 self._scans[currentID]["data"].append(point)
                 self._scans[currentID]["pointsCount"] += 1
@@ -211,7 +208,7 @@ class parseMGF:
 
         # parse data as peaklist (discrete points)
         if dataType == "peaklist" or (
-            dataType == None and len(scanData["data"]) < 3000
+            dataType is None and len(scanData["data"]) < 3000
         ):
             buff = []
             for point in scanData["data"]:
