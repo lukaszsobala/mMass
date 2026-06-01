@@ -64,6 +64,16 @@ def _is_dark_mode():
 
 _DARK_MODE = None
 
+# wxPython classic constants are missing in modern stubs; keep runtime compatibility.
+_WX_PENSTYLE_SOLID = getattr(wx, "PENSTYLE_SOLID", getattr(wx, "SOLID", 100))
+_WX_BRUSHSTYLE_SOLID = getattr(wx, "BRUSHSTYLE_SOLID", getattr(wx, "SOLID", 100))
+_WX_BRUSHSTYLE_TRANSPARENT = getattr(
+    wx, "BRUSHSTYLE_TRANSPARENT", getattr(wx, "TRANSPARENT", 0)
+)
+_WX_FONTFAMILY_SWISS = getattr(
+    wx, "FONTFAMILY_SWISS", getattr(wx, "SWISS", 74)
+)
+
 
 def _is_dark_mode_cached():
     """Return dark-mode state, caching once it can be safely resolved."""
@@ -262,7 +272,7 @@ class container:
         dc.SetTextBackground(bgrColour)
 
         if bgr:
-            dc.SetBackgroundMode(wx.SOLID)
+            dc.SetBackgroundMode(_WX_BRUSHSTYLE_SOLID)
 
         # draw labels
         occupied = []
@@ -294,9 +304,9 @@ class container:
                 if properties["labelBgr"] != bgr:
                     bgr = properties["labelBgr"]
                     if bgr:
-                        dc.SetBackgroundMode(wx.SOLID)
+                        dc.SetBackgroundMode(_WX_BRUSHSTYLE_SOLID)
                     else:
-                        dc.SetBackgroundMode(wx.TRANSPARENT)
+                        dc.SetBackgroundMode(_WX_BRUSHSTYLE_TRANSPARENT)
 
                 # set angle
                 angle = properties["labelAngle"]
@@ -307,7 +317,7 @@ class container:
                 dc.DrawRotatedText(text, int(textCoords[0]), int(textCoords[1]), angle)
                 occupied.append(textCoords)
 
-        dc.SetBackgroundMode(wx.TRANSPARENT)
+        dc.SetBackgroundMode(_WX_BRUSHSTYLE_TRANSPARENT)
 
     # ----
 
@@ -391,7 +401,11 @@ class annotations:
             "labelColour": (0, 0, 0),
             "labelBgrColour": (255, 255, 255),
             "labelFont": wx.Font(
-                10, wx.SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL, 0
+                10,
+                _WX_FONTFAMILY_SWISS,
+                wx.FONTSTYLE_NORMAL,
+                wx.FONTWEIGHT_NORMAL,
+                False,
             ),
             "labelMaxLength": 20,
             "xPosDigits": 2,
@@ -584,8 +598,12 @@ class annotations:
         # draw points
         if self.properties["showPoints"]:
             pencolour = [max(x - 70, 0) for x in self.properties["pointColour"]]
-            pen = wx.Pen(pencolour, int(printerScale["drawings"]), wx.SOLID)
-            brush = wx.Brush(self.properties["pointColour"], wx.SOLID)
+            pen = wx.Pen(
+                wx.Colour(*pencolour),
+                int(printerScale["drawings"]),
+                _WX_PENSTYLE_SOLID,
+            )
+            brush = wx.Brush(self.properties["pointColour"], _WX_BRUSHSTYLE_SOLID)
             dc.SetPen(pen)
             dc.SetBrush(brush)
             import numpy
@@ -725,7 +743,7 @@ class points:
             "showLines": True,
             "lineColour": (0, 0, 255),
             "lineWidth": 1,
-            "lineStyle": wx.SOLID,
+            "lineStyle": _WX_PENSTYLE_SOLID,
             "fillUnder": False,
             "fillUnderAlpha": 60,
             "xOffsetDigits": 2,
@@ -956,7 +974,7 @@ class points:
                 polygon[-1] = (self.scaled[-1][0], baseline)
 
                 drawDc = dc
-                fillBrush = wx.Brush(fillColour, wx.SOLID)
+                fillBrush = wx.Brush(fillColour, _WX_BRUSHSTYLE_SOLID)
                 try:
                     drawDc = wx.GCDC(dc)
                 except Exception:
@@ -970,7 +988,7 @@ class points:
                                 min(255, int(0.70 * colour.Green() + 0.30 * 255)),
                                 min(255, int(0.70 * colour.Blue() + 0.30 * 255)),
                             ),
-                            wx.SOLID,
+                            _WX_BRUSHSTYLE_SOLID,
                         )
                     else:
                         fillBrush = wx.Brush(
@@ -979,7 +997,7 @@ class points:
                                 min(255, int(0.70 * int(colour[1]) + 0.30 * 255)),
                                 min(255, int(0.70 * int(colour[2]) + 0.30 * 255)),
                             ),
-                            wx.SOLID,
+                            _WX_BRUSHSTYLE_SOLID,
                         )
 
                 drawDc.SetPen(wx.TRANSPARENT_PEN)
@@ -994,7 +1012,7 @@ class points:
                 int(self.properties["lineWidth"] * printerScale["drawings"]),
                 self.properties["lineStyle"],
             )
-            brush = wx.Brush(self.properties["lineColour"], wx.SOLID)
+            brush = wx.Brush(self.properties["lineColour"], _WX_BRUSHSTYLE_SOLID)
 
             dc.SetPen(pen)
             dc.SetBrush(brush)
@@ -1007,17 +1025,19 @@ class points:
             if self.properties["fillPoints"]:
                 pencolour = [max(x - 70, 0) for x in self.properties["pointColour"]]
                 pen = wx.Pen(
-                    pencolour,
+                    wx.Colour(*pencolour),
                     int(self.properties["lineWidth"] * printerScale["drawings"]),
-                    wx.SOLID,
+                    _WX_PENSTYLE_SOLID,
                 )
-                brush = wx.Brush(self.properties["pointColour"], wx.SOLID)
+                brush = wx.Brush(
+                    self.properties["pointColour"], _WX_BRUSHSTYLE_SOLID
+                )
             else:
                 pencolour = self.properties["pointColour"]
                 pen = wx.Pen(
                     pencolour,
                     int(self.properties["lineWidth"] * printerScale["drawings"]),
-                    wx.SOLID,
+                    _WX_PENSTYLE_SOLID,
                 )
                 brush = wx.TRANSPARENT_BRUSH
 
@@ -1087,7 +1107,7 @@ class spectrum:
             "showGelLegend": True,
             "spectrumColour": (0, 0, 255),
             "spectrumWidth": 1,
-            "spectrumStyle": wx.SOLID,
+            "spectrumStyle": _WX_PENSTYLE_SOLID,
             "labelAngle": 90,
             "labelDigits": 2,
             "labelCharge": False,
@@ -1096,13 +1116,17 @@ class spectrum:
             "labelColour": (0, 0, 0),
             "labelBgrColour": (255, 255, 255),
             "labelFont": wx.Font(
-                10, wx.SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL, 0
+                10,
+                _WX_FONTFAMILY_SWISS,
+                wx.FONTSTYLE_NORMAL,
+                wx.FONTWEIGHT_NORMAL,
+                False,
             ),
             "tickColour": (200, 200, 200),
             "isotopeColour": None,
             "msmsColour": None,
             "tickWidth": 1,
-            "tickStyle": wx.SOLID,
+            "tickStyle": _WX_PENSTYLE_SOLID,
             "xOffsetDigits": 2,
             "yOffsetDigits": 0,
         }
@@ -1555,7 +1579,7 @@ class spectrum:
             int(self.properties["spectrumWidth"] * printerScale["drawings"]),
             self.properties["spectrumStyle"],
         )
-        brush = wx.Brush(self.properties["spectrumColour"], wx.SOLID)
+        brush = wx.Brush(self.properties["spectrumColour"], _WX_BRUSHSTYLE_SOLID)
         dc.SetPen(pen)
         dc.SetBrush(brush)
 
@@ -1581,7 +1605,7 @@ class spectrum:
         pen = wx.Pen(
             self.properties["spectrumColour"],
             int(self.properties["spectrumWidth"] * printerScale["drawings"]),
-            wx.SOLID,
+            _WX_PENSTYLE_SOLID,
         )
         dc.SetPen(pen)
 
@@ -1648,12 +1672,15 @@ class spectrum:
         # init brush
         dc.SetPen(wx.TRANSPARENT_PEN)
         brush = wx.Brush(
-            (0, 0, 0) if _is_dark_mode_cached() else (255, 255, 255), wx.SOLID
+            wx.Colour(0, 0, 0)
+            if _is_dark_mode_cached()
+            else wx.Colour(255, 255, 255),
+            _WX_BRUSHSTYLE_SOLID,
         )
         dc.SetBrush(brush)
 
         for x_start, width, shade in runs:
-            brush.SetColour((shade, shade, shade))
+            brush.SetColour(wx.Colour(int(shade), int(shade), int(shade)))
             dc.SetBrush(brush)
             dc.DrawRectangle(int(x_start), int(gelY1), int(width), int(gelHeight))
 
@@ -1673,8 +1700,8 @@ class spectrum:
             int(self.properties["tickWidth"] * printerScale["drawings"]),
             self.properties["tickStyle"],
         )
-        peakBrush = wx.Brush(self.properties["tickColour"], wx.SOLID)
-        msmsBrush = wx.Brush(self.properties["tickColour"], wx.SOLID)
+        peakBrush = wx.Brush(self.properties["tickColour"], _WX_BRUSHSTYLE_SOLID)
+        msmsBrush = wx.Brush(self.properties["tickColour"], _WX_BRUSHSTYLE_SOLID)
 
         if self.properties["isotopeColour"]:
             isotopePen.SetColour(self.properties["isotopeColour"])
@@ -1783,12 +1810,15 @@ class spectrum:
         # init brush
         dc.SetPen(wx.TRANSPARENT_PEN)
         brush = wx.Brush(
-            (0, 0, 0) if _is_dark_mode_cached() else (255, 255, 255), wx.SOLID
+            wx.Colour(0, 0, 0)
+            if _is_dark_mode_cached()
+            else wx.Colour(255, 255, 255),
+            _WX_BRUSHSTYLE_SOLID,
         )
         dc.SetBrush(brush)
 
         for x_start, width, shade in runs:
-            brush.SetColour((shade, shade, shade))
+            brush.SetColour(wx.Colour(int(shade), int(shade), int(shade)))
             dc.SetBrush(brush)
             dc.DrawRectangle(int(x_start), int(gelY1), int(width), int(gelHeight))
 
@@ -1808,10 +1838,14 @@ class spectrum:
 
         # set dc
         pencolour = [max(i - 70, 0) for i in colour]
-        pen = wx.Pen(pencolour, int(printerScale["drawings"]), wx.SOLID)
+        pen = wx.Pen(
+            wx.Colour(*pencolour),
+            int(printerScale["drawings"]),
+            _WX_PENSTYLE_SOLID,
+        )
         dc.SetPen(pen)
         dc.SetTextForeground(colour)
-        dc.SetBrush(wx.Brush(colour, wx.SOLID))
+        dc.SetBrush(wx.Brush(colour, _WX_BRUSHSTYLE_SOLID))
 
         # draw legend circle
         x = plotX2 - 9 * printerScale["drawings"]
