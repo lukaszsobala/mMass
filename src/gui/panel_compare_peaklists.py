@@ -45,7 +45,7 @@ def _peak_intensity(peak_obj):
     return max(0.0, float(ai) - float(base))
 
 
-class _IntensityFillRenderer(wx.grid.PyGridCellRenderer):
+class _IntensityFillRenderer(wx.grid.GridCellRenderer):
     """Fill a grid cell from the bottom proportionally to intensity."""
 
     def __init__(self, colour, fraction):
