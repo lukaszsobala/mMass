@@ -1,24 +1,32 @@
 # mMass
 
-This is a fork of the official repository for mMass on Python3.
+This is a fork of the official repository for mMass on Python3. The purpose of this fork is to modernize the mMass codebase and make it maintainable, as well as fix bugs and add user-friendly functions.
 
-This version contains fixes that allow it to launch using modern Python and updated requirements. So far it has been tested on Linux (`amd64` and `arm64`).
+This version contains fixes that allow it to launch using modern Python and updated requirements. So far it has been tested on Linux (`amd64` and `arm64`) and on Windows 11 (`x86_64`).
 
 Many thanks to Martin Strohalm for his hard work on the project over many years!
+Thank you to Dreaming Spires for the initial Python 3 port.
 
 ## Installation
 
 mMass is now a fully pure-Python package (native C extensions were removed and replaced with Numba/SciPy), making it trivial to install via modern package managers like `uv` or `pip`.
 
-### Linux (and MacOS / Windows)
+### Linux (and Windows – MacOS untested)
 We recommend using [uv](https://github.com/astral-sh/uv) or pip to install the package directly into a virtual environment.
 
-This sadly involves compiling wxPython, which will take at least 5 minutes on a fast computer, and up to 1 hour on slower CPUs. Depending on your operating system, you may need system-level GUI dependencies installed for wxPython to build or run seamlessly. For example, on Ubuntu 26.04:
-```sh
+On Linux, this involves compiling `wxPython`, which will take at least 5 minutes on a fast computer, and up to 1 hour on slower CPUs. On Windows the compilation is not necessary and it installs instantly.
+
+Depending on your environment, you may need system-level GUI dependencies installed for `wxPython` to build or run seamlessly. For example, on Ubuntu 26.04:
+```bash
 sudo apt install python3-dev libgtk-3-dev freeglut3-dev libwebkitgtk-6.0-dev libjpeg-dev libpng-dev libtiff-dev libsdl-dev libnotify-dev libsm-dev
 ```
+On Debian 13 (Trixie):
 
-```sh
+```bash
+sudo apt install python3-dev libgtk-3-dev freeglut3-dev libwebkitgtk-6.0-dev libjpeg-dev libpng-dev libtiff-dev libsdl2-dev libnotify-dev libsm-dev
+```
+
+```bash
 # Clone the repository
 git clone https://github.com/lukaszsobala/mMass.git
 cd mMass
@@ -53,11 +61,11 @@ python src/mmass_app/app.py
 
 Legacy parts of the UI still use pixel-oriented sizing. To safely scale tool icons,
 control metrics, and spectrum line thickness without changing default behavior,
-set `MMASS_UI_SCALE` when launching.
+set `MMASS_UI_SCALE` when launching \[EXPERIMENTAL!\].
 
 Example (200% equivalent):
 
-```sh
+```bash
 MMASS_UI_SCALE=2 mmass
 ```
 
@@ -68,8 +76,8 @@ This is especially useful when forcing X11 paths such as:
 Because the legacy C extensions have been removed, pre-building ABI-specific wheels targeting `manylinux` arrays via Docker is **no longer required**. 
 
 Simply build it using modern Python buildup tools:
-```sh
-pip install build
+```bash
+uv pip install build
 python -m build
 ```
 The universal wheel and source dist will be produced natively in `dist/`.
@@ -113,7 +121,7 @@ Issues can be file in the GitHub bug tracker.  PRs welcomed!
 
 ## Release procedure
 
-* Not regulated yet
+* Still digging for bugs before taking it out of the beta stage.
 
 ## Disclaimer
 
