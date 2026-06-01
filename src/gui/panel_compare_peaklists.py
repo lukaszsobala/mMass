@@ -279,15 +279,12 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         panel = wx.Panel(self, -1)
 
         # make grids
-        self.makeDocumentsGrid(panel)
         self.makePeaklistGrid(panel)
         self.makeMatchesGrid(panel)
 
         # pack main
         mainSizer = wx.BoxSizer(wx.HORIZONTAL)
-        mainSizer.Add(self.documentsGrid, 1, wx.EXPAND)
-        mainSizer.AddSpacer(mwx.SASH_SIZE)
-        mainSizer.Add(self.peaklistGrid, 0, wx.EXPAND)
+        mainSizer.Add(self.peaklistGrid, 1, wx.EXPAND)
         mainSizer.AddSpacer(mwx.SASH_SIZE)
         mainSizer.Add(self.matchesGrid, 0, wx.EXPAND)
 
@@ -295,43 +292,6 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         panel.SetSizer(mainSizer)
 
         return panel
-
-    # ----
-
-    def makeDocumentsGrid(self, panel):
-        """Make documents grid."""
-
-        dark = images.is_dark_mode()
-        cell_bg = wx.Colour(30, 30, 30) if dark else wx.WHITE
-        cell_fg = wx.Colour(220, 220, 220) if dark else wx.BLACK
-        label_bg = wx.Colour(45, 45, 45) if dark else wx.Colour(245, 245, 245)
-        grid_line = wx.Colour(70, 70, 70) if dark else wx.Colour(220, 220, 220)
-
-        # make table
-        self.documentsGrid = wx.grid.Grid(
-            panel, -1, size=wx.Size(550, 500), style=mwx.GRID_STYLE
-        )
-        self.documentsGrid.CreateGrid(0, 0)
-        self.documentsGrid.DisableDragColSize()
-        self.documentsGrid.DisableDragRowSize()
-        self.documentsGrid.SetColLabelSize(19)
-        self.documentsGrid.SetRowLabelSize(0)
-        self.documentsGrid.SetDefaultRowSize(19)
-        self.documentsGrid.AutoSizeColumns(True)
-        self.documentsGrid.SetLabelFont(wx.SMALL_FONT)
-        self.documentsGrid.SetLabelBackgroundColour(label_bg)
-        self.documentsGrid.SetLabelTextColour(cell_fg)
-        self.documentsGrid.SetDefaultCellFont(wx.SMALL_FONT)
-        self.documentsGrid.SetDefaultCellAlignment(wx.ALIGN_RIGHT, wx.ALIGN_TOP)
-        self.documentsGrid.SetDefaultCellBackgroundColour(cell_bg)
-        self.documentsGrid.SetDefaultCellTextColour(cell_fg)
-        self.documentsGrid.EnableGridLines(True)
-        self.documentsGrid.SetGridLineColour(grid_line)
-
-        self.documentsGrid.Bind(
-            wx.grid.EVT_GRID_SELECT_CELL, self.onDocumentsCellSelected
-        )
-        self.documentsGrid.Bind(wx.EVT_KEY_DOWN, self.onDocumentsKey)
 
     # ----
 
@@ -466,7 +426,7 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
             mspy.start()
 
         # fit layout
-        self.documentsGrid.SetMinSize(self.documentsGrid.GetSize())
+        self.peaklistGrid.SetMinSize(self.peaklistGrid.GetSize())
         self.Layout()
         self.mainSizer.Fit(self)
         try:
@@ -474,7 +434,7 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         except Exception:
             pass
         try:
-            self.documentsGrid.SetMinSize(wx.Size(-1, -1))
+            self.peaklistGrid.SetMinSize(wx.Size(-1, -1))
         except RuntimeError:
             pass
 
@@ -540,50 +500,12 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
             p_obj = mspy.peak(mz=mz_avg, ai=ai_avg)
             new_peaks.append(p_obj)
 
+        if new_doc.spectrum is None:
+            wx.Bell()
+            return
+
         new_doc.spectrum.peaklist = mspy.peaklist(new_peaks)
         self.parent.onDocumentNew(document=new_doc)
-
-    # ----
-
-    def onDocumentsCellSelected(self, evt):
-        """Show more info for selected cell."""
-
-        evt.Skip()
-
-        if getattr(self, '_ignore_selection_events', False):
-            return
-
-        # check documents
-        if not self.currentDocuments:
-            return
-
-        # get slection
-        col = evt.GetCol()
-        row = evt.GetRow()
-
-        # get peak index
-        docIndex = int(col) / int((len(self.currentDocuments) + 1))
-        pkIndex = None
-        count = -1
-        for i, item in enumerate(self.currentPeaklist):
-            if item[1] == docIndex:
-                count += 1
-            if count == row:
-                pkIndex = i
-                break
-
-        # check peak index
-        if pkIndex is None:
-            self.currentMatches = []
-            self.updateMatchesGrid()
-            return
-
-        # highlight mass in plot
-        self.parent.updateMassPoints([self.currentPeaklist[pkIndex][0]])
-
-        # compare selected mass
-        self.compareSelected(pkIndex)
-        self.updateMatchesGrid()
 
     # ----
 
@@ -611,22 +533,6 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         # compare selected mass
         self.compareSelected(pkIndex)
         self.updateMatchesGrid()
-
-    # ----
-
-    def onDocumentsKey(self, evt):
-        """Key pressed."""
-
-        # get key
-        key = evt.GetKeyCode()
-
-        # copy
-        if key == 67 and evt.CmdDown():
-            self.copyDocuments()
-
-        # other keys
-        else:
-            evt.Skip()
 
     # ----
 
@@ -812,17 +718,8 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         try:
             scroll_x, scroll_y = self.peaklistGrid.GetViewStart()
             sel_row = self.peaklistGrid.GetGridCursorRow()
-            sel_mz = (
-                self.currentPeaklist[sel_row][0]
-                if (
-                    sel_row >= 0
-                    and self.currentPeaklist
-                    and sel_row < len(self.currentPeaklist)
-                )
-                else None
-            )
         except Exception:
-            scroll_x, scroll_y, sel_mz = 0, 0, None
+            scroll_x, scroll_y = 0, 0
             sel_row = -1
 
         # show processing gauge
@@ -846,7 +743,6 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
 
         self._ignore_selection_events = True
         # update gui with recreate=True
-        self.updateDocumentsGrid()
         self.updatePeaklistGrid()
         self.updateMatchesGrid()
 
@@ -894,17 +790,8 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         try:
             scroll_x, scroll_y = self.peaklistGrid.GetViewStart()
             sel_row = self.peaklistGrid.GetGridCursorRow()
-            sel_mz = (
-                self.currentPeaklist[sel_row][0]
-                if (
-                    sel_row >= 0
-                    and self.currentPeaklist
-                    and sel_row < len(self.currentPeaklist)
-                )
-                else None
-            )
         except Exception:
-            scroll_x, scroll_y, sel_mz = 0, 0, None
+            scroll_x, scroll_y = 0, 0
             sel_row = -1
 
         # show processing gauge
@@ -928,7 +815,6 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
 
         self._ignore_selection_events = True
         # update gui with recreate=True
-        self.updateDocumentsGrid()
         self.updatePeaklistGrid()
         self.updateMatchesGrid()
 
@@ -1004,83 +890,6 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         except Exception:
             wx.Bell()
             return False
-
-    # ----
-
-    def updateDocumentsGrid(self, recreate=True):
-        """Update current documents grid."""
-
-        # make new grid
-        if recreate or not self.currentPeaklist:
-
-            # erase grid
-            if self.documentsGrid.GetNumberRows():
-                self.documentsGrid.DeleteRows(0, self.documentsGrid.GetNumberRows())
-            if self.documentsGrid.GetNumberCols():
-                self.documentsGrid.DeleteCols(0, self.documentsGrid.GetNumberCols())
-
-            # check peaklist
-            if not self.currentPeaklist:
-                return
-
-            # make new grid
-            count = len(self.currentDocuments)
-            self.documentsGrid.AppendCols(count**2 + count)
-            self.documentsGrid.AppendRows(self._maxSize)
-
-            cellAttr = wx.grid.GridCellAttr()
-            cellAttr.SetReadOnly(True)
-            for x in range(count**2 + count):
-                self.documentsGrid.SetColAttr(x, cellAttr.Clone())
-                if x % (count + 1):
-                    self.documentsGrid.SetColLabelValue(x, "*")
-                    self.documentsGrid.SetColSize(x, 20)
-                else:
-                    self.documentsGrid.SetColLabelValue(x, "m/z")
-
-        # set formats
-        mzFormat = "%0." + repr(config.main["mzDigits"]) + "f"
-
-        # add data
-        rows = [0] * len(self.currentDocuments)
-        count = len(self.currentDocuments)
-        for i, item in enumerate(self.currentPeaklist):
-
-            # get item column and row
-            col = item[1] * (count + 1)
-            row = rows[item[1]]
-            rows[item[1]] += 1
-
-            # add mz
-            mz = mzFormat % item[0]
-            self.documentsGrid.SetCellValue(row, col, mz)
-
-            # add matches
-            rowMax = max((v for v in item[4] if v is not None), default=0.0)
-            for x in range(count):
-                intensity = item[4][x]
-                if intensity is not None:
-                    fraction = float(intensity) / rowMax if rowMax > 0 else 1.0
-                    self.documentsGrid.SetCellRenderer(
-                        row,
-                        col + x + 1,
-                        _IntensityFillRenderer(self.currentDocuments[x].colour, fraction),
-                    )
-                else:
-                    self.documentsGrid.SetCellRenderer(
-                        row,
-                        col + x + 1,
-                        _IntensityFillRenderer(wx.NullColour, 0.0),
-                    )
-
-                if x == item[1]:
-                    self.documentsGrid.SetCellValue(row, col + x + 1, "*")
-                    self.documentsGrid.SetCellTextColour(row, col + x + 1, wx.BLACK)
-                    self.documentsGrid.SetCellAlignment(
-                        row, col + x + 1, wx.ALIGN_CENTER, wx.ALIGN_CENTER
-                    )
-
-        self.documentsGrid.AutoSizeColumns(True)
 
     # ----
 
@@ -1415,38 +1224,6 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
 
         # sort matches by document
         self.currentMatches.sort()
-
-    # ----
-
-    def copyDocuments(self):
-        """Copy documents table into clipboard."""
-
-        # get default bgr colour
-        defaultColour = self.documentsGrid.GetDefaultCellBackgroundColour()
-
-        # get data
-        buff = ""
-        for row in range(self.documentsGrid.GetNumberRows()):
-            line = ""
-            for col in range(self.documentsGrid.GetNumberCols()):
-                value = self.documentsGrid.GetCellValue(row, col)
-                if (
-                    value == ""
-                    and defaultColour
-                    != self.documentsGrid.GetCellBackgroundColour(row, col)
-                ):
-                    value = "x"
-                line += value + "\t"
-            buff += "%s\n" % (line.rstrip())
-
-        # make text object for data
-        obj = wx.TextDataObject()
-        obj.SetText(buff.rstrip())
-
-        # paste to clipboard
-        if wx.TheClipboard.Open():
-            wx.TheClipboard.SetData(obj)
-            wx.TheClipboard.Close()
 
     # ----
 
