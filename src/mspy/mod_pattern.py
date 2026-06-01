@@ -96,6 +96,8 @@ def pattern(
         atomCount = composition[atom]
         atomPattern = []
         match = mod_basics.ELEMENT_PATTERN.match(atom)
+        if not match:
+            raise ValueError("Unknown atom format! --> " + str(atom))
         symbol, massNumber, tmp = match.groups()
         if massNumber:
             isotope = blocks.elements[symbol].isotopes[int(massNumber)]
@@ -352,8 +354,6 @@ def _consolidate(isotopes, window):
         isotopes = isotopes.tolist()
 
     isotopes.sort()
-
-    f = (window / 1.66) * (window / 1.66)
 
     buff = []
     buff.append(isotopes[0])

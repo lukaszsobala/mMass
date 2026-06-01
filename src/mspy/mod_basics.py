@@ -19,9 +19,6 @@
 import math
 import re
 
-# load stopper
-from .mod_stopper import CHECK_FORCE_QUIT
-
 # load blocks
 from . import blocks
 
@@ -98,13 +95,19 @@ def mz(mass, charge, currentCharge=0, agentFormula="H", agentCharge=1, massType=
 
     # get agent mass
     if agentFormula == "e":
-        agentMass = [ELECTRON_MASS, ELECTRON_MASS]
+        agentMassMo = ELECTRON_MASS
+        agentMassAv = ELECTRON_MASS
     else:
         agentMass = agentFormula.mass()
-        agentMass = (
-            agentMass[0] - agentCharge * ELECTRON_MASS,
-            agentMass[1] - agentCharge * ELECTRON_MASS,
-        )
+        if isinstance(agentMass, (tuple, list)):
+            agentMassMo = float(agentMass[0])
+            agentMassAv = float(agentMass[1])
+        else:
+            agentMassMo = float(agentMass)
+            agentMassAv = float(agentMass)
+        agentMassMo -= agentCharge * ELECTRON_MASS
+        agentMassAv -= agentCharge * ELECTRON_MASS
+    agentMass = (agentMassMo, agentMassAv)
 
     # recalculate zero charge
     agentCount = currentCharge / agentCharge
@@ -157,7 +160,10 @@ def md(mass, mdType="standard", kendrickFormula="CH2", rounding="floor"):
         if not isinstance(kendrickFormula, obj_compound.compound):
             kendrickFormula = obj_compound.compound(kendrickFormula)
 
-        kendrickF = kendrickFormula.nominalmass() / kendrickFormula.mass(0)
+        kendrickMass = kendrickFormula.mass(0)
+        if isinstance(kendrickMass, (tuple, list)):
+            kendrickMass = kendrickMass[0]
+        kendrickF = kendrickFormula.nominalmass() / float(kendrickMass)
 
         return nominalmass(mass * kendrickF, rounding) - (mass * kendrickF)
 
@@ -212,7 +218,7 @@ def rdbe(compound):
     atoms = []
     for item in comp:
         match = ELEMENT_PATTERN.match(item)
-        if match and not match.group(1) in atoms:
+        if match and match.group(1) not in atoms:
             atoms.append(match.group(1))
 
     # get rdbe

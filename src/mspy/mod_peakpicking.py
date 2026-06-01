@@ -48,6 +48,18 @@ ENVELOPE_NON_IDEALITY_DEFAULT = 0.20
 # ----------------------
 
 
+def _mass_scalar(value, massType=0):
+    """Return scalar mass from float or (mono, average) tuple-like values."""
+
+    if isinstance(value, (tuple, list)):
+        if len(value) > massType:
+            return float(value[massType])
+        if len(value) > 0:
+            return float(value[0])
+        return 0.0
+    return float(value)
+
+
 def labelpoint(signal, mz, baseline=None):
     """Return labeled peak at given x-value.
     signal (numpy array) - signal data points
@@ -145,6 +157,10 @@ def labelpeak(signal, mz=None, minX=None, maxX=None, pickingHeight=0.75, baselin
     # check m/z value
     if mz is not None:
         minX = mz
+    if mz is None and (minX is None or maxX is None):
+        raise TypeError("Both minX and maxX must be specified when mz is not set!")
+    if minX is None:
+        return None
     if minX <= 0:
         return False
 
@@ -185,8 +201,11 @@ def labelpeak(signal, mz=None, minX=None, maxX=None, pickingHeight=0.75, baselin
     rightMZ = mod_signal.interpolate(signal[iright - 1], signal[iright], y=h)
 
     # check range
-    if mz is None and (leftMZ < minX or rightMZ > maxX) and (leftMZ != rightMZ):
-        return None
+    if mz is None:
+        rangeMin = minX if minX is not None else leftMZ
+        rangeMax = maxX if maxX is not None else rightMZ
+        if (leftMZ < rangeMin or rightMZ > rangeMax) and (leftMZ != rightMZ):
+            return None
 
     # label peak in the newly found selection
     if mz is not None and leftMZ != rightMZ:
@@ -406,6 +425,10 @@ def envcentroid(isotopes, pickingHeight=0.5, intensity="maximum"):
     if not isinstance(isotopes, obj_peaklist.peaklist):
         isotopes = obj_peaklist.peaklist(isotopes)
 
+    basepeak = isotopes.basepeak
+    if basepeak is None:
+        return None
+
     # get sums
     sumMZ = 0.0
     sumIntensity = 0.0
@@ -417,21 +440,21 @@ def envcentroid(isotopes, pickingHeight=0.5, intensity="maximum"):
     mz = sumMZ / sumIntensity
 
     # get ai, base and sn
-    base = isotopes.basepeak.base
-    sn = isotopes.basepeak.sn
-    fwhm = isotopes.basepeak.fwhm
+    base = basepeak.base
+    sn = basepeak.sn
+    fwhm = basepeak.fwhm
     if intensity == "sum":
         displayAI = base + sumIntensity
     elif intensity == "average":
         displayAI = base + sumIntensity / len(isotopes)
     else:
-        displayAI = isotopes.basepeak.ai
+        displayAI = basepeak.ai
     ai = displayAI
-    if isotopes.basepeak.sn:
-        sn = (displayAI - base) * isotopes.basepeak.sn / (isotopes.basepeak.ai - base)
+    if basepeak.sn and basepeak.ai != base:
+        sn = (displayAI - base) * basepeak.sn / (basepeak.ai - base)
 
     # get envelope width
-    minInt = isotopes.basepeak.intensity * pickingHeight
+    minInt = basepeak.intensity * pickingHeight
     i1 = None
     i2 = None
     for x, isotope in enumerate(isotopes):
@@ -439,6 +462,9 @@ def envcentroid(isotopes, pickingHeight=0.5, intensity="maximum"):
             i2 = x
             if i1 is None:
                 i1 = x
+
+    if i1 is None or i2 is None:
+        return None
 
     mz1 = isotopes[i1].mz
     mz2 = isotopes[i2].mz
@@ -481,29 +507,34 @@ def envmono(isotopes, charge, intensity="maximum"):
     if not isinstance(isotopes, obj_peaklist.peaklist):
         isotopes = obj_peaklist.peaklist(isotopes)
 
+    basepeak = isotopes.basepeak
+    if basepeak is None:
+        return None
+
     # calc averagine
-    avFormula = averagine(
-        isotopes.basepeak.mz, charge=charge, composition=AVERAGE_AMINO
-    )
+    avFormula = averagine(basepeak.mz, charge=charge, composition=AVERAGE_AMINO)
     avPattern = avFormula.pattern(fwhm=0.1, threshold=0.001, charge=charge)
     avPattern = obj_peaklist.peaklist(avPattern)
+    avBasepeak = avPattern.basepeak
+    if avBasepeak is None:
+        return None
 
     # get envelope centroid
     points = numpy.array([(p.mz, p.intensity) for p in isotopes])
-    centroid = labelpeak(points, mz=isotopes.basepeak.mz, pickingHeight=0.8)
+    centroid = labelpeak(points, mz=basepeak.mz, pickingHeight=0.8)
     if not centroid:
-        centroid = isotopes.basepeak
+        centroid = basepeak
 
     # get averagine centroid
     points = numpy.array([(p.mz, p.intensity) for p in avPattern])
-    avCentroid = labelpeak(points, mz=avPattern.basepeak.mz, pickingHeight=0.8)
+    avCentroid = labelpeak(points, mz=avBasepeak.mz, pickingHeight=0.8)
     if not avCentroid:
-        avCentroid = avPattern.basepeak
+        avCentroid = avBasepeak
 
     # align profiles and get monoisotopic mass
     shift = centroid.mz - avCentroid.mz
-    errors = [(abs(p.mz - avPattern.basepeak.mz - shift), p.mz) for p in isotopes]
-    mz = min(errors)[1] - (avPattern.basepeak.mz - avFormula.mz(charge)[0])
+    errors = [(abs(p.mz - avBasepeak.mz - shift), p.mz) for p in isotopes]
+    mz = min(errors)[1] - (avBasepeak.mz - avFormula.mz(charge)[0])
 
     # sum intensities
     sumIntensity = 0
@@ -511,18 +542,18 @@ def envmono(isotopes, charge, intensity="maximum"):
         sumIntensity += isotope.intensity
 
     # get ai, base and sn
-    base = isotopes.basepeak.base
-    sn = isotopes.basepeak.sn
-    fwhm = isotopes.basepeak.fwhm
+    base = basepeak.base
+    sn = basepeak.sn
+    fwhm = basepeak.fwhm
     if intensity == "sum":
         displayAI = base + sumIntensity
     elif intensity == "average":
         displayAI = base + sumIntensity / len(isotopes)
     else:
-        displayAI = isotopes.basepeak.ai
+        displayAI = basepeak.ai
     ai = displayAI
-    if isotopes.basepeak.sn:
-        sn = (displayAI - base) * isotopes.basepeak.sn / (isotopes.basepeak.ai - base)
+    if basepeak.sn and basepeak.ai != base:
+        sn = (displayAI - base) * basepeak.sn / (basepeak.ai - base)
 
     # make peak
     peak = obj_peak.peak(mz=mz, ai=ai, base=base, sn=sn, fwhm=fwhm, isotope=0)
@@ -668,7 +699,10 @@ def _cluster_weights(cluster):
         if first_iso > 0:
             mono_mz -= first_iso * (ISOTOPE_DISTANCE / abs(parent.charge))
             
-        neutralMass = mod_basics.mz(mono_mz, charge=0, currentCharge=parent.charge, massType=1)
+        neutralMass = _mass_scalar(
+            mod_basics.mz(mono_mz, charge=0, currentCharge=parent.charge, massType=1),
+            massType=1,
+        )
         import math
         lam = max(0.0, neutralMass * 0.000475)
         
@@ -825,7 +859,10 @@ def _cluster_pattern(parent, size):
     if size <= 0:
         return []
 
-    neutralMass = mod_basics.mz(parent.mz, charge=0, currentCharge=parent.charge, massType=1)
+    neutralMass = _mass_scalar(
+        mod_basics.mz(parent.mz, charge=0, currentCharge=parent.charge, massType=1),
+        massType=1,
+    )
     
     # Averagine Poisson approximation: expected number of 13C atoms
     # ~0.0444 carbons per Da, ~1.07% 13C naturally. 
@@ -941,6 +978,8 @@ def _cluster_pattern_error(parent, cluster, isotopeShift=0.0, relaxed=False):
 
     observed, maxMzError = _cluster_observed_pattern(parent, cluster, isotopeShift)
     if observed is None or len(observed) < 2:
+        return None
+    if maxMzError is None:
         return None
 
     pattern = _cluster_pattern(parent, len(observed))
@@ -1328,6 +1367,8 @@ def relabelenvelopes(
 
             if found is None:
                 break
+            if found_isotope is None:
+                break
 
             cluster.append(copy.deepcopy(peaklist[found]))
             indexes.append(found)
@@ -1515,7 +1556,8 @@ def deisotope(
                 continue
 
             # get theoretical isotopic pattern
-            mass = int(min(15000, int(mod_basics.mz(parent.mz, 0, z))) / 200)
+            neutralMass = _mass_scalar(mod_basics.mz(parent.mz, 0, z))
+            mass = int(min(15000, int(neutralMass)) / 200)
             pattern = patternLookupTable[mass]
 
             # check minimal number of isotopes in the cluster
@@ -1648,7 +1690,10 @@ def averagine(mz, charge=0, composition=AVERAGE_AMINO):
         blockMass += blocks.elements[element].mass[1] * composition[element]
 
     # get block count
-    neutralMass = mod_basics.mz(mz, charge=0, currentCharge=charge, massType=1)
+    neutralMass = _mass_scalar(
+        mod_basics.mz(mz, charge=0, currentCharge=charge, massType=1),
+        massType=1,
+    )
     count = max(1, neutralMass / blockMass)
 
     # make formula
@@ -1658,9 +1703,9 @@ def averagine(mz, charge=0, composition=AVERAGE_AMINO):
     formula = obj_compound.compound(formula)
 
     # add some hydrogens to reach the mass
-    hydrogens = int(
-        round((neutralMass - formula.mass(1)) / blocks.elements["H"].mass[1])
-    )
+    formulaMass = _mass_scalar(formula.mass(1), massType=1)
+    hydrogenMass = float(blocks.elements["H"].mass[1])
+    hydrogens = int(round((neutralMass - formulaMass) / hydrogenMass))
     hydrogens = max(hydrogens, -1 * formula.count("H"))
     formula += "H%d" % hydrogens
 

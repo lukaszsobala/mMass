@@ -18,9 +18,7 @@
 # load libs
 import numpy
 import copy
-
-# load stopper
-from .mod_stopper import CHECK_FORCE_QUIT
+from typing import Optional
 
 # load objects
 from . import obj_peak
@@ -54,7 +52,10 @@ class scan:
 
         # buffers
         self._baseline = None
-        self._baselineParams = {"window": None, "offset": None}
+        self._baselineParams: dict[str, Optional[float]] = {
+            "window": None,
+            "offset": None,
+        }
 
         # convert profile to numPy array
         if not isinstance(profile, numpy.ndarray):
@@ -166,23 +167,19 @@ class scan:
         # calculate range for spectrum and peaklist
         if len(self.profile) > 0 and len(self.peaklist) > 0:
             spectrumMax = numpy.max(self.profile[:, 1])
-            spectrumMin = numpy.min(self.profile[:, 1])
             peaklistMax = max([peak.ai for peak in self.peaklist])
-            peaklistMin = min([peak.base for peak in self.peaklist])
 
             return max(spectrumMax, peaklistMax) / 100.0
 
         # calculate range for spectrum only
         elif len(self.profile) > 0:
             spectrumMax = numpy.max(self.profile[:, 1])
-            shift = numpy.min(self.profile[:, 1])
 
             return spectrumMax / 100.0
 
         # calculate range for peaklist only
         elif len(self.peaklist) > 0:
             peaklistMax = max([peak.ai for peak in self.peaklist])
-            shift = min([peak.base for peak in self.peaklist])
 
             return peaklistMax / 100.0
 

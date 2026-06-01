@@ -54,21 +54,21 @@ class sequence:
         self.cyclic = cyclic
 
         # get sequence chain
-        if type(chain) == list:
+        if isinstance(chain, list):
             self.chain = chain
 
         elif self.chainType == "aminoacids":
             for symbol in chain.upper():
-                if not symbol in ("\t", "\n", "\r", "\f", "\v", " ", "-", "*", ".", ""):
+                if symbol not in ("\t", "\n", "\r", "\f", "\v", " ", "-", "*", ".", ""):
                     self.chain.append(symbol)
         else:
             for symbol in chain.split("|"):
                 symbol = symbol.strip()
-                if not symbol in ("\t", "\n", "\r", "\f", "\v", " ", "-", "*", ".", ""):
+                if symbol not in ("\t", "\n", "\r", "\f", "\v", " ", "-", "*", ".", ""):
                     self.chain.append(symbol)
 
         for monomer in self.chain:
-            if not monomer in blocks.monomers:
+            if monomer not in blocks.monomers:
                 raise KeyError("Unknown monomer in the sequence! --> " + monomer)
 
         # set terminal groups
@@ -164,9 +164,9 @@ class sequence:
                     peptide.modifications.append(mod)
                 elif mod[1] == "cTerm" and (stop == -1 or stop == len(parent)):
                     peptide.modifications.append(mod)
-                elif type(mod[1]) in (str, str) and mod[1] in peptide.chain:
+                elif isinstance(mod[1], str) and mod[1] in peptide.chain:
                     peptide.modifications.append(mod)
-                elif type(mod[1]) == int:
+                elif isinstance(mod[1], int):
                     if start <= mod[1] < stop:
                         mod[1] -= start
                         peptide.modifications.append(mod)
@@ -179,9 +179,9 @@ class sequence:
 
             # add labels
             for mod in parent.labels:
-                if type(mod[1]) in (str, str) and mod[1] in peptide.chain:
+                if isinstance(mod[1], str) and mod[1] in peptide.chain:
                     peptide.labels.append(mod)
-                elif type(mod[1]) == int:
+                elif isinstance(mod[1], int):
                     if start <= mod[1] < stop:
                         mod[1] -= start
                         peptide.labels.append(mod)
@@ -248,6 +248,8 @@ class sequence:
     # SEQUENCE EDITOR ESSENTIALS
 
     def __setitem__(self, i, value):
+        start = 0
+        stop = 0
         if isinstance(i, slice):
             # check slice
             if i.step is not None:
@@ -281,12 +283,12 @@ class sequence:
 
             # shift modifications
             for x, mod in enumerate(self.modifications):
-                if type(mod[1]) == int and mod[1] > i:
+                if isinstance(mod[1], int) and mod[1] > i:
                     self.modifications[x][1] += len(value)
 
             # shift labels
             for x, mod in enumerate(self.labels):
-                if type(mod[1]) == int and mod[1] > i:
+                if isinstance(mod[1], int) and mod[1] > i:
                     self.labels[x][1] += len(value)
         else:
             # delete slice
@@ -298,12 +300,12 @@ class sequence:
 
             # shift modifications
             for x, mod in enumerate(self.modifications):
-                if type(mod[1]) == int and mod[1] >= start:
+                if isinstance(mod[1], int) and mod[1] >= start:
                     self.modifications[x][1] += len(value)
 
             # shift labels
             for x, mod in enumerate(self.labels):
-                if type(mod[1]) == int and mod[1] >= start:
+                if isinstance(mod[1], int) and mod[1] >= start:
                     self.labels[x][1] += len(value)
 
         # adding modifications not implemented
@@ -321,44 +323,6 @@ class sequence:
         # clear buffers
         self.reset()
 
-    # TODO: confirm that the sequence processing here makes sense
-    def __delitem__(self, i):
-        # Remove sequence
-        print(i)
-        print(type(i))
-        self.chain = self.chain[:i] + self.chain[i + 1 :]
-
-        # Remove modifications
-        keep = []
-        for mod in self.modifications:
-            if type(mod[1]) == int and mod[1] > i:
-                mod[1] -= 1
-                keep.append(mod)
-            elif type(mod[1]) in (str, str) and (
-                mod[1] in self.chain or mod[1] in ("nTerm", "cTerm")
-            ):
-                keep.append(mod)
-        self.modification = keep
-
-        # Remove labels
-        keep = []
-        for mod in self.labels:
-            if type(mod[1]) == int and mod[1] > i:
-                mod[1] -= 1
-                keep.append(mod)
-            elif type(mod[1]) in (str, str) and mod[1] in self.chain:
-                keep.append(mod)
-        self.labels = keep
-
-        # clear some values
-        self.history = [("init", 0, len(self.chain))]
-        self.itemBefore = ""
-        self.itemAfter = ""
-        self.miscleavages = 0
-
-        # clear buffers
-        self.reset()
-
     def __delitem__(self, i):
         if isinstance(i, int):
             self.chain = self.chain[:i] + self.chain[i + 1 :]
@@ -366,22 +330,22 @@ class sequence:
             # Remove modifications
             keep = []
             for mod in self.modifications:
-                if type(mod[1]) == int and mod[1] > i:
+                if isinstance(mod[1], int) and mod[1] > i:
                     mod[1] -= 1
                     keep.append(mod)
-                elif type(mod[1]) in (str, str) and (
+                elif isinstance(mod[1], str) and (
                     mod[1] in self.chain or mod[1] in ("nTerm", "cTerm")
                 ):
                     keep.append(mod)
-            self.modification = keep
+            self.modifications = keep
 
             # Remove labels
             keep = []
             for mod in self.labels:
-                if type(mod[1]) == int and mod[1] > i:
+                if isinstance(mod[1], int) and mod[1] > i:
                     mod[1] -= 1
                     keep.append(mod)
-                elif type(mod[1]) in (str, str) and mod[1] in self.chain:
+                elif isinstance(mod[1], str) and mod[1] in self.chain:
                     keep.append(mod)
             self.labels = keep
 
@@ -401,11 +365,11 @@ class sequence:
             # remove modifications
             keep = []
             for mod in self.modifications:
-                if type(mod[1]) == int and (mod[1] < start or mod[1] >= stop):
+                if isinstance(mod[1], int) and (mod[1] < start or mod[1] >= stop):
                     if mod[1] >= stop:
                         mod[1] -= stop - start
                     keep.append(mod)
-                elif type(mod[1]) in (str, str) and (
+                elif isinstance(mod[1], str) and (
                     mod[1] in self.chain or mod[1] in ("nTerm", "cTerm")
                 ):
                     keep.append(mod)
@@ -414,11 +378,11 @@ class sequence:
             # remove labels
             keep = []
             for mod in self.labels:
-                if type(mod[1]) == int and (mod[1] < start or mod[1] >= stop):
+                if isinstance(mod[1], int) and (mod[1] < start or mod[1] >= stop):
                     if mod[1] >= stop:
                         mod[1] -= stop - start
                     keep.append(mod)
-                elif type(mod[1]) in (str, str) and mod[1] in self.chain:
+                elif isinstance(mod[1], str) and mod[1] in self.chain:
                     keep.append(mod)
             self.labels = keep
 
@@ -496,9 +460,9 @@ class sequence:
         for name, position, state in mods:
             multi = 1
             if (
-                type(position) in (str, str)
+                isinstance(position, str)
                 and position != ""
-                and not position in ("nTerm", "cTerm")
+                and position not in ("nTerm", "cTerm")
             ):
                 multi = self.chain.count(position)
             for el, count in list(blocks.modifications[name].composition.items()):
@@ -550,13 +514,22 @@ class sequence:
         if self._mass is None:
             self._mass = obj_compound.compound(self.formula()).mass()
 
+        mass = self._mass
+        if isinstance(mass, (tuple, list)):
+            if massType == 0:
+                return mass[0]
+            elif massType == 1:
+                return mass[1]
+            else:
+                return mass
+
         # return mass
         if massType == 0:
-            return self._mass[0]
+            return mass
         elif massType == 1:
-            return self._mass[1]
+            return mass
         else:
-            return self._mass
+            return (mass, mass)
 
     # ----
 
@@ -776,7 +749,7 @@ class sequence:
                 fixedMods.append(mod)
 
             # positioned modifications
-            elif type(mod[1]) == int:
+            elif isinstance(mod[1], int):
                 variableMods.append(mod)
 
             # terminal modifications
@@ -837,7 +810,7 @@ class sequence:
                 else:
                     mods += [[mod[0][0], "", "f"]] * mod[1]
             mods.sort()
-            if not mods in buff:
+            if mods not in buff:
                 buff.append(mods)
         combinations = buff
 
@@ -967,22 +940,22 @@ class sequence:
         """Apply modification to sequence."""
 
         # check modification
-        if not name in blocks.modifications:
+        if name not in blocks.modifications:
             raise KeyError("Unknown modification! --> " + name)
 
         # check position
         try:
             position = int(position)
-        except:
+        except Exception:
             position = str(position)
 
         if self.cyclic and position in ("nTerm", "cTerm"):
             return False
-        if type(position) == str and (
-            not position in ("nTerm", "cTerm") and not position in self.chain
+        if isinstance(position, str) and (
+            position not in ("nTerm", "cTerm") and position not in self.chain
         ):
             return False
-        if type(position) == int and (position < 0 or position >= len(self)):
+        if isinstance(position, int) and (position < 0 or position >= len(self)):
             return False
 
         # add modification
@@ -1004,10 +977,13 @@ class sequence:
 
         # remove modification
         else:
-            try:
-                mod = [name, int(position), str(state)]
-            except:
+            if position is None:
                 mod = [name, str(position), str(state)]
+            else:
+                try:
+                    mod = [name, int(position), str(state)]
+                except Exception:
+                    mod = [name, str(position), str(state)]
             while mod in self.modifications:
                 del self.modifications[self.modifications.index(mod)]
 
@@ -1020,17 +996,17 @@ class sequence:
         """Apply label modification to sequence."""
 
         # check modification
-        if not name in blocks.modifications:
+        if name not in blocks.modifications:
             raise KeyError("Unknown modification! --> " + name)
 
         # check position
         try:
             position = int(position)
-        except:
+        except Exception:
             position = str(position)
-        if type(position) == str and not position in self.chain:
+        if isinstance(position, str) and position not in self.chain:
             return False
-        elif type(position) == int and (position < 0 or position >= len(self)):
+        elif isinstance(position, int) and (position < 0 or position >= len(self)):
             return False
 
         # add label
@@ -1080,7 +1056,7 @@ class sequence:
         for mod in modifications:
 
             # count modification
-            if mod[1] == "" or type(mod[1]) == int:
+            if mod[1] == "" or isinstance(mod[1], int):
                 count = 1
             elif mod[1] in ("nTerm", "cTerm"):
                 count = 1
@@ -1140,16 +1116,16 @@ class sequence:
 
         for x in positions:
             count = positions.count(x)
-            if type(x) == int:
+            if isinstance(x, int):
                 if count > maxMods:
                     return False
             elif x in ("nTerm", "cTerm"):
                 if count > maxMods:
                     return False
-            elif type(x) in (str, str):
+            elif isinstance(x, str):
                 available = chain.count(x)
                 for y in positions:
-                    if type(y) == int and chain[y] == x:
+                    if isinstance(y, int) and chain[y] == x:
                         available -= 1
                 if count > (available * maxMods):
                     return False

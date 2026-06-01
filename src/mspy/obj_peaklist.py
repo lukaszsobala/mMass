@@ -16,12 +16,7 @@
 # -------------------------------------------------------------------------
 
 # load libs
-import numpy
-import re
 import copy
-
-# load stopper
-from .mod_stopper import CHECK_FORCE_QUIT
 
 # load objects
 from . import obj_peak
@@ -201,14 +196,14 @@ class peaklist:
         # get used names
         used = []
         for peak in self.peaks:
-            if peak.group is not None and not peak.group in used:
+            if peak.group is not None and peak.group not in used:
                 used.append(peak.group)
 
         # generate new name
         size = 1
         while True:
             for name in self._generateGroupNames(size):
-                if not name in used:
+                if name not in used:
                     return name
             size += 1
 
@@ -521,6 +516,8 @@ class peaklist:
             return
 
         # get absolute threshold
+        if self.basepeak is None:
+            return
         threshold = self.basepeak.intensity * relThreshold
         threshold = max(threshold, absThreshold)
 
@@ -576,7 +573,7 @@ class peaklist:
                 if (
                     (lowMZ < peak.mz < highMZ)
                     and (peak.intensity < intThreshold)
-                    and (not x in indexes)
+                    and (x not in indexes)
                 ):
                     indexes.append(x)
                 if peak.mz > highMZ:
@@ -667,6 +664,8 @@ class peaklist:
             return
 
         # set relative intensities
+        if self.basepeak is None:
+            return
         maxInt = self.basepeak.intensity
         if maxInt:
             for item in self.peaks:

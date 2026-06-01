@@ -15,9 +15,6 @@
 #     main directory of the program.
 # -------------------------------------------------------------------------
 
-# load stopper
-from .mod_stopper import CHECK_FORCE_QUIT
-
 # load objects
 from . import blocks
 
@@ -196,6 +193,8 @@ class compound:
 
                 # check specified isotope and mass
                 match = mod_basics.ELEMENT_PATTERN.match(atom)
+                if not match:
+                    raise ValueError("Wrong atom format in formula! --> " + str(atom))
                 symbol, massNumber, tmp = match.groups()
                 if massNumber:
                     isotope = blocks.elements[symbol].isotopes[int(massNumber)]
@@ -237,6 +236,8 @@ class compound:
 
                 # check specified isotope and mass
                 match = mod_basics.ELEMENT_PATTERN.match(atom)
+                if not match:
+                    raise ValueError("Wrong atom format in formula! --> " + str(atom))
                 symbol, massNumber, tmp = match.groups()
                 if massNumber:
                     isotope = blocks.elements[symbol].isotopes[int(massNumber)]
@@ -366,11 +367,11 @@ class compound:
 
         # check elements and isotopes
         for atom in mod_basics.ELEMENT_PATTERN.findall(formula):
-            if not atom[0] in blocks.elements:
+            if atom[0] not in blocks.elements:
                 raise ValueError(
                     "Unknown element in formula! --> " + atom[0] + " in " + formula
                 )
-            elif atom[1] and not int(atom[1]) in blocks.elements[atom[0]].isotopes:
+            elif atom[1] and int(atom[1]) not in blocks.elements[atom[0]].isotopes:
                 raise ValueError(
                     "Unknown isotope in formula! --> "
                     + atom[0]

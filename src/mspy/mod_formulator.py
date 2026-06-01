@@ -62,6 +62,10 @@ def formulator(
     else:
         mass = mz
 
+    # mod_basics.mz can return a (monoisotopic, average) tuple; use monoisotopic.
+    if isinstance(mass, (tuple, list)):
+        mass = mass[0]
+
     # check neutral mass
     if mass <= 0:
         return []
@@ -104,6 +108,8 @@ def formulator(
     comps = _compositions(
         minComposition, maxComposition, elementMasses, loMass, hiMass, limit
     )
+    if comps is None:
+        return formulae
     for comp in comps:
 
         CHECK_FORCE_QUIT()

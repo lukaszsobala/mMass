@@ -122,8 +122,8 @@ class enzyme:
         self.modsAfter = modsAfter
 
         # check formulae
-        cmpd = obj_compound.compound(nTermFormula)
-        cmpd = obj_compound.compound(cTermFormula)
+        obj_compound.compound(nTermFormula)
+        obj_compound.compound(cTermFormula)
 
     # ----
 
@@ -156,8 +156,8 @@ class fragment:
         self.cTermFilter = cTermFilter
 
         # check formulae
-        cmpd = obj_compound.compound(nTermFormula)
-        cmpd = obj_compound.compound(cTermFormula)
+        obj_compound.compound(nTermFormula)
+        obj_compound.compound(cTermFormula)
 
     # ----
 
@@ -2153,7 +2153,7 @@ def loadMonomers(
     if container and clear:
         monomers.clear()
     for key in container:
-        if replace or not key in monomers:
+        if replace or key not in monomers:
             monomers[key] = container[key]
 
 
@@ -2177,7 +2177,7 @@ def loadEnzymes(path=os.path.join(blocksdir, "enzymes.xml"), clear=False, replac
 
         # get expression
         expressionTags = enzymeTag.getElementsByTagName("expression")
-        expression = str(expressionTags[0].childNodes[0].data)
+        expression = _getNodeText(expressionTags[0])
 
         # get formula
         formulaTags = enzymeTag.getElementsByTagName("formula")
@@ -2203,7 +2203,7 @@ def loadEnzymes(path=os.path.join(blocksdir, "enzymes.xml"), clear=False, replac
     if container and clear:
         enzymes.clear()
     for key in container:
-        if replace or not key in enzymes:
+        if replace or key not in enzymes:
             enzymes[key] = container[key]
 
 
@@ -2255,7 +2255,7 @@ def loadModifications(
     if container and clear:
         modifications.clear()
     for key in container:
-        if replace or not key in modifications:
+        if replace or key not in modifications:
             modifications[key] = container[key]
 
 
@@ -2309,7 +2309,7 @@ def saveMonomers(path=os.path.join(blocksdir, "monomers.xml")):
         with open(path, "wb") as f:
             f.write(buff.encode("utf-8"))
         return True
-    except:
+    except Exception:
         return False
 
 
@@ -2347,7 +2347,7 @@ def saveEnzymes(path=os.path.join(blocksdir, "enzymes.xml")):
         with open(path, "wb") as f:
             f.write(buff.encode("utf-8"))
         return True
-    except:
+    except Exception:
         return False
 
 
@@ -2385,7 +2385,7 @@ def saveModifications(path=os.path.join(blocksdir, "modifications.xml")):
         with open(path, "wb") as f:
             f.write(buff.encode("utf-8"))
         return True
-    except:
+    except Exception:
         return False
 
 
