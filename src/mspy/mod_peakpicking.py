@@ -1417,6 +1417,7 @@ def relabelenvelopes(
             for isotope, peak in enumerate(peaks):
                 peak.setcharge(parent.charge)
                 peak.setisotope(isotope)
+                peak.setfwhm(fwhm_val)
                 peak.setgroup(groupname)
                 peak.attributes["envelope"] = envelope
                 result.append(peak)
@@ -1424,6 +1425,7 @@ def relabelenvelopes(
             for peak in peaks:
                 peak.setcharge(parent.charge)
                 peak.setisotope(0)
+                peak.setfwhm(fwhm_val)
                 peak.setgroup(groupname)
                 peak.attributes["envelope"] = envelope
                 result.append(peak)

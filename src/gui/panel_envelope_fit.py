@@ -251,6 +251,10 @@ class panelEnvelopeFit(wx.Frame, MakeModalMixin):
 
         self.average_label = wx.StaticText(panel, -1, "", size=(100, -1))
         self.average_label.SetFont(wx.SMALL_FONT)
+        self.fitFwhm_label = wx.StaticText(panel, -1, "", size=(110, -1))
+        self.fitFwhm_label.SetFont(wx.SMALL_FONT)
+        self.fitResolution_label = wx.StaticText(panel, -1, "", size=(120, -1))
+        self.fitResolution_label.SetFont(wx.SMALL_FONT)
         self.updateAverageLabel()
 
         # pack elements
@@ -273,6 +277,10 @@ class panelEnvelopeFit(wx.Frame, MakeModalMixin):
         sizer.Add(self.autoAlign_check, 0, wx.ALIGN_CENTER_VERTICAL)
         sizer.AddSpacer(20)
         sizer.Add(self.average_label, 0, wx.ALIGN_CENTER_VERTICAL)
+        sizer.AddSpacer(15)
+        sizer.Add(self.fitFwhm_label, 0, wx.ALIGN_CENTER_VERTICAL)
+        sizer.AddSpacer(15)
+        sizer.Add(self.fitResolution_label, 0, wx.ALIGN_CENTER_VERTICAL)
         sizer.AddSpacer(mwx.CONTROLBAR_RSPACE)
 
         mainSizer = wx.BoxSizer(wx.VERTICAL)
@@ -631,15 +639,26 @@ class panelEnvelopeFit(wx.Frame, MakeModalMixin):
     # ----
 
     def updateAverageLabel(self):
-        """Update average label value."""
+        """Update fit summary labels (average exchange, fitted FWHM, resolution)."""
 
-        # get label
-        label = "Average X: "
+        # get average exchange label
+        averageLabel = "Average X: "
+        fwhmLabel = "FWHM: "
+        resolutionLabel = "Resolution: "
+
         if self.currentFit is not None:
-            label += "%0.1f" % (self.currentFit.average)
+            averageLabel += "%0.1f" % (self.currentFit.average)
 
-        # set label
-        self.average_label.SetLabel(label)
+            if self.currentFit.fwhm is not None:
+                fwhmLabel += "%0.4f" % (self.currentFit.fwhm)
+
+            if self.currentFit.resolution is not None:
+                resolutionLabel += "%0.0f" % (self.currentFit.resolution)
+
+        # set labels
+        self.average_label.SetLabel(averageLabel)
+        self.fitFwhm_label.SetLabel(fwhmLabel)
+        self.fitResolution_label.SetLabel(resolutionLabel)
 
     # ----
 

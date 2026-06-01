@@ -63,6 +63,7 @@ class envfit:
         self.composition = None
         self.ncomposition = None
         self.average = None
+        self.resolution = None
 
         self._initModels(scales)
         self._initRange()
@@ -182,6 +183,7 @@ class envfit:
         self.composition = {}
         self.ncomposition = {}
         self.average = 0.0
+        self.resolution = None
         self.model = numpy.array([])
         for x in self.models:
             self.models[x][2] = 0.0  # abs comp
@@ -236,6 +238,12 @@ class envfit:
         intensities = numpy.sum(models * [[x] for x in fit], axis=0)
         intensities.shape = (-1, 1)
         self.model = numpy.concatenate((raster, intensities), axis=1).copy()
+
+        # estimate effective resolution at the modeled envelope apex
+        if self.fwhm and self.fwhm > 0 and len(self.model):
+            apexIndex = int(numpy.argmax(self.model[:, 1]))
+            apexMz = float(self.model[apexIndex, 0])
+            self.resolution = apexMz / float(self.fwhm)
 
         return True
 
