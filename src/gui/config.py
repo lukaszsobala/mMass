@@ -2292,6 +2292,10 @@ links = ConfigDict(links)
 replacements = ConfigDict(replacements)
 
 
+# Defaults policy:
+# - In-code dictionaries in this module are the single source of default values.
+# - config.xml in confdir is user runtime state persisted between launches.
+# - Do not reintroduce bundled config.xml as a second defaults definition.
 try:
     _initialize_runtime_config()
 except IOError:
