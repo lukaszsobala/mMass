@@ -16,11 +16,10 @@
 # -------------------------------------------------------------------------
 
 # load libs
+from typing import Callable
+
 import numpy
 from numpy.linalg import solve as solveLinEq
-
-# load stopper
-from .mod_stopper import CHECK_FORCE_QUIT
 
 # DATA RE-CALIBRATION
 # -------------------
@@ -87,8 +86,8 @@ def _leastSquaresFit(model, parameters, data, maxIterations=None, limit=1e-7):
     for param in parameters:
         p = p + (_DerivVar(param, i),)
         i = i + 1
-    id = numpy.identity(n_param)
-    l = 0.001
+    identity = numpy.identity(n_param)
+    damping = 0.001
     chi_sq, alpha = _chiSquare(model, p, data)
     niter = 0
 
@@ -96,17 +95,18 @@ def _leastSquaresFit(model, parameters, data, maxIterations=None, limit=1e-7):
         niter += 1
 
         delta = solveLinEq(
-            alpha + l * numpy.diagonal(alpha) * id, -0.5 * numpy.array(chi_sq[1])
+            alpha + damping * numpy.diagonal(alpha) * identity,
+            -0.5 * numpy.array(chi_sq.deriv),
         )
         next_p = list(map(lambda a, b: a + b, p, delta))
 
         next_chi_sq, next_alpha = _chiSquare(model, next_p, data)
         if next_chi_sq > chi_sq:
-            l = 10.0 * l
-        elif chi_sq[0] - next_chi_sq[0] < limit:
+            damping = 10.0 * damping
+        elif chi_sq.value - next_chi_sq.value < limit:
             break
         else:
-            l = 0.1 * l
+            damping = 0.1 * damping
             p = next_p
             chi_sq = next_chi_sq
             alpha = next_alpha
@@ -114,7 +114,7 @@ def _leastSquaresFit(model, parameters, data, maxIterations=None, limit=1e-7):
         if maxIterations and niter == maxIterations:
             break
 
-    return [p[0] for p in next_p], next_chi_sq[0]
+    return [param.value for param in next_p], next_chi_sq.value
 
 
 # ----
@@ -126,7 +126,7 @@ def _chiSquare(model, parameters, data):
     n_param = len(parameters)
     alpha = numpy.zeros((n_param, n_param))
 
-    chi_sq = _DerivVar(0.0, [])
+    chi_sq = _DerivVar(0.0, [0.0] * n_param)
     for point in data:
         f = model(parameters, point[0])
         chi_sq += (f - point[1]) ** 2
@@ -142,18 +142,31 @@ def _chiSquare(model, parameters, data):
 class _DerivVar:
     """This module provides automatic differentiation for functions with any number of variables."""
 
-    def __init__(self, value, index=0):
-        self.value = value
-        if type(index) == type([]):
-            self.deriv = index
-        else:
-            self.deriv = index * [0] + [1]
+    value: float
+    deriv: list[float]
 
-    def _mapderiv(self, func, a, b):
+    def __init__(self, value: float, index: int | float | str | list[float] = 0):
+        self.value = float(value)
+        if isinstance(index, list):
+            self.deriv = [float(x) for x in index]
+        else:
+            if isinstance(index, int):
+                seed_index = index
+            elif isinstance(index, float):
+                seed_index = int(index)
+            elif isinstance(index, str):
+                seed_index = int(index)
+            else:
+                raise TypeError("index must be int-like or derivative list")
+            self.deriv = [0.0] * seed_index + [1.0]
+
+    def _mapderiv(
+        self, func: Callable[[float, float], float], a: list[float], b: list[float]
+    ) -> list[float]:
         nvars = max(len(a), len(b))
-        a = a + (nvars - len(a)) * [0]
-        b = b + (nvars - len(b)) * [0]
-        return list(map(func, a, b))
+        a = a + (nvars - len(a)) * [0.0]
+        b = b + (nvars - len(b)) * [0.0]
+        return [func(x, y) for x, y in zip(a, b)]
 
     def __getitem__(self, item):
         if item == 0:
@@ -217,14 +230,12 @@ class _DerivVar:
                 self.value * other.value,
                 self._mapderiv(
                     lambda a, b: a + b,
-                    list(map(lambda x, f=self.value: f * x, other.deriv)),
-                    list(map(lambda x, f=other.value: f * x, self.deriv)),
+                    [self.value * x for x in other.deriv],
+                    [other.value * x for x in self.deriv],
                 ),
             )
         else:
-            return _DerivVar(
-                self.value * other, list(map(lambda x, f=other: f * x, self.deriv))
-            )
+            return _DerivVar(self.value * other, [other * x for x in self.deriv])
 
     def __div__(self, other):
         if isinstance(other, _DerivVar):
@@ -233,26 +244,22 @@ class _DerivVar:
                 self.value * inv,
                 self._mapderiv(
                     lambda a, b: a - b,
-                    list(map(lambda x, f=inv: f * x, self.deriv)),
-                    list(map(lambda x, f=self.value * inv * inv: f * x, other.deriv)),
+                    [inv * x for x in self.deriv],
+                    [self.value * inv * inv * x for x in other.deriv],
                 ),
             )
         else:
             inv = 1.0 / other
-            return _DerivVar(
-                self.value * inv, list(map(lambda x, f=inv: f * x, self.deriv))
-            )
+            return _DerivVar(self.value * inv, [inv * x for x in self.deriv])
 
     def __pow__(self, other):
         val1 = pow(self.value, other - 1)
-        deriv1 = list(map(lambda x, f=val1 * other: f * x, self.deriv))
+        deriv1 = [val1 * other * x for x in self.deriv]
         return _DerivVar(val1 * self.value, deriv1)
 
     def __abs__(self):
         absvalue = abs(self.value)
-        return _DerivVar(
-            absvalue, list(map(lambda a, d=self.value / absvalue: d * a, self.deriv))
-        )
+        return _DerivVar(absvalue, [self.value / absvalue * a for a in self.deriv])
 
 
 # ----
