@@ -2236,6 +2236,34 @@ def _escape(text):
 # ----
 
 
+def _is_bundled_config_path(path):
+    """Return True when path points at the bundled template config.xml."""
+
+    try:
+        return os.path.abspath(path) == os.path.abspath(
+            get_default_config_source_path("config.xml")
+        )
+    except Exception:
+        return False
+
+
+def _initialize_runtime_config():
+    """Load user config if present, otherwise keep in-code defaults."""
+
+    path = os.path.join(confdir, "config.xml")
+
+    # Use Python defaults as the canonical defaults source.
+    if os.path.exists(path) and not _is_bundled_config_path(path):
+        loadConfig(path)
+        return
+
+    # Best effort persistence; read-only locations should still run with defaults.
+    try:
+        saveConfig(path)
+    except IOError:
+        pass
+
+
 
 # ----
 
@@ -2265,9 +2293,9 @@ replacements = ConfigDict(replacements)
 
 
 try:
-    loadConfig()
+    _initialize_runtime_config()
 except IOError:
-    saveConfig()
+    pass
 
 _auto_save_enabled = True
 
