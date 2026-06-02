@@ -19,7 +19,23 @@
 import wx
 
 # load modules
-from .ids import *
+from .ids import (
+    ID_peaklistAnnotate,
+    ID_peaklistConvertToEnvelopes,
+    ID_peaklistSendToMassToFormula,
+    ID_viewPeaklistColumnAi,
+    ID_viewPeaklistColumnBase,
+    ID_viewPeaklistColumnEnvArea,
+    ID_viewPeaklistColumnFwhm,
+    ID_viewPeaklistColumnGroup,
+    ID_viewPeaklistColumnInt,
+    ID_viewPeaklistColumnMass,
+    ID_viewPeaklistColumnMz,
+    ID_viewPeaklistColumnRel,
+    ID_viewPeaklistColumnResol,
+    ID_viewPeaklistColumnSn,
+    ID_viewPeaklistColumnZ,
+)
 from . import mwx
 from . import images
 from . import config
@@ -37,7 +53,7 @@ class panelPeaklist(wx.Panel):
 
     def __init__(self, parent):
         wx.Panel.__init__(
-            self, parent, -1, size=(150, -1), style=wx.NO_FULL_REPAINT_ON_RESIZE
+            self, parent, -1, size=wx.Size(150, -1), style=wx.NO_FULL_REPAINT_ON_RESIZE
         )
 
         self.parent = parent
@@ -84,19 +100,19 @@ class panelPeaklist(wx.Panel):
 
         # init toolbar panel
         if images.is_dark_mode():
-            panel = wx.Panel(self, -1, size=(-1, mwx.BOTTOMBAR_HEIGHT))
+            panel = wx.Panel(self, -1, size=wx.Size(-1, mwx.BOTTOMBAR_HEIGHT))
             panel.SetBackgroundColour(wx.Colour(30, 30, 30))
             panel.SetForegroundColour(wx.Colour(220, 220, 220))
         else:
             panel = mwx.bgrPanel(
-                self, -1, images.lib["bgrBottombar"], size=(-1, mwx.BOTTOMBAR_HEIGHT)
+                self, -1, images.lib["bgrBottombar"], size=wx.Size(-1, mwx.BOTTOMBAR_HEIGHT)
             )
 
         self.addPeak_butt = wx.BitmapButton(
             panel,
             -1,
             images.lib["peaklistAdd"],
-            size=(mwx.BOTTOMBAR_TOOLSIZE),
+            size=wx.Size(*mwx.BOTTOMBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.addPeak_butt.SetToolTip(wx.ToolTip("Add peak manually..."))
@@ -106,7 +122,7 @@ class panelPeaklist(wx.Panel):
             panel,
             -1,
             images.lib["peaklistDelete"],
-            size=(mwx.BOTTOMBAR_TOOLSIZE),
+            size=wx.Size(*mwx.BOTTOMBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.deletePeak_butt.SetToolTip(wx.ToolTip("Remove peaks..."))
@@ -116,7 +132,7 @@ class panelPeaklist(wx.Panel):
             panel,
             -1,
             images.lib["peaklistAnnotate"],
-            size=(mwx.BOTTOMBAR_TOOLSIZE),
+            size=wx.Size(*mwx.BOTTOMBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.annotatePeak_butt.SetToolTip(wx.ToolTip("Annotate peak..."))
@@ -126,7 +142,7 @@ class panelPeaklist(wx.Panel):
             panel,
             -1,
             images.lib["peaklistEditorOff"],
-            size=(mwx.BOTTOMBAR_TOOLSIZE),
+            size=wx.Size(*mwx.BOTTOMBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.editPeak_butt.SetToolTip(wx.ToolTip("Show / hide peak editor"))
@@ -185,7 +201,7 @@ class panelPeaklist(wx.Panel):
 
         # init peaklist
         self.peakList = mwx.sortListCtrl(
-            self, -1, size=(201, -1), style=mwx.LISTCTRL_STYLE_MULTI
+            self, -1, size=wx.Size(201, -1), style=mwx.LISTCTRL_STYLE_MULTI
         )
         font = wx.SystemSettings.GetFont(wx.SYS_DEFAULT_GUI_FONT)
         font.SetPointSize(font.GetPointSize() - 2)
@@ -295,6 +311,8 @@ class panelPeaklist(wx.Panel):
             else:
                 continue
 
+        self._autosizePeakListColumns()
+
     # ----
 
     def makeEditor(self):
@@ -309,7 +327,7 @@ class panelPeaklist(wx.Panel):
             panel,
             -1,
             "",
-            size=(80, mwx.SMALL_TEXTCTRL_HEIGHT),
+            size=wx.Size(80, mwx.SMALL_TEXTCTRL_HEIGHT),
             validator=mwx.validator("floatPos"),
         )
         peakMz_label.SetFont(wx.SMALL_FONT)
@@ -320,7 +338,7 @@ class panelPeaklist(wx.Panel):
             panel,
             -1,
             "",
-            size=(80, mwx.SMALL_TEXTCTRL_HEIGHT),
+            size=wx.Size(80, mwx.SMALL_TEXTCTRL_HEIGHT),
             validator=mwx.validator("floatPos"),
         )
         peakAi_label.SetFont(wx.SMALL_FONT)
@@ -331,7 +349,7 @@ class panelPeaklist(wx.Panel):
             panel,
             -1,
             "",
-            size=(80, mwx.SMALL_TEXTCTRL_HEIGHT),
+            size=wx.Size(80, mwx.SMALL_TEXTCTRL_HEIGHT),
             style=wx.TE_PROCESS_ENTER,
             validator=mwx.validator("floatPos"),
         )
@@ -343,7 +361,7 @@ class panelPeaklist(wx.Panel):
             panel,
             -1,
             "",
-            size=(80, mwx.SMALL_TEXTCTRL_HEIGHT),
+            size=wx.Size(80, mwx.SMALL_TEXTCTRL_HEIGHT),
             validator=mwx.validator("floatPos"),
         )
         peakSN_label.SetFont(wx.SMALL_FONT)
@@ -354,7 +372,7 @@ class panelPeaklist(wx.Panel):
             panel,
             -1,
             "",
-            size=(80, mwx.SMALL_TEXTCTRL_HEIGHT),
+            size=wx.Size(80, mwx.SMALL_TEXTCTRL_HEIGHT),
             validator=mwx.validator("int"),
         )
         peakCharge_label.SetFont(wx.SMALL_FONT)
@@ -365,7 +383,7 @@ class panelPeaklist(wx.Panel):
             panel,
             -1,
             "",
-            size=(80, mwx.SMALL_TEXTCTRL_HEIGHT),
+            size=wx.Size(80, mwx.SMALL_TEXTCTRL_HEIGHT),
             style=wx.TE_PROCESS_ENTER,
             validator=mwx.validator("floatPos"),
         )
@@ -377,7 +395,7 @@ class panelPeaklist(wx.Panel):
             panel,
             -1,
             "",
-            size=(80, mwx.SMALL_TEXTCTRL_HEIGHT),
+            size=wx.Size(80, mwx.SMALL_TEXTCTRL_HEIGHT),
             style=wx.TE_PROCESS_ENTER,
         )
         peakGroup_label.SetFont(wx.SMALL_FONT)
@@ -388,12 +406,12 @@ class panelPeaklist(wx.Panel):
         self.peakMonoisotopic_check.SetFont(wx.SMALL_FONT)
 
         self.peakAdd_butt = wx.Button(
-            panel, -1, "Add", size=(-1, mwx.SMALL_BUTTON_HEIGHT)
+            panel, -1, "Add", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
         )
         self.peakAdd_butt.Bind(wx.EVT_BUTTON, self.onAddPeak)
 
         self.peakReplace_butt = wx.Button(
-            panel, -1, "Update", size=(-1, mwx.SMALL_BUTTON_HEIGHT)
+            panel, -1, "Update", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
         )
         self.peakReplace_butt.Bind(wx.EVT_BUTTON, self.onReplacePeak)
         self.peakReplace_butt.Enable(False)
@@ -450,8 +468,12 @@ class panelPeaklist(wx.Panel):
             return
 
         # get selected peak
+        document = self.currentDocument
+        if document is None:
+            return
+
         self.selectedPeak = evt.GetData()
-        peak = self.currentDocument.spectrum.peaklist[self.selectedPeak]
+        peak = document.spectrum.peaklist[self.selectedPeak]
 
         # highlight point in the spectrum
         selected = self.peakList.getSelected()
@@ -484,6 +506,10 @@ class panelPeaklist(wx.Panel):
     def _getEnvelopeData(self, peak):
         """Get envelope metadata for selected peak if available."""
 
+        document = self.currentDocument
+        if document is None:
+            return None
+
         envelope = peak.attributes.get("envelope")
         if envelope and envelope.get("isotopes"):
             return envelope
@@ -492,7 +518,7 @@ class panelPeaklist(wx.Panel):
         if peak.group:
             isotopes = [
                 p
-                for p in self.currentDocument.spectrum.peaklist
+                for p in document.spectrum.peaklist
                 if p.group == peak.group and p.charge == peak.charge
             ]
             if len(isotopes) > 1:
@@ -897,6 +923,9 @@ class panelPeaklist(wx.Panel):
             threshold, thresholdType = dlg.getData()
             dlg.Destroy()
 
+            if threshold is None:
+                return
+
             indexes = []
 
             # use m/z
@@ -968,15 +997,16 @@ class panelPeaklist(wx.Panel):
         """Get peak data and add peak."""
 
         # check document
-        if self.currentDocument is None:
+        document = self.currentDocument
+        if document is None:
             wx.Bell()
             return
 
         # add new peak
         peak = self.getPeakEditorData()
         if peak:
-            self.currentDocument.backup(("spectrum"))
-            self.currentDocument.spectrum.peaklist.append(peak)
+            document.backup(("spectrum"))
+            document.spectrum.peaklist.append(peak)
 
             self.parent.onDocumentChanged(items=("spectrum"))
 
@@ -993,12 +1023,17 @@ class panelPeaklist(wx.Panel):
             wx.Bell()
             return
 
+        document = self.currentDocument
+        if document is None:
+            wx.Bell()
+            return
+
         # set new data to peak
-        original_peak = self.currentDocument.spectrum.peaklist[self.selectedPeak]
+        original_peak = document.spectrum.peaklist[self.selectedPeak]
         peak = self.getPeakEditorData(original_peak=original_peak)
         if peak:
-            self.currentDocument.backup(("spectrum"))
-            self.currentDocument.spectrum.peaklist[self.selectedPeak] = peak
+            document.backup(("spectrum"))
+            document.spectrum.peaklist[self.selectedPeak] = peak
 
             if original_peak.charge != peak.charge:
                 self._recalculateNeighborhoodEnvelopes([original_peak.mz, peak.mz])
@@ -1130,32 +1165,66 @@ class panelPeaklist(wx.Panel):
     # ----
 
     def _autosizePeakListColumns(self):
-        """Autosize columns from content/header while preserving readable limits."""
+        """Autosize columns from representative text while preserving limits."""
 
-        minWidths = {
-            "mz": 80,
-            "ai": 70,
-            "int": 70,
-            "envarea": 85,
-            "base": 60,
-            "rel": 60,
-            "sn": 45,
-            "z": 35,
-            "mass": 80,
-            "fwhm": 65,
-            "resol": 65,
-            "group": 55,
+        if self.peakList.GetColumnCount() == 0:
+            return
+
+        preferredWidths = {
+            "mz": 64,
+            "ai": 62,
+            "int": 62,
+            "envarea": 74,
+            "base": 56,
+            "rel": 50,
+            "sn": 42,
+            "z": 26,
+            "mass": 64,
+            "fwhm": 58,
+            "resol": 58,
+            "group": 56,
+        }
+        maxWidths = {
+            "mz": 84,
+            "ai": 80,
+            "int": 80,
+            "envarea": 92,
+            "base": 72,
+            "rel": 64,
+            "sn": 56,
+            "z": 32,
+            "mass": 84,
+            "fwhm": 72,
+            "resol": 72,
+            "group": 96,
         }
 
-        maxWidth = 220
-        for colIndex, column in enumerate(config.main["peaklistColumns"]):
-            self.peakList.SetColumnWidth(colIndex, wx.LIST_AUTOSIZE)
-            dataWidth = self.peakList.GetColumnWidth(colIndex)
-            self.peakList.SetColumnWidth(colIndex, wx.LIST_AUTOSIZE_USEHEADER)
-            headerWidth = self.peakList.GetColumnWidth(colIndex)
+        padding = 8
+        sample_percentile = 0.7
+        row_count = self.peakList.GetItemCount()
+        dc = wx.ScreenDC()
+        dc.SetFont(self.peakList.GetFont())
 
-            width = max(dataWidth, headerWidth) + 10
-            width = max(minWidths.get(column, 55), min(maxWidth, width))
+        for colIndex, column in enumerate(config.main["peaklistColumns"]):
+            widths = []
+
+            header = self.peakList.GetColumn(colIndex).GetText()
+            widths.append(dc.GetTextExtent(header)[0])
+
+            for row in range(row_count):
+                text = self.peakList.GetItemText(row, colIndex)
+                if text:
+                    widths.append(dc.GetTextExtent(text)[0])
+
+            widths.sort()
+            if widths:
+                sampleIndex = int((len(widths) - 1) * sample_percentile)
+                width = widths[sampleIndex] + padding
+            else:
+                width = preferredWidths.get(column, 60)
+
+            width = max(preferredWidths.get(column, 60), width)
+            width = min(maxWidths.get(column, 120), width)
             self.peakList.SetColumnWidth(colIndex, width)
 
     # ----
@@ -1331,7 +1400,7 @@ class panelPeaklist(wx.Panel):
                 peak.attributes = getattr(original_peak, 'attributes', {}).copy()
             return peak
 
-        except:
+        except Exception:
             wx.Bell()
             return False
 
@@ -1341,11 +1410,13 @@ class panelPeaklist(wx.Panel):
         """Get selected peaks."""
 
         # get peaklist
+        document = self.currentDocument
+        if document is None:
+            return []
+
         peaklist = []
         for item in self.peakList.getSelected():
-            peak = self.currentDocument.spectrum.peaklist[
-                self.peakList.GetItemData(item)
-            ]
+            peak = document.spectrum.peaklist[self.peakList.GetItemData(item)]
             peaklist.append(peak)
 
         return peaklist
@@ -1472,6 +1543,10 @@ class panelPeaklist(wx.Panel):
         if not selection:
             return
 
+        document = self.currentDocument
+        if document is None:
+            return
+
         # show copy dialog
         dlg = dlgCopy(self.parent)
         if dlg.ShowModal() == wx.ID_OK:
@@ -1481,9 +1556,7 @@ class panelPeaklist(wx.Panel):
             # export data
             buff = ""
             for row in selection:
-                peak = self.currentDocument.spectrum.peaklist[
-                    self.peakList.GetItemData(row)
-                ]
+                peak = document.spectrum.peaklist[self.peakList.GetItemData(row)]
 
                 line = ""
                 if "mz" in config.export["peaklistColumns"]:
@@ -1565,14 +1638,14 @@ class dlgThreshold(wx.Dialog):
         # make elements
         threshold_label = wx.StaticText(self, -1, "Minimal value:")
         self.threshold_value = wx.TextCtrl(
-            self, -1, "", size=(150, -1), validator=mwx.validator("floatPos")
+            self, -1, "", size=wx.Size(150, -1), validator=mwx.validator("floatPos")
         )
         self.threshold_value.Bind(wx.EVT_TEXT, self.onChange)
 
         thresholdType_label = wx.StaticText(self, -1, "Threshold type:")
         choices = ["m/z", "a.i.", "Intensity", "Relative Intensity", "s/n"]
         self.thresholdType_choice = wx.Choice(
-            self, -1, choices=choices, size=(150, mwx.CHOICE_HEIGHT)
+            self, -1, choices=choices, size=wx.Size(150, mwx.CHOICE_HEIGHT)
         )
         mwx.fitChoice(self.thresholdType_choice)
         self.thresholdType_choice.Select(0)
@@ -1618,7 +1691,7 @@ class dlgThreshold(wx.Dialog):
         # get data
         try:
             self.threshold = float(self.threshold_value.GetValue())
-        except:
+        except (TypeError, ValueError):
             self.threshold = None
 
     # ----
