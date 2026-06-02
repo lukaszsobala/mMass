@@ -14,13 +14,13 @@
 #     Complete text of GNU GPL can be found in the file LICENSE.TXT in the
 #     main directory of the program.
 # -------------------------------------------------------------------------
-import pdb
 from . import display_scale
 
 # load libs
 import wx
 from wx.tools import img2py
 import numpy as np
+import importlib.util
 
 # from . import ids
 
@@ -64,8 +64,11 @@ def is_dark_mode():
             import winreg
 
             key_path = r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path) as key:
-                value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+            open_key = getattr(winreg, "OpenKey")
+            query_value_ex = getattr(winreg, "QueryValueEx")
+            hkey_current_user = getattr(winreg, "HKEY_CURRENT_USER")
+            with open_key(hkey_current_user, key_path) as key:
+                value, _ = query_value_ex(key, "AppsUseLightTheme")
                 return int(value) == 0
         except Exception:
             pass
@@ -796,10 +799,11 @@ def convertImages():
 
     # get libs to import images
     try:
-        from wx.lib.embeddedimage import PyEmbeddedImage
-
-        imp = "#load libs\nfrom wx.lib.embeddedimage import PyEmbeddedImage\n\n\n"
-    except:
+        if importlib.util.find_spec("wx.lib.embeddedimage") is not None:
+            imp = "#load libs\nfrom wx.lib.embeddedimage import PyEmbeddedImage\n\n\n"
+        else:
+            imp = "#load libs\nimport cStringIO\nfrom wx import ImageFromStream, BitmapFromImage\n\n\n"
+    except Exception:
         imp = "#load libs\nimport cStringIO\nfrom wx import ImageFromStream, BitmapFromImage\n\n\n"
 
     # convert images

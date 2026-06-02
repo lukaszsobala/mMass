@@ -16,7 +16,6 @@
 # -------------------------------------------------------------------------
 
 # load libs
-import sys
 import os.path
 import xml.dom.minidom
 import copy
@@ -45,19 +44,19 @@ for item in (
 
 try:
     mspy.loadMonomers(os.path.join(config.confdir, "monomers.xml"), clear=False)
-except:
+except Exception:
     mspy.saveMonomers(os.path.join(config.confdir, "monomers.xml"))
 
 try:
     mspy.loadModifications(
         os.path.join(config.confdir, "modifications.xml"), clear=False
     )
-except:
+except Exception:
     mspy.saveModifications(os.path.join(config.confdir, "modifications.xml"))
 
 try:
     mspy.loadEnzymes(os.path.join(config.confdir, "enzymes.xml"), clear=False)
-except:
+except Exception:
     mspy.saveEnzymes(os.path.join(config.confdir, "enzymes.xml"))
 
 
@@ -698,7 +697,7 @@ def loadPresets(
         if container[group] and clear:
             presets[group].clear()
         for key in container[group]:
-            if replace or not key in presets[group]:
+            if replace or key not in presets[group]:
                 presets[group][key] = container[group][key]
 
 
@@ -758,9 +757,9 @@ def loadCompounds(path=os.path.join(config.confdir, "compounds.xml"), clear=True
                     try:
                         name = compoundTag.getAttribute("name")
                         compound = mspy.compound(compoundTag.getAttribute("formula"))
-                        compound.description = _getNodeText(compoundTag)
+                        setattr(compound, "description", _getNodeText(compoundTag))
                         container[groupName][name] = compound
-                    except:
+                    except Exception:
                         pass
 
     # update current lib
@@ -815,17 +814,20 @@ def _getParams(sectionTag, section):
     if sectionTag:
         paramTags = sectionTag.getElementsByTagName("param")
         if paramTags:
-            if paramTags:
-                for paramTag in paramTags:
-                    name = paramTag.getAttribute("name")
-                    value = paramTag.getAttribute("value")
-                    valueType = paramTag.getAttribute("type")
-                    if name in section:
-                        if valueType in ("unicode", "str", "float", "int"):
-                            try:
-                                section[name] = eval(valueType + "(value)")
-                            except:
-                                pass
+            for paramTag in paramTags:
+                name = paramTag.getAttribute("name")
+                valueType = paramTag.getAttribute("type")
+                if name in section and valueType in ("unicode", "str", "float", "int"):
+                    try:
+                        value = paramTag.getAttribute("value")
+                        if valueType in ("unicode", "str"):
+                            section[name] = value
+                        elif valueType == "float":
+                            section[name] = float(value)
+                        elif valueType == "int":
+                            section[name] = int(value)
+                    except Exception:
+                        pass
 
 
 # ----
@@ -1037,7 +1039,7 @@ def savePresets(path=os.path.join(config.confdir, "presets.xml")):
         with open(path, "wb") as f:
             f.write(buff.encode("utf-8"))
         return True
-    except:
+    except Exception:
         return False
 
 
@@ -1066,7 +1068,7 @@ def saveReferences(path=os.path.join(config.confdir, "references.xml")):
         with open(path, "wb") as f:
             f.write(buff.encode("utf-8"))
         return True
-    except:
+    except Exception:
         return False
 
 
@@ -1096,7 +1098,7 @@ def saveCompounds(path=os.path.join(config.confdir, "compounds.xml")):
         with open(path, "wb") as f:
             f.write(buff.encode("utf-8"))
         return True
-    except:
+    except Exception:
         return False
 
 
@@ -1141,7 +1143,7 @@ def saveMascot(path=os.path.join(config.confdir, "mascot.xml")):
         with open(path, "wb") as f:
             f.write(buff.encode("utf-8"))
         return True
-    except:
+    except Exception:
         return False
 
 
@@ -1168,20 +1170,20 @@ def _escape(text):
 
 try:
     loadPresets()
-except:
+except Exception:
     savePresets()
 
 try:
     loadReferences()
-except:
+except Exception:
     saveReferences()
 
 try:
     loadCompounds()
-except:
+except Exception:
     saveCompounds()
 
 try:
     loadMascot()
-except:
+except Exception:
     saveMascot()

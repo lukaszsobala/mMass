@@ -1,6 +1,5 @@
 # load main config and libs
 from gui import config
-from gui import libs
 
 # load libs
 import os
@@ -121,6 +120,7 @@ class TCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     def __init__(self, server_address, RequestHandlerClass):
         self.allow_reuse_address = True
         self.stopped = False
+        self.app: mainFrame | None = None
         socketserver.TCPServer.__init__(
             self, server_address, RequestHandlerClass, False
         )
@@ -144,16 +144,22 @@ class TCPServerHandler(socketserver.BaseRequestHandler):
     """TCP communication server handler."""
 
     def handle(self):
+        server = self.server
+        if not isinstance(server, TCPServer):
+            return
 
         # get command
-        command = self.request.recv(1024)
-        self.request.sendall("Command received...\n")
+        command = self.request.recv(1024).decode("utf-8", errors="ignore")
+        self.request.sendall(b"Command received...\n")
+
+        if server.app is None:
+            return
 
         # raise main app frame
-        self.server.app.Raise()
+        server.app.Raise()
 
         # open path
-        self.server.app.onServerCommand(command)
+        server.app.onServerCommand(command)
 
     # ----
 
@@ -195,12 +201,13 @@ def main():
             server_thread.setDaemon(True)
             server_thread.start()
 
-            app = mMass(0)
+            app = mMass(False)
+            server.app = app.frame
             app.MainLoop()
 
     # skip server
     else:
-        app = mMass(0)
+        app = mMass(False)
         app.MainLoop()
 
 

@@ -15,19 +15,30 @@
 #     main directory of the program.
 # -------------------------------------------------------------------------
 
+# pyright: reportWildcardImportFromLibrary=false
+
 # load libs
+import functools
 import time
-import copy
 import wx
-import numpy as np
 from . import display_scale
 
 # load modules
-from .ids import *
+from . import ids as _ids
 from . import images
 from . import config
 from .mixins import MakeModalMixin
 import mspy
+
+for _name in dir(_ids):
+    if _name.startswith(("HK_", "ID_")):
+        globals()[_name] = getattr(_ids, _name)
+
+del _name
+
+
+_WX_DASH_SHORT = getattr(wx, "PENSTYLE_SHORT_DASH", getattr(wx, "SHORT_DASH", 2))
+_WX_DASH_DOT = getattr(wx, "PENSTYLE_DOT", getattr(wx, "DOT", 3))
 
 # GUI CONSTANTS
 # -------------
@@ -88,7 +99,7 @@ SLIDER_STYLE = wx.SL_HORIZONTAL | wx.SL_AUTOTICKS | wx.SL_LABELS
 SEQUENCE_FONT_SIZE = 10
 PERIODIC_TABLE_GRID = (2, 2)
 PERIODIC_TABLE_FONT_SIZE = 14
-DASHED_LINE = wx.SHORT_DASH
+DASHED_LINE = _WX_DASH_SHORT
 SCROLL_DIRECTION = 1
 
 
@@ -167,7 +178,7 @@ elif wx.Platform == "__WXMSW__":
     SMALL_BUTTON_HEIGHT = 22
     SMALL_SEARCH_HEIGHT = 22
 
-    DASHED_LINE = wx.DOT
+    DASHED_LINE = _WX_DASH_DOT
 
 # set gtk
 elif wx.Platform == "__WXGTK__":
@@ -286,7 +297,10 @@ def appInit():
             try:
                 import ctypes
 
-                uxtheme = ctypes.WinDLL("uxtheme", use_last_error=True)
+                windll = getattr(ctypes, "WinDLL", None)
+                if windll is None:
+                    return
+                uxtheme = windll("uxtheme", use_last_error=True)
 
                 # Undocumented ordinals used by many desktop apps.
                 # 135 = SetPreferredAppMode, 136 = FlushMenuThemes
@@ -346,7 +360,10 @@ def applyWindowsDarkMode(window):
 
         # Prefer dark non-client rendering (title bar / frame) when available.
         try:
-            dwmapi = ctypes.WinDLL("dwmapi", use_last_error=True)
+            windll = getattr(ctypes, "WinDLL", None)
+            if windll is None:
+                return
+            dwmapi = windll("dwmapi", use_last_error=True)
             use_dark = ctypes.c_int(1)
             for attr in (20, 19):
                 if dwmapi.DwmSetWindowAttribute(
@@ -361,7 +378,10 @@ def applyWindowsDarkMode(window):
 
         # Allow dark rendering for this specific window and refresh menu themes.
         try:
-            uxtheme = ctypes.WinDLL("uxtheme", use_last_error=True)
+            windll = getattr(ctypes, "WinDLL", None)
+            if windll is None:
+                return
+            uxtheme = windll("uxtheme", use_last_error=True)
             try:
                 allow_dark_for_window = uxtheme[133]
                 allow_dark_for_window.argtypes = [ctypes.c_void_p, ctypes.c_bool]
@@ -409,7 +429,9 @@ def applyDarkModeToWindow(window):
             w.SetForegroundColour(_DARK_FG)
         elif isinstance(w, wx.Choice):
             try:
-                w.EnableSystemTheme(False)
+                enable_system_theme = getattr(w, "EnableSystemTheme", None)
+                if enable_system_theme is not None:
+                    enable_system_theme(False)
             except Exception:
                 pass
             w.SetBackgroundColour(_DARK_INPUT_BG)
@@ -519,7 +541,7 @@ class sortListCtrl(wx.ListCtrl):
     ):
         wx.ListCtrl.__init__(self, parent, id, pos, size, style)
 
-        self._data = None
+        self._data: list[list[object]] | None = None
         self._currentColumn = 0
         self._currentDirection = LISTCTRL_SORT
         self._secondarySortColumn = None
@@ -541,8 +563,11 @@ class sortListCtrl(wx.ListCtrl):
 
         if self._getItemTextFn is not None:
             return self._getItemTextFn(row, col)
-        else:
-            return str(self._data[row][col])
+
+        if self._data is None:
+            return ""
+
+        return str(self._data[row][col])
 
     # ----
 
@@ -613,8 +638,11 @@ class sortListCtrl(wx.ListCtrl):
         self._currentDirection = direction
 
         # sort data
+        if self._data is None:
+            return
+
         if self.IsVirtual():
-            self._data.sort(self._sortItems)
+            self._data.sort(key=functools.cmp_to_key(self._sortItems))
             self.Refresh()
         else:
             self.SortItems(self._sortData)
@@ -624,6 +652,8 @@ class sortListCtrl(wx.ListCtrl):
 
     def _sortData(self, item1, item2):
         """Sort data."""
+        if self._data is None:
+            return 0
         comp = self._sortItems(self._data[item1], self._data[item2])
         if comp == 0:
             return 1 if item1 > item2 else -1
@@ -795,7 +825,7 @@ class sortListCtrl(wx.ListCtrl):
                 line = ""
                 for col in range(self.GetColumnCount()):
                     item = self.GetItem(row, col)
-                    line += item.GetItemLabel() + "\t"
+                    line += item.GetText() + "\t"
                 buff += "%s\n" % (line.rstrip())
 
         # get all
@@ -804,7 +834,7 @@ class sortListCtrl(wx.ListCtrl):
                 line = ""
                 for col in range(self.GetColumnCount()):
                     item = self.GetItem(row, col)
-                    line += item.GetItemLabel() + "\t"
+                    line += item.GetText() + "\t"
                 buff += "%s\n" % (line.rstrip())
 
         # make text object for data
@@ -885,7 +915,7 @@ class scrollTextCtrl(wx.TextCtrl):
         old = self.GetValue()
         try:
             old = float(old)
-        except:
+        except Exception:
             wx.Bell()
             return
 
@@ -977,10 +1007,10 @@ class formulaCtrl(wx.TextCtrl):
         """Check current formula."""
 
         try:
-            formula = mspy.compound(self.GetValue())
+            mspy.compound(self.GetValue())
             self.SetBackgroundColour(wx.NullColour)
-        except:
-            self.SetBackgroundColour((250, 100, 100))
+        except Exception:
+            self.SetBackgroundColour(wx.Colour(250, 100, 100))
 
         self.Refresh()
 
@@ -991,7 +1021,7 @@ class gauge(wx.Gauge):
     """Gauge."""
 
     def __init__(self, parent, id=-1, size=(-1, GAUGE_HEIGHT), style=wx.GA_HORIZONTAL):
-        wx.Gauge.__init__(self, parent, id, size=size, style=style)
+        wx.Gauge.__init__(self, parent, id, size=wx.Size(*size), style=style)
 
     # ----
 
@@ -1001,7 +1031,7 @@ class gauge(wx.Gauge):
         self.Pulse()
         try:
             wx.SafeYield()
-        except:
+        except Exception:
             pass
         time.sleep(0.05)
 
@@ -1021,7 +1051,7 @@ class gaugePanel(wx.Dialog, MakeModalMixin):
         panel = wx.Panel(self, -1)
         self.label = wx.StaticText(panel, -1, label)
         self.label.SetFont(wx.SMALL_FONT)
-        self.gauge = wx.Gauge(panel, -1, size=(250, GAUGE_HEIGHT))
+        self.gauge = wx.Gauge(panel, -1, size=wx.Size(250, GAUGE_HEIGHT))
 
         # pack elements
         sizer = wx.BoxSizer(wx.VERTICAL)
@@ -1037,7 +1067,7 @@ class gaugePanel(wx.Dialog, MakeModalMixin):
         self.SetSizer(mainSizer)
         try:
             wx.SafeYield()
-        except:
+        except Exception:
             pass
 
     # ----
@@ -1048,7 +1078,7 @@ class gaugePanel(wx.Dialog, MakeModalMixin):
         self.label.SetLabel(label)
         try:
             wx.SafeYield()
-        except:
+        except Exception:
             pass
 
     # ----
@@ -1060,7 +1090,7 @@ class gaugePanel(wx.Dialog, MakeModalMixin):
 
         try:
             wx.SafeYield()
-        except:
+        except Exception:
             pass
         time.sleep(0.05)
 
@@ -1075,7 +1105,7 @@ class gaugePanel(wx.Dialog, MakeModalMixin):
 
         try:
             wx.SafeYield()
-        except:
+        except Exception:
             pass
 
     # ----
@@ -1115,8 +1145,6 @@ class validator(wx.PyValidator):
     # ----
 
     def OnChar(self, evt):
-        ctrl = self.GetWindow()
-        value = ctrl.GetValue()
         key = evt.GetKeyCode()
 
         # define navigation keys
@@ -1236,7 +1264,7 @@ class dlgMessage(wx.Dialog):
         # make buttons
         buttons = wx.BoxSizer(wx.HORIZONTAL)
         for item in self.buttons:
-            button_butt = wx.Button(self, item[0], item[1], size=(item[2], -1))
+            button_butt = wx.Button(self, item[0], item[1], size=wx.Size(item[2], -1))
             button_butt.Bind(wx.EVT_BUTTON, self.onButton)
             buttons.Add(button_butt, 0, wx.RIGHT, item[4])
             if item[3]:
