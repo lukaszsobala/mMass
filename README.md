@@ -16,12 +16,7 @@ We recommend using [uv](https://github.com/astral-sh/uv) or pip to install the p
 
 On Linux, this involves compiling `wxPython`, which will take at least 5 minutes on a fast computer, and up to 1 hour on slower CPUs. On Windows the compilation is not necessary and it installs instantly.
 
-Depending on your environment, you may need system-level GUI dependencies installed for `wxPython` to build or run seamlessly. For example, on Ubuntu 26.04:
-```bash
-sudo apt install python3-dev libgtk-3-dev freeglut3-dev libwebkitgtk-6.0-dev libjpeg-dev libpng-dev libtiff-dev libsdl-dev libnotify-dev libsm-dev
-```
-On Debian 13 (Trixie):
-
+Depending on your environment, you may need system-level GUI dependencies installed for `wxPython` to build or run seamlessly. For example, on Ubuntu 26.04 or Debian 13 (Trixie):
 ```bash
 sudo apt install python3-dev libgtk-3-dev freeglut3-dev libwebkitgtk-6.0-dev libjpeg-dev libpng-dev libtiff-dev libsdl2-dev libnotify-dev libsm-dev
 ```
