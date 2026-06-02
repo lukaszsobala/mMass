@@ -15,10 +15,11 @@
 #     main directory of the program.
 # -------------------------------------------------------------------------
 
+# pyright: reportAttributeAccessIssue=false
+
 # load libs
 import threading
 import wx
-import numpy
 
 # load modules
 from . import mwx
@@ -41,7 +42,7 @@ class panelSpectrumGenerator(wx.Frame, MakeModalMixin):
             parent,
             -1,
             "Spectrum Generator",
-            size=(700, 400),
+            size=wx.Size(700, 400),
             style=wx.DEFAULT_FRAME_STYLE | wx.FRAME_FLOAT_ON_PARENT & ~wx.MAXIMIZE_BOX,
         )
 
@@ -106,7 +107,7 @@ class panelSpectrumGenerator(wx.Frame, MakeModalMixin):
             self,
             -1,
             images.lib["bgrToolbarNoBorder"],
-            size=(-1, mwx.TOOLBAR_HEIGHT),
+            size=wx.Size(-1, mwx.TOOLBAR_HEIGHT),
         )
 
         # make elements
@@ -116,7 +117,7 @@ class panelSpectrumGenerator(wx.Frame, MakeModalMixin):
             panel,
             -1,
             choices=["Symmetrical", "Asymmetrical"],
-            size=(125, mwx.CHOICE_HEIGHT),
+            size=wx.Size(125, mwx.CHOICE_HEIGHT),
         )
         mwx.fitChoice(self.peakShape_choice)
         self.peakShape_choice.Select(0)
@@ -129,7 +130,7 @@ class panelSpectrumGenerator(wx.Frame, MakeModalMixin):
             panel,
             -1,
             str(config.spectrumGenerator["fwhm"]),
-            size=(60, -1),
+            size=wx.Size(60, -1),
             validator=mwx.validator("floatPos"),
         )
 
@@ -143,7 +144,7 @@ class panelSpectrumGenerator(wx.Frame, MakeModalMixin):
             panel,
             -1,
             str(config.spectrumGenerator["points"]),
-            size=(60, -1),
+            size=wx.Size(60, -1),
             validator=mwx.validator("intPos"),
         )
 
@@ -153,17 +154,17 @@ class panelSpectrumGenerator(wx.Frame, MakeModalMixin):
             panel,
             -1,
             str(config.spectrumGenerator["noise"]),
-            size=(80, -1),
+            size=wx.Size(80, -1),
             validator=mwx.validator("floatPos"),
         )
 
         self.generate_butt = wx.Button(
-            panel, -1, "Generate", size=(-1, mwx.SMALL_BUTTON_HEIGHT)
+            panel, -1, "Generate", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
         )
         self.generate_butt.Bind(wx.EVT_BUTTON, self.onGenerate)
 
         self.apply_butt = wx.Button(
-            panel, -1, "Apply", size=(-1, mwx.SMALL_BUTTON_HEIGHT)
+            panel, -1, "Apply", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
         )
         self.apply_butt.Bind(wx.EVT_BUTTON, self.onApply)
 
@@ -202,7 +203,10 @@ class panelSpectrumGenerator(wx.Frame, MakeModalMixin):
 
         # init toolbar
         panel = mwx.bgrPanel(
-            self, -1, images.lib["bgrControlbar"], size=(-1, mwx.CONTROLBAR_HEIGHT)
+            self,
+            -1,
+            images.lib["bgrControlbar"],
+            size=wx.Size(-1, mwx.CONTROLBAR_HEIGHT),
         )
 
         # make elements
@@ -210,7 +214,7 @@ class panelSpectrumGenerator(wx.Frame, MakeModalMixin):
             panel,
             -1,
             images.lib["arrowsDown"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.collapse_butt.Bind(wx.EVT_BUTTON, self.onCollapse)
@@ -256,7 +260,7 @@ class panelSpectrumGenerator(wx.Frame, MakeModalMixin):
 
         # init canvas
         self.spectrumCanvas = mspy.plot.canvas(
-            self, size=(700, 350), style=mwx.PLOTCANVAS_STYLE_PANEL
+            self, size=wx.Size(700, 350), style=mwx.PLOTCANVAS_STYLE_PANEL
         )
 
         # set default params
@@ -344,7 +348,7 @@ class panelSpectrumGenerator(wx.Frame, MakeModalMixin):
         self.mainSizer.Fit(self)
         try:
             wx.GetApp().Yield()
-        except:
+        except Exception:
             pass
 
     # ----
@@ -456,7 +460,7 @@ class panelSpectrumGenerator(wx.Frame, MakeModalMixin):
             self.collapse_butt.SetBitmapLabel(images.lib["arrowsDown"])
 
         # fit layout
-        self.SetMinSize((-1, -1))
+        self.SetMinSize(wx.Size(-1, -1))
         self.Layout()
         self.mainSizer.Fit(self)
         self.SetMinSize(self.GetSize())
@@ -526,7 +530,7 @@ class panelSpectrumGenerator(wx.Frame, MakeModalMixin):
 
             return True
 
-        except:
+        except Exception:
             wx.Bell()
             return False
 
@@ -559,11 +563,9 @@ class panelSpectrumGenerator(wx.Frame, MakeModalMixin):
 
         # set font
         axisFont = wx.Font(
-            config.spectrum["axisFontSize"],
-            wx.SWISS,
-            wx.FONTSTYLE_NORMAL,
-            wx.FONTWEIGHT_NORMAL,
-            0,
+            wx.FontInfo(config.spectrum["axisFontSize"]).Family(
+                wx.FONTFAMILY_SWISS
+            )
         )
         self.spectrumCanvas.setProperties(axisFont=axisFont)
 
@@ -616,11 +618,9 @@ class panelSpectrumGenerator(wx.Frame, MakeModalMixin):
 
         # add main profile spectrum to container
         labelFont = wx.Font(
-            config.spectrum["labelFontSize"],
-            wx.SWISS,
-            wx.FONTSTYLE_NORMAL,
-            wx.FONTWEIGHT_NORMAL,
-            0,
+            wx.FontInfo(config.spectrum["labelFontSize"]).Family(
+                wx.FONTFAMILY_SWISS
+            )
         )
         spectrum = mspy.plot.spectrum(
             scan=mspy.scan(profile=profile, peaklist=peaklist),
@@ -680,6 +680,9 @@ class panelSpectrumGenerator(wx.Frame, MakeModalMixin):
 
         self.currentProfile = None
         self.currentPeaks = None
+
+        if self.currentDocument is None:
+            return
 
         # run task
         try:

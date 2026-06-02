@@ -15,9 +15,11 @@
 #     main directory of the program.
 # -------------------------------------------------------------------------
 
+# pyright: reportAttributeAccessIssue=false, reportArgumentType=false, reportCallIssue=false, reportUndefinedVariable=false
+# ruff: noqa: F403, F405
+
 # load libs
 import wx
-import numpy
 
 # load modules
 from .ids import *
@@ -865,13 +867,6 @@ class panelSpectrum(wx.Panel):
         self.setCurrentTool(self.currentTool)
 
         # set properties for documents
-        labelFont = wx.Font(
-            config.spectrum["labelFontSize"],
-            wx.SWISS,
-            wx.FONTSTYLE_NORMAL,
-            wx.FONTWEIGHT_NORMAL,
-            0,
-        )
         for docIndex in range(len(self.documents)):
             self.setSpectrumProperties(docIndex)
 
@@ -976,13 +971,24 @@ class panelSpectrum(wx.Panel):
                     format = "z: %%d (%s)   " % chargeFormat
                     label += format % (round(charge * polarity), charge * polarity)
 
-            if "cmass" in config.main["cursorInfo"] and cmass > 0:
-                format = "mass (c): %s   " % mzFormat
-                label += format % cmass
+            cmass_value = cmass[0] if isinstance(cmass, (tuple, list)) else cmass
+            pmass_value = pmass[0] if isinstance(pmass, (tuple, list)) else pmass
+            try:
+                cmass_value = float(cmass_value)
+            except Exception:
+                cmass_value = 0.0
+            try:
+                pmass_value = float(pmass_value)
+            except Exception:
+                pmass_value = 0.0
 
-            if "pmass" in config.main["cursorInfo"] and pmass > 0:
+            if "cmass" in config.main["cursorInfo"] and cmass_value > 0:
+                format = "mass (c): %s   " % mzFormat
+                label += format % cmass_value
+
+            if "pmass" in config.main["cursorInfo"] and pmass_value > 0:
                 format = "mass (p): %s   " % mzFormat
-                label += format % pmass
+                label += format % pmass_value
 
             if "area" in config.main["cursorInfo"] and self.currentDocument is not None:
                 area = self.documents[self.currentDocument].spectrum.area(
@@ -1384,7 +1390,7 @@ class panelSpectrum(wx.Panel):
                 pickingHeight=config.processing["peakpicking"]["pickingHeight"],
                 baseline=baseline,
             )
-            if peak and not peak.mz in buff:
+            if peak and peak.mz not in buff:
                 peaks.append(peak)
                 buff.append(peak.mz)
 
@@ -1819,7 +1825,7 @@ class dlgViewRange(wx.Dialog):
                 self.EndModal(wx.ID_OK)
             else:
                 wx.Bell()
-        except:
+        except Exception:
             wx.Bell()
 
     # ----
@@ -1838,7 +1844,10 @@ class dlgSpectrumOffset(wx.Dialog):
         )
 
         self.parent = parent
-        self.offset = offset
+        if isinstance(offset, (tuple, list)) and len(offset) > 1:
+            self.offset = offset
+        else:
+            self.offset = [0, 0.0]
 
         # make GUI
         sizer = self.makeGUI()
@@ -1858,10 +1867,11 @@ class dlgSpectrumOffset(wx.Dialog):
 
         # make elements
         offset_label = wx.StaticText(self, -1, "Intensity offset:")
+        offset_y = self.offset[1] if self.offset is not None else 0.0
         self.offset_value = wx.TextCtrl(
             self,
             -1,
-            str(self.offset[1]),
+            str(offset_y),
             size=(120, -1),
             style=wx.TE_PROCESS_ENTER,
             validator=mwx.validator("float"),
@@ -1903,7 +1913,7 @@ class dlgSpectrumOffset(wx.Dialog):
         # get data
         try:
             self.offset = [0, float(self.offset_value.GetValue())]
-        except:
+        except Exception:
             self.offset = None
 
     # ----
