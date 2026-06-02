@@ -19,6 +19,7 @@
 import wx
 import copy
 import xml.dom.minidom
+from typing import Any
 
 # load modules
 from .ids import *
@@ -45,6 +46,9 @@ class dlgReferencesEditor(wx.Dialog):
 
         self.group = None
         self.itemsMap = []
+        self.itemFormula_value: Any = None
+        self.itemMoMass_value: Any = None
+        self.itemAvMass_value: Any = None
 
         # make GUI
         sizer = self.makeGUI()
@@ -84,7 +88,9 @@ class dlgReferencesEditor(wx.Dialog):
         """Make group editor."""
 
         # make elements
-        self.groupName_choice = wx.Choice(self, -1, size=(-1, mwx.CHOICE_HEIGHT))
+        self.groupName_choice = wx.Choice(
+            self, -1, size=wx.Size(-1, mwx.CHOICE_HEIGHT)
+        )
         self.groupName_choice.Bind(wx.EVT_CHOICE, self.onGroupSelected)
 
         groupImport_butt = wx.Button(self, -1, "Import")
@@ -116,7 +122,7 @@ class dlgReferencesEditor(wx.Dialog):
 
         # init list
         self.itemsList = mwx.sortListCtrl(
-            self, -1, size=(601, 200), style=mwx.LISTCTRL_STYLE_MULTI
+            self, -1, size=wx.Size(601, 200), style=mwx.LISTCTRL_STYLE_MULTI
         )
         self.itemsList.SetFont(wx.SMALL_FONT)
         self.itemsList.setAltColour(mwx.LISTCTRL_ALTCOLOUR)
@@ -141,16 +147,18 @@ class dlgReferencesEditor(wx.Dialog):
 
         # make elements
         itemDescription_label = wx.StaticText(self, -1, "Description:")
-        self.itemDescription_value = wx.TextCtrl(self, -1, "", size=(280, -1))
+        self.itemDescription_value: Any = wx.TextCtrl(
+            self, -1, "", size=wx.Size(280, -1)
+        )
 
         itemMass_label = wx.StaticText(self, -1, "m/z:")
-        self.itemMass_value = wx.TextCtrl(self, -1, "", size=(280, -1))
+        self.itemMass_value: Any = wx.TextCtrl(self, -1, "", size=wx.Size(280, -1))
 
         # buttons
-        add_butt = wx.Button(self, -1, "Add", size=(80, -1))
+        add_butt = wx.Button(self, -1, "Add", size=wx.Size(80, -1))
         add_butt.Bind(wx.EVT_BUTTON, self.onAddItem)
 
-        delete_butt = wx.Button(self, -1, "Delete", size=(80, -1))
+        delete_butt = wx.Button(self, -1, "Delete", size=wx.Size(80, -1))
         delete_butt.Bind(wx.EVT_BUTTON, self.onDeleteItem)
 
         # pack elements
@@ -248,7 +256,7 @@ class dlgReferencesEditor(wx.Dialog):
         # select groups to import
         dlg = dlgSelectItemsToImport(self, importedItems)
         if dlg.ShowModal() == wx.ID_OK:
-            selected = dlg.selected
+            selected = dlg.selected or []
             dlg.Destroy()
         else:
             dlg.Destroy()
@@ -258,7 +266,7 @@ class dlgReferencesEditor(wx.Dialog):
         selectAfter = "Reference lists"
         replaceAll = False
         for item in selected:
-            if replaceAll or not item in libs.references:
+            if replaceAll or item not in libs.references:
                 libs.references[item] = importedItems[item]
                 selectAfter = item
             else:
@@ -521,11 +529,11 @@ class dlgReferencesEditor(wx.Dialog):
 
         # show formula masses
         try:
-            formula = mspy.compound(formula)
-            mass = formula.mass()
+            formula: Any = mspy.compound(formula)
+            mass: Any = formula.mass()
             self.itemMoMass_value.SetValue(str(mass[0]))
             self.itemAvMass_value.SetValue(str(mass[1]))
-        except:
+        except Exception:
             wx.Bell()
             self.itemMoMass_value.SetValue("")
             self.itemAvMass_value.SetValue("")
@@ -640,7 +648,7 @@ class dlgGroupName(wx.Dialog):
 
         # make elements
         self.name_value = wx.TextCtrl(
-            self, -1, self.name, size=(300, -1), style=wx.TE_PROCESS_ENTER
+            self, -1, self.name, size=wx.Size(300, -1), style=wx.TE_PROCESS_ENTER
         )
         self.name_value.Bind(wx.EVT_TEXT_ENTER, self.onOK)
 
@@ -754,7 +762,7 @@ class dlgSelectItemsToImport(wx.Dialog):
 
         # init list
         self.itemsList = mwx.sortListCtrl(
-            self, -1, size=(461, 200), style=mwx.LISTCTRL_STYLE_MULTI
+            self, -1, size=wx.Size(461, 200), style=mwx.LISTCTRL_STYLE_MULTI
         )
         self.itemsList.SetFont(wx.SMALL_FONT)
         self.itemsList.setAltColour(mwx.LISTCTRL_ALTCOLOUR)

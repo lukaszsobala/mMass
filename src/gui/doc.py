@@ -16,7 +16,6 @@
 # -------------------------------------------------------------------------
 
 # load libs
-import time
 import sys
 import struct
 import base64
@@ -27,9 +26,9 @@ import os.path
 import re
 import numpy
 import wx
+from typing import Any
 
 # load modules
-from . import images
 from . import config
 import mspy
 
@@ -42,23 +41,23 @@ class document:
 
     def __init__(self):
 
-        self.format = "mSD"
-        self.title = ""
-        self.path = ""
+        self.format: str = "mSD"
+        self.title: str = ""
+        self.path: str = ""
 
-        self.date = ""
-        self.operator = ""
-        self.contact = ""
-        self.institution = ""
-        self.instrument = ""
-        self.notes = ""
+        self.date: str = ""
+        self.operator: str = ""
+        self.contact: str = ""
+        self.institution: str = ""
+        self.instrument: str = ""
+        self.notes: str = ""
 
-        self.spectrum = mspy.scan()
+        self.spectrum: Any = mspy.scan()
         self.annotations = []
         self.sequences = []
 
         self.colour = (0, 0, 255)
-        self.style = wx.SOLID
+        self.style = wx.SOLID  # type: ignore[attr-defined]
         self.dirty = False
         self.visible = True
         self.flipped = False
@@ -67,16 +66,16 @@ class document:
         # undo buffers
         self.undo = None
         self.redo = None
-        self._spectrumBuff = None
-        self._annotationsBuff = None
-        self._sequencesBuff = None
-        self._infoBuff = None
+        self._spectrumBuff: Any = None
+        self._annotationsBuff: Any = None
+        self._sequencesBuff: Any = None
+        self._infoBuff: dict[str, Any] | None = None
 
         # redo buffers
-        self._redoSpectrumBuff = None
-        self._redoAnnotationsBuff = None
-        self._redoSequencesBuff = None
-        self._redoInfoBuff = None
+        self._redoSpectrumBuff: Any = None
+        self._redoAnnotationsBuff: Any = None
+        self._redoSequencesBuff: Any = None
+        self._redoInfoBuff: dict[str, Any] | None = None
 
     # ----
 
@@ -174,31 +173,38 @@ class document:
 
         # revert data
         if "spectrum" in items:
-            self.spectrum = self._spectrumBuff
+            if self._spectrumBuff is not None:
+                self.spectrum = self._spectrumBuff
         if "annotations" in items:
-            self.annotations[:] = self._annotationsBuff[:]
+            if self._annotationsBuff is not None:
+                self.annotations[:] = self._annotationsBuff[:]
         if "sequences" in items:
-            self.sequences[:] = self._sequencesBuff[:]
+            if self._sequencesBuff is not None:
+                self.sequences[:] = self._sequencesBuff[:]
         if "notations" in items:
-            self.annotations[:] = self._annotationsBuff[:]
-            for x in range(len(self.sequences)):
-                self.sequences[x].matches[:] = self._sequencesBuff[x].matches[:]
+            if self._annotationsBuff is not None and self._sequencesBuff is not None:
+                self.annotations[:] = self._annotationsBuff[:]
+                for x in range(len(self.sequences)):
+                    self.sequences[x].matches[:] = self._sequencesBuff[x].matches[:]
         if "doctitle" in items:
-            self.title = self._infoBuff["title"]
+            if self._infoBuff is not None:
+                self.title = self._infoBuff["title"]
         if "info" in items:
-            self.title = self._infoBuff["title"]
-            self.date = self._infoBuff["date"]
-            self.operator = self._infoBuff["operator"]
-            self.contact = self._infoBuff["contact"]
-            self.institution = self._infoBuff["institution"]
-            self.instrument = self._infoBuff["instrument"]
-            self.notes = self._infoBuff["notes"]
-            self.spectrum.scanNumber = self._infoBuff["scanNumber"]
-            self.spectrum.retentionTime = self._infoBuff["retentionTime"]
-            self.spectrum.msLevel = self._infoBuff["msLevel"]
-            self.spectrum.precursorMZ = self._infoBuff["precursorMZ"]
-            self.spectrum.precursorCharge = self._infoBuff["precursorCharge"]
-            self.spectrum.polarity = self._infoBuff["polarity"]
+            if self._infoBuff is not None:
+                info = self._infoBuff
+                self.title = info["title"]
+                self.date = info["date"]
+                self.operator = info["operator"]
+                self.contact = info["contact"]
+                self.institution = info["institution"]
+                self.instrument = info["instrument"]
+                self.notes = info["notes"]
+                self.spectrum.scanNumber = info["scanNumber"]
+                self.spectrum.retentionTime = info["retentionTime"]
+                self.spectrum.msLevel = info["msLevel"]
+                self.spectrum.precursorMZ = info["precursorMZ"]
+                self.spectrum.precursorCharge = info["precursorCharge"]
+                self.spectrum.polarity = info["polarity"]
 
         # clear buffers
         self.undo = None
@@ -255,31 +261,38 @@ class document:
 
         # restore redone data
         if "spectrum" in items:
-            self.spectrum = self._redoSpectrumBuff
+            if self._redoSpectrumBuff is not None:
+                self.spectrum = self._redoSpectrumBuff
         if "annotations" in items:
-            self.annotations[:] = self._redoAnnotationsBuff[:]
+            if self._redoAnnotationsBuff is not None:
+                self.annotations[:] = self._redoAnnotationsBuff[:]
         if "sequences" in items:
-            self.sequences[:] = self._redoSequencesBuff[:]
+            if self._redoSequencesBuff is not None:
+                self.sequences[:] = self._redoSequencesBuff[:]
         if "notations" in items:
-            self.annotations[:] = self._redoAnnotationsBuff[:]
-            for x in range(len(self.sequences)):
-                self.sequences[x].matches[:] = self._redoSequencesBuff[x].matches[:]
+            if self._redoAnnotationsBuff is not None and self._redoSequencesBuff is not None:
+                self.annotations[:] = self._redoAnnotationsBuff[:]
+                for x in range(len(self.sequences)):
+                    self.sequences[x].matches[:] = self._redoSequencesBuff[x].matches[:]
         if "doctitle" in items:
-            self.title = self._redoInfoBuff["title"]
+            if self._redoInfoBuff is not None:
+                self.title = self._redoInfoBuff["title"]
         if "info" in items:
-            self.title = self._redoInfoBuff["title"]
-            self.date = self._redoInfoBuff["date"]
-            self.operator = self._redoInfoBuff["operator"]
-            self.contact = self._redoInfoBuff["contact"]
-            self.institution = self._redoInfoBuff["institution"]
-            self.instrument = self._redoInfoBuff["instrument"]
-            self.notes = self._redoInfoBuff["notes"]
-            self.spectrum.scanNumber = self._redoInfoBuff["scanNumber"]
-            self.spectrum.retentionTime = self._redoInfoBuff["retentionTime"]
-            self.spectrum.msLevel = self._redoInfoBuff["msLevel"]
-            self.spectrum.precursorMZ = self._redoInfoBuff["precursorMZ"]
-            self.spectrum.precursorCharge = self._redoInfoBuff["precursorCharge"]
-            self.spectrum.polarity = self._redoInfoBuff["polarity"]
+            if self._redoInfoBuff is not None:
+                info = self._redoInfoBuff
+                self.title = info["title"]
+                self.date = info["date"]
+                self.operator = info["operator"]
+                self.contact = info["contact"]
+                self.institution = info["institution"]
+                self.instrument = info["instrument"]
+                self.notes = info["notes"]
+                self.spectrum.scanNumber = info["scanNumber"]
+                self.spectrum.retentionTime = info["retentionTime"]
+                self.spectrum.msLevel = info["msLevel"]
+                self.spectrum.precursorMZ = info["precursorMZ"]
+                self.spectrum.precursorCharge = info["precursorCharge"]
+                self.spectrum.polarity = info["polarity"]
 
         # clear redo buffers
         self.redo = None
@@ -421,12 +434,15 @@ class document:
                     buff += "    <peak %s>\n" % attributes
 
                     envAttributes = []
-                    if envelope.get("area") is not None:
-                        envAttributes.append('area="%.12g"' % float(envelope.get("area")))
-                    if envelope.get("fwhm") is not None:
-                        envAttributes.append('fwhm="%.12g"' % float(envelope.get("fwhm")))
-                    if envelope.get("shape") is not None:
-                        envAttributes.append('shape="%s"' % self._escape(str(envelope.get("shape"))))
+                    area = envelope.get("area")
+                    if area is not None:
+                        envAttributes.append('area="%.12g"' % float(area))
+                    fwhm = envelope.get("fwhm")
+                    if fwhm is not None:
+                        envAttributes.append('fwhm="%.12g"' % float(fwhm))
+                    shape = envelope.get("shape")
+                    if shape is not None:
+                        envAttributes.append('shape="%s"' % self._escape(str(shape)))
 
                     if envAttributes:
                         buff += "      <envelope %s>\n" % " ".join(envAttributes)
@@ -492,7 +508,7 @@ class document:
                     buff += "      <monomers>\n"
                     savedMonomers = []
                     for abbr in sequence.chain:
-                        if not abbr in savedMonomers:
+                        if abbr not in savedMonomers:
                             savedMonomers.append(abbr)
                             formula = mspy.monomers[abbr].formula
                             buff += '        <monomer abbr="%s" formula="%s" />\n' % (
@@ -987,7 +1003,7 @@ class document:
             name = mod[0]
 
             # format position
-            if type(mod[1]) == int:
+            if isinstance(mod[1], int):
                 position = "%s %s" % (sequence[mod[1]], mod[1] + 1)
             elif mod[1] == "nTerm":
                 position = "N-terminus"
@@ -1003,7 +1019,8 @@ class document:
                 modtype = "variable"
 
             # format masses
-            mass = mspy.modifications[name].mass
+            modification: Any = mspy.modifications[name]
+            mass = modification.mass
             massMo = format % mass[0]
             massAv = format % mass[1]
 
@@ -1190,7 +1207,7 @@ class parseMSD:
         self.path = path
         self.errors = []
         self._version = None
-        self._parsedData = None
+        self._parsedData: Any = None
 
         # init new document
         self.document = document()
@@ -1209,7 +1226,7 @@ class parseMSD:
             try:
                 self._parsedData = xml.dom.minidom.parse(self.path)
                 self._version = self._getVersion()
-            except:
+            except Exception:
                 return False
 
         # get data
@@ -1241,7 +1258,7 @@ class parseMSD:
             try:
                 self._parsedData = xml.dom.minidom.parse(self.path)
                 self._version = self._getVersion()
-            except:
+            except Exception:
                 return False
 
         # set handler
@@ -1635,12 +1652,12 @@ class parseMSD:
         for monomerTag in monomerTags:
             abbr = monomerTag.getAttribute("abbr")
             formula = monomerTag.getAttribute("formula")
-            if not abbr in mspy.monomers:
+            if abbr not in mspy.monomers:
                 self._addMonomer(abbr, formula)
 
         # make sequence
         try:
-            sequence = mspy.sequence(
+            sequence: Any = mspy.sequence(
                 chain,
                 title=title,
                 accession=accession,
@@ -1648,12 +1665,11 @@ class parseMSD:
                 cyclic=cyclic,
             )
             sequence.matches = []
-        except:
+        except Exception:
             self.errors.append("Unknown monomers in sequence data.")
             return False
 
         # get modifications
-        modifications = []
         modificationTags = sequenceTag.getElementsByTagName("modification")
         for modificationTag in modificationTags:
             name = modificationTag.getAttribute("name")
@@ -1663,7 +1679,7 @@ class parseMSD:
 
             try:
                 position = int(position)
-            except:
+            except Exception:
                 pass
 
             modtype = "f"
@@ -1726,7 +1742,7 @@ class parseMSD:
                 if matchTag.hasAttribute("fragmentIndex"):
                     fragmentIndex = int(matchTag.getAttribute("fragmentIndex"))
 
-                m = match(
+                m: Any = match(
                     label=label,
                     mz=mz,
                     ai=ai,
@@ -1821,14 +1837,13 @@ class parseMSD:
 
         # make sequence
         try:
-            sequence = mspy.sequence(chain, title=title)
+            sequence: Any = mspy.sequence(chain, title=title)
             sequence.matches = []
-        except:
+        except Exception:
             self.errors.append("Unknown monomers in sequence data.")
             return False
 
         # get modifications
-        modifications = []
         modificationTags = sequenceTag.getElementsByTagName("modification")
         for modificationTag in modificationTags:
             name = modificationTag.getAttribute("name")
@@ -1920,7 +1935,7 @@ class parseMSD:
             mspy.monomers[abbr] = monomer
             mspy.saveMonomers(os.path.join(config.confdir, "monomers.xml"))
             return True
-        except:
+        except Exception:
             return False
 
     # ----
@@ -1943,7 +1958,7 @@ class parseMSD:
             mspy.modifications[name] = modification
             mspy.saveModifications(os.path.join(config.confdir, "modifications.xml"))
             return True
-        except:
+        except Exception:
             return False
 
     # ----

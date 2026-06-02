@@ -17,6 +17,7 @@
 
 # load libs
 import wx
+from typing import Any
 
 # load modules
 from . import mwx
@@ -85,7 +86,7 @@ class dlgModificationsEditor(wx.Dialog):
 
         # init list
         self.itemsList = mwx.sortListCtrl(
-            self, -1, size=(841, 250), style=mwx.LISTCTRL_STYLE_MULTI
+            self, -1, size=wx.Size(841, 250), style=mwx.LISTCTRL_STYLE_MULTI
         )
         self.itemsList.SetFont(wx.SMALL_FONT)
         self.itemsList.setAltColour(mwx.LISTCTRL_ALTCOLOUR)
@@ -116,46 +117,46 @@ class dlgModificationsEditor(wx.Dialog):
 
         # make elements
         itemName_label = wx.StaticText(self, -1, "Name:")
-        self.itemName_value = wx.TextCtrl(self, -1, "", size=(250, -1))
+        self.itemName_value = wx.TextCtrl(self, -1, "", size=wx.Size(250, -1))
 
         itemDescription_label = wx.StaticText(self, -1, "Description:")
-        self.itemDescription_value = wx.TextCtrl(self, -1, "", size=(250, -1))
+        self.itemDescription_value = wx.TextCtrl(self, -1, "", size=wx.Size(250, -1))
 
         itemAminoSpecifity_label = wx.StaticText(self, -1, "Amino specifity:")
-        self.itemAminoSpecifity_value = wx.TextCtrl(self, -1, "", size=(250, -1))
+        self.itemAminoSpecifity_value = wx.TextCtrl(self, -1, "", size=wx.Size(250, -1))
 
         itemTermSpecifity_label = wx.StaticText(self, -1, "Terminal specifity:")
         self.itemTermSpecifity_choice = wx.Choice(
             self,
             -1,
             choices=["None", "N-terminus", "C-terminus"],
-            size=(250, mwx.CHOICE_HEIGHT),
+            size=wx.Size(250, mwx.CHOICE_HEIGHT),
         )
         self.itemTermSpecifity_choice.SetStringSelection("None")
 
         itemGainFormula_label = wx.StaticText(self, -1, "Gain formula:")
-        self.itemGainFormula_value = mwx.formulaCtrl(self, -1, "", size=(150, -1))
+        self.itemGainFormula_value = mwx.formulaCtrl(self, -1, "", size=wx.Size(150, -1))
         self.itemGainFormula_value.Bind(wx.EVT_TEXT, self.onFormulaEdited)
 
         itemLossFormula_label = wx.StaticText(self, -1, "Loss formula:")
-        self.itemLossFormula_value = mwx.formulaCtrl(self, -1, "", size=(150, -1))
+        self.itemLossFormula_value = mwx.formulaCtrl(self, -1, "", size=wx.Size(150, -1))
         self.itemLossFormula_value.Bind(wx.EVT_TEXT, self.onFormulaEdited)
 
         itemMoMass_label = wx.StaticText(self, -1, "Mo. mass:")
-        self.itemMoMass_value = wx.TextCtrl(self, -1, "", size=(150, -1))
+        self.itemMoMass_value = wx.TextCtrl(self, -1, "", size=wx.Size(150, -1))
         itemMoMass_label.Enable(False)
         self.itemMoMass_value.Enable(False)
 
         itemAvMass_label = wx.StaticText(self, -1, "Av. mass:")
-        self.itemAvMass_value = wx.TextCtrl(self, -1, "", size=(150, -1))
+        self.itemAvMass_value = wx.TextCtrl(self, -1, "", size=wx.Size(150, -1))
         itemAvMass_label.Enable(False)
         self.itemAvMass_value.Enable(False)
 
         # buttons
-        add_butt = wx.Button(self, -1, "Add", size=(80, -1))
+        add_butt = wx.Button(self, -1, "Add", size=wx.Size(80, -1))
         add_butt.Bind(wx.EVT_BUTTON, self.onAddItem)
 
-        delete_butt = wx.Button(self, -1, "Delete", size=(80, -1))
+        delete_butt = wx.Button(self, -1, "Delete", size=wx.Size(80, -1))
         delete_butt.Bind(wx.EVT_BUTTON, self.onDeleteItem)
 
         # pack elements
@@ -324,6 +325,7 @@ class dlgModificationsEditor(wx.Dialog):
 
         # make map
         for name, mod in sorted(mspy.modifications.items()):
+            mod: Any = mod
             self.itemsMap.append(
                 (
                     mod.name,
@@ -384,13 +386,13 @@ class dlgModificationsEditor(wx.Dialog):
 
         # show formula masses
         try:
-            gain = mspy.compound(gain)
-            loss = mspy.compound(loss)
-            gainMass = gain.mass()
-            lossMass = loss.mass()
+            gain: Any = mspy.compound(gain)
+            loss: Any = mspy.compound(loss)
+            gainMass: Any = gain.mass()
+            lossMass: Any = loss.mass()
             self.itemMoMass_value.SetValue(str(gainMass[0] - lossMass[0]))
             self.itemAvMass_value.SetValue(str(gainMass[1] - lossMass[1]))
-        except:
+        except Exception:
             wx.Bell()
             self.itemMoMass_value.SetValue("")
             self.itemAvMass_value.SetValue("")

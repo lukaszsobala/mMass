@@ -24,6 +24,8 @@ import wx
 from . import mwx
 from . import config
 import mspy
+from mspy.plot_canvas import canvas as plot_canvas
+from mspy.plot_objects import container as plot_container, points as plot_points
 
 # SCAN SELECTION DIALOG
 # ---------------------
@@ -58,7 +60,7 @@ class dlgSelectScans(wx.Dialog):
         if not self.showChromCanvas:
             sizer.Hide(1)
             sizer.Hide(2)
-            self.scanList.SetInitialSize((656, 250))
+            self.scanList.SetInitialSize(wx.Size(656, 250))
 
         # fit layout
         self.Layout()
@@ -120,7 +122,7 @@ class dlgSelectScans(wx.Dialog):
 
         # init list
         self.scanList = mwx.sortListCtrl(
-            self, -1, size=(656, 200), style=mwx.LISTCTRL_STYLE_MULTI
+            self, -1, size=wx.Size(656, 200), style=mwx.LISTCTRL_STYLE_MULTI
         )
         self.scanList.SetFont(wx.SMALL_FONT)
         self.scanList.setAltColour(mwx.LISTCTRL_ALTCOLOUR)
@@ -150,8 +152,8 @@ class dlgSelectScans(wx.Dialog):
         """Make plot canvas and set defalt parameters."""
 
         # init canvas
-        self.chromCanvas = mspy.plot.canvas(
-            self, size=(-1, 200), style=mwx.PLOTCANVAS_STYLE_DIALOG
+        self.chromCanvas = plot_canvas(
+            self, size=wx.Size(-1, 200), style=mwx.PLOTCANVAS_STYLE_DIALOG
         )
 
         # set default params
@@ -176,16 +178,16 @@ class dlgSelectScans(wx.Dialog):
 
         axisFont = wx.Font(
             config.spectrum["axisFontSize"],
-            wx.SWISS,
+            wx.FONTFAMILY_SWISS,
             wx.FONTSTYLE_NORMAL,
             wx.FONTWEIGHT_NORMAL,
-            0,
+            False,
         )
         self.chromCanvas.setProperties(axisFont=axisFont)
 
         self.chromCanvas.Bind(wx.EVT_LEFT_UP, self.onCanvasLMU)
 
-        self.chromCanvas.draw(mspy.plot.container([]))
+        self.chromCanvas.draw(plot_container([]))
 
     # ----
 
@@ -283,7 +285,7 @@ class dlgSelectScans(wx.Dialog):
     def updateChromPlot(self):
         """Update chromatograms."""
 
-        container = mspy.plot.container([])
+        container = plot_container([])
 
         # get data
         ticData = []
@@ -299,7 +301,7 @@ class dlgSelectScans(wx.Dialog):
         # make objects
         if len(ticData) > 10:
             ticData.sort()
-            obj = mspy.plot.points(
+            obj = plot_points(
                 ticData,
                 lineColour=(16, 71, 185),
                 legend="TIC (MS)",
@@ -313,7 +315,7 @@ class dlgSelectScans(wx.Dialog):
 
         if len(bpcData) > 10:
             bpcData.sort()
-            obj = mspy.plot.points(
+            obj = plot_points(
                 bpcData,
                 lineColour=(50, 140, 0),
                 legend="BPC (MS)",

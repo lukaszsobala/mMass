@@ -85,7 +85,7 @@ class dlgPresetsEditor(wx.Dialog):
 
         # init list
         self.itemsList = mwx.sortListCtrl(
-            self, -1, size=(501, 200), style=mwx.LISTCTRL_STYLE_MULTI
+            self, -1, size=wx.Size(501, 200), style=mwx.LISTCTRL_STYLE_MULTI
         )
         self.itemsList.SetFont(wx.SMALL_FONT)
         self.itemsList.setAltColour(mwx.LISTCTRL_ALTCOLOUR)
@@ -110,17 +110,17 @@ class dlgPresetsEditor(wx.Dialog):
 
         # make elements
         itemName_label = wx.StaticText(self, -1, "Name:")
-        self.itemName_value = wx.TextCtrl(self, -1, "", size=(250, -1))
+        self.itemName_value = wx.TextCtrl(self, -1, "", size=wx.Size(250, -1))
 
         itemCategory_label = wx.StaticText(self, -1, "Category:")
-        self.itemCategory_value = wx.TextCtrl(self, -1, "", size=(250, -1))
+        self.itemCategory_value = wx.TextCtrl(self, -1, "", size=wx.Size(250, -1))
         self.itemCategory_value.Enable(False)
 
         # buttons
-        rename_butt = wx.Button(self, -1, "Rename", size=(80, -1))
+        rename_butt = wx.Button(self, -1, "Rename", size=wx.Size(80, -1))
         rename_butt.Bind(wx.EVT_BUTTON, self.onRenameItem)
 
-        delete_butt = wx.Button(self, -1, "Delete", size=(80, -1))
+        delete_butt = wx.Button(self, -1, "Delete", size=wx.Size(80, -1))
         delete_butt.Bind(wx.EVT_BUTTON, self.onDeleteItem)
 
         # pack elements

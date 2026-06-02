@@ -83,7 +83,7 @@ class dlgEnzymesEditor(wx.Dialog):
 
         # init list
         self.itemsList = mwx.sortListCtrl(
-            self, -1, size=(741, 200), style=mwx.LISTCTRL_STYLE_MULTI
+            self, -1, size=wx.Size(741, 200), style=mwx.LISTCTRL_STYLE_MULTI
         )
         self.itemsList.SetFont(wx.SMALL_FONT)
         self.itemsList.setAltColour(mwx.LISTCTRL_ALTCOLOUR)
@@ -112,16 +112,16 @@ class dlgEnzymesEditor(wx.Dialog):
 
         # make elements
         itemName_label = wx.StaticText(self, -1, "Name:")
-        self.itemName_value = wx.TextCtrl(self, -1, "", size=(200, -1))
+        self.itemName_value = wx.TextCtrl(self, -1, "", size=wx.Size(200, -1))
 
         itemExpression_label = wx.StaticText(self, -1, "Expression:")
-        self.itemExpression_value = wx.TextCtrl(self, -1, "", size=(200, -1))
+        self.itemExpression_value = wx.TextCtrl(self, -1, "", size=wx.Size(200, -1))
 
         itemCTerm_label = wx.StaticText(self, -1, "C-term formula:")
-        self.itemCTerm_value = mwx.formulaCtrl(self, -1, "", size=(200, -1))
+        self.itemCTerm_value = mwx.formulaCtrl(self, -1, "", size=wx.Size(200, -1))
 
         itemNTerm_label = wx.StaticText(self, -1, "N-term formula:")
-        self.itemNTerm_value = mwx.formulaCtrl(self, -1, "", size=(200, -1))
+        self.itemNTerm_value = mwx.formulaCtrl(self, -1, "", size=wx.Size(200, -1))
 
         self.itemModsBefore_check = wx.CheckBox(
             self, -1, "Allow modification before cut"
@@ -130,10 +130,10 @@ class dlgEnzymesEditor(wx.Dialog):
         self.itemModsAfter_check = wx.CheckBox(self, -1, "Allow modification after cut")
 
         # buttons
-        add_butt = wx.Button(self, -1, "Add", size=(80, -1))
+        add_butt = wx.Button(self, -1, "Add", size=wx.Size(80, -1))
         add_butt.Bind(wx.EVT_BUTTON, self.onAddItem)
 
-        delete_butt = wx.Button(self, -1, "Delete", size=(80, -1))
+        delete_butt = wx.Button(self, -1, "Delete", size=wx.Size(80, -1))
         delete_butt.Bind(wx.EVT_BUTTON, self.onDeleteItem)
 
         # pack elements
@@ -335,8 +335,8 @@ class dlgEnzymesEditor(wx.Dialog):
         expression = self.itemExpression_value.GetValue()
         cTermFormula = self.itemCTerm_value.GetValue()
         nTermFormula = self.itemNTerm_value.GetValue()
-        modsBefore = int(self.itemModsBefore_check.GetValue())
-        modsAfter = int(self.itemModsAfter_check.GetValue())
+        modsBefore = bool(self.itemModsBefore_check.GetValue())
+        modsAfter = bool(self.itemModsAfter_check.GetValue())
 
         # check values
         if not name or not expression or not cTermFormula or not nTermFormula:
@@ -354,7 +354,7 @@ class dlgEnzymesEditor(wx.Dialog):
                 modsBefore=modsBefore,
                 modsAfter=modsAfter,
             )
-        except:
+        except Exception:
             wx.Bell()
             return False
 

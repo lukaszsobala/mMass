@@ -83,7 +83,7 @@ class dlgMascotEditor(wx.Dialog):
 
         # init list
         self.itemsList = mwx.sortListCtrl(
-            self, -1, size=(711, 200), style=mwx.LISTCTRL_STYLE_MULTI
+            self, -1, size=wx.Size(711, 200), style=mwx.LISTCTRL_STYLE_MULTI
         )
         self.itemsList.SetFont(wx.SMALL_FONT)
         self.itemsList.setAltColour(mwx.LISTCTRL_ALTCOLOUR)
@@ -109,39 +109,39 @@ class dlgMascotEditor(wx.Dialog):
 
         # make elements
         itemName_label = wx.StaticText(self, -1, "Title:")
-        self.itemName_value = wx.TextCtrl(self, -1, "", size=(200, -1))
+        self.itemName_value = wx.TextCtrl(self, -1, "", size=wx.Size(200, -1))
 
         itemHost_label = wx.StaticText(self, -1, "Host name:")
-        self.itemHost_value = wx.TextCtrl(self, -1, "", size=(200, -1))
+        self.itemHost_value = wx.TextCtrl(self, -1, "", size=wx.Size(200, -1))
 
         itemPath_label = wx.StaticText(self, -1, "Mascot path:")
-        self.itemPath_value = wx.TextCtrl(self, -1, "/", size=(200, -1))
+        self.itemPath_value = wx.TextCtrl(self, -1, "/", size=wx.Size(200, -1))
 
         itemSearch_label = wx.StaticText(self, -1, "Search:")
         self.itemSearch_value = wx.TextCtrl(
-            self, -1, "cgi/nph-mascot.exe", size=(170, -1)
+            self, -1, "cgi/nph-mascot.exe", size=wx.Size(170, -1)
         )
 
         itemResults_label = wx.StaticText(self, -1, "Results:")
         self.itemResults_value = wx.TextCtrl(
-            self, -1, "cgi/master_results.pl", size=(170, -1)
+            self, -1, "cgi/master_results.pl", size=wx.Size(170, -1)
         )
 
         itemExport_label = wx.StaticText(self, -1, "Export:")
         self.itemExport_value = wx.TextCtrl(
-            self, -1, "cgi/export_dat_2.pl", size=(170, -1)
+            self, -1, "cgi/export_dat_2.pl", size=wx.Size(170, -1)
         )
 
         itemParams_label = wx.StaticText(self, -1, "Params:")
         self.itemParams_value = wx.TextCtrl(
-            self, -1, "cgi/get_params.pl", size=(170, -1)
+            self, -1, "cgi/get_params.pl", size=wx.Size(170, -1)
         )
 
         # buttons
-        add_butt = wx.Button(self, -1, "Add", size=(80, -1))
+        add_butt = wx.Button(self, -1, "Add", size=wx.Size(80, -1))
         add_butt.Bind(wx.EVT_BUTTON, self.onAddItem)
 
-        delete_butt = wx.Button(self, -1, "Delete", size=(80, -1))
+        delete_butt = wx.Button(self, -1, "Delete", size=wx.Size(80, -1))
         delete_butt.Bind(wx.EVT_BUTTON, self.onDeleteItem)
 
         # pack elements

@@ -19,6 +19,7 @@
 import wx
 import copy
 import xml.dom.minidom
+from typing import Any
 
 # load modules
 from .ids import *
@@ -84,7 +85,9 @@ class dlgCompoundsEditor(wx.Dialog):
         """Make group editor."""
 
         # make elements
-        self.groupName_choice = wx.Choice(self, -1, size=(-1, mwx.CHOICE_HEIGHT))
+        self.groupName_choice = wx.Choice(
+            self, -1, size=wx.Size(-1, mwx.CHOICE_HEIGHT)
+        )
         self.groupName_choice.Bind(wx.EVT_CHOICE, self.onGroupSelected)
 
         groupImport_butt = wx.Button(self, -1, "Import")
@@ -116,7 +119,7 @@ class dlgCompoundsEditor(wx.Dialog):
 
         # init list
         self.itemsList = mwx.sortListCtrl(
-            self, -1, size=(771, 250), style=mwx.LISTCTRL_STYLE_MULTI
+            self, -1, size=wx.Size(771, 250), style=mwx.LISTCTRL_STYLE_MULTI
         )
         self.itemsList.SetFont(wx.SMALL_FONT)
         self.itemsList.setAltColour(mwx.LISTCTRL_ALTCOLOUR)
@@ -144,30 +147,30 @@ class dlgCompoundsEditor(wx.Dialog):
 
         # make elements
         itemName_label = wx.StaticText(self, -1, "Name:")
-        self.itemName_value = wx.TextCtrl(self, -1, "", size=(250, -1))
+        self.itemName_value = wx.TextCtrl(self, -1, "", size=wx.Size(250, -1))
 
         itemDescription_label = wx.StaticText(self, -1, "Description:")
-        self.itemDescription_value = wx.TextCtrl(self, -1, "", size=(250, -1))
+        self.itemDescription_value = wx.TextCtrl(self, -1, "", size=wx.Size(250, -1))
 
         itemFormula_label = wx.StaticText(self, -1, "Formula:")
-        self.itemFormula_value = mwx.formulaCtrl(self, -1, "", size=(250, -1))
+        self.itemFormula_value = mwx.formulaCtrl(self, -1, "", size=wx.Size(250, -1))
         self.itemFormula_value.Bind(wx.EVT_TEXT, self.onFormulaEdited)
 
         itemMoMass_label = wx.StaticText(self, -1, "Mo. mass:")
-        self.itemMoMass_value = wx.TextCtrl(self, -1, "", size=(150, -1))
+        self.itemMoMass_value = wx.TextCtrl(self, -1, "", size=wx.Size(150, -1))
         itemMoMass_label.Enable(False)
         self.itemMoMass_value.Enable(False)
 
         itemAvMass_label = wx.StaticText(self, -1, "Av. mass:")
-        self.itemAvMass_value = wx.TextCtrl(self, -1, "", size=(150, -1))
+        self.itemAvMass_value = wx.TextCtrl(self, -1, "", size=wx.Size(150, -1))
         itemAvMass_label.Enable(False)
         self.itemAvMass_value.Enable(False)
 
         # buttons
-        add_butt = wx.Button(self, -1, "Add", size=(80, -1))
+        add_butt = wx.Button(self, -1, "Add", size=wx.Size(80, -1))
         add_butt.Bind(wx.EVT_BUTTON, self.onAddItem)
 
-        delete_butt = wx.Button(self, -1, "Delete", size=(80, -1))
+        delete_butt = wx.Button(self, -1, "Delete", size=wx.Size(80, -1))
         delete_butt.Bind(wx.EVT_BUTTON, self.onDeleteItem)
 
         # pack elements
@@ -225,7 +228,7 @@ class dlgCompoundsEditor(wx.Dialog):
 
         # get selected item
         name = evt.GetText()
-        compound = libs.compounds[self.group][name]
+        compound: Any = libs.compounds[self.group][name]
 
         # update item editor
         self.itemName_value.SetValue(name)
@@ -278,7 +281,7 @@ class dlgCompoundsEditor(wx.Dialog):
         # select groups to import
         dlg = dlgSelectItemsToImport(self, importedItems)
         if dlg.ShowModal() == wx.ID_OK:
-            selected = dlg.selected
+            selected = dlg.selected or []
             dlg.Destroy()
         else:
             dlg.Destroy()
@@ -288,7 +291,7 @@ class dlgCompoundsEditor(wx.Dialog):
         selectAfter = "Compounds lists"
         replaceAll = False
         for item in selected:
-            if replaceAll or not item in libs.compounds:
+            if replaceAll or item not in libs.compounds:
                 libs.compounds[item] = importedItems[item]
                 selectAfter = item
             else:
@@ -590,11 +593,11 @@ class dlgCompoundsEditor(wx.Dialog):
 
         # show formula masses
         try:
-            formula = mspy.compound(formula)
-            mass = formula.mass()
+            formula: Any = mspy.compound(formula)
+            mass: Any = formula.mass()
             self.itemMoMass_value.SetValue(str(mass[0]))
             self.itemAvMass_value.SetValue(str(mass[1]))
-        except:
+        except Exception:
             wx.Bell()
             self.itemMoMass_value.SetValue("")
             self.itemAvMass_value.SetValue("")
@@ -626,10 +629,10 @@ class dlgCompoundsEditor(wx.Dialog):
 
         # make compound
         try:
-            compound = mspy.compound(formula)
+            compound: Any = mspy.compound(formula)
             compound.name = name
             compound.description = description
-        except:
+        except Exception:
             wx.Bell()
             return False
 
@@ -645,7 +648,7 @@ class dlgCompoundsEditor(wx.Dialog):
         # parse XML file
         try:
             document = xml.dom.minidom.parse(path)
-        except:
+        except Exception:
             return False
 
         if not document.getElementsByTagName("mMassCompounds"):
@@ -662,12 +665,12 @@ class dlgCompoundsEditor(wx.Dialog):
                     for compoundTag in compoundTags:
                         try:
                             name = compoundTag.getAttribute("name")
-                            compound = mspy.compound(
+                            compound: Any = mspy.compound(
                                 compoundTag.getAttribute("formula")
                             )
                             compound.description = self._getNodeText(compoundTag)
                             compounds[groupName][name] = compound
-                        except:
+                        except Exception:
                             pass
 
         return compounds
@@ -718,7 +721,7 @@ class dlgGroupName(wx.Dialog):
 
         # make elements
         self.name_value = wx.TextCtrl(
-            self, -1, self.name, size=(300, -1), style=wx.TE_PROCESS_ENTER
+            self, -1, self.name, size=wx.Size(300, -1), style=wx.TE_PROCESS_ENTER
         )
         self.name_value.Bind(wx.EVT_TEXT_ENTER, self.onOK)
 
@@ -832,7 +835,7 @@ class dlgSelectItemsToImport(wx.Dialog):
 
         # init list
         self.itemsList = mwx.sortListCtrl(
-            self, -1, size=(461, 200), style=mwx.LISTCTRL_STYLE_MULTI
+            self, -1, size=wx.Size(461, 200), style=mwx.LISTCTRL_STYLE_MULTI
         )
         self.itemsList.SetFont(wx.SMALL_FONT)
         self.itemsList.setAltColour(mwx.LISTCTRL_ALTCOLOUR)

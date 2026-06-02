@@ -100,7 +100,7 @@ class dlgSelectSequences(wx.Dialog):
 
         # init list
         self.sequenceList = mwx.sortListCtrl(
-            self, -1, size=(626, 250), style=mwx.LISTCTRL_STYLE_MULTI
+            self, -1, size=wx.Size(626, 250), style=mwx.LISTCTRL_STYLE_MULTI
         )
         self.sequenceList.SetFont(wx.SMALL_FONT)
         self.sequenceList.setAltColour(mwx.LISTCTRL_ALTCOLOUR)

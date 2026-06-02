@@ -64,13 +64,13 @@ class dlgNotation(wx.Dialog):
         # make elements
         label_label = wx.StaticText(self, -1, "Label:", style=wx.ALIGN_RIGHT)
         self.label_value = wx.TextCtrl(
-            self, -1, "", size=(300, -1), style=wx.TE_PROCESS_ENTER
+            self, -1, "", size=wx.Size(300, -1), style=wx.TE_PROCESS_ENTER
         )
         self.label_value.Bind(wx.EVT_TEXT_ENTER, self.onOK)
 
         formula_label = wx.StaticText(self, -1, "Formula:", style=wx.ALIGN_RIGHT)
         self.formula_value = mwx.formulaCtrl(
-            self, -1, "", size=(300, -1), style=wx.TE_PROCESS_ENTER
+            self, -1, "", size=wx.Size(300, -1), style=wx.TE_PROCESS_ENTER
         )
         self.formula_value.Bind(wx.EVT_TEXT, self.onFormula)
         self.formula_value.Bind(wx.EVT_TEXT_ENTER, self.onOK)
@@ -82,7 +82,7 @@ class dlgNotation(wx.Dialog):
             self,
             -1,
             "",
-            size=(120, -1),
+            size=wx.Size(120, -1),
             style=wx.TE_PROCESS_ENTER,
             validator=mwx.validator("float"),
         )
@@ -93,14 +93,14 @@ class dlgNotation(wx.Dialog):
             self,
             -1,
             "",
-            size=(30, -1),
+            size=wx.Size(30, -1),
             style=wx.TE_PROCESS_ENTER,
             validator=mwx.validator("int"),
         )
         self.charge_value.Bind(wx.EVT_TEXT, self.onFormula)
         self.charge_value.Bind(wx.EVT_TEXT_ENTER, self.onOK)
 
-        self.radical_check = wx.CheckBox(self, -1, "M*", size=(50, -1))
+        self.radical_check = wx.CheckBox(self, -1, "M*", size=wx.Size(50, -1))
         self.radical_check.Bind(wx.EVT_CHECKBOX, self.onMassType)
 
         self.mzByUser_radio = wx.RadioButton(self, -1, "Manual", style=wx.RB_GROUP)

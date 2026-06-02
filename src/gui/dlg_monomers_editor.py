@@ -18,6 +18,7 @@
 # load libs
 import re
 import wx
+from typing import Any
 
 # load modules
 from . import mwx
@@ -92,7 +93,7 @@ class dlgMonomersEditor(wx.Dialog):
 
         # init list
         self.itemsList = mwx.sortListCtrl(
-            self, -1, size=(871, 250), style=mwx.LISTCTRL_STYLE_MULTI
+            self, -1, size=wx.Size(871, 250), style=mwx.LISTCTRL_STYLE_MULTI
         )
         self.itemsList.SetFont(wx.SMALL_FONT)
         self.itemsList.setAltColour(mwx.LISTCTRL_ALTCOLOUR)
@@ -123,52 +124,52 @@ class dlgMonomersEditor(wx.Dialog):
         # make elements
         itemSearch_label = wx.StaticText(self, -1, "Search:")
         self.itemSearch_value = wx.TextCtrl(
-            self, -1, "", size=(200, -1), style=wx.TE_PROCESS_ENTER
+            self, -1, "", size=wx.Size(200, -1), style=wx.TE_PROCESS_ENTER
         )
         self.itemSearch_value.Bind(wx.EVT_TEXT, self.onSearch)
 
         itemAbbr_label = wx.StaticText(self, -1, "Abbr.:")
-        self.itemAbbr_value = wx.TextCtrl(self, -1, "", size=(200, -1))
+        self.itemAbbr_value = wx.TextCtrl(self, -1, "", size=wx.Size(200, -1))
 
         itemName_label = wx.StaticText(self, -1, "Name:")
-        self.itemName_value = wx.TextCtrl(self, -1, "", size=(200, -1))
+        self.itemName_value = wx.TextCtrl(self, -1, "", size=wx.Size(200, -1))
 
         itemCategory_label = wx.StaticText(self, -1, "Category:")
-        self.itemCategory_value = wx.TextCtrl(self, -1, "", size=(200, -1))
+        self.itemCategory_value = wx.TextCtrl(self, -1, "", size=wx.Size(200, -1))
 
         itemFormula_label = wx.StaticText(self, -1, "Formula:")
-        self.itemFormula_value = mwx.formulaCtrl(self, -1, "", size=(150, -1))
+        self.itemFormula_value = mwx.formulaCtrl(self, -1, "", size=wx.Size(150, -1))
         self.itemFormula_value.Bind(wx.EVT_TEXT, self.onFormulaEdited)
 
         itemMoMass_label = wx.StaticText(self, -1, "Mo. mass:")
-        self.itemMoMass_value = wx.TextCtrl(self, -1, "", size=(150, -1))
+        self.itemMoMass_value = wx.TextCtrl(self, -1, "", size=wx.Size(150, -1))
         itemMoMass_label.Enable(False)
         self.itemMoMass_value.Enable(False)
 
         itemAvMass_label = wx.StaticText(self, -1, "Av. mass:")
-        self.itemAvMass_value = wx.TextCtrl(self, -1, "", size=(150, -1))
+        self.itemAvMass_value = wx.TextCtrl(self, -1, "", size=wx.Size(150, -1))
         itemAvMass_label.Enable(False)
         self.itemAvMass_value.Enable(False)
 
         itemLossMoMass_label = wx.StaticText(self, -1, "Mo. loss mass:")
-        self.itemLossMoMass_value = wx.TextCtrl(self, -1, "", size=(150, -1))
+        self.itemLossMoMass_value = wx.TextCtrl(self, -1, "", size=wx.Size(150, -1))
         itemLossMoMass_label.Enable(False)
         self.itemLossMoMass_value.Enable(False)
 
         itemLosses_label = wx.StaticText(self, -1, "Losses:")
         self.itemLosses_values = []
         for x in range(4):
-            item = mwx.formulaCtrl(self, -1, "", size=(100, -1))
+            item = mwx.formulaCtrl(self, -1, "", size=wx.Size(100, -1))
             item.Bind(wx.EVT_TEXT, self.onLossFormula)
             item.Bind(wx.EVT_SET_FOCUS, self.onLossFormula)
             item.Bind(wx.EVT_KILL_FOCUS, self.onLossFormula)
             self.itemLosses_values.append(item)
 
         # buttons
-        add_butt = wx.Button(self, -1, "Add", size=(80, -1))
+        add_butt = wx.Button(self, -1, "Add", size=wx.Size(80, -1))
         add_butt.Bind(wx.EVT_BUTTON, self.onAddItem)
 
-        delete_butt = wx.Button(self, -1, "Delete", size=(80, -1))
+        delete_butt = wx.Button(self, -1, "Delete", size=wx.Size(80, -1))
         delete_butt.Bind(wx.EVT_BUTTON, self.onDeleteItem)
 
         # pack elements
@@ -362,6 +363,7 @@ class dlgMonomersEditor(wx.Dialog):
 
         # make map
         for abbr, monomer in sorted(mspy.monomers.items()):
+            monomer: Any = monomer
 
             # skip regular amino acids
             if monomer.category == "_InternalAA":
@@ -432,11 +434,11 @@ class dlgMonomersEditor(wx.Dialog):
 
         # show formula masses
         try:
-            formula = mspy.compound(formula)
-            mass = formula.mass()
+            formula: Any = mspy.compound(formula)
+            mass: Any = formula.mass()
             self.itemMoMass_value.SetValue(str(mass[0]))
             self.itemAvMass_value.SetValue(str(mass[1]))
-        except:
+        except Exception:
             self.itemMoMass_value.SetValue("")
             self.itemAvMass_value.SetValue("")
 
@@ -456,11 +458,11 @@ class dlgMonomersEditor(wx.Dialog):
             # found focused item
             if item is focus:
                 try:
-                    formula = item.GetValue()
+                    formula: Any = item.GetValue()
                     formula = mspy.compound(formula)
-                    mass = formula.mass()
+                    mass: Any = formula.mass()
                     self.itemLossMoMass_value.SetValue(str(mass[0]))
-                except:
+                except Exception:
                     pass
 
     # ----

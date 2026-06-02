@@ -80,7 +80,7 @@ class dlgError(wx.Dialog):
 
         # make elements
         self.exception_value = wx.TextCtrl(
-            self, -1, self.exception, size=(400, 250), style=wx.TE_MULTILINE
+            self, -1, self.exception, size=wx.Size(400, 250), style=wx.TE_MULTILINE
         )
         self.exception_value.SetFont(wx.SMALL_FONT)
 
