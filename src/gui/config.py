@@ -21,7 +21,10 @@ import sys
 import os
 import xml.dom.minidom
 from importlib import resources
-from xdgenvpy import XDGPackage  # type: ignore[import-untyped]
+try:
+    from xdgenvpy import XDGPackage  # type: ignore[import-untyped]
+except ImportError:
+    from xdgenvpy.xdgenv import XDGPackage  # type: ignore[import-untyped]
 
 
 MODULE_DIR = os.path.dirname(os.path.abspath(__file__))
