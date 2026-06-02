@@ -21,9 +21,6 @@ import http.client
 import webbrowser
 import xml.dom.minidom
 
-# load stopper
-from .mod_stopper import CHECK_FORCE_QUIT
-
 # MASCOT SEARCH FUNCTIONS
 # -----------------------
 
@@ -148,7 +145,7 @@ class mascot:
             response = conn.getresponse()
             data = response.read()
             conn.close()
-        except:
+        except Exception:
             return False
 
         # error
@@ -156,7 +153,8 @@ class mascot:
             return False
 
         # get results path
-        match = re.search(r'master_results\.pl\?file=(.*)"', data)
+        text = data.decode("utf-8", errors="ignore")
+        match = re.search(r'master_results\.pl\?file=(.*)"', text)
         if match:
             self.resultsPath = match.group(1)
             return True
@@ -215,7 +213,7 @@ class mascot:
             response = conn.getresponse()
             data = response.read()
             conn.close()
-        except:
+        except Exception:
             return False
 
         # error
@@ -249,7 +247,7 @@ class mascot:
                 data = xml.dom.minidom.parseString(self.resultsXML)
             else:
                 return False
-        except:
+        except Exception:
             return False
 
         # get all hits
@@ -270,7 +268,8 @@ class mascot:
                     ):
                         protein[tag.tagName] = ""
                         for child in tag.childNodes:
-                            protein[tag.tagName] += child.data
+                            if child.nodeType == xml.dom.minidom.Node.TEXT_NODE:
+                                protein[tag.tagName] += child.data
 
                 # get peptides
                 protein["peptides"] = []
@@ -284,7 +283,8 @@ class mascot:
                         if tag.nodeType == xml.dom.minidom.Node.ELEMENT_NODE:
                             peptide[tag.tagName] = ""
                             for child in tag.childNodes:
-                                peptide[tag.tagName] += child.data
+                                if child.nodeType == xml.dom.minidom.Node.TEXT_NODE:
+                                    peptide[tag.tagName] += child.data
 
                     # add peptide
                     protein["peptides"].append(peptide)
@@ -309,9 +309,9 @@ class mascot:
         # save file
         try:
             with open(path, "wb") as f:
-                f.write(self.resultsXML.encode("utf-8"))
+                f.write(self.resultsXML)
             return True
-        except:
+        except Exception:
             return False
 
     # ----
@@ -327,7 +327,7 @@ class mascot:
             response = conn.getresponse()
             data = response.read()
             conn.close()
-        except:
+        except Exception:
             return False
 
         # parse parameter file
@@ -343,7 +343,9 @@ class mascot:
         }
 
         sectionPattern = re.compile(r"^\[([a-zA-Z_]*)\]$")
-        for line in data.split("\n"):
+        section = ""
+        text = data.decode("utf-8", errors="ignore")
+        for line in text.split("\n"):
             line = line.strip()
             if not line:
                 continue
