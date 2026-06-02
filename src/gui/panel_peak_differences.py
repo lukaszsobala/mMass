@@ -19,6 +19,7 @@
 import threading
 import wx
 import wx.grid
+from typing import Any
 
 # load modules
 from . import mwx
@@ -40,7 +41,7 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
             parent,
             -1,
             "Peak Differences",
-            size=(500, 400),
+            size=wx.Size(500, 400),
             style=wx.DEFAULT_FRAME_STYLE | wx.FRAME_FLOAT_ON_PARENT,
         )
 
@@ -111,7 +112,7 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
             panel,
             -1,
             "",
-            size=(100, -1),
+            size=wx.Size(100, -1),
             style=wx.TE_PROCESS_ENTER,
             validator=mwx.validator("floatPos"),
         )
@@ -143,7 +144,7 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
             panel,
             -1,
             str(config.peakDifferences["tolerance"]),
-            size=(50, -1),
+            size=wx.Size(50, -1),
             validator=mwx.validator("floatPos"),
         )
 
@@ -155,7 +156,7 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
         self.consolidate_check.SetValue(config.peakDifferences["consolidate"])
 
         self.search_butt = wx.Button(
-            panel, -1, "Search", size=(-1, mwx.SMALL_BUTTON_HEIGHT)
+            panel, -1, "Search", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
         )
         self.search_butt.Bind(wx.EVT_BUTTON, self.onSearch)
 
@@ -224,7 +225,7 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
 
         # make table
         self.differencesGrid = wx.grid.Grid(
-            panel, -1, size=(700, 500), style=mwx.GRID_STYLE
+            panel, -1, size=wx.Size(700, 500), style=mwx.GRID_STYLE
         )
         self.differencesGrid.CreateGrid(0, 0)
         self.differencesGrid.DisableDragColSize()
@@ -259,7 +260,7 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
 
         # make table
         self.matchesGrid = wx.grid.Grid(
-            panel, -1, size=(200, 400), style=mwx.GRID_STYLE
+            panel, -1, size=wx.Size(200, 400), style=mwx.GRID_STYLE
         )
         self.matchesGrid.CreateGrid(0, 0)
         self.matchesGrid.DisableDragColSize()
@@ -344,10 +345,10 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
         self.mainSizer.Fit(self)
         try:
             wx.GetApp().Yield()
-        except:
+        except Exception:
             pass
         try:
-            self.differencesGrid.SetMinSize((-1, -1))
+            self.differencesGrid.SetMinSize(wx.Size(-1, -1))
         except RuntimeError:
             pass
 
@@ -371,6 +372,9 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
         # get cell
         col = evt.GetCol()
         row = evt.GetRow()
+
+        if not self.currentDifferences:
+            return
 
         # highlight selected cell
         self.differencesGrid.SelectBlock(row, col, row, col)
@@ -397,6 +401,9 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
         # get cell
         col = evt.GetCol()
         row = evt.GetRow()
+
+        if not self.currentDifferences:
+            return
 
         # highlight selected cell
         self.differencesGrid.SelectBlock(row, col, row, col)
@@ -500,7 +507,7 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
 
             return True
 
-        except:
+        except Exception:
             wx.Bell()
             return False
 
@@ -557,15 +564,21 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
                 self.differencesGrid.SetCellValue(x, y, diff)
 
                 # highlight matches
-                if self.currentDifferences[i][j][1] == False:
+                if not self.currentDifferences[i][j][1]:
                     continue
                 elif self.currentDifferences[i][j][1] == "value":
-                    self.differencesGrid.SetCellBackgroundColour(x, y, (0, 140, 70))
+                    self.differencesGrid.SetCellBackgroundColour(
+                        x, y, wx.Colour(0, 140, 70)
+                    )
                     self.differencesGrid.SetCellTextColour(x, y, wx.WHITE)
                 elif self.currentDifferences[i][j][1] == "amino":
-                    self.differencesGrid.SetCellBackgroundColour(x, y, (0, 200, 255))
+                    self.differencesGrid.SetCellBackgroundColour(
+                        x, y, wx.Colour(0, 200, 255)
+                    )
                 elif self.currentDifferences[i][j][1] == "dipep":
-                    self.differencesGrid.SetCellBackgroundColour(x, y, (100, 255, 255))
+                    self.differencesGrid.SetCellBackgroundColour(
+                        x, y, wx.Colour(100, 255, 255)
+                    )
 
     # ----
 
@@ -645,6 +658,10 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
         try:
 
             # get peaklist
+            if self.currentDocument is None:
+                self.currentDifferences = []
+                return False
+
             peaklist = self.currentDocument.spectrum.peaklist
             if not peaklist:
                 return False
@@ -663,7 +680,7 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
             # calc differences
             self.currentDifferences = []
             for x in range(len(peaklist)):
-                rowBuff = [(peaklist[x].mz, x)]
+                rowBuff: list[tuple[float, Any]] = [(peaklist[x].mz, x)]
                 for y in range(x + 1):
 
                     mspy.CHECK_FORCE_QUIT()
@@ -739,12 +756,12 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
         for abbr in mspy.monomers:
             if mspy.monomers[abbr].category == "_InternalAA":
                 aminoacids.append(abbr)
-                self._aaMasses[abbr] = mspy.monomers[abbr].mass
+                self._aaMasses[abbr] = self._to_mass_pair(mspy.monomers[abbr].mass)
 
         # approximate mass limits
         masses = []
         for aa in aminoacids:
-            masses.append(mspy.monomers[aa].mass[1])
+            masses.append(self._to_mass_pair(mspy.monomers[aa].mass)[1])
         self._aaLimits = [min(masses) - 1, max(masses) + 1]
         self._dipLimits = [2 * self._aaLimits[0] - 1, 2 * self._aaLimits[1] + 1]
 
@@ -755,8 +772,8 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
                 aX = aminoacids[x]
                 aY = aminoacids[y]
 
-                massX = mspy.monomers[aX].mass
-                massY = mspy.monomers[aY].mass
+                massX = self._to_mass_pair(mspy.monomers[aX].mass)
+                massY = self._to_mass_pair(mspy.monomers[aY].mass)
                 mass = (massX[0] + massY[0], massX[1] + massY[1])
 
                 if aX != aY:
@@ -771,14 +788,18 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
     def consolidateTable(self):
         """Remove unmatched peaks."""
 
+        if not self.currentDifferences:
+            self.currentDifferences = []
+            return
+
         # find matches
         indexes = []
         for i, row in enumerate(self.currentDifferences):
             for j, item in enumerate(row[1:]):
-                if item[1] != False:
-                    if not i in indexes:
+                if item[1]:
+                    if i not in indexes:
                         indexes.append(i)
-                    if not j in indexes:
+                    if j not in indexes:
                         indexes.append(j)
 
         # sort indexes
@@ -795,5 +816,22 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
             buff.append(rowBuff)
 
         self.currentDifferences = buff
+
+    # ----
+
+    def _to_mass_pair(self, mass):
+        """Normalize monomer mass into (mono, avg) tuple."""
+
+        if isinstance(mass, (tuple, list)) and len(mass) >= 2:
+            return (float(mass[0]), float(mass[1]))
+        if isinstance(mass, (tuple, list)) and len(mass) == 1:
+            value = float(mass[0])
+            return (value, value)
+        if isinstance(mass, (tuple, list)):
+            return (0.0, 0.0)
+        if mass is None:
+            return (0.0, 0.0)
+        value = float(mass)
+        return (value, value)
 
     # ----
