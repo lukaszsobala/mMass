@@ -19,6 +19,7 @@
 import threading
 import wx
 import numpy
+from typing import Any
 
 # load modules
 from .ids import *
@@ -45,7 +46,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
             parent,
             -1,
             "Sequence",
-            size=(500, 300),
+            size=wx.Size(500, 300),
             style=wx.DEFAULT_FRAME_STYLE | wx.FRAME_FLOAT_ON_PARENT & ~wx.MAXIMIZE_BOX,
         )
 
@@ -56,10 +57,11 @@ class panelSequence(wx.Frame, MakeModalMixin):
         self.processing = None
 
         self.currentTool = tool
-        self.currentSequence = mspy.sequence("")
-        self.currentDigest = None
-        self.currentFragments = None
-        self.currentSearch = None
+        self.currentSequence: Any = mspy.sequence("")
+        self.currentDigest: Any = None
+        self.currentFragments: Any = None
+        self.currentSearch: Any = None
+        self.currentDocument: Any = None
 
         self._digestFilter = 0
         self._fragmentsFilter = 0
@@ -119,7 +121,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
             self,
             -1,
             images.lib["bgrToolbarNoBorder"],
-            size=(-1, mwx.TOOLBAR_HEIGHT),
+            size=wx.Size(-1, mwx.TOOLBAR_HEIGHT),
         )
 
         # make buttons
@@ -127,7 +129,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
             panel,
             ID_sequenceEditor,
             images.lib["sequenceEditorOff"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.editor_butt.SetToolTip(wx.ToolTip("Sequence editor"))
@@ -137,7 +139,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
             panel,
             ID_sequenceModifications,
             images.lib["sequenceModificationsOff"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.modifications_butt.SetToolTip(wx.ToolTip("Sequence modifications"))
@@ -147,7 +149,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
             panel,
             ID_sequenceDigest,
             images.lib["sequenceDigestOff"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.digest_butt.SetToolTip(wx.ToolTip("Protein digest"))
@@ -157,7 +159,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
             panel,
             ID_sequenceFragment,
             images.lib["sequenceFragmentOff"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.fragment_butt.SetToolTip(wx.ToolTip("Peptide fragmentation"))
@@ -167,7 +169,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
             panel,
             ID_sequenceSearch,
             images.lib["sequenceSearchOff"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.search_butt.SetToolTip(wx.ToolTip("Mass search"))
@@ -235,7 +237,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
             panel,
             -1,
             images.lib["toolsLibrary"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.monomerLibrary_butt.SetToolTip(wx.ToolTip("Monomer library"))
@@ -248,7 +250,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
             panel,
             -1,
             choices=["Regular amino acids", "Custom"],
-            size=(-1, mwx.SMALL_CHOICE_HEIGHT),
+            size=wx.Size(-1, mwx.SMALL_CHOICE_HEIGHT),
         )
         mwx.fitChoice(self.sequenceType_choice)
         self.sequenceType_choice.Select(0)
@@ -259,7 +261,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
         self.sequenceCyclic_check.Bind(wx.EVT_CHECKBOX, self.onSequenceCyclic)
 
         self.pattern_butt = wx.Button(
-            panel, -1, "Pattern", size=(-1, mwx.SMALL_BUTTON_HEIGHT)
+            panel, -1, "Pattern", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
         )
         self.pattern_butt.Bind(wx.EVT_BUTTON, self.onSequencePattern)
 
@@ -289,7 +291,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
             panel,
             -1,
             images.lib["toolsPresets"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.modsPresets_butt.SetToolTip(wx.ToolTip("Modifications presets"))
@@ -303,12 +305,12 @@ class panelSequence(wx.Frame, MakeModalMixin):
         self.modsSpecifity_check.Bind(wx.EVT_CHECKBOX, self.onSpecifityFilter)
 
         self.modsAdd_butt = wx.Button(
-            panel, -1, "Add", size=(-1, mwx.SMALL_BUTTON_HEIGHT)
+            panel, -1, "Add", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
         )
         self.modsAdd_butt.Bind(wx.EVT_BUTTON, self.onAddModification)
 
         self.modsRemove_butt = wx.Button(
-            panel, -1, "Remove", size=(-1, mwx.SMALL_BUTTON_HEIGHT)
+            panel, -1, "Remove", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
         )
         self.modsRemove_butt.Bind(wx.EVT_BUTTON, self.onRemoveModifications)
 
@@ -350,22 +352,22 @@ class panelSequence(wx.Frame, MakeModalMixin):
             panel,
             -1,
             str(config.sequence["digest"]["maxCharge"]),
-            size=(40, -1),
+            size=wx.Size(40, -1),
             validator=mwx.validator("int"),
         )
 
         self.digestGenerate_butt = wx.Button(
-            panel, -1, "Digest", size=(-1, mwx.SMALL_BUTTON_HEIGHT)
+            panel, -1, "Digest", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
         )
         self.digestGenerate_butt.Bind(wx.EVT_BUTTON, self.onDigest)
 
         self.digestMatch_butt = wx.Button(
-            panel, -1, "Match", size=(-1, mwx.SMALL_BUTTON_HEIGHT)
+            panel, -1, "Match", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
         )
         self.digestMatch_butt.Bind(wx.EVT_BUTTON, self.onMatch)
 
         self.digestAnnotate_butt = wx.Button(
-            panel, -1, "Annotate", size=(-1, mwx.SMALL_BUTTON_HEIGHT)
+            panel, -1, "Annotate", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
         )
         self.digestAnnotate_butt.Bind(wx.EVT_BUTTON, self.onAnnotate)
 
@@ -399,7 +401,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
             panel,
             -1,
             images.lib["toolsPresets"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.fragmentPresets_butt.SetToolTip(wx.ToolTip("Fragments presets"))
@@ -425,22 +427,22 @@ class panelSequence(wx.Frame, MakeModalMixin):
             panel,
             -1,
             str(config.sequence["fragment"]["maxCharge"]),
-            size=(40, -1),
+            size=wx.Size(40, -1),
             validator=mwx.validator("int"),
         )
 
         self.fragmentGenerate_butt = wx.Button(
-            panel, -1, "Fragment", size=(-1, mwx.SMALL_BUTTON_HEIGHT)
+            panel, -1, "Fragment", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
         )
         self.fragmentGenerate_butt.Bind(wx.EVT_BUTTON, self.onFragment)
 
         self.fragmentMatch_butt = wx.Button(
-            panel, -1, "Match", size=(-1, mwx.SMALL_BUTTON_HEIGHT)
+            panel, -1, "Match", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
         )
         self.fragmentMatch_butt.Bind(wx.EVT_BUTTON, self.onMatch)
 
         self.fragmentAnnotate_butt = wx.Button(
-            panel, -1, "Annotate", size=(-1, mwx.SMALL_BUTTON_HEIGHT)
+            panel, -1, "Annotate", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
         )
         self.fragmentAnnotate_butt.Bind(wx.EVT_BUTTON, self.onAnnotate)
 
@@ -481,7 +483,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
             panel,
             -1,
             "",
-            size=(100, -1),
+            size=wx.Size(100, -1),
             style=wx.TE_PROCESS_ENTER,
             validator=mwx.validator("floatPos"),
         )
@@ -502,12 +504,12 @@ class panelSequence(wx.Frame, MakeModalMixin):
             panel,
             -1,
             str(config.sequence["search"]["charge"]),
-            size=(40, -1),
+            size=wx.Size(40, -1),
             validator=mwx.validator("int"),
         )
 
         self.searchGenerate_butt = wx.Button(
-            panel, -1, "Search", size=(-1, mwx.SMALL_BUTTON_HEIGHT)
+            panel, -1, "Search", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
         )
         self.searchGenerate_butt.Bind(wx.EVT_BUTTON, self.onSearch)
 
@@ -537,19 +539,22 @@ class panelSequence(wx.Frame, MakeModalMixin):
 
         # init panels
         ctrlPanel = mwx.bgrPanel(
-            self, -1, images.lib["bgrControlbar"], size=(-1, mwx.CONTROLBAR_HEIGHT)
+            self,
+            -1,
+            images.lib["bgrControlbar"],
+            size=wx.Size(-1, mwx.CONTROLBAR_HEIGHT),
         )
         panel = wx.Panel(self, -1)
 
         # make controls
         self.sequenceInfo_label = wx.StaticText(
-            ctrlPanel, -1, "Sequence Info", size=(600, -1)
+            ctrlPanel, -1, "Sequence Info", size=wx.Size(600, -1)
         )
         self.sequenceInfo_label.SetFont(wx.SMALL_FONT)
 
         # make elements
         self.sequenceTitle_value = wx.TextCtrl(
-            panel, -1, self.currentSequence.title, size=(420, -1)
+            panel, -1, self.currentSequence.title, size=wx.Size(420, -1)
         )
         self.sequenceTitle_value.Bind(wx.EVT_TEXT, self.onSequenceTitle)
 
@@ -557,12 +562,12 @@ class panelSequence(wx.Frame, MakeModalMixin):
         sequenceAccession_label.SetFont(wx.SMALL_FONT)
 
         self.sequenceAccession_value = wx.TextCtrl(
-            panel, -1, self.currentSequence.accession, size=(140, -1)
+            panel, -1, self.currentSequence.accession, size=wx.Size(140, -1)
         )
         self.sequenceAccession_value.Bind(wx.EVT_TEXT, self.onSequenceAccession)
 
         self.sequenceCanvas = sequenceCanvas(
-            panel, -1, sequence=self.currentSequence, size=(600, 200)
+            panel, -1, sequence=self.currentSequence, size=wx.Size(600, 200)
         )
         self.sequenceCanvas.Bind(wx.EVT_KEY_DOWN, self.onSequence)
         self.sequenceCanvas.Bind(wx.EVT_LEFT_DOWN, self.onSequence)
@@ -637,7 +642,10 @@ class panelSequence(wx.Frame, MakeModalMixin):
 
         # init panel
         ctrlPanel = mwx.bgrPanel(
-            self, -1, images.lib["bgrControlbar"], size=(-1, mwx.CONTROLBAR_HEIGHT)
+            self,
+            -1,
+            images.lib["bgrControlbar"],
+            size=wx.Size(-1, mwx.CONTROLBAR_HEIGHT),
         )
 
         # make controls
@@ -645,13 +653,13 @@ class panelSequence(wx.Frame, MakeModalMixin):
         modsPosition_label.SetFont(wx.SMALL_FONT)
 
         self.modsResidue_choice = wx.Choice(
-            ctrlPanel, -1, choices=[], size=(130, mwx.SMALL_CHOICE_HEIGHT)
+            ctrlPanel, -1, choices=[], size=wx.Size(130, mwx.SMALL_CHOICE_HEIGHT)
         )
         mwx.fitChoice(self.modsResidue_choice)
         self.modsResidue_choice.Bind(wx.EVT_CHOICE, self.onResidueSelected)
 
         self.modsPosition_choice = wx.Choice(
-            ctrlPanel, -1, choices=[], size=(80, mwx.SMALL_CHOICE_HEIGHT)
+            ctrlPanel, -1, choices=[], size=wx.Size(80, mwx.SMALL_CHOICE_HEIGHT)
         )
         mwx.fitChoice(self.modsPosition_choice)
         self.modsPosition_choice.Bind(wx.EVT_CHOICE, self.onPositionSelected)
@@ -660,7 +668,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
         modsMod_label.SetFont(wx.SMALL_FONT)
 
         self.modsMod_choice = wx.Choice(
-            ctrlPanel, -1, choices=[], size=(170, mwx.SMALL_CHOICE_HEIGHT)
+            ctrlPanel, -1, choices=[], size=wx.Size(170, mwx.SMALL_CHOICE_HEIGHT)
         )
         mwx.fitChoice(self.modsMod_choice)
 
@@ -668,7 +676,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
             ctrlPanel,
             -1,
             choices=["Fixed", "Variable"],
-            size=(90, mwx.SMALL_CHOICE_HEIGHT),
+            size=wx.Size(90, mwx.SMALL_CHOICE_HEIGHT),
         )
         mwx.fitChoice(self.modsType_choice)
         self.modsType_choice.Select(0)
@@ -707,7 +715,10 @@ class panelSequence(wx.Frame, MakeModalMixin):
 
         # init panel
         ctrlPanel = mwx.bgrPanel(
-            self, -1, images.lib["bgrControlbar"], size=(-1, mwx.CONTROLBAR_HEIGHT)
+            self,
+            -1,
+            images.lib["bgrControlbar"],
+            size=wx.Size(-1, mwx.CONTROLBAR_HEIGHT),
         )
 
         # make controls
@@ -717,7 +728,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
         enzymes = list(mspy.enzymes.keys())
         enzymes.sort()
         self.digestEnzyme_choice = wx.Choice(
-            ctrlPanel, -1, choices=enzymes, size=(140, mwx.SMALL_CHOICE_HEIGHT)
+            ctrlPanel, -1, choices=enzymes, size=wx.Size(140, mwx.SMALL_CHOICE_HEIGHT)
         )
         mwx.fitChoice(self.digestEnzyme_choice)
         if config.sequence["digest"]["enzyme"] in enzymes:
@@ -732,7 +743,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
             ctrlPanel,
             -1,
             str(config.sequence["digest"]["miscl"]),
-            size=(40, mwx.SMALL_TEXTCTRL_HEIGHT),
+            size=wx.Size(40, mwx.SMALL_TEXTCTRL_HEIGHT),
             validator=mwx.validator("intPos"),
         )
         digestMiscl_label.SetFont(wx.SMALL_FONT)
@@ -745,7 +756,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
             ctrlPanel,
             -1,
             str(config.sequence["digest"]["lowMass"]),
-            size=(45, mwx.SMALL_TEXTCTRL_HEIGHT),
+            size=wx.Size(45, mwx.SMALL_TEXTCTRL_HEIGHT),
             validator=mwx.validator("intPos"),
         )
         self.digestLowMass_value.SetFont(wx.SMALL_FONT)
@@ -757,7 +768,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
             ctrlPanel,
             -1,
             str(config.sequence["digest"]["highMass"]),
-            size=(45, mwx.SMALL_TEXTCTRL_HEIGHT),
+            size=wx.Size(45, mwx.SMALL_TEXTCTRL_HEIGHT),
             validator=mwx.validator("intPos"),
         )
         self.digestHighMass_value.SetFont(wx.SMALL_FONT)
@@ -1015,7 +1026,10 @@ class panelSequence(wx.Frame, MakeModalMixin):
 
         # init panel
         ctrlPanel = mwx.bgrPanel(
-            self, -1, images.lib["bgrControlbar"], size=(-1, mwx.CONTROLBAR_HEIGHT)
+            self,
+            -1,
+            images.lib["bgrControlbar"],
+            size=wx.Size(-1, mwx.CONTROLBAR_HEIGHT),
         )
 
         # make controls
@@ -1025,7 +1039,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
         enzymes = list(mspy.enzymes.keys())
         enzymes.sort()
         self.searchEnzyme_choice = wx.Choice(
-            ctrlPanel, -1, choices=enzymes, size=(150, mwx.SMALL_CHOICE_HEIGHT)
+            ctrlPanel, -1, choices=enzymes, size=wx.Size(150, mwx.SMALL_CHOICE_HEIGHT)
         )
         mwx.fitChoice(self.searchEnzyme_choice)
         if config.sequence["search"]["enzyme"] in enzymes:
@@ -1042,7 +1056,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
             ctrlPanel,
             -1,
             str(config.sequence["search"]["tolerance"]),
-            size=(40, mwx.SMALL_TEXTCTRL_HEIGHT),
+            size=wx.Size(40, mwx.SMALL_TEXTCTRL_HEIGHT),
             validator=mwx.validator("floatPos"),
         )
         self.searchTolerance_value.SetFont(wx.SMALL_FONT)
@@ -1132,7 +1146,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
 
         # init peaklist
         self.modificationsList = mwx.sortListCtrl(
-            self, -1, size=(671, 200), style=mwx.LISTCTRL_STYLE_MULTI
+            self, -1, size=wx.Size(671, 200), style=mwx.LISTCTRL_STYLE_MULTI
         )
         self.modificationsList.SetFont(wx.SMALL_FONT)
         self.modificationsList.setSecondarySortColumn(1)
@@ -1157,7 +1171,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
 
         # init peaklist
         self.digestList = mwx.sortListCtrl(
-            self, -1, size=(778, 300), style=mwx.LISTCTRL_STYLE_SINGLE
+            self, -1, size=wx.Size(778, 300), style=mwx.LISTCTRL_STYLE_SINGLE
         )
         self.digestList.SetFont(wx.SMALL_FONT)
         self.digestList.setSecondarySortColumn(2)
@@ -1191,7 +1205,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
 
         # init peaklist
         self.fragmentsList = mwx.sortListCtrl(
-            self, -1, size=(801, 300), style=mwx.LISTCTRL_STYLE_SINGLE
+            self, -1, size=wx.Size(801, 300), style=mwx.LISTCTRL_STYLE_SINGLE
         )
         self.fragmentsList.SetFont(wx.SMALL_FONT)
         self.fragmentsList.setSecondarySortColumn(1)
@@ -1225,7 +1239,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
 
         # init peaklist
         self.searchList = mwx.sortListCtrl(
-            self, -1, size=(656, 250), style=mwx.LISTCTRL_STYLE_SINGLE
+            self, -1, size=wx.Size(656, 250), style=mwx.LISTCTRL_STYLE_SINGLE
         )
         self.searchList.SetFont(wx.SMALL_FONT)
         self.searchList.setSecondarySortColumn(1)
@@ -1505,7 +1519,9 @@ class panelSequence(wx.Frame, MakeModalMixin):
             )
             pos = self.GetPosition()
             size = self.monomerLibraryPanel.GetSize()
-            self.monomerLibraryPanel.SetPosition((pos[0] - size[0] - 20, pos[1] + 50))
+            self.monomerLibraryPanel.SetPosition(
+                wx.Point(pos[0] - size[0] - 20, pos[1] + 50)
+            )
             self.monomerLibraryPanel.Show(True)
 
         # raise panel
@@ -1758,7 +1774,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
         for index in selected:
 
             # get position
-            position = self.modificationsList.GetItem(index, 0).GetItemLabel()
+            position = self.modificationsList.GetItemText(index, 0)
             pos = position.split(" ")
             if position == "N-terminus":
                 amino = "nTerm"
@@ -1770,10 +1786,10 @@ class panelSequence(wx.Frame, MakeModalMixin):
                 amino = int(pos[1]) - 1
 
             # get name
-            name = self.modificationsList.GetItem(index, 1).GetItemLabel()
+            name = self.modificationsList.GetItemText(index, 1)
 
             # get type
-            modtype = self.modificationsList.GetItem(index, 2).GetItemLabel()
+            modtype = self.modificationsList.GetItemText(index, 2)
             modtype = modtype[0]
 
             # delete modification
@@ -2690,8 +2706,10 @@ class panelSequence(wx.Frame, MakeModalMixin):
                 modtype = "variable"
 
             # format masses
-            massMo = format % mspy.modifications[name].mass[0]
-            massAv = format % mspy.modifications[name].mass[1]
+            modification: Any = mspy.modifications[name]
+            mass = modification.mass
+            massMo = format % mass[0]
+            massAv = format % mass[1]
 
             # format formula
             formula = mspy.modifications[name].gainFormula
@@ -2814,7 +2832,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
 
             # mark matched
             if item[5] is not None:
-                self.digestList.SetItemTextColour(row, (0, 200, 0))
+                self.digestList.SetItemTextColour(row, wx.Colour(0, 200, 0))
                 self.digestList.SetItemFont(row, fontMatched)
 
         # sort data
@@ -2849,7 +2867,10 @@ class panelSequence(wx.Frame, MakeModalMixin):
             wx.FONTWEIGHT_BOLD,
         )
         fontFiltered = wx.Font(
-            mwx.SMALL_FONT_SIZE, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_ITALIC, wx.NORMAL
+            mwx.SMALL_FONT_SIZE,
+            wx.FONTFAMILY_DEFAULT,
+            wx.FONTSTYLE_ITALIC,
+            wx.FONTWEIGHT_NORMAL,
         )
 
         row = -1
@@ -2881,13 +2902,13 @@ class panelSequence(wx.Frame, MakeModalMixin):
 
             # mark filtered and matched fragments
             if item[6].fragmentFiltered and item[5] is None:
-                self.fragmentsList.SetItemTextColour(row, (150, 150, 150))
+                self.fragmentsList.SetItemTextColour(row, wx.Colour(150, 150, 150))
                 self.fragmentsList.SetItemFont(row, fontFiltered)
             elif item[6].fragmentFiltered and item[5] is not None:
-                self.fragmentsList.SetItemTextColour(row, (0, 200, 0))
+                self.fragmentsList.SetItemTextColour(row, wx.Colour(0, 200, 0))
                 self.fragmentsList.SetItemFont(row, fontFiltered)
             elif item[5] is not None:
-                self.fragmentsList.SetItemTextColour(row, (0, 200, 0))
+                self.fragmentsList.SetItemTextColour(row, wx.Colour(0, 200, 0))
                 self.fragmentsList.SetItemFont(row, fontMatched)
 
         # sort data
@@ -3531,7 +3552,7 @@ class sequenceCanvas(wx.TextCtrl):
         parent,
         id,
         sequence=None,
-        size=(-1, -1),
+        size=wx.Size(-1, -1),
         style=wx.TE_MULTILINE | wx.TE_RICH,
     ):
         wx.TextCtrl.__init__(self, parent, id, size=size, style=style)
@@ -3560,19 +3581,19 @@ class sequenceCanvas(wx.TextCtrl):
         # set fonts
         self.styles = {
             "default": wx.TextAttr(
-                colText=(0, 0, 0),
+                colText=wx.Colour(0, 0, 0),
                 font=wx.Font(
                     mwx.SEQUENCE_FONT_SIZE,
-                    wx.MODERN,
+                    wx.FONTFAMILY_MODERN,
                     wx.FONTSTYLE_NORMAL,
                     wx.FONTWEIGHT_NORMAL,
                 ),
             ),
             "modified": wx.TextAttr(
-                colText=(255, 0, 0),
+                colText=wx.Colour(255, 0, 0),
                 font=wx.Font(
                     mwx.SEQUENCE_FONT_SIZE,
-                    wx.MODERN,
+                    wx.FONTFAMILY_MODERN,
                     wx.FONTSTYLE_NORMAL,
                     wx.FONTWEIGHT_NORMAL,
                 ),
@@ -4143,7 +4164,7 @@ class sequenceGrid(wx.StaticBoxSizer):
         for x in range(5):
 
             # make item
-            item = wx.TextCtrl(self.panel, -1, "", size=(85, -1))
+            item = wx.TextCtrl(self.panel, -1, "", size=wx.Size(85, -1))
             item.Bind(wx.EVT_TEXT, self._onSequence)
             dropTarget = monomerDropTarget(item)
             item.SetDropTarget(dropTarget)
@@ -4218,7 +4239,7 @@ class dlgPresetsName(wx.Dialog):
 
         # make elements
         self.name_value = wx.TextCtrl(
-            self, -1, "", size=(300, -1), style=wx.TE_PROCESS_ENTER
+            self, -1, "", size=wx.Size(300, -1), style=wx.TE_PROCESS_ENTER
         )
         self.name_value.Bind(wx.EVT_TEXT_ENTER, self.onOK)
 

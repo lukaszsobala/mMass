@@ -16,18 +16,27 @@
 # -------------------------------------------------------------------------
 
 # load libs
+from typing import Any
 import wx
 import numpy
 import copy
 
 # load modules
-from .ids import *
+from .ids import (
+    ID_massCalculatorCollapse,
+    ID_massCalculatorIonSeries,
+    ID_massCalculatorPattern,
+    ID_massCalculatorSummary,
+)
 from . import mwx
 from . import images
 from . import config
 from . import doc
 import mspy
-import mspy.plot
+from mspy.plot_canvas import canvas as plotCanvas
+from mspy.plot_objects import container as plotContainer
+from mspy.plot_objects import points as plotPoints
+from mspy.plot_objects import spectrum as plotSpectrum
 
 # FLOATING PANEL WITH MASSCALC TOOLS
 # ----------------------------------
@@ -42,20 +51,20 @@ class panelMassCalculator(wx.Frame):
             parent,
             -1,
             "Mass Calculator",
-            size=(400, 300),
+            size=wx.Size(400, 300),
             style=wx.DEFAULT_FRAME_STYLE | wx.FRAME_FLOAT_ON_PARENT & ~wx.MAXIMIZE_BOX,
         )
 
         self.parent = parent
 
         self.currentTool = tool
-        self.currentCompound = None
-        self.currentIons = None
-        self.currentIon = None
-        self.currentPattern = None
-        self.currentPatternProfile = None
-        self.currentPatternPeaks = None
-        self.currentPatternScan = None
+        self.currentCompound: Any = None
+        self.currentIons: Any = None
+        self.currentIon: Any = None
+        self.currentPattern: Any = None
+        self.currentPatternProfile: Any = None
+        self.currentPatternPeaks: Any = None
+        self.currentPatternScan: Any = None
 
         # make gui items
         self.makeGUI()
@@ -103,7 +112,7 @@ class panelMassCalculator(wx.Frame):
             self,
             -1,
             images.lib["bgrToolbarNoBorder"],
-            size=(-1, mwx.TOOLBAR_HEIGHT),
+            size=wx.Size(-1, mwx.TOOLBAR_HEIGHT),
         )
 
         # make buttons
@@ -111,7 +120,7 @@ class panelMassCalculator(wx.Frame):
             panel,
             ID_massCalculatorSummary,
             images.lib["massCalculatorSummaryOff"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.summary_butt.SetToolTip(wx.ToolTip("Compound summary"))
@@ -121,7 +130,7 @@ class panelMassCalculator(wx.Frame):
             panel,
             ID_massCalculatorIonSeries,
             images.lib["massCalculatorIonSeriesOff"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.ionseries_butt.SetToolTip(wx.ToolTip("Ion series"))
@@ -131,7 +140,7 @@ class panelMassCalculator(wx.Frame):
             panel,
             ID_massCalculatorPattern,
             images.lib["massCalculatorPatternOff"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.pattern_butt.SetToolTip(wx.ToolTip("Isotopic pattern"))
@@ -140,7 +149,7 @@ class panelMassCalculator(wx.Frame):
         # make compound fields
         compound_label = wx.StaticText(panel, -1, "Formula:")
         self.compound_value = mwx.formulaCtrl(
-            panel, -1, "", size=(250, -1), style=wx.TE_PROCESS_ENTER
+            panel, -1, "", size=wx.Size(250, -1), style=wx.TE_PROCESS_ENTER
         )
         compound_label.SetFont(wx.SMALL_FONT)
         self.compound_value.Bind(wx.EVT_TEXT, self.onCompoundChanged)
@@ -148,7 +157,7 @@ class panelMassCalculator(wx.Frame):
 
         # make save button
         self.save_butt = wx.Button(
-            panel, -1, "Save", size=(-1, mwx.SMALL_BUTTON_HEIGHT)
+            panel, -1, "Save", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
         )
         self.save_butt.Bind(wx.EVT_BUTTON, self.onSave)
 
@@ -192,17 +201,17 @@ class panelMassCalculator(wx.Frame):
         # make elements
         summaryFormula_label = wx.StaticText(panel, -1, "Composition:")
         self.summaryFormula_value = wx.TextCtrl(
-            panel, -1, "", size=(200, -1), style=wx.TE_READONLY
+            panel, -1, "", size=wx.Size(200, -1), style=wx.TE_READONLY
         )
 
         summaryMono_label = wx.StaticText(panel, -1, "Monoisotopic mass:")
         self.summaryMono_value = wx.TextCtrl(
-            panel, -1, "", size=(200, -1), style=wx.TE_READONLY
+            panel, -1, "", size=wx.Size(200, -1), style=wx.TE_READONLY
         )
 
         summaryAverage = wx.StaticText(panel, -1, "Average mass:")
         self.summaryAverage_value = wx.TextCtrl(
-            panel, -1, "", size=(200, -1), style=wx.TE_READONLY
+            panel, -1, "", size=wx.Size(200, -1), style=wx.TE_READONLY
         )
 
         # pack elements
@@ -234,7 +243,7 @@ class panelMassCalculator(wx.Frame):
 
         # init panel
         ctrlPanel = mwx.bgrPanel(
-            self, -1, images.lib["bgrControlbar"], size=(-1, mwx.CONTROLBAR_HEIGHT)
+            self, -1, images.lib["bgrControlbar"], size=wx.Size(-1, mwx.CONTROLBAR_HEIGHT)
         )
 
         # make controls
@@ -244,7 +253,7 @@ class panelMassCalculator(wx.Frame):
             ctrlPanel,
             -1,
             config.massCalculator["ionseriesAgent"],
-            size=(60, mwx.SMALL_TEXTCTRL_HEIGHT),
+            size=wx.Size(60, mwx.SMALL_TEXTCTRL_HEIGHT),
         )
         self.ionseriesAgentFormula_value.SetFont(wx.SMALL_FONT)
         self.ionseriesAgentFormula_value.Bind(wx.EVT_TEXT, self.onCompoundChanged)
@@ -255,7 +264,7 @@ class panelMassCalculator(wx.Frame):
             ctrlPanel,
             -1,
             str(config.massCalculator["ionseriesAgentCharge"]),
-            size=(40, mwx.SMALL_TEXTCTRL_HEIGHT),
+            size=wx.Size(40, mwx.SMALL_TEXTCTRL_HEIGHT),
             validator=mwx.validator("int"),
         )
         self.ionseriesAgentCharge_value.SetFont(wx.SMALL_FONT)
@@ -316,7 +325,7 @@ class panelMassCalculator(wx.Frame):
 
         # init panel
         ctrlPanel = mwx.bgrPanel(
-            self, -1, images.lib["bgrControlbar"], size=(-1, mwx.CONTROLBAR_HEIGHT)
+            self, -1, images.lib["bgrControlbar"], size=wx.Size(-1, mwx.CONTROLBAR_HEIGHT)
         )
 
         # make controls
@@ -324,7 +333,7 @@ class panelMassCalculator(wx.Frame):
             ctrlPanel,
             ID_massCalculatorCollapse,
             images.lib["arrowsDown"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.patternCollapse_butt.Bind(wx.EVT_BUTTON, self.onCollapse)
@@ -335,7 +344,7 @@ class panelMassCalculator(wx.Frame):
             ctrlPanel,
             -1,
             choices=["Symmetrical", "Asymmetrical"],
-            size=(125, mwx.CHOICE_HEIGHT),
+            size=wx.Size(125, mwx.CHOICE_HEIGHT),
         )
         mwx.fitChoice(self.patternPeakShape_choice)
         self.patternPeakShape_choice.Select(0)
@@ -352,7 +361,7 @@ class panelMassCalculator(wx.Frame):
             multiplier=0.1,
             limits=(0.001, 10),
             digits=4,
-            size=(60, mwx.SMALL_TEXTCTRL_HEIGHT),
+            size=wx.Size(60, mwx.SMALL_TEXTCTRL_HEIGHT),
         )
         self.patternFwhm_value.SetFont(wx.SMALL_FONT)
         self.patternFwhm_value.Bind(wx.EVT_TEXT, self.onPatternChanged)
@@ -365,7 +374,7 @@ class panelMassCalculator(wx.Frame):
             str(config.massCalculator["patternIntensity"]),
             multiplier=0.1,
             limits=(1, None),
-            size=(60, mwx.SMALL_TEXTCTRL_HEIGHT),
+            size=wx.Size(60, mwx.SMALL_TEXTCTRL_HEIGHT),
         )
         self.patternIntensity_value.SetFont(wx.SMALL_FONT)
         self.patternIntensity_value.Bind(wx.EVT_TEXT, self.onProfileChanged)
@@ -378,7 +387,7 @@ class panelMassCalculator(wx.Frame):
             str(config.massCalculator["patternBaseline"]),
             multiplier=0.1,
             limits=(0, None),
-            size=(60, mwx.SMALL_TEXTCTRL_HEIGHT),
+            size=wx.Size(60, mwx.SMALL_TEXTCTRL_HEIGHT),
         )
         self.patternBaseline_value.SetFont(wx.SMALL_FONT)
         self.patternBaseline_value.Bind(wx.EVT_TEXT, self.onProfileChanged)
@@ -392,7 +401,7 @@ class panelMassCalculator(wx.Frame):
             step=0.001,
             digits=3,
             limits=(-1.0, 1.0),
-            size=(60, mwx.SMALL_TEXTCTRL_HEIGHT),
+            size=wx.Size(60, mwx.SMALL_TEXTCTRL_HEIGHT),
         )
         self.patternShift_value.SetFont(wx.SMALL_FONT)
         self.patternShift_value.Bind(wx.EVT_TEXT, self.onProfileChanged)
@@ -444,7 +453,7 @@ class panelMassCalculator(wx.Frame):
 
         # init list
         self.ionsList = mwx.sortListCtrl(
-            self, -1, size=(531, 200), style=mwx.LISTCTRL_STYLE_SINGLE
+            self, -1, size=wx.Size(531, 200), style=mwx.LISTCTRL_STYLE_SINGLE
         )
         self.ionsList.SetFont(wx.SMALL_FONT)
         self.ionsList.setAltColour(mwx.LISTCTRL_ALTCOLOUR)
@@ -468,10 +477,10 @@ class panelMassCalculator(wx.Frame):
         """Make plot canvas and set defalt parameters."""
 
         # init canvas
-        self.patternCanvas = mspy.plot.canvas(
-            self, size=(550, 300), style=mwx.PLOTCANVAS_STYLE_PANEL
+        self.patternCanvas = plotCanvas(
+            self, size=wx.Size(550, 300), style=mwx.PLOTCANVAS_STYLE_PANEL
         )
-        self.patternCanvas.draw(mspy.plot.container([]))
+        self.patternCanvas.draw(plotContainer([]))
 
         # set default params
         self.patternCanvas.setProperties(xLabel="m/z")
@@ -500,14 +509,14 @@ class panelMassCalculator(wx.Frame):
 
         axisFont = wx.Font(
             config.spectrum["axisFontSize"],
-            wx.SWISS,
+            wx.FONTFAMILY_SWISS,
             wx.FONTSTYLE_NORMAL,
             wx.FONTWEIGHT_NORMAL,
-            0,
+            underline=False,
         )
         self.patternCanvas.setProperties(axisFont=axisFont)
 
-        self.patternCanvas.draw(mspy.plot.container([]))
+        self.patternCanvas.draw(plotContainer([]))
 
     # ----
 
@@ -584,7 +593,7 @@ class panelMassCalculator(wx.Frame):
             self.patternCollapse_butt.SetBitmapLabel(images.lib["arrowsDown"])
 
         # fit layout
-        self.SetMinSize((-1, -1))
+        self.SetMinSize(wx.Size(-1, -1))
         self.Layout()
         self.mainSizer.Fit(self)
         self.SetMinSize(self.GetSize())
@@ -828,7 +837,7 @@ class panelMassCalculator(wx.Frame):
 
         try:
             wx.GetApp().Yield()
-        except:
+        except Exception:
             pass
 
         # get all params
@@ -899,14 +908,14 @@ class panelMassCalculator(wx.Frame):
             if self.patternPeakShape_choice.GetStringSelection() == "Asymmetrical":
                 config.massCalculator["patternPeakShape"] = "gausslorentzian"
 
-        except:
+        except Exception:
             wx.Bell()
             return False
 
         # check compound
         try:
             self.currentCompound = mspy.compound(compound)
-        except:
+        except Exception:
             return False
 
         if not self.currentCompound.isvalid():
@@ -916,9 +925,9 @@ class panelMassCalculator(wx.Frame):
         # check charging agent
         try:
             if ionseriesAgent != "e":
-                agent = mspy.compound(ionseriesAgent)
+                mspy.compound(ionseriesAgent)
             config.massCalculator["ionseriesAgent"] = ionseriesAgent
-        except:
+        except Exception:
             return False
 
         if ionseriesAgent == "e":
@@ -1004,7 +1013,7 @@ class panelMassCalculator(wx.Frame):
         """Show current profile and peaks in pattern canvas."""
 
         # make spectra container
-        container = mspy.plot.container([])
+        container = plotContainer([])
 
         # check data
         if self.currentPatternScan is None:
@@ -1027,12 +1036,12 @@ class panelMassCalculator(wx.Frame):
         # add main profile spectrum to container
         labelFont = wx.Font(
             config.spectrum["labelFontSize"],
-            wx.SWISS,
+            wx.FONTFAMILY_SWISS,
             wx.FONTSTYLE_NORMAL,
             wx.FONTWEIGHT_NORMAL,
-            0,
+            underline=False,
         )
-        spectrum = mspy.plot.spectrum(
+        spectrum = plotSpectrum(
             self.currentPatternScan,
             legend=legend,
             spectrumColour=(16, 71, 185),
@@ -1050,7 +1059,7 @@ class panelMassCalculator(wx.Frame):
         # add individual peaks to container
         if self.currentPatternPeaks is not None:
             for peak in self.currentPatternPeaks:
-                spectrum = mspy.plot.points(
+                spectrum = plotPoints(
                     peak,
                     lineColour=(50, 140, 0),
                     showLines=True,

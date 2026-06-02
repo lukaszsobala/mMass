@@ -16,6 +16,7 @@
 # -------------------------------------------------------------------------
 
 # load libs
+from typing import Any
 import threading
 import wx
 
@@ -24,9 +25,11 @@ from .ids import *
 from . import mwx
 from . import images
 from . import config
-from . import libs
 from .mixins import MakeModalMixin
 import mspy
+from mspy.plot_canvas import canvas as plotCanvas
+from mspy.plot_objects import container as plotContainer
+from mspy.plot_objects import points as plotPoints
 
 # FLOATING PANEL WITH ENVELOPE FIT TOOL
 # -------------------------------------
@@ -41,7 +44,7 @@ class panelEnvelopeFit(wx.Frame, MakeModalMixin):
             parent,
             -1,
             "Envelope Fit",
-            size=(400, 300),
+            size=wx.Size(400, 300),
             style=wx.DEFAULT_FRAME_STYLE | wx.FRAME_FLOAT_ON_PARENT & ~wx.MAXIMIZE_BOX,
         )
 
@@ -49,12 +52,12 @@ class panelEnvelopeFit(wx.Frame, MakeModalMixin):
 
         self.processing = None
 
-        self.currentDocument = None
-        self.currentCompound = None
-        self.currentFit = None
+        self.currentDocument: Any = None
+        self.currentCompound: Any = None
+        self.currentFit: Any = None
 
         # init container
-        self.spectrumContainer = mspy.plot.container([])
+        self.spectrumContainer = plotContainer([])
 
         # make gui items
         self.makeGUI()
@@ -99,13 +102,13 @@ class panelEnvelopeFit(wx.Frame, MakeModalMixin):
             self,
             -1,
             images.lib["bgrToolbarNoBorder"],
-            size=(-1, mwx.TOOLBAR_HEIGHT),
+            size=wx.Size(-1, mwx.TOOLBAR_HEIGHT),
         )
 
         # make elements
         formula_label = wx.StaticText(panel, -1, "Formula:")
         formula_label.SetFont(wx.SMALL_FONT)
-        self.formula_value = mwx.formulaCtrl(panel, -1, "", size=(220, -1))
+        self.formula_value = mwx.formulaCtrl(panel, -1, "", size=wx.Size(220, -1))
 
         charge_label = wx.StaticText(panel, -1, "Charge:")
         charge_label.SetFont(wx.SMALL_FONT)
@@ -113,19 +116,19 @@ class panelEnvelopeFit(wx.Frame, MakeModalMixin):
             panel,
             -1,
             str(config.envelopeFit["charge"]),
-            size=(35, -1),
+            size=wx.Size(35, -1),
             validator=mwx.validator("int"),
         )
 
         exchange_label = wx.StaticText(panel, -1, "Exchange:")
         exchange_label.SetFont(wx.SMALL_FONT)
         self.exchangeLoss_value = mwx.formulaCtrl(
-            panel, -1, str(config.envelopeFit["loss"]), size=(60, -1)
+            panel, -1, str(config.envelopeFit["loss"]), size=wx.Size(60, -1)
         )
         exchangeVs_label = wx.StaticText(panel, -1, " vs.")
         exchangeVs_label.SetFont(wx.SMALL_FONT)
         self.exchangeGain_value = mwx.formulaCtrl(
-            panel, -1, str(config.envelopeFit["gain"]), size=(60, -1)
+            panel, -1, str(config.envelopeFit["gain"]), size=wx.Size(60, -1)
         )
 
         scale_label = wx.StaticText(panel, -1, "Range:")
@@ -136,19 +139,19 @@ class panelEnvelopeFit(wx.Frame, MakeModalMixin):
             panel,
             -1,
             str(config.envelopeFit["scaleMin"]),
-            size=(35, -1),
+            size=wx.Size(35, -1),
             validator=mwx.validator("intPos"),
         )
         self.scaleMax_value = wx.TextCtrl(
             panel,
             -1,
             str(config.envelopeFit["scaleMax"]),
-            size=(35, -1),
+            size=wx.Size(35, -1),
             validator=mwx.validator("intPos"),
         )
 
         self.calculate_butt = wx.Button(
-            panel, -1, "Calculate", size=(-1, mwx.SMALL_BUTTON_HEIGHT)
+            panel, -1, "Calculate", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
         )
         self.calculate_butt.Bind(wx.EVT_BUTTON, self.onCalculate)
 
@@ -189,7 +192,7 @@ class panelEnvelopeFit(wx.Frame, MakeModalMixin):
 
         # init toolbar
         panel = mwx.bgrPanel(
-            self, -1, images.lib["bgrControlbar"], size=(-1, mwx.CONTROLBAR_HEIGHT)
+            self, -1, images.lib["bgrControlbar"], size=wx.Size(-1, mwx.CONTROLBAR_HEIGHT)
         )
 
         # make elements
@@ -197,7 +200,7 @@ class panelEnvelopeFit(wx.Frame, MakeModalMixin):
             panel,
             -1,
             images.lib["arrowsDown"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.collapse_butt.Bind(wx.EVT_BUTTON, self.onCollapse)
@@ -223,7 +226,7 @@ class panelEnvelopeFit(wx.Frame, MakeModalMixin):
             panel,
             -1,
             str(config.envelopeFit["fwhm"]),
-            size=(50, mwx.SMALL_TEXTCTRL_HEIGHT),
+            size=wx.Size(50, mwx.SMALL_TEXTCTRL_HEIGHT),
             validator=mwx.validator("floatPos"),
         )
         self.fwhm_value.SetFont(wx.SMALL_FONT)
@@ -240,7 +243,7 @@ class panelEnvelopeFit(wx.Frame, MakeModalMixin):
             panel,
             -1,
             str(config.envelopeFit["relThreshold"] * 100),
-            size=(50, mwx.SMALL_TEXTCTRL_HEIGHT),
+            size=wx.Size(50, mwx.SMALL_TEXTCTRL_HEIGHT),
             validator=mwx.validator("floatPos"),
         )
         self.relThreshold_value.SetFont(wx.SMALL_FONT)
@@ -249,11 +252,11 @@ class panelEnvelopeFit(wx.Frame, MakeModalMixin):
         self.autoAlign_check.SetFont(wx.SMALL_FONT)
         self.autoAlign_check.SetValue(config.envelopeFit["autoAlign"])
 
-        self.average_label = wx.StaticText(panel, -1, "", size=(100, -1))
+        self.average_label = wx.StaticText(panel, -1, "", size=wx.Size(100, -1))
         self.average_label.SetFont(wx.SMALL_FONT)
-        self.fitFwhm_label = wx.StaticText(panel, -1, "", size=(110, -1))
+        self.fitFwhm_label = wx.StaticText(panel, -1, "", size=wx.Size(110, -1))
         self.fitFwhm_label.SetFont(wx.SMALL_FONT)
-        self.fitResolution_label = wx.StaticText(panel, -1, "", size=(120, -1))
+        self.fitResolution_label = wx.StaticText(panel, -1, "", size=wx.Size(120, -1))
         self.fitResolution_label.SetFont(wx.SMALL_FONT)
         self.updateAverageLabel()
 
@@ -318,8 +321,8 @@ class panelEnvelopeFit(wx.Frame, MakeModalMixin):
         """Make spectrum canvas and set defalt parameters."""
 
         # init canvas
-        self.spectrumCanvas = mspy.plot.canvas(
-            panel, size=(600, 350), style=mwx.PLOTCANVAS_STYLE_PANEL
+        self.spectrumCanvas = plotCanvas(
+            panel, size=wx.Size(600, 350), style=mwx.PLOTCANVAS_STYLE_PANEL
         )
 
         # set default params
@@ -350,7 +353,7 @@ class panelEnvelopeFit(wx.Frame, MakeModalMixin):
 
         # init results list
         self.resultsList = mwx.sortListCtrl(
-            panel, -1, size=(171, 350), style=mwx.LISTCTRL_STYLE_MULTI
+            panel, -1, size=wx.Size(171, 350), style=mwx.LISTCTRL_STYLE_MULTI
         )
         self.resultsList.SetFont(wx.SMALL_FONT)
         self.resultsList.setAltColour(mwx.LISTCTRL_ALTCOLOUR)
@@ -433,10 +436,10 @@ class panelEnvelopeFit(wx.Frame, MakeModalMixin):
         self.mainSizer.Fit(self)
         try:
             wx.GetApp().Yield()
-        except:
+        except Exception:
             pass
         try:
-            self.spectrumCanvas.SetMinSize((-1, -1))
+            self.spectrumCanvas.SetMinSize(wx.Size(-1, -1))
         except RuntimeError:
             pass
 
@@ -553,7 +556,7 @@ class panelEnvelopeFit(wx.Frame, MakeModalMixin):
             self.collapse_butt.SetBitmapLabel(images.lib["arrowsDown"])
 
         # fit layout
-        self.SetMinSize((-1, -1))
+        self.SetMinSize(wx.Size(-1, -1))
         self.Layout()
         self.mainSizer.Fit(self)
         self.SetMinSize(self.GetSize())
@@ -632,7 +635,7 @@ class panelEnvelopeFit(wx.Frame, MakeModalMixin):
 
             return True
 
-        except:
+        except Exception:
             wx.Bell()
             return False
 
@@ -680,10 +683,10 @@ class panelEnvelopeFit(wx.Frame, MakeModalMixin):
         # set font
         axisFont = wx.Font(
             config.spectrum["axisFontSize"],
-            wx.SWISS,
+            wx.FONTFAMILY_SWISS,
             wx.FONTSTYLE_NORMAL,
             wx.FONTWEIGHT_NORMAL,
-            0,
+            False,
         )
         self.spectrumCanvas.setProperties(axisFont=axisFont)
 
@@ -720,7 +723,7 @@ class panelEnvelopeFit(wx.Frame, MakeModalMixin):
 
         # show results
         self.spectrumContainer.append(
-            mspy.plot.points(
+            plotPoints(
                 spectrum,
                 legend="measured",
                 showPoints=False,
@@ -729,7 +732,7 @@ class panelEnvelopeFit(wx.Frame, MakeModalMixin):
             )
         )
         self.spectrumContainer.append(
-            mspy.plot.points(
+            plotPoints(
                 envelope,
                 legend="model",
                 showPoints=False,
@@ -738,12 +741,12 @@ class panelEnvelopeFit(wx.Frame, MakeModalMixin):
             )
         )
         self.spectrumContainer.append(
-            mspy.plot.points(
+            plotPoints(
                 data, legend="", showLines=False, pointColour=(16, 71, 185)
             )
         )
         self.spectrumContainer.append(
-            mspy.plot.points(
+            plotPoints(
                 model, legend="", showLines=False, pointColour=(241, 144, 0)
             )
         )

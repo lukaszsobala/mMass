@@ -20,6 +20,7 @@ import threading
 import math
 import wx
 import numpy
+from typing import Any
 
 # load modules
 from .ids import *
@@ -29,7 +30,10 @@ from . import config
 from . import libs
 from .mixins import MakeModalMixin
 import mspy
-import mspy.plot
+from mspy.plot_canvas import canvas as plotCanvas
+from mspy.plot_objects import container
+from mspy.plot_objects import points
+from mspy.plot_objects import spectrum
 
 # FLOATING PANEL WITH CALIBRATION TOOL
 # ------------------------------------
@@ -44,7 +48,7 @@ class panelCalibration(wx.Frame, MakeModalMixin):
             parent,
             -1,
             "Calibration",
-            size=(400, 300),
+            size=wx.Size(400, 300),
             style=wx.DEFAULT_FRAME_STYLE | wx.FRAME_FLOAT_ON_PARENT & ~wx.MAXIMIZE_BOX,
         )
 
@@ -52,9 +56,9 @@ class panelCalibration(wx.Frame, MakeModalMixin):
         self.processing = None
 
         self.currentTool = tool
-        self.currentDocument = None
-        self.currentCalibration = None
-        self.currentReferences = None
+        self.currentDocument: Any = None
+        self.currentCalibration: Any = None
+        self.currentReferences: Any = None
 
         # make gui items
         self.makeGUI()
@@ -102,7 +106,7 @@ class panelCalibration(wx.Frame, MakeModalMixin):
             self,
             -1,
             images.lib["bgrToolbarNoBorder"],
-            size=(-1, mwx.TOOLBAR_HEIGHT),
+            size=wx.Size(-1, mwx.TOOLBAR_HEIGHT),
         )
 
         # make buttons
@@ -110,7 +114,7 @@ class panelCalibration(wx.Frame, MakeModalMixin):
             panel,
             ID_calibrationReferences,
             images.lib["calibrationReferencesOff"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.references_butt.SetToolTip(wx.ToolTip("Calibration references"))
@@ -120,7 +124,7 @@ class panelCalibration(wx.Frame, MakeModalMixin):
             panel,
             ID_calibrationErrors,
             images.lib["calibrationErrorsOff"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.errors_butt.SetToolTip(wx.ToolTip("Calibration error plot"))
@@ -154,12 +158,12 @@ class panelCalibration(wx.Frame, MakeModalMixin):
         self.unitsPpm_radio.Bind(wx.EVT_RADIOBUTTON, self.onUnitsChanged)
 
         self.assign_butt = wx.Button(
-            panel, -1, "Assign", size=(-1, mwx.SMALL_BUTTON_HEIGHT)
+            panel, -1, "Assign", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
         )
         self.assign_butt.Bind(wx.EVT_BUTTON, self.onAssign)
 
         self.apply_butt = wx.Button(
-            panel, -1, "Apply", size=(100, mwx.SMALL_BUTTON_HEIGHT)
+            panel, -1, "Apply", size=wx.Size(100, mwx.SMALL_BUTTON_HEIGHT)
         )
         self.apply_butt.Bind(wx.EVT_BUTTON, self.onApply)
         self.apply_butt.Disable()
@@ -202,7 +206,10 @@ class panelCalibration(wx.Frame, MakeModalMixin):
 
         # init panel
         ctrlPanel = mwx.bgrPanel(
-            self, -1, images.lib["bgrControlbar"], size=(-1, mwx.CONTROLBAR_HEIGHT)
+            self,
+            -1,
+            images.lib["bgrControlbar"],
+            size=wx.Size(-1, mwx.CONTROLBAR_HEIGHT),
         )
 
         # make controls
@@ -212,7 +219,7 @@ class panelCalibration(wx.Frame, MakeModalMixin):
         choices.sort()
         choices.insert(0, "Reference lists")
         self.references_choice = wx.Choice(
-            ctrlPanel, -1, choices=choices, size=(250, mwx.SMALL_CHOICE_HEIGHT)
+            ctrlPanel, -1, choices=choices, size=wx.Size(250, mwx.SMALL_CHOICE_HEIGHT)
         )
         mwx.fitChoice(self.references_choice)
         self.references_choice.Select(0)
@@ -224,7 +231,7 @@ class panelCalibration(wx.Frame, MakeModalMixin):
             ctrlPanel,
             -1,
             str(config.calibration["tolerance"]),
-            size=(50, mwx.SMALL_TEXTCTRL_HEIGHT),
+            size=wx.Size(50, mwx.SMALL_TEXTCTRL_HEIGHT),
             validator=mwx.validator("floatPos"),
         )
         self.tolerance_value.SetFont(wx.SMALL_FONT)
@@ -271,7 +278,7 @@ class panelCalibration(wx.Frame, MakeModalMixin):
 
         # init list
         self.referencesList = mwx.sortListCtrl(
-            self, -1, size=(651, 250), style=mwx.LISTCTRL_STYLE_SINGLE
+            self, -1, size=wx.Size(651, 250), style=mwx.LISTCTRL_STYLE_SINGLE
         )
         self.referencesList.SetFont(wx.SMALL_FONT)
         self.referencesList.setSecondarySortColumn(2)
@@ -301,8 +308,8 @@ class panelCalibration(wx.Frame, MakeModalMixin):
         """Make plot canvas and set defalt parameters."""
 
         # init canvas
-        self.errorCanvas = mspy.plot.canvas(
-            self, size=(-1, 250), style=mwx.PLOTCANVAS_STYLE_PANEL
+        self.errorCanvas = plotCanvas(
+            self, size=wx.Size(-1, 250), style=mwx.PLOTCANVAS_STYLE_PANEL
         )
 
         # set default params
@@ -326,14 +333,14 @@ class panelCalibration(wx.Frame, MakeModalMixin):
 
         axisFont = wx.Font(
             config.spectrum["axisFontSize"],
-            wx.SWISS,
+            wx.FONTFAMILY_SWISS,
             wx.FONTSTYLE_NORMAL,
             wx.FONTWEIGHT_NORMAL,
-            0,
+            False,
         )
         self.errorCanvas.setProperties(axisFont=axisFont)
 
-        self.errorCanvas.draw(mspy.plot.container([]))
+        self.errorCanvas.draw(container([]))
 
         return self.errorCanvas
 
@@ -666,7 +673,10 @@ class panelCalibration(wx.Frame, MakeModalMixin):
         mzFormat = "%0." + repr(config.main["mzDigits"]) + "f"
         ppmFormat = "%0." + repr(config.main["ppmDigits"]) + "f"
         fontSkipped = wx.Font(
-            mwx.SMALL_FONT_SIZE, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_ITALIC, wx.NORMAL
+            mwx.SMALL_FONT_SIZE,
+            wx.FONTFAMILY_DEFAULT,
+            wx.FONTSTYLE_ITALIC,
+            wx.FONTWEIGHT_NORMAL,
         )
         fontUsed = wx.SMALL_FONT
         for row, item in enumerate(self.currentReferences):
@@ -701,10 +711,10 @@ class panelCalibration(wx.Frame, MakeModalMixin):
 
             # mark skipped
             if not item[6]:
-                self.referencesList.SetItemTextColour(row, (150, 150, 150))
+                self.referencesList.SetItemTextColour(row, wx.Colour(150, 150, 150))
                 self.referencesList.SetItemFont(row, fontSkipped)
             else:
-                self.referencesList.SetItemTextColour(row, (0, 0, 0))
+                self.referencesList.SetItemTextColour(row, wx.Colour(0, 0, 0))
                 self.referencesList.SetItemFont(row, fontUsed)
 
         # sort data
@@ -720,7 +730,7 @@ class panelCalibration(wx.Frame, MakeModalMixin):
         """Update error plot."""
 
         # make container
-        container = mspy.plot.container([])
+        plotObjects = container([])
         minY = 0
         maxY = 1
 
@@ -736,14 +746,14 @@ class panelCalibration(wx.Frame, MakeModalMixin):
                     intensities.append(item[5])
             if pointsAfter:
                 pointsAfter.sort()
-                obj = mspy.plot.points(
+                obj = points(
                     pointsAfter,
                     pointColour=(0, 255, 0),
                     legend="after",
                     showLines=False,
                     showPoints=True,
                 )
-                container.append(obj)
+                plotObjects.append(obj)
 
             # get before points
             pointsBefore = []
@@ -753,14 +763,14 @@ class panelCalibration(wx.Frame, MakeModalMixin):
                     intensities.append(item[4])
             if pointsBefore:
                 pointsBefore.sort()
-                obj = mspy.plot.points(
+                obj = points(
                     pointsBefore,
                     pointColour=(255, 100, 100),
                     legend="before",
                     showLines=False,
                     showPoints=True,
                 )
-                container.append(obj)
+                plotObjects.append(obj)
 
             # set range
             if intensities:
@@ -779,7 +789,7 @@ class panelCalibration(wx.Frame, MakeModalMixin):
                 curvePoints = self.makeCalibrationCurve()
                 curvePoints = numpy.array(curvePoints)
                 if config.calibration["units"] == "ppm":
-                    obj = mspy.plot.points(
+                    obj = points(
                         curvePoints,
                         lineColour=(255, 100, 100),
                         showLines=True,
@@ -787,13 +797,13 @@ class panelCalibration(wx.Frame, MakeModalMixin):
                         lineStyle=mwx.DASHED_LINE,
                     )
                 else:
-                    obj = mspy.plot.points(
+                    obj = points(
                         curvePoints,
                         lineColour=(255, 100, 100),
                         showLines=True,
                         showPoints=False,
                     )
-                container.append(obj)
+                plotObjects.append(obj)
 
                 # set range
                 if intensities:
@@ -806,10 +816,10 @@ class panelCalibration(wx.Frame, MakeModalMixin):
         # make peaklist
         if self.currentDocument and self.currentDocument.spectrum.peaklist:
             peaks = self.makeCurrentPeaklist(minY, maxY)
-            obj = mspy.plot.spectrum(
+            obj = spectrum(
                 mspy.scan(peaklist=peaks), tickColour=(170, 170, 170), showLabels=False
             )
-            container.append(obj)
+            plotObjects.append(obj)
 
         # set units
         self.errorCanvas.setProperties(
@@ -817,7 +827,7 @@ class panelCalibration(wx.Frame, MakeModalMixin):
         )
 
         # draw container
-        self.errorCanvas.draw(container)
+        self.errorCanvas.draw(plotObjects)
 
     # ----
 

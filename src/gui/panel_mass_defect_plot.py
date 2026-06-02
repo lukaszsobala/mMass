@@ -16,6 +16,7 @@
 # -------------------------------------------------------------------------
 
 # load libs
+from typing import Any
 import math
 import wx
 
@@ -25,7 +26,9 @@ from . import mwx
 from . import images
 from . import config
 import mspy
-import mspy.plot
+from mspy.plot_canvas import canvas as plotCanvas
+from mspy.plot_objects import container as plotContainer
+from mspy.plot_objects import points as plotPoints
 
 # FLOATING PANEL WITH MASS DEFECT PLOT
 # ------------------------------------
@@ -40,13 +43,13 @@ class panelMassDefectPlot(wx.Frame):
             parent,
             -1,
             "Mass Defect Plot",
-            size=(400, 300),
+            size=wx.Size(400, 300),
             style=wx.DEFAULT_FRAME_STYLE | wx.FRAME_FLOAT_ON_PARENT,
         )
 
         self.parent = parent
 
-        self.currentDocument = None
+        self.currentDocument: Any = None
 
         # make gui items
         self.makeGUI()
@@ -99,7 +102,7 @@ class panelMassDefectPlot(wx.Frame):
             "Kendrick Mass Defect",
         ]
         self.yAxis_choice = wx.Choice(
-            panel, -1, choices=choices, size=(175, mwx.SMALL_CHOICE_HEIGHT)
+            panel, -1, choices=choices, size=wx.Size(175, mwx.SMALL_CHOICE_HEIGHT)
         )
         mwx.fitChoice(self.yAxis_choice)
         self.yAxis_choice.Select(1)
@@ -112,7 +115,7 @@ class panelMassDefectPlot(wx.Frame):
         nominalMass_label.SetFont(wx.SMALL_FONT)
         choices = ["Ceil", "Round", "Floor"]
         self.nominalMass_choice = wx.Choice(
-            panel, -1, choices=choices, size=(80, mwx.SMALL_CHOICE_HEIGHT)
+            panel, -1, choices=choices, size=wx.Size(80, mwx.SMALL_CHOICE_HEIGHT)
         )
         mwx.fitChoice(self.nominalMass_choice)
         self.nominalMass_choice.Select(1)
@@ -124,12 +127,12 @@ class panelMassDefectPlot(wx.Frame):
         kendrickFormula_label = wx.StaticText(panel, -1, "Kendrick formula:")
         kendrickFormula_label.SetFont(wx.SMALL_FONT)
         self.kendrickFormula_value = mwx.formulaCtrl(
-            panel, -1, config.massDefectPlot["kendrickFormula"], size=(80, -1)
+            panel, -1, config.massDefectPlot["kendrickFormula"], size=wx.Size(80, -1)
         )
 
         # make buttons
         self.plot_butt = wx.Button(
-            panel, -1, "Plot", size=(-1, mwx.SMALL_BUTTON_HEIGHT)
+            panel, -1, "Plot", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
         )
         self.plot_butt.Bind(wx.EVT_BUTTON, self.onPlot)
 
@@ -177,7 +180,7 @@ class panelMassDefectPlot(wx.Frame):
             panel,
             -1,
             str(config.massDefectPlot["relIntCutoff"] * 100),
-            size=(50, mwx.SMALL_TEXTCTRL_HEIGHT),
+            size=wx.Size(50, mwx.SMALL_TEXTCTRL_HEIGHT),
             validator=mwx.validator("floatPos"),
         )
         self.relIntCutoff_value.SetFont(wx.SMALL_FONT)
@@ -229,10 +232,10 @@ class panelMassDefectPlot(wx.Frame):
         """Make plot canvas and set defalt parameters."""
 
         # init canvas
-        self.plotCanvas = mspy.plot.canvas(
-            self, size=(650, 300), style=mwx.PLOTCANVAS_STYLE_PANEL
+        self.plotCanvas = plotCanvas(
+            self, size=wx.Size(650, 300), style=mwx.PLOTCANVAS_STYLE_PANEL
         )
-        self.plotCanvasContainer = mspy.plot.container([])
+        self.plotCanvasContainer = plotContainer([])
 
         # set default params
         self.plotCanvas.setProperties(xLabel="m/z")
@@ -257,10 +260,10 @@ class panelMassDefectPlot(wx.Frame):
 
         axisFont = wx.Font(
             config.spectrum["axisFontSize"],
-            wx.SWISS,
+            wx.FONTFAMILY_SWISS,
             wx.FONTSTYLE_NORMAL,
             wx.FONTWEIGHT_NORMAL,
-            0,
+            False,
         )
         self.plotCanvas.setProperties(axisFont=axisFont)
 
@@ -303,7 +306,7 @@ class panelMassDefectPlot(wx.Frame):
             points = self.makeDataPoints(
                 mspy.peaklist(buff), self.currentDocument.spectrum.polarity
             )
-            obj = mspy.plot.points(
+            obj = plotPoints(
                 points, pointColour=(255, 0, 0), showPoints=True, showLines=False
             )
             self.plotCanvasContainer.append(obj)
@@ -315,7 +318,7 @@ class panelMassDefectPlot(wx.Frame):
                     points = self.makeDataPoints(
                         docData.spectrum.peaklist, docData.spectrum.polarity
                     )
-                    obj = mspy.plot.points(
+                    obj = plotPoints(
                         points,
                         pointColour=docData.colour,
                         showPoints=True,
@@ -329,7 +332,7 @@ class panelMassDefectPlot(wx.Frame):
                 self.currentDocument.spectrum.peaklist,
                 self.currentDocument.spectrum.polarity,
             )
-            obj = mspy.plot.points(
+            obj = plotPoints(
                 points, pointColour=(0, 255, 0), showPoints=True, showLines=False
             )
             self.plotCanvasContainer.append(obj)
@@ -448,7 +451,7 @@ class panelMassDefectPlot(wx.Frame):
 
             return True
 
-        except:
+        except Exception:
             wx.Bell()
             return False
 
@@ -548,7 +551,7 @@ class panelMassDefectPlot(wx.Frame):
             md = mspy.md(
                 mass=mass,
                 mdType=config.massDefectPlot["yAxis"],
-                kendrickFormula=kendrickFormula,
+                kendrickFormula=config.massDefectPlot["kendrickFormula"],
                 rounding=config.massDefectPlot["nominalMass"],
             )
 

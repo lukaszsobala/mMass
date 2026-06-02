@@ -16,6 +16,7 @@
 # -------------------------------------------------------------------------
 
 # load libs
+from typing import Any
 import threading
 import wx
 
@@ -26,7 +27,10 @@ from . import images
 from . import config
 from .mixins import MakeModalMixin
 import mspy
-import mspy.plot
+from mspy.plot_canvas import canvas as plotCanvas
+from mspy.plot_objects import container as plotContainer
+from mspy.plot_objects import points as plotPoints
+from mspy.plot_objects import spectrum as plotSpectrum
 from . import doc
 
 # FLOATING PANEL WITH MATCH TOOLS
@@ -42,7 +46,7 @@ class panelMatch(wx.Frame, MakeModalMixin):
             parentTool,
             -1,
             "Match Data",
-            size=(400, 300),
+            size=wx.Size(400, 300),
             style=wx.DEFAULT_FRAME_STYLE | wx.FRAME_FLOAT_ON_PARENT & ~wx.MAXIMIZE_BOX,
         )
 
@@ -53,9 +57,10 @@ class panelMatch(wx.Frame, MakeModalMixin):
 
         self.currentModule = module
         self.currentTool = "errors"
-        self.currentData = None
-        self.currentPeaklist = None
-        self.currentSummary = None
+        self.currentData: Any = None
+        self.currentPeaklist: Any = None
+        self.currentSummary: Any = None
+        self.currentSummaryData: Any = None
         self.currentErrors = []
         self.currentCalibrationPoints = []
 
@@ -121,7 +126,7 @@ class panelMatch(wx.Frame, MakeModalMixin):
             self,
             -1,
             images.lib["bgrToolbarNoBorder"],
-            size=(-1, mwx.TOOLBAR_HEIGHT),
+            size=wx.Size(-1, mwx.TOOLBAR_HEIGHT),
         )
 
         # make buttons
@@ -129,7 +134,7 @@ class panelMatch(wx.Frame, MakeModalMixin):
             panel,
             ID_matchErrors,
             images.lib["matchErrorsOff"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.errors_butt.SetToolTip(wx.ToolTip("Error plot"))
@@ -139,7 +144,7 @@ class panelMatch(wx.Frame, MakeModalMixin):
             panel,
             ID_matchSummary,
             images.lib["matchSummaryOff"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.summary_butt.SetToolTip(wx.ToolTip("Match summary"))
@@ -153,7 +158,7 @@ class panelMatch(wx.Frame, MakeModalMixin):
             panel,
             -1,
             str(config.match["tolerance"]),
-            size=(60, -1),
+            size=wx.Size(60, -1),
             validator=mwx.validator("floatPos"),
         )
 
@@ -174,12 +179,12 @@ class panelMatch(wx.Frame, MakeModalMixin):
             self.ignoreCharge_check.Disable()
 
         self.match_butt = wx.Button(
-            panel, -1, "Match", size=(-1, mwx.SMALL_BUTTON_HEIGHT)
+            panel, -1, "Match", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
         )
         self.match_butt.Bind(wx.EVT_BUTTON, self.onMatch)
 
         self.calibrate_butt = wx.Button(
-            panel, -1, "Calibrate", size=(-1, mwx.SMALL_BUTTON_HEIGHT)
+            panel, -1, "Calibrate", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
         )
         self.calibrate_butt.Bind(wx.EVT_BUTTON, self.onCalibrate)
 
@@ -221,7 +226,7 @@ class panelMatch(wx.Frame, MakeModalMixin):
 
         # init toolbar
         panel = mwx.bgrPanel(
-            self, -1, images.lib["bgrControlbar"], size=(-1, mwx.CONTROLBAR_HEIGHT)
+            self, -1, images.lib["bgrControlbar"], size=wx.Size(-1, mwx.CONTROLBAR_HEIGHT)
         )
 
         # make elements
@@ -281,10 +286,10 @@ class panelMatch(wx.Frame, MakeModalMixin):
         """Make plot canvas and set defalt parameters."""
 
         # init canvas
-        self.errorCanvas = mspy.plot.canvas(
-            self, size=(621, 220), style=mwx.PLOTCANVAS_STYLE_PANEL
+        self.errorCanvas = plotCanvas(
+            self, size=wx.Size(621, 220), style=mwx.PLOTCANVAS_STYLE_PANEL
         )
-        self.errorCanvas.draw(mspy.plot.container([]))
+        self.errorCanvas.draw(plotContainer([]))
 
         # set default params
         self.errorCanvas.setProperties(xLabel="m/z")
@@ -307,14 +312,14 @@ class panelMatch(wx.Frame, MakeModalMixin):
 
         axisFont = wx.Font(
             config.spectrum["axisFontSize"],
-            wx.SWISS,
+            wx.FONTFAMILY_SWISS,
             wx.FONTSTYLE_NORMAL,
             wx.FONTWEIGHT_NORMAL,
-            0,
+            False,
         )
         self.errorCanvas.setProperties(axisFont=axisFont)
 
-        self.errorCanvas.draw(mspy.plot.container([]))
+        self.errorCanvas.draw(plotContainer([]))
 
     # ----
 
@@ -323,7 +328,7 @@ class panelMatch(wx.Frame, MakeModalMixin):
 
         # init list
         self.summaryList = mwx.sortListCtrl(
-            self, -1, size=(631, 200), style=mwx.LISTCTRL_STYLE_SINGLE
+            self, -1, size=wx.Size(631, 200), style=mwx.LISTCTRL_STYLE_SINGLE
         )
         self.summaryList.SetFont(wx.SMALL_FONT)
         self.summaryList.setAltColour(mwx.LISTCTRL_ALTCOLOUR)
@@ -734,7 +739,7 @@ class panelMatch(wx.Frame, MakeModalMixin):
                                 base=peak.base,
                                 theoretical=item[massCol],
                             )
-                            match.peakIndex = pIndex
+                            setattr(match, "peakIndex", pIndex)
                             self.currentData[x][-1].append(match)
 
                             # errors and calibration points
@@ -784,11 +789,11 @@ class panelMatch(wx.Frame, MakeModalMixin):
         """Update error canvas."""
 
         # make container
-        container = mspy.plot.container([])
+        container = plotContainer([])
 
         # make points object
         self.currentErrors.sort()
-        points = mspy.plot.points(
+        points = plotPoints(
             self.currentErrors,
             pointColour=(0, 255, 0),
             showPoints=True,
@@ -799,7 +804,7 @@ class panelMatch(wx.Frame, MakeModalMixin):
         # make peaklist object
         if self.currentPeaklist:
             peaks = self.makeCurrentPeaklist()
-            peaklist = mspy.plot.spectrum(
+            peaklist = plotSpectrum(
                 mspy.scan(peaklist=peaks), tickColour=(170, 170, 170), showLabels=False
             )
             container.append(peaklist)

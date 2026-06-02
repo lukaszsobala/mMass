@@ -18,13 +18,23 @@
 # load libs
 import threading
 import wx
-import webbrowser
 import tempfile
 import os.path
 import numpy
 
 # load modules
-from .ids import *
+from typing import Any, cast
+
+from .ids import (
+    ID_listCopy,
+    ID_listCopyFormula,
+    ID_listSendToMassCalculator,
+    ID_massToFormulaSearchChemSpider,
+    ID_massToFormulaSearchHMDB,
+    ID_massToFormulaSearchLipidMaps,
+    ID_massToFormulaSearchMETLIN,
+    ID_massToFormulaSearchPubChem,
+)
 from . import mwx
 from . import images
 from . import config
@@ -44,7 +54,7 @@ class panelMassToFormula(wx.Frame, MakeModalMixin):
             parent,
             -1,
             "Mass To Formula",
-            size=(400, 300),
+            size=wx.Size(400, 300),
             style=wx.DEFAULT_FRAME_STYLE | wx.FRAME_FLOAT_ON_PARENT & ~wx.MAXIMIZE_BOX,
         )
 
@@ -52,9 +62,9 @@ class panelMassToFormula(wx.Frame, MakeModalMixin):
 
         self.processing = None
 
-        self.currentDocument = None
-        self.currentFormulae = None
-        self.currentMass = None
+        self.currentDocument: Any = None
+        self.currentFormulae: Any = None
+        self.currentMass: Any = None
 
         # make gui items
         self.makeGUI()
@@ -112,7 +122,7 @@ class panelMassToFormula(wx.Frame, MakeModalMixin):
             panel,
             -1,
             "",
-            size=(120, -1),
+            size=wx.Size(120, -1),
             style=wx.TE_PROCESS_ENTER,
             validator=mwx.validator("floatPos"),
         )
@@ -124,13 +134,13 @@ class panelMassToFormula(wx.Frame, MakeModalMixin):
             panel,
             -1,
             str(config.massToFormula["charge"]),
-            size=(40, -1),
+            size=wx.Size(40, -1),
             validator=mwx.validator("int"),
         )
 
         choices = ["M", "M*", "H+", "Na+", "K+", "Li+", "NH4+"]
         self.ionization_choice = wx.Choice(
-            panel, -1, choices=choices, size=(80, mwx.SMALL_CHOICE_HEIGHT)
+            panel, -1, choices=choices, size=wx.Size(80, mwx.SMALL_CHOICE_HEIGHT)
         )
         mwx.fitChoice(self.ionization_choice)
         choices = ["", "e", "H", "Na", "K", "Li", "NH4"]
@@ -145,7 +155,7 @@ class panelMassToFormula(wx.Frame, MakeModalMixin):
             panel,
             -1,
             str(config.massToFormula["tolerance"]),
-            size=(50, -1),
+            size=wx.Size(50, -1),
             style=wx.TE_PROCESS_ENTER,
             validator=mwx.validator("floatPos"),
         )
@@ -162,7 +172,7 @@ class panelMassToFormula(wx.Frame, MakeModalMixin):
         self.unitsPpm_radio.SetValue((config.massToFormula["units"] == "ppm"))
 
         self.generate_butt = wx.Button(
-            panel, -1, "Generate", size=(-1, mwx.SMALL_BUTTON_HEIGHT)
+            panel, -1, "Generate", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
         )
         self.generate_butt.Bind(wx.EVT_BUTTON, self.onGenerate)
 
@@ -210,13 +220,13 @@ class panelMassToFormula(wx.Frame, MakeModalMixin):
         formulaMin_label = wx.StaticText(panel, -1, "Minimal formula:")
         formulaMin_label.SetFont(wx.SMALL_FONT)
         self.formulaMin_value = mwx.formulaCtrl(
-            panel, -1, config.massToFormula["formulaMin"], size=(150, -1)
+            panel, -1, config.massToFormula["formulaMin"], size=wx.Size(150, -1)
         )
 
         formulaMax_label = wx.StaticText(panel, -1, "Maximal formula:")
         formulaMax_label.SetFont(wx.SMALL_FONT)
         self.formulaMax_value = mwx.formulaCtrl(
-            panel, -1, config.massToFormula["formulaMax"], size=(150, -1)
+            panel, -1, config.massToFormula["formulaMax"], size=wx.Size(150, -1)
         )
 
         # pack controls
@@ -305,7 +315,7 @@ class panelMassToFormula(wx.Frame, MakeModalMixin):
 
         # init list
         self.formulaeList = mwx.sortListCtrl(
-            self, -1, size=(751, 250), style=mwx.LISTCTRL_STYLE_SINGLE
+            self, -1, size=wx.Size(751, 250), style=mwx.LISTCTRL_STYLE_SINGLE
         )
         self.formulaeList.SetFont(wx.SMALL_FONT)
         self.formulaeList.setAltColour(mwx.LISTCTRL_ALTCOLOUR)
@@ -489,8 +499,8 @@ class panelMassToFormula(wx.Frame, MakeModalMixin):
             path = os.path.join(tempfile.gettempdir(), "mmass_formula_search.html")
             with open(path, "wb") as f:
                 f.write(htmlData.encode("utf-8"))
-            import wx; wx.LaunchDefaultBrowser("file://" + path, flags=0)
-        except:
+            wx.LaunchDefaultBrowser("file://" + path, flags=0)
+        except Exception:
             wx.Bell()
             dlg = mwx.dlgMessage(
                 self,
@@ -795,12 +805,15 @@ class panelMassToFormula(wx.Frame, MakeModalMixin):
                 agentCharge = -1
 
             # approximate CHNO composition from neutral mass
-            mass = mspy.mz(
-                mass=self.currentMass,
-                charge=0,
-                currentCharge=config.massToFormula["charge"],
-                agentFormula=config.massToFormula["ionization"],
-                agentCharge=agentCharge,
+            mass = cast(
+                float,
+                mspy.mz(
+                    mass=self.currentMass,
+                    charge=0,
+                    currentCharge=config.massToFormula["charge"],
+                    agentFormula=config.massToFormula["ionization"],
+                    agentCharge=agentCharge,
+                ),
             )
 
             composition = {}
@@ -871,7 +884,7 @@ class panelMassToFormula(wx.Frame, MakeModalMixin):
 
                 # make compound
                 cmpd = mspy.compound(formula)
-                mass = cmpd.mass(0)
+                compoundMass = cmpd.mass(0)
                 mz = cmpd.mz(
                     config.massToFormula["charge"],
                     config.massToFormula["ionization"],
@@ -905,7 +918,7 @@ class panelMassToFormula(wx.Frame, MakeModalMixin):
 
                 # add item
                 buff.append(
-                    [cmpd.formula(), mass, mz, error, hc, rdbe, similarity, cmpd]
+                    [cmpd.formula(), compoundMass, mz, error, hc, rdbe, similarity, cmpd]
                 )
 
             self.currentFormulae = buff
@@ -1167,12 +1180,15 @@ class panelMassToFormula(wx.Frame, MakeModalMixin):
             agentCharge = -1
 
         # approximate CHNO composition from neutral mass
-        mass = mspy.mz(
-            mass=self.currentMass,
-            charge=0,
-            currentCharge=config.massToFormula["charge"],
-            agentFormula=config.massToFormula["ionization"],
-            agentCharge=agentCharge,
+        mass = cast(
+            float,
+            mspy.mz(
+                mass=self.currentMass,
+                charge=0,
+                currentCharge=config.massToFormula["charge"],
+                agentFormula=config.massToFormula["ionization"],
+                agentCharge=agentCharge,
+            ),
         )
 
         # check mass limit

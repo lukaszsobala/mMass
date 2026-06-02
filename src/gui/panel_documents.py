@@ -17,6 +17,7 @@
 
 # load libs
 import wx
+from typing import Any
 
 # load modules
 from .ids import *
@@ -37,11 +38,12 @@ class panelDocuments(wx.Panel):
 
     def __init__(self, parent, documents):
         wx.Panel.__init__(
-            self, parent, -1, size=(150, -1), style=wx.NO_FULL_REPAINT_ON_RESIZE
+            self, parent, -1, size=wx.Size(150, -1), style=wx.NO_FULL_REPAINT_ON_RESIZE
         )
 
         self.parent = parent
         self.documents = documents
+        self.documentTree: Any = None
 
         # make GUI
         self.makeGUI()
@@ -73,19 +75,22 @@ class panelDocuments(wx.Panel):
 
         # init toolbar panel
         if images.is_dark_mode():
-            panel = wx.Panel(self, -1, size=(-1, mwx.BOTTOMBAR_HEIGHT))
+            panel = wx.Panel(self, -1, size=wx.Size(-1, mwx.BOTTOMBAR_HEIGHT))
             panel.SetBackgroundColour(wx.Colour(30, 30, 30))
             panel.SetForegroundColour(wx.Colour(220, 220, 220))
         else:
             panel = mwx.bgrPanel(
-                self, -1, images.lib["bgrBottombar"], size=(-1, mwx.BOTTOMBAR_HEIGHT)
+                self,
+                -1,
+                images.lib["bgrBottombar"],
+                size=wx.Size(-1, mwx.BOTTOMBAR_HEIGHT),
             )
 
         self.add_butt = wx.BitmapButton(
             panel,
             -1,
             images.lib["documentsAdd"],
-            size=(mwx.BOTTOMBAR_TOOLSIZE),
+            size=wx.Size(*mwx.BOTTOMBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.add_butt.SetToolTip(wx.ToolTip("Add..."))
@@ -95,7 +100,7 @@ class panelDocuments(wx.Panel):
             panel,
             -1,
             images.lib["documentsDelete"],
-            size=(mwx.BOTTOMBAR_TOOLSIZE),
+            size=wx.Size(*mwx.BOTTOMBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.delete_butt.SetToolTip(wx.ToolTip("Remove..."))
@@ -131,7 +136,7 @@ class panelDocuments(wx.Panel):
         """Make documents tree."""
 
         # init tree
-        self.documentTree = documentsTree(self, -1, size=(175, -1))
+        self.documentTree = documentsTree(self, -1, size=wx.Size(175, -1))
 
         # bind events
         self.documentTree.Bind(wx.EVT_TREE_KEY_DOWN, self.onKey)
@@ -265,11 +270,11 @@ class panelDocuments(wx.Panel):
 
             if itemData.spectrum.hasprofile() == False:
                 menu.Enable(ID_documentStyle, False)
-            elif itemData.style == wx.DOT:
+            elif itemData.style == wx.PENSTYLE_DOT:
                 style.Check(ID_documentStyleDot, True)
-            elif itemData.style == wx.SHORT_DASH:
+            elif itemData.style == wx.PENSTYLE_SHORT_DASH:
                 style.Check(ID_documentStyleDash, True)
-            elif itemData.style == wx.DOT_DASH:
+            elif itemData.style == wx.PENSTYLE_DOT_DASH:
                 style.Check(ID_documentStyleDotDash, True)
             else:
                 style.Check(ID_documentStyleSolid, True)
@@ -1121,7 +1126,7 @@ class documentsTree(wx.TreeCtrl):
             self.SetOwnBackgroundColour(wx.Colour(30, 30, 30))
             self.SetForegroundColour(wx.Colour(220, 220, 220))
         else:
-            self.SetOwnBackgroundColour(mwx.DOCTREE_COLOUR)
+            self.SetOwnBackgroundColour(wx.Colour(*mwx.DOCTREE_COLOUR))
 
         # init bullets
         self.bullets = wx.ImageList(13, 12)
@@ -1211,7 +1216,8 @@ class documentsTree(wx.TreeCtrl):
         """Get parent item for selected item and level."""
 
         # get item
-        for x in range(level, self.getItemIndent(item)):
+        itemIndent = self.getItemIndent(item) or 0
+        for x in range(level, itemIndent):
             item = self.GetItemParent(item)
 
         return item
@@ -1250,10 +1256,18 @@ class documentsTree(wx.TreeCtrl):
 
         # set text colour
         if enable:
-            self.SetItemTextColour(item, (220, 220, 220) if images.is_dark_mode() else (0, 0, 0))
+            self.SetItemTextColour(
+                item,
+                wx.Colour(220, 220, 220) if images.is_dark_mode() else wx.Colour(0, 0, 0),
+            )
             self.SetItemBold(item, False)
         else:
-            self.SetItemTextColour(item, (100, 100, 100) if images.is_dark_mode() else (150, 150, 150))
+            self.SetItemTextColour(
+                item,
+                wx.Colour(100, 100, 100)
+                if images.is_dark_mode()
+                else wx.Colour(150, 150, 150),
+            )
             self.SetItemBold(item, False)
 
         # set document bullet
@@ -1437,16 +1451,16 @@ class documentsTree(wx.TreeCtrl):
 
         # clear background
         if wx.Platform != "__WXMAC__":
-            dc.SetBackground(wx.Brush(self.GetBackgroundColour(), wx.SOLID))
+            dc.SetBackground(wx.Brush(self.GetBackgroundColour(), wx.BRUSHSTYLE_SOLID))
             dc.Clear()
 
         # set pen and brush
         if filled:
             pencolour = [max(x - 70, 0) for x in colour]
-            dc.SetPen(wx.Pen(pencolour, 1, wx.SOLID))
-            dc.SetBrush(wx.Brush(colour, wx.SOLID))
+            dc.SetPen(wx.Pen(wx.Colour(*pencolour), 1, wx.PENSTYLE_SOLID))
+            dc.SetBrush(wx.Brush(wx.Colour(*colour), wx.BRUSHSTYLE_SOLID))
         else:
-            dc.SetPen(wx.Pen(colour, 1, wx.SOLID))
+            dc.SetPen(wx.Pen(wx.Colour(*colour), 1, wx.PENSTYLE_SOLID))
             dc.SetBrush(wx.TRANSPARENT_BRUSH)
 
         # draw circle

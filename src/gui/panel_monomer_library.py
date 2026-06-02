@@ -39,7 +39,7 @@ class panelMonomerLibrary(wx.Frame):
             parent,
             -1,
             "Monomer Library",
-            size=(250, 300),
+            size=wx.Size(250, 300),
             style=wx.DEFAULT_FRAME_STYLE | wx.FRAME_FLOAT_ON_PARENT & ~wx.MAXIMIZE_BOX,
         )
 
@@ -85,7 +85,10 @@ class panelMonomerLibrary(wx.Frame):
 
         # init toolbar
         panel = mwx.bgrPanel(
-            self, -1, images.lib["bgrToolbarNoBorder"], size=(-1, mwx.TOOLBAR_HEIGHT)
+            self,
+            -1,
+            images.lib["bgrToolbarNoBorder"],
+            size=wx.Size(-1, mwx.TOOLBAR_HEIGHT),
         )
 
         # make elements
@@ -93,7 +96,7 @@ class panelMonomerLibrary(wx.Frame):
             self.search_value = wx.SearchCtrl(
                 panel,
                 -1,
-                size=(150, mwx.SMALL_SEARCH_HEIGHT),
+                size=wx.Size(150, mwx.SMALL_SEARCH_HEIGHT),
                 style=wx.TE_PROCESS_ENTER,
             )
             self.search_value.ShowCancelButton(True)
@@ -106,7 +109,7 @@ class panelMonomerLibrary(wx.Frame):
             self.search_value = wx.TextCtrl(
                 panel,
                 -1,
-                size=(150, mwx.SMALL_SEARCH_HEIGHT),
+                size=wx.Size(150, mwx.SMALL_SEARCH_HEIGHT),
                 style=wx.TE_PROCESS_ENTER,
             )
             self.search_value.Bind(wx.EVT_TEXT, self.onSearch)
@@ -131,7 +134,7 @@ class panelMonomerLibrary(wx.Frame):
 
         # init list
         self.monomerList = mwx.sortListCtrl(
-            self, -1, size=(231, 300), style=mwx.LISTCTRL_STYLE_SINGLE
+            self, -1, size=wx.Size(231, 300), style=mwx.LISTCTRL_STYLE_SINGLE
         )
         self.monomerList.SetFont(wx.SMALL_FONT)
         self.monomerList.setAltColour(mwx.LISTCTRL_ALTCOLOUR)

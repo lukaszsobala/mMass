@@ -20,6 +20,7 @@ import wx
 import webbrowser
 import tempfile
 import os.path
+from typing import Any
 
 # load modules
 from .ids import *
@@ -42,7 +43,7 @@ class panelProspector(wx.Frame):
             parent,
             -1,
             "Protein Prospector",
-            size=(300, -1),
+            size=wx.Size(300, -1),
             style=wx.DEFAULT_FRAME_STYLE
             | wx.FRAME_FLOAT_ON_PARENT & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX),
         )
@@ -51,7 +52,7 @@ class panelProspector(wx.Frame):
 
         self.currentTool = tool
         self.currentDocument = None
-        self.currentParams = None
+        self.currentParams: Any = None
 
         # make gui items
         self.makeGUI()
@@ -102,7 +103,7 @@ class panelProspector(wx.Frame):
             self,
             -1,
             images.lib["bgrToolbarNoBorder"],
-            size=(-1, mwx.TOOLBAR_HEIGHT),
+            size=wx.Size(-1, mwx.TOOLBAR_HEIGHT),
         )
 
         # make tools
@@ -110,7 +111,7 @@ class panelProspector(wx.Frame):
             panel,
             ID_prospectorMSFit,
             images.lib["prospectorMSFitOff"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.msFit_butt.SetToolTip(wx.ToolTip("MS-Fit Tool"))
@@ -120,7 +121,7 @@ class panelProspector(wx.Frame):
             panel,
             ID_prospectorMSTag,
             images.lib["prospectorMSTagOff"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.msTag_butt.SetToolTip(wx.ToolTip("MS-Tag Tool"))
@@ -130,14 +131,14 @@ class panelProspector(wx.Frame):
             panel,
             ID_prospectorQuery,
             images.lib["prospectorQueryOff"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.query_butt.SetToolTip(wx.ToolTip("Peak list"))
         self.query_butt.Bind(wx.EVT_BUTTON, self.onToolSelected)
 
         self.search_butt = wx.Button(
-            panel, -1, "Search", size=(-1, mwx.SMALL_BUTTON_HEIGHT)
+            panel, -1, "Search", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
         )
         self.search_butt.Bind(wx.EVT_BUTTON, self.onSearch)
 
@@ -179,24 +180,24 @@ class panelProspector(wx.Frame):
 
         # make info elements
         paramMSFitSearchTitle_label = wx.StaticText(panel, -1, "Title:")
-        self.paramMSFitTitle_value = wx.TextCtrl(panel, -1, "", size=(250, -1))
+        self.paramMSFitTitle_value = wx.TextCtrl(panel, -1, "", size=wx.Size(250, -1))
 
         # make sequence elements
         paramMSFitTaxonomy_label = wx.StaticText(panel, -1, "Taxonomy:")
         self.paramMSFitTaxonomy_choice = wx.Choice(
-            panel, -1, choices=[], size=(300, mwx.CHOICE_HEIGHT)
+            panel, -1, choices=[], size=wx.Size(300, mwx.CHOICE_HEIGHT)
         )
         mwx.fitChoice(self.paramMSFitTaxonomy_choice)
 
         paramMSFitDatabase_label = wx.StaticText(panel, -1, "Database:")
         self.paramMSFitDatabase_choice = wx.Choice(
-            panel, -1, choices=[], size=(150, mwx.CHOICE_HEIGHT)
+            panel, -1, choices=[], size=wx.Size(150, mwx.CHOICE_HEIGHT)
         )
         mwx.fitChoice(self.paramMSFitDatabase_choice)
 
         paramMSFitEnzyme_label = wx.StaticText(panel, -1, " Enzyme:")
         self.paramMSFitEnzyme_choice = wx.Choice(
-            panel, -1, choices=[], size=(130, mwx.CHOICE_HEIGHT)
+            panel, -1, choices=[], size=wx.Size(130, mwx.CHOICE_HEIGHT)
         )
         mwx.fitChoice(self.paramMSFitEnzyme_choice)
 
@@ -205,7 +206,7 @@ class panelProspector(wx.Frame):
             panel,
             -1,
             choices=["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"],
-            size=(50, mwx.CHOICE_HEIGHT),
+            size=wx.Size(50, mwx.CHOICE_HEIGHT),
         )
         mwx.fitChoice(self.paramMSFitMiscleavages_choice)
         self.paramMSFitMiscleavages_choice.SetStringSelection(
@@ -217,7 +218,7 @@ class panelProspector(wx.Frame):
             panel, -1, "Fixed modifications:"
         )
         self.paramMSFitFixedMods_listbox = wx.ListBox(
-            panel, -1, size=(200, 100), choices=[], style=wx.LB_EXTENDED
+            panel, -1, size=wx.Size(200, 100), choices=[], style=wx.LB_EXTENDED
         )
         self.paramMSFitFixedMods_listbox.SetFont(wx.SMALL_FONT)
         self.paramMSFitFixedMods_listbox.Bind(
@@ -228,7 +229,7 @@ class panelProspector(wx.Frame):
             panel, -1, "Variable modifications:"
         )
         self.paramMSFitVariableMods_listbox = wx.ListBox(
-            panel, -1, size=(200, 100), choices=[], style=wx.LB_EXTENDED
+            panel, -1, size=wx.Size(200, 100), choices=[], style=wx.LB_EXTENDED
         )
         self.paramMSFitVariableMods_listbox.SetFont(wx.SMALL_FONT)
         self.paramMSFitVariableMods_listbox.Bind(
@@ -238,20 +239,20 @@ class panelProspector(wx.Frame):
         # make masses elements
         paramMSFitProteinMass_label = wx.StaticText(panel, -1, "Protein mass:")
         self.paramMSFitProteinMassLow_value = wx.TextCtrl(
-            panel, -1, "0", size=(50, -1), validator=mwx.validator("floatPos")
+            panel, -1, "0", size=wx.Size(50, -1), validator=mwx.validator("floatPos")
         )
         self.paramMSFitProteinMassHigh_value = wx.TextCtrl(
-            panel, -1, "300", size=(50, -1), validator=mwx.validator("floatPos")
+            panel, -1, "300", size=wx.Size(50, -1), validator=mwx.validator("floatPos")
         )
         paramMSFitProteinMass_dash = wx.StaticText(panel, -1, "-")
         paramMSFitProteinMassUnits_label = wx.StaticText(panel, -1, "kDa")
 
         paramProteinPI_label = wx.StaticText(panel, -1, "Protein pI:")
         self.paramMSFitProteinPILow_value = wx.TextCtrl(
-            panel, -1, "0", size=(50, -1), validator=mwx.validator("floatPos")
+            panel, -1, "0", size=wx.Size(50, -1), validator=mwx.validator("floatPos")
         )
         self.paramMSFitProteinPIHigh_value = wx.TextCtrl(
-            panel, -1, "14", size=(50, -1), validator=mwx.validator("floatPos")
+            panel, -1, "14", size=wx.Size(50, -1), validator=mwx.validator("floatPos")
         )
         paramMSFitProteinPI_dash = wx.StaticText(panel, -1, "-")
 
@@ -260,11 +261,11 @@ class panelProspector(wx.Frame):
             panel,
             -1,
             str(config.prospector["msfit"]["peptideTol"]),
-            size=(50, -1),
+            size=wx.Size(50, -1),
             validator=mwx.validator("floatPos"),
         )
         self.paramMSFitPeptideTolUnits_choice = wx.Choice(
-            panel, -1, choices=["Da", "%", "ppm"], size=(80, mwx.CHOICE_HEIGHT)
+            panel, -1, choices=["Da", "%", "ppm"], size=wx.Size(80, mwx.CHOICE_HEIGHT)
         )
         mwx.fitChoice(self.paramMSFitPeptideTolUnits_choice)
         self.paramMSFitPeptideTolUnits_choice.SetStringSelection(
@@ -276,7 +277,7 @@ class panelProspector(wx.Frame):
             panel,
             -1,
             choices=["Monoisotopic", "Average"],
-            size=(150, mwx.CHOICE_HEIGHT),
+            size=wx.Size(150, mwx.CHOICE_HEIGHT),
         )
         mwx.fitChoice(self.paramMSFitMassType_choice)
         self.paramMSFitMassType_choice.SetStringSelection(
@@ -285,7 +286,7 @@ class panelProspector(wx.Frame):
 
         paramMSFitInstrument_label = wx.StaticText(panel, -1, "Instrument:")
         self.paramMSFitInstrument_choice = wx.Choice(
-            panel, -1, choices=[], size=(150, mwx.CHOICE_HEIGHT)
+            panel, -1, choices=[], size=wx.Size(150, mwx.CHOICE_HEIGHT)
         )
         mwx.fitChoice(self.paramMSFitInstrument_choice)
 
@@ -295,7 +296,7 @@ class panelProspector(wx.Frame):
             panel,
             -1,
             choices=["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"],
-            size=(60, mwx.CHOICE_HEIGHT),
+            size=wx.Size(60, mwx.CHOICE_HEIGHT),
         )
         mwx.fitChoice(self.paramMSFitMinMatches_choice)
         self.paramMSFitMinMatches_choice.SetStringSelection(
@@ -304,7 +305,7 @@ class panelProspector(wx.Frame):
 
         paramMSFitMaxMods_label = wx.StaticText(panel, -1, "Max. mods:")
         self.paramMSFitMaxMods_choice = wx.Choice(
-            panel, -1, choices=["1", "2", "3", "4"], size=(60, mwx.CHOICE_HEIGHT)
+            panel, -1, choices=["1", "2", "3", "4"], size=wx.Size(60, mwx.CHOICE_HEIGHT)
         )
         mwx.fitChoice(self.paramMSFitMaxMods_choice)
         self.paramMSFitMaxMods_choice.SetStringSelection(
@@ -316,7 +317,7 @@ class panelProspector(wx.Frame):
             panel,
             -1,
             choices=["5", "10", "20", "30", "50"],
-            size=(60, mwx.CHOICE_HEIGHT),
+            size=wx.Size(60, mwx.CHOICE_HEIGHT),
         )
         mwx.fitChoice(self.paramMSFitReport_choice)
         self.paramMSFitReport_choice.SetStringSelection(
@@ -514,24 +515,24 @@ class panelProspector(wx.Frame):
 
         # make info elements
         paramMSTagSearchTitle_label = wx.StaticText(panel, -1, "Title:")
-        self.paramMSTagTitle_value = wx.TextCtrl(panel, -1, "", size=(250, -1))
+        self.paramMSTagTitle_value = wx.TextCtrl(panel, -1, "", size=wx.Size(250, -1))
 
         # make sequence elements
         paramMSTagTaxonomy_label = wx.StaticText(panel, -1, "Taxonomy:")
         self.paramMSTagTaxonomy_choice = wx.Choice(
-            panel, -1, choices=[], size=(300, mwx.CHOICE_HEIGHT)
+            panel, -1, choices=[], size=wx.Size(300, mwx.CHOICE_HEIGHT)
         )
         mwx.fitChoice(self.paramMSTagTaxonomy_choice)
 
         paramMSTagDatabase_label = wx.StaticText(panel, -1, "Database:")
         self.paramMSTagDatabase_choice = wx.Choice(
-            panel, -1, choices=[], size=(150, mwx.CHOICE_HEIGHT)
+            panel, -1, choices=[], size=wx.Size(150, mwx.CHOICE_HEIGHT)
         )
         mwx.fitChoice(self.paramMSTagDatabase_choice)
 
         paramMSTagEnzyme_label = wx.StaticText(panel, -1, " Enzyme:")
         self.paramMSTagEnzyme_choice = wx.Choice(
-            panel, -1, choices=[], size=(130, mwx.CHOICE_HEIGHT)
+            panel, -1, choices=[], size=wx.Size(130, mwx.CHOICE_HEIGHT)
         )
         mwx.fitChoice(self.paramMSTagEnzyme_choice)
 
@@ -540,7 +541,7 @@ class panelProspector(wx.Frame):
             panel,
             -1,
             choices=["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"],
-            size=(50, mwx.CHOICE_HEIGHT),
+            size=wx.Size(50, mwx.CHOICE_HEIGHT),
         )
         mwx.fitChoice(self.paramMSTagMiscleavages_choice)
         self.paramMSTagMiscleavages_choice.SetStringSelection(
@@ -552,7 +553,7 @@ class panelProspector(wx.Frame):
             panel, -1, "Fixed modifications:"
         )
         self.paramMSTagFixedMods_listbox = wx.ListBox(
-            panel, -1, size=(200, 100), choices=[], style=wx.LB_EXTENDED
+            panel, -1, size=wx.Size(200, 100), choices=[], style=wx.LB_EXTENDED
         )
         self.paramMSTagFixedMods_listbox.SetFont(wx.SMALL_FONT)
         self.paramMSTagFixedMods_listbox.Bind(
@@ -563,7 +564,7 @@ class panelProspector(wx.Frame):
             panel, -1, "Variable modifications:"
         )
         self.paramMSTagVariableMods_listbox = wx.ListBox(
-            panel, -1, size=(200, 100), choices=[], style=wx.LB_EXTENDED
+            panel, -1, size=wx.Size(200, 100), choices=[], style=wx.LB_EXTENDED
         )
         self.paramMSTagVariableMods_listbox.SetFont(wx.SMALL_FONT)
         self.paramMSTagVariableMods_listbox.Bind(
@@ -573,7 +574,7 @@ class panelProspector(wx.Frame):
         # make masses elements
         paramMSTagPeptideMass_label = wx.StaticText(panel, -1, "Precursor m/z:")
         self.paramMSTagPeptideMass_value = wx.TextCtrl(
-            panel, -1, "", size=(145, -1), validator=mwx.validator("float")
+            panel, -1, "", size=wx.Size(145, -1), validator=mwx.validator("float")
         )
 
         paramMSTagPeptideCharge_label = wx.StaticText(panel, -1, "Precursor charge:")
@@ -581,7 +582,7 @@ class panelProspector(wx.Frame):
             panel,
             -1,
             choices=["Automatic", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"],
-            size=(145, mwx.CHOICE_HEIGHT),
+            size=wx.Size(145, mwx.CHOICE_HEIGHT),
         )
         mwx.fitChoice(self.paramMSTagPeptideCharge_choice)
         self.paramMSTagPeptideCharge_choice.SetStringSelection(
@@ -593,11 +594,11 @@ class panelProspector(wx.Frame):
             panel,
             -1,
             str(config.prospector["mstag"]["peptideTol"]),
-            size=(50, -1),
+            size=wx.Size(50, -1),
             validator=mwx.validator("floatPos"),
         )
         self.paramMSTagPeptideTolUnits_choice = wx.Choice(
-            panel, -1, choices=["Da", "%", "ppm"], size=(80, mwx.CHOICE_HEIGHT)
+            panel, -1, choices=["Da", "%", "ppm"], size=wx.Size(80, mwx.CHOICE_HEIGHT)
         )
         mwx.fitChoice(self.paramMSTagPeptideTolUnits_choice)
         self.paramMSTagPeptideTolUnits_choice.SetStringSelection(
@@ -609,11 +610,11 @@ class panelProspector(wx.Frame):
             panel,
             -1,
             str(config.prospector["mstag"]["msmsTol"]),
-            size=(50, -1),
+            size=wx.Size(50, -1),
             validator=mwx.validator("floatPos"),
         )
         self.paramMSTagMSMSTolUnits_choice = wx.Choice(
-            panel, -1, choices=["Da", "%", "ppm"], size=(80, mwx.CHOICE_HEIGHT)
+            panel, -1, choices=["Da", "%", "ppm"], size=wx.Size(80, mwx.CHOICE_HEIGHT)
         )
         mwx.fitChoice(self.paramMSTagMSMSTolUnits_choice)
         self.paramMSTagMSMSTolUnits_choice.SetStringSelection(
@@ -625,7 +626,7 @@ class panelProspector(wx.Frame):
             panel,
             -1,
             choices=["Monoisotopic", "Average"],
-            size=(150, mwx.CHOICE_HEIGHT),
+            size=wx.Size(150, mwx.CHOICE_HEIGHT),
         )
         mwx.fitChoice(self.paramMSTagMassType_choice)
         self.paramMSTagMassType_choice.SetStringSelection(
@@ -634,14 +635,14 @@ class panelProspector(wx.Frame):
 
         paramMSTagInstrument_label = wx.StaticText(panel, -1, "Instrument:")
         self.paramMSTagInstrument_choice = wx.Choice(
-            panel, -1, choices=[], size=(150, mwx.CHOICE_HEIGHT)
+            panel, -1, choices=[], size=wx.Size(150, mwx.CHOICE_HEIGHT)
         )
         mwx.fitChoice(self.paramMSTagInstrument_choice)
 
         # results elements
         paramMSTagMaxMods_label = wx.StaticText(panel, -1, "Max. mods:")
         self.paramMSTagMaxMods_choice = wx.Choice(
-            panel, -1, choices=["1", "2", "3", "4"], size=(60, mwx.CHOICE_HEIGHT)
+            panel, -1, choices=["1", "2", "3", "4"], size=wx.Size(60, mwx.CHOICE_HEIGHT)
         )
         mwx.fitChoice(self.paramMSTagMaxMods_choice)
         self.paramMSTagMaxMods_choice.SetStringSelection(
@@ -653,7 +654,7 @@ class panelProspector(wx.Frame):
             panel,
             -1,
             choices=["5", "10", "20", "30", "50"],
-            size=(60, mwx.CHOICE_HEIGHT),
+            size=wx.Size(60, mwx.CHOICE_HEIGHT),
         )
         mwx.fitChoice(self.paramMSTagReport_choice)
         self.paramMSTagReport_choice.SetStringSelection(
@@ -890,7 +891,7 @@ class panelProspector(wx.Frame):
         self.filterUnknown_check.Bind(wx.EVT_CHECKBOX, self.onGetPeaklist)
 
         self.paramQuery_value = wx.TextCtrl(
-            pklPanel, -1, "", size=(300, 300), style=wx.TE_MULTILINE
+            pklPanel, -1, "", size=wx.Size(300, 300), style=wx.TE_MULTILINE
         )
         self.paramQuery_value.SetFont(wx.SMALL_FONT)
 

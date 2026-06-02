@@ -14,11 +14,13 @@
 #     Complete text of GNU GPL can be found in the file LICENSE.TXT in the
 #     main directory of the program.
 # -------------------------------------------------------------------------
+# pyright: reportWildcardImportFromLibrary=false, reportUnusedImport=false, reportArgumentType=false, reportGeneralTypeIssues=false, reportOptionalSubscript=false, reportUndefinedVariable=false
 
 # load libs
 import re
 import threading
 import wx
+from typing import Any
 import http.client
 import socket
 import webbrowser
@@ -48,7 +50,7 @@ class panelMascot(wx.Frame, MakeModalMixin):
             parent,
             -1,
             "Mascot Tools",
-            size=(300, -1),
+            size=wx.Size(300, -1),
             style=wx.DEFAULT_FRAME_STYLE
             | wx.FRAME_FLOAT_ON_PARENT & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX),
         )
@@ -59,7 +61,7 @@ class panelMascot(wx.Frame, MakeModalMixin):
         self.currentTool = tool
         self.currentDocument = None
         self.currentConnection = False
-        self.currentParams = None
+        self.currentParams: Any = None
 
         # make gui items
         self.makeGUI()
@@ -113,7 +115,7 @@ class panelMascot(wx.Frame, MakeModalMixin):
             self,
             -1,
             images.lib["bgrToolbarNoBorder"],
-            size=(-1, mwx.TOOLBAR_HEIGHT),
+            size=wx.Size(-1, mwx.TOOLBAR_HEIGHT),
         )
 
         # make tools
@@ -121,7 +123,7 @@ class panelMascot(wx.Frame, MakeModalMixin):
             panel,
             ID_mascotPMF,
             images.lib["mascotPMFOff"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.pmf_butt.SetToolTip(wx.ToolTip("Peptide mass fingerprint"))
@@ -131,7 +133,7 @@ class panelMascot(wx.Frame, MakeModalMixin):
             panel,
             ID_mascotMIS,
             images.lib["mascotMISOff"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.mis_butt.SetToolTip(wx.ToolTip("MS/MS ion search"))
@@ -141,7 +143,7 @@ class panelMascot(wx.Frame, MakeModalMixin):
             panel,
             ID_mascotSQ,
             images.lib["mascotSQOff"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.sq_butt.SetToolTip(wx.ToolTip("Sequence query"))
@@ -151,7 +153,7 @@ class panelMascot(wx.Frame, MakeModalMixin):
             panel,
             ID_mascotQuery,
             images.lib["mascotQueryOff"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.query_butt.SetToolTip(wx.ToolTip("Query / Peak list"))
@@ -161,7 +163,7 @@ class panelMascot(wx.Frame, MakeModalMixin):
         choices = list(libs.mascot.keys())
         choices.insert(0, "Select Server")
         self.server_choice = wx.Choice(
-            panel, -1, choices=choices, size=(220, mwx.SMALL_CHOICE_HEIGHT)
+            panel, -1, choices=choices, size=wx.Size(220, mwx.SMALL_CHOICE_HEIGHT)
         )
         mwx.fitChoice(self.server_choice)
         if config.mascot["common"]["server"] in libs.mascot:
@@ -171,7 +173,7 @@ class panelMascot(wx.Frame, MakeModalMixin):
         self.server_choice.Bind(wx.EVT_CHOICE, self.onServerSelected)
 
         self.search_butt = wx.Button(
-            panel, -1, "Search", size=(-1, mwx.SMALL_BUTTON_HEIGHT)
+            panel, -1, "Search", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
         )
         self.search_butt.Bind(wx.EVT_BUTTON, self.onSearch)
         self.search_butt.Enable(False)
@@ -223,34 +225,34 @@ class panelMascot(wx.Frame, MakeModalMixin):
 
         # make info elements
         paramPMFSearchTitle_label = wx.StaticText(panel, -1, "Title:")
-        self.paramPMFTitle_value = wx.TextCtrl(panel, -1, "", size=(250, -1))
+        self.paramPMFTitle_value = wx.TextCtrl(panel, -1, "", size=wx.Size(250, -1))
 
         paramPMFUserName_label = wx.StaticText(panel, -1, "Name:")
         self.paramPMFUserName_value = wx.TextCtrl(
-            panel, -1, config.mascot["common"]["userName"], size=(150, -1)
+            panel, -1, config.mascot["common"]["userName"], size=wx.Size(150, -1)
         )
 
         paramPMFUserEmail_label = wx.StaticText(panel, -1, " E-mail:")
         self.paramPMFUserEmail_value = wx.TextCtrl(
-            panel, -1, config.mascot["common"]["userEmail"], size=(150, -1)
+            panel, -1, config.mascot["common"]["userEmail"], size=wx.Size(150, -1)
         )
 
         # make sequence elements
         paramPMFTaxonomy_label = wx.StaticText(panel, -1, "Taxonomy:")
         self.paramPMFTaxonomy_choice = wx.Choice(
-            panel, -1, choices=[], size=(300, mwx.CHOICE_HEIGHT)
+            panel, -1, choices=[], size=wx.Size(300, mwx.CHOICE_HEIGHT)
         )
         mwx.fitChoice(self.paramPMFTaxonomy_choice)
 
         paramPMFDatabase_label = wx.StaticText(panel, -1, "Database:")
         self.paramPMFDatabase_choice = wx.Choice(
-            panel, -1, choices=[], size=(150, mwx.CHOICE_HEIGHT)
+            panel, -1, choices=[], size=wx.Size(150, mwx.CHOICE_HEIGHT)
         )
         mwx.fitChoice(self.paramPMFDatabase_choice)
 
         paramPMFEnzyme_label = wx.StaticText(panel, -1, " Enzyme:")
         self.paramPMFEnzyme_choice = wx.Choice(
-            panel, -1, choices=[], size=(130, mwx.CHOICE_HEIGHT)
+            panel, -1, choices=[], size=wx.Size(130, mwx.CHOICE_HEIGHT)
         )
         mwx.fitChoice(self.paramPMFEnzyme_choice)
 
@@ -259,7 +261,7 @@ class panelMascot(wx.Frame, MakeModalMixin):
             panel,
             -1,
             choices=["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"],
-            size=(50, mwx.CHOICE_HEIGHT),
+            size=wx.Size(50, mwx.CHOICE_HEIGHT),
         )
         mwx.fitChoice(self.paramPMFMiscleavages_choice)
         self.paramPMFMiscleavages_choice.SetStringSelection(
@@ -1549,8 +1551,9 @@ class panelMascot(wx.Frame, MakeModalMixin):
             path = os.path.join(tempfile.gettempdir(), "mmass_mascot_search.html")
             with open(path, "wb") as f:
                 f.write(htmlData.encode("utf-8"))
-            import wx; wx.LaunchDefaultBrowser("file://" + path, flags=0)
-        except:
+            import wx
+            wx.LaunchDefaultBrowser("file://" + path, flags=0)
+        except Exception:
             wx.Bell()
             dlg = mwx.dlgMessage(
                 self,

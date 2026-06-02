@@ -41,7 +41,7 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
             parent,
             -1,
             "Export",
-            size=(400, 300),
+            size=wx.Size(400, 300),
             style=wx.DEFAULT_FRAME_STYLE
             | wx.FRAME_FLOAT_ON_PARENT & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX),
         )
@@ -100,7 +100,7 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
             self,
             -1,
             images.lib["bgrToolbarNoBorder"],
-            size=(-1, mwx.TOOLBAR_HEIGHT),
+            size=wx.Size(-1, mwx.TOOLBAR_HEIGHT),
         )
 
         # make buttons
@@ -108,7 +108,7 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
             panel,
             ID_documentExportImage,
             images.lib["documentExportImageOff"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.image_butt.SetToolTip(wx.ToolTip("Export spectrum image"))
@@ -118,7 +118,7 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
             panel,
             ID_documentExportPeaklist,
             images.lib["documentExportPeaklistOff"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.peaklist_butt.SetToolTip(wx.ToolTip("Export peak list"))
@@ -128,7 +128,7 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
             panel,
             ID_documentExportSpectrum,
             images.lib["documentExportSpectrumOff"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.spectrum_butt.SetToolTip(wx.ToolTip("Export spectrum data"))
@@ -136,7 +136,7 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
 
         # make controls
         self.export_butt = wx.Button(
-            panel, -1, "Export", size=(-1, mwx.SMALL_BUTTON_HEIGHT)
+            panel, -1, "Export", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
         )
         self.export_butt.Bind(wx.EVT_BUTTON, self.onExport)
 
@@ -181,7 +181,7 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
             panel,
             -1,
             str(config.export["imageWidth"]),
-            size=(140, -1),
+            size=wx.Size(140, -1),
             validator=mwx.validator("floatPos"),
         )
 
@@ -190,19 +190,19 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
             panel,
             -1,
             str(config.export["imageHeight"]),
-            size=(140, -1),
+            size=wx.Size(140, -1),
             validator=mwx.validator("floatPos"),
         )
 
         self.imageUnits_choice = wx.Choice(
-            panel, -1, choices=["cm", "in", "px"], size=(60, mwx.CHOICE_HEIGHT)
+            panel, -1, choices=["cm", "in", "px"], size=wx.Size(60, mwx.CHOICE_HEIGHT)
         )
         mwx.fitChoice(self.imageUnits_choice)
         self.imageUnits_choice.SetStringSelection(config.export["imageUnits"])
 
         imageFormat_label = wx.StaticText(panel, -1, "Format:")
         self.imageFormat_choice = wx.Choice(
-            panel, -1, choices=["PNG", "TIFF", "JPEG"], size=(140, mwx.CHOICE_HEIGHT)
+            panel, -1, choices=["PNG", "TIFF", "JPEG"], size=wx.Size(140, mwx.CHOICE_HEIGHT)
         )
         mwx.fitChoice(self.imageFormat_choice)
         self.imageFormat_choice.SetStringSelection(config.export["imageFormat"])
@@ -211,7 +211,7 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
         imageResolutionUnits_label = wx.StaticText(panel, -1, "dpi")
         choices = ["72", "150", "200", "300", "600"]
         self.imageResolution_choice = wx.Choice(
-            panel, -1, choices=choices, size=(140, mwx.CHOICE_HEIGHT)
+            panel, -1, choices=choices, size=wx.Size(140, mwx.CHOICE_HEIGHT)
         )
         mwx.fitChoice(self.imageResolution_choice)
         self.imageResolution_choice.Select(0)
@@ -228,7 +228,7 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
             config.export["imageFontsScale"],
             1,
             10,
-            size=(140, -1),
+            size=wx.Size(140, -1),
             style=mwx.SLIDER_STYLE,
         )
         self.imageFontsScale_slider.SetTick(1)
@@ -241,7 +241,7 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
             config.export["imageDrawingsScale"],
             1,
             10,
-            size=(140, -1),
+            size=wx.Size(140, -1),
             style=mwx.SLIDER_STYLE,
         )
         self.imageFontsScale_slider.SetTick(1)
@@ -365,7 +365,7 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
             panel,
             -1,
             choices=["All Peaks", "Selected Peaks"],
-            size=(200, mwx.CHOICE_HEIGHT),
+            size=wx.Size(200, mwx.CHOICE_HEIGHT),
         )
         mwx.fitChoice(self.peaklistSelect_choice)
         self.peaklistSelect_choice.Select(0)
@@ -375,7 +375,7 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
             panel,
             -1,
             choices=["ASCII", "ASCII with Headers", "MGF"],
-            size=(200, mwx.CHOICE_HEIGHT),
+            size=wx.Size(200, mwx.CHOICE_HEIGHT),
         )
         mwx.fitChoice(self.peaklistFormat_choice)
         self.peaklistFormat_choice.SetStringSelection(config.export["peaklistFormat"])
@@ -386,7 +386,7 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
             panel,
             -1,
             choices=["Comma", "Semicolon", "Tab"],
-            size=(200, mwx.CHOICE_HEIGHT),
+            size=wx.Size(200, mwx.CHOICE_HEIGHT),
         )
         mwx.fitChoice(self.peaklistSeparator_choice)
         self.peaklistSeparator_choice.SetStringSelection(
@@ -452,7 +452,7 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
             panel,
             -1,
             choices=["Full Spectrum", "Current View"],
-            size=(130, mwx.CHOICE_HEIGHT),
+            size=wx.Size(130, mwx.CHOICE_HEIGHT),
         )
         mwx.fitChoice(self.spectrumRange_choice)
         self.spectrumRange_choice.Select(0)
@@ -462,7 +462,7 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
             panel,
             -1,
             choices=["Comma", "Semicolon", "Tab"],
-            size=(130, mwx.CHOICE_HEIGHT),
+            size=wx.Size(130, mwx.CHOICE_HEIGHT),
         )
         mwx.fitChoice(self.spectrumSeparator_choice)
         self.spectrumSeparator_choice.SetStringSelection(

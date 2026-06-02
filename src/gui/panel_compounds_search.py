@@ -17,18 +17,26 @@
 
 # load libs
 import threading
-import math
 import wx
+from typing import Any
 
 # load modules
-from .ids import *
+from .ids import (
+    ID_compoundsSearchCompounds,
+    ID_compoundsSearchFormula,
+    ID_listCopy,
+    ID_listCopyFormula,
+    ID_listSendToMassCalculator,
+    ID_listViewAll,
+    ID_listViewMatched,
+    ID_listViewUnmatched,
+)
 from . import mwx
 from . import images
 from . import config
 from . import libs
 from .mixins import MakeModalMixin
 import mspy
-from . import doc
 
 from .panel_match import panelMatch
 
@@ -45,7 +53,7 @@ class panelCompoundsSearch(wx.Frame, MakeModalMixin):
             parent,
             -1,
             "Compounds Search",
-            size=(400, 300),
+            size=wx.Size(400, 300),
             style=wx.DEFAULT_FRAME_STYLE | wx.FRAME_FLOAT_ON_PARENT & ~wx.MAXIMIZE_BOX,
         )
 
@@ -56,7 +64,7 @@ class panelCompoundsSearch(wx.Frame, MakeModalMixin):
 
         self.currentTool = tool
         self.currentDocument = None
-        self.currentCompounds = None
+        self.currentCompounds: Any = None
 
         self._compoundsFilter = 0
 
@@ -107,7 +115,7 @@ class panelCompoundsSearch(wx.Frame, MakeModalMixin):
             self,
             -1,
             images.lib["bgrToolbarNoBorder"],
-            size=(-1, mwx.TOOLBAR_HEIGHT),
+            size=wx.Size(-1, mwx.TOOLBAR_HEIGHT),
         )
 
         # make tools
@@ -115,7 +123,7 @@ class panelCompoundsSearch(wx.Frame, MakeModalMixin):
             panel,
             ID_compoundsSearchCompounds,
             images.lib["compoundsSearchCompoundsOff"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.compounds_butt.SetToolTip(wx.ToolTip("Compounds search"))
@@ -125,7 +133,7 @@ class panelCompoundsSearch(wx.Frame, MakeModalMixin):
             panel,
             ID_compoundsSearchFormula,
             images.lib["compoundsSearchFormulaOff"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.formula_butt.SetToolTip(wx.ToolTip("Formula search"))
@@ -138,27 +146,27 @@ class panelCompoundsSearch(wx.Frame, MakeModalMixin):
         choices.sort()
         choices.insert(0, "Compounds lists")
         self.compounds_choice = wx.Choice(
-            panel, -1, choices=choices, size=(250, mwx.SMALL_CHOICE_HEIGHT)
+            panel, -1, choices=choices, size=wx.Size(250, mwx.SMALL_CHOICE_HEIGHT)
         )
         mwx.fitChoice(self.compounds_choice)
         self.compounds_choice.Select(0)
         self.compounds_choice.Bind(wx.EVT_CHOICE, self.onGenerate)
 
-        self.formula_value = wx.TextCtrl(panel, -1, "", size=(270, -1))
+        self.formula_value = wx.TextCtrl(panel, -1, "", size=wx.Size(270, -1))
 
         # make buttons
         self.generate_butt = wx.Button(
-            panel, -1, "Generate", size=(-1, mwx.SMALL_BUTTON_HEIGHT)
+            panel, -1, "Generate", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
         )
         self.generate_butt.Bind(wx.EVT_BUTTON, self.onGenerate)
 
         self.match_butt = wx.Button(
-            panel, -1, "Match", size=(-1, mwx.SMALL_BUTTON_HEIGHT)
+            panel, -1, "Match", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
         )
         self.match_butt.Bind(wx.EVT_BUTTON, self.onMatch)
 
         self.annotate_butt = wx.Button(
-            panel, -1, "Annotate", size=(-1, mwx.SMALL_BUTTON_HEIGHT)
+            panel, -1, "Annotate", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
         )
         self.annotate_butt.Bind(wx.EVT_BUTTON, self.onAnnotate)
 
@@ -200,7 +208,10 @@ class panelCompoundsSearch(wx.Frame, MakeModalMixin):
 
         # init toolbar
         panel = mwx.bgrPanel(
-            self, -1, images.lib["bgrControlbar"], size=(-1, mwx.CONTROLBAR_HEIGHT)
+            self,
+            -1,
+            images.lib["bgrControlbar"],
+            size=wx.Size(-1, mwx.CONTROLBAR_HEIGHT),
         )
 
         # make elements
@@ -222,7 +233,7 @@ class panelCompoundsSearch(wx.Frame, MakeModalMixin):
             panel,
             -1,
             str(config.compoundsSearch["maxCharge"]),
-            size=(30, mwx.SMALL_TEXTCTRL_HEIGHT),
+            size=wx.Size(30, mwx.SMALL_TEXTCTRL_HEIGHT),
             validator=mwx.validator("int"),
         )
         self.maxCharge_value.SetFont(wx.SMALL_FONT)
@@ -298,7 +309,7 @@ class panelCompoundsSearch(wx.Frame, MakeModalMixin):
 
         # init list
         self.compoundsList = mwx.sortListCtrl(
-            self, -1, size=(721, 300), style=mwx.LISTCTRL_STYLE_SINGLE
+            self, -1, size=wx.Size(721, 300), style=mwx.LISTCTRL_STYLE_SINGLE
         )
         self.compoundsList.SetFont(wx.SMALL_FONT)
         self.compoundsList.setSecondarySortColumn(1)
@@ -392,7 +403,7 @@ class panelCompoundsSearch(wx.Frame, MakeModalMixin):
         self.mainSizer.Fit(self)
         try:
             wx.GetApp().Yield()
-        except:
+        except Exception:
             pass
 
     # ----
@@ -617,7 +628,7 @@ class panelCompoundsSearch(wx.Frame, MakeModalMixin):
             if formula:
                 try:
                     compounds[formula] = mspy.compound(formula)
-                except:
+                except Exception:
                     wx.Bell()
 
         # check compounds
@@ -757,7 +768,7 @@ class panelCompoundsSearch(wx.Frame, MakeModalMixin):
 
             return True
 
-        except:
+        except Exception:
             wx.Bell()
             return False
 
@@ -825,7 +836,7 @@ class panelCompoundsSearch(wx.Frame, MakeModalMixin):
 
             # mark matched
             if item[5] is not None:
-                self.compoundsList.SetItemTextColour(row, (0, 200, 0))
+                self.compoundsList.SetItemTextColour(row, wx.Colour(0, 200, 0))
                 self.compoundsList.SetItemFont(row, fontMatched)
 
         # sort data
@@ -849,7 +860,7 @@ class panelCompoundsSearch(wx.Frame, MakeModalMixin):
         """Clear matched data."""
 
         # update compounds panel
-        if self.currentCompounds != None:
+        if self.currentCompounds is not None:
             for item in self.currentCompounds:
                 item[5] = None
                 item[-1] = []

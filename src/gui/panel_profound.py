@@ -20,6 +20,7 @@ import wx
 import webbrowser
 import tempfile
 import os.path
+from typing import Any
 
 # load modules
 from .ids import *
@@ -42,7 +43,7 @@ class panelProfound(wx.Frame):
             parent,
             -1,
             "ProFound Search",
-            size=(300, -1),
+            size=wx.Size(300, -1),
             style=wx.DEFAULT_FRAME_STYLE
             | wx.FRAME_FLOAT_ON_PARENT & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX),
         )
@@ -51,7 +52,7 @@ class panelProfound(wx.Frame):
 
         self.currentTool = tool
         self.currentDocument = None
-        self.currentParams = None
+        self.currentParams: Any = None
 
         # make gui items
         self.makeGUI()
@@ -99,7 +100,7 @@ class panelProfound(wx.Frame):
             self,
             -1,
             images.lib["bgrToolbarNoBorder"],
-            size=(-1, mwx.TOOLBAR_HEIGHT),
+            size=wx.Size(-1, mwx.TOOLBAR_HEIGHT),
         )
 
         # make tools
@@ -107,7 +108,7 @@ class panelProfound(wx.Frame):
             panel,
             ID_profoundPMF,
             images.lib["profoundPMFOff"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.pmf_butt.SetToolTip(wx.ToolTip("Peptide mass fingerprint"))
@@ -117,14 +118,14 @@ class panelProfound(wx.Frame):
             panel,
             ID_profoundQuery,
             images.lib["profoundQueryOff"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.query_butt.SetToolTip(wx.ToolTip("Peak list"))
         self.query_butt.Bind(wx.EVT_BUTTON, self.onToolSelected)
 
         self.search_butt = wx.Button(
-            panel, -1, "Search", size=(-1, mwx.SMALL_BUTTON_HEIGHT)
+            panel, -1, "Search", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
         )
         self.search_butt.Bind(wx.EVT_BUTTON, self.onSearch)
 
@@ -160,30 +161,33 @@ class panelProfound(wx.Frame):
 
         # make info elements
         paramSearchTitle_label = wx.StaticText(panel, -1, "Title:")
-        self.paramTitle_value = wx.TextCtrl(panel, -1, "", size=(250, -1))
+        self.paramTitle_value = wx.TextCtrl(panel, -1, "", size=wx.Size(250, -1))
 
         # make sequence elements
         paramTaxonomy_label = wx.StaticText(panel, -1, "Taxonomy:")
         self.paramTaxonomy_choice = wx.Choice(
-            panel, -1, choices=[], size=(300, mwx.CHOICE_HEIGHT)
+            panel, -1, choices=[], size=wx.Size(300, mwx.CHOICE_HEIGHT)
         )
         mwx.fitChoice(self.paramTaxonomy_choice)
 
         paramDatabase_label = wx.StaticText(panel, -1, "Database:")
         self.paramDatabase_choice = wx.Choice(
-            panel, -1, choices=[], size=(150, mwx.CHOICE_HEIGHT)
+            panel, -1, choices=[], size=wx.Size(150, mwx.CHOICE_HEIGHT)
         )
         mwx.fitChoice(self.paramDatabase_choice)
 
         paramEnzyme_label = wx.StaticText(panel, -1, " Enzyme:")
         self.paramEnzyme_choice = wx.Choice(
-            panel, -1, choices=[], size=(130, mwx.CHOICE_HEIGHT)
+            panel, -1, choices=[], size=wx.Size(130, mwx.CHOICE_HEIGHT)
         )
         mwx.fitChoice(self.paramEnzyme_choice)
 
         paramMiscleavages_label = wx.StaticText(panel, -1, " Miscl.:")
         self.paramMiscleavages_choice = wx.Choice(
-            panel, -1, choices=["0", "1", "2", "3", "4"], size=(50, mwx.CHOICE_HEIGHT)
+            panel,
+            -1,
+            choices=["0", "1", "2", "3", "4"],
+            size=wx.Size(50, mwx.CHOICE_HEIGHT),
         )
         mwx.fitChoice(self.paramMiscleavages_choice)
         self.paramMiscleavages_choice.SetStringSelection(
@@ -193,7 +197,7 @@ class panelProfound(wx.Frame):
         # make modifications elements
         self.paramFixedMods_label = wx.StaticText(panel, -1, "Complete modifications:")
         self.paramFixedMods_listbox = wx.ListBox(
-            panel, -1, size=(200, 100), choices=[], style=wx.LB_EXTENDED
+            panel, -1, size=wx.Size(200, 100), choices=[], style=wx.LB_EXTENDED
         )
         self.paramFixedMods_listbox.SetFont(wx.SMALL_FONT)
         self.paramFixedMods_listbox.Bind(wx.EVT_LISTBOX, self.onModificationSelected)
@@ -202,7 +206,7 @@ class panelProfound(wx.Frame):
             panel, -1, "Partial modifications:"
         )
         self.paramVariableMods_listbox = wx.ListBox(
-            panel, -1, size=(200, 100), choices=[], style=wx.LB_EXTENDED
+            panel, -1, size=wx.Size(200, 100), choices=[], style=wx.LB_EXTENDED
         )
         self.paramVariableMods_listbox.SetFont(wx.SMALL_FONT)
         self.paramVariableMods_listbox.Bind(wx.EVT_LISTBOX, self.onModificationSelected)
@@ -210,20 +214,20 @@ class panelProfound(wx.Frame):
         # make masses elements
         paramProteinMass_label = wx.StaticText(panel, -1, "Protein mass:")
         self.paramProteinMassLow_value = wx.TextCtrl(
-            panel, -1, "0", size=(50, -1), validator=mwx.validator("floatPos")
+            panel, -1, "0", size=wx.Size(50, -1), validator=mwx.validator("floatPos")
         )
         self.paramProteinMassHigh_value = wx.TextCtrl(
-            panel, -1, "300", size=(50, -1), validator=mwx.validator("floatPos")
+            panel, -1, "300", size=wx.Size(50, -1), validator=mwx.validator("floatPos")
         )
         paramProteinMass_dash = wx.StaticText(panel, -1, "-")
         paramProteinMassUnits_label = wx.StaticText(panel, -1, "kDa")
 
         paramProteinPI_label = wx.StaticText(panel, -1, "Protein pI:")
         self.paramProteinPILow_value = wx.TextCtrl(
-            panel, -1, "0", size=(50, -1), validator=mwx.validator("floatPos")
+            panel, -1, "0", size=wx.Size(50, -1), validator=mwx.validator("floatPos")
         )
         self.paramProteinPIHigh_value = wx.TextCtrl(
-            panel, -1, "14", size=(50, -1), validator=mwx.validator("floatPos")
+            panel, -1, "14", size=wx.Size(50, -1), validator=mwx.validator("floatPos")
         )
         paramProteinPI_dash = wx.StaticText(panel, -1, "-")
 
@@ -232,11 +236,11 @@ class panelProfound(wx.Frame):
             panel,
             -1,
             str(config.profound["peptideTol"]),
-            size=(50, -1),
+            size=wx.Size(50, -1),
             validator=mwx.validator("floatPos"),
         )
         self.paramPeptideTolUnits_choice = wx.Choice(
-            panel, -1, choices=["Da", "%", "ppm"], size=(80, mwx.CHOICE_HEIGHT)
+            panel, -1, choices=["Da", "%", "ppm"], size=wx.Size(80, mwx.CHOICE_HEIGHT)
         )
         mwx.fitChoice(self.paramPeptideTolUnits_choice)
         self.paramPeptideTolUnits_choice.SetStringSelection(
@@ -248,14 +252,14 @@ class panelProfound(wx.Frame):
             panel,
             -1,
             choices=["Monoisotopic", "Average"],
-            size=(150, mwx.CHOICE_HEIGHT),
+            size=wx.Size(150, mwx.CHOICE_HEIGHT),
         )
         mwx.fitChoice(self.paramMassType_choice)
         self.paramMassType_choice.SetStringSelection(config.profound["massType"])
 
         paramCharge_label = wx.StaticText(panel, -1, "Charge:")
         self.paramCharge_choice = wx.Choice(
-            panel, -1, choices=["MH+", "M"], size=(150, mwx.CHOICE_HEIGHT)
+            panel, -1, choices=["MH+", "M"], size=wx.Size(150, mwx.CHOICE_HEIGHT)
         )
         mwx.fitChoice(self.paramCharge_choice)
         self.paramCharge_choice.SetStringSelection(config.profound["charge"])
@@ -268,7 +272,7 @@ class panelProfound(wx.Frame):
             panel,
             -1,
             str(config.profound["expectation"]),
-            size=(60, -1),
+            size=wx.Size(60, -1),
             validator=mwx.validator("floatPos"),
         )
         if config.profound["ranking"] == "expect":
@@ -279,7 +283,7 @@ class panelProfound(wx.Frame):
             panel,
             -1,
             str(config.profound["candidates"]),
-            size=(60, -1),
+            size=wx.Size(60, -1),
             validator=mwx.validator("floatPos"),
         )
         if config.profound["ranking"] == "zscore":
@@ -444,7 +448,10 @@ class panelProfound(wx.Frame):
 
         # init panels
         ctrlPanel = mwx.bgrPanel(
-            self, -1, images.lib["bgrControlbar"], size=(-1, mwx.CONTROLBAR_HEIGHT)
+            self,
+            -1,
+            images.lib["bgrControlbar"],
+            size=wx.Size(-1, mwx.CONTROLBAR_HEIGHT),
         )
         pklPanel = wx.Panel(self, -1)
 
@@ -478,7 +485,7 @@ class panelProfound(wx.Frame):
         self.filterUnknown_check.Bind(wx.EVT_CHECKBOX, self.onGetPeaklist)
 
         self.paramQuery_value = wx.TextCtrl(
-            pklPanel, -1, "", size=(300, 300), style=wx.TE_MULTILINE
+            pklPanel, -1, "", size=wx.Size(300, 300), style=wx.TE_MULTILINE
         )
         self.paramQuery_value.SetFont(wx.SMALL_FONT)
 

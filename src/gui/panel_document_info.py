@@ -17,6 +17,7 @@
 
 # load libs
 import wx
+from typing import Any
 
 # load modules
 from .ids import *
@@ -39,7 +40,7 @@ class panelDocumentInfo(wx.Frame):
             parent,
             -1,
             "Document Information",
-            size=(400, 200),
+            size=wx.Size(400, 200),
             style=wx.DEFAULT_FRAME_STYLE
             | wx.FRAME_FLOAT_ON_PARENT & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX),
         )
@@ -95,7 +96,7 @@ class panelDocumentInfo(wx.Frame):
             self,
             -1,
             images.lib["bgrToolbarNoBorder"],
-            size=(-1, mwx.TOOLBAR_HEIGHT),
+            size=wx.Size(-1, mwx.TOOLBAR_HEIGHT),
         )
 
         # make buttons
@@ -103,7 +104,7 @@ class panelDocumentInfo(wx.Frame):
             panel,
             ID_documentInfoSummary,
             images.lib["documentInfoSummaryOff"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.summary_butt.SetToolTip(wx.ToolTip("Document summary"))
@@ -113,7 +114,7 @@ class panelDocumentInfo(wx.Frame):
             panel,
             ID_documentInfoSpectrum,
             images.lib["documentInfoSpectrumOff"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.spectrum_butt.SetToolTip(wx.ToolTip("Spectrum information"))
@@ -123,7 +124,7 @@ class panelDocumentInfo(wx.Frame):
             panel,
             ID_documentInfoNotes,
             images.lib["documentInfoNotesOff"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.notes_butt.SetToolTip(wx.ToolTip("Analysis notes"))
@@ -133,7 +134,7 @@ class panelDocumentInfo(wx.Frame):
             panel,
             -1,
             images.lib["toolsPresets"],
-            size=(mwx.TOOLBAR_TOOLSIZE),
+            size=wx.Size(*mwx.TOOLBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
         self.presets_butt.SetToolTip(wx.ToolTip("Operator presets"))
@@ -175,31 +176,31 @@ class panelDocumentInfo(wx.Frame):
 
         # make elements
         title_label = wx.StaticText(panel, -1, "Title:")
-        self.title_value = wx.TextCtrl(panel, -1, "", size=(300, -1))
+        self.title_value = wx.TextCtrl(panel, -1, "", size=wx.Size(300, -1))
         self.title_value.Bind(wx.EVT_TEXT, self.onSave)
 
         operator_label = wx.StaticText(panel, -1, "Operator:")
-        self.operator_value = wx.TextCtrl(panel, -1, "", size=(300, -1))
+        self.operator_value = wx.TextCtrl(panel, -1, "", size=wx.Size(300, -1))
         self.operator_value.Bind(wx.EVT_TEXT, self.onSave)
 
         contact_label = wx.StaticText(panel, -1, "Contact:")
-        self.contact_value = wx.TextCtrl(panel, -1, "", size=(300, -1))
+        self.contact_value = wx.TextCtrl(panel, -1, "", size=wx.Size(300, -1))
         self.contact_value.Bind(wx.EVT_TEXT, self.onSave)
 
         institution_label = wx.StaticText(panel, -1, "Institution:")
-        self.institution_value = wx.TextCtrl(panel, -1, "", size=(300, -1))
+        self.institution_value = wx.TextCtrl(panel, -1, "", size=wx.Size(300, -1))
         self.institution_value.Bind(wx.EVT_TEXT, self.onSave)
 
         instrument_label = wx.StaticText(panel, -1, "Instrument:")
-        self.instrument_value = wx.TextCtrl(panel, -1, "", size=(300, -1))
+        self.instrument_value = wx.TextCtrl(panel, -1, "", size=wx.Size(300, -1))
         self.instrument_value.Bind(wx.EVT_TEXT, self.onSave)
 
         date_label = wx.StaticText(panel, -1, "Date:")
-        self.date_value = wx.TextCtrl(panel, -1, "", size=(300, -1))
+        self.date_value = wx.TextCtrl(panel, -1, "", size=wx.Size(300, -1))
         self.date_value.Bind(wx.EVT_TEXT, self.onSave)
 
         path_label = wx.StaticText(panel, -1, "Path:")
-        self.path_value = wx.TextCtrl(panel, -1, "", size=(300, -1))
+        self.path_value = wx.TextCtrl(panel, -1, "", size=wx.Size(300, -1))
 
         # pack elements
         grid = wx.GridBagSizer(mwx.GRIDBAG_VSPACE, mwx.GRIDBAG_HSPACE)
@@ -241,31 +242,31 @@ class panelDocumentInfo(wx.Frame):
         # make elements
         scanNumber_label = wx.StaticText(panel, -1, "Scan ID:")
         self.scanNumber_value = wx.TextCtrl(
-            panel, -1, "", size=(180, -1), validator=mwx.validator("intPos")
+            panel, -1, "", size=wx.Size(180, -1), validator=mwx.validator("intPos")
         )
         self.scanNumber_value.Bind(wx.EVT_TEXT, self.onSave)
 
         retentionTime_label = wx.StaticText(panel, -1, "Retention time:")
         self.retentionTime_value = wx.TextCtrl(
-            panel, -1, "", size=(180, -1), validator=mwx.validator("floatPos")
+            panel, -1, "", size=wx.Size(180, -1), validator=mwx.validator("floatPos")
         )
         self.retentionTime_value.Bind(wx.EVT_TEXT, self.onSave)
 
         msLevel_label = wx.StaticText(panel, -1, "MS level:")
         self.msLevel_value = wx.TextCtrl(
-            panel, -1, "", size=(180, -1), validator=mwx.validator("intPos")
+            panel, -1, "", size=wx.Size(180, -1), validator=mwx.validator("intPos")
         )
         self.msLevel_value.Bind(wx.EVT_TEXT, self.onSave)
 
         precursorMZ_label = wx.StaticText(panel, -1, "Precursor m/z:")
         self.precursorMZ_value = wx.TextCtrl(
-            panel, -1, "", size=(180, -1), validator=mwx.validator("floatPos")
+            panel, -1, "", size=wx.Size(180, -1), validator=mwx.validator("floatPos")
         )
         self.precursorMZ_value.Bind(wx.EVT_TEXT, self.onSave)
 
         precursorCharge_label = wx.StaticText(panel, -1, "Precursor charge:")
         self.precursorCharge_value = wx.TextCtrl(
-            panel, -1, "", size=(180, -1), validator=mwx.validator("int")
+            panel, -1, "", size=wx.Size(180, -1), validator=mwx.validator("int")
         )
         self.precursorCharge_value.Bind(wx.EVT_TEXT, self.onSave)
 
@@ -274,17 +275,17 @@ class panelDocumentInfo(wx.Frame):
             panel,
             -1,
             choices=["Unknown", "Positive", "Negative"],
-            size=(180, mwx.SMALL_CHOICE_HEIGHT),
+            size=wx.Size(180, mwx.SMALL_CHOICE_HEIGHT),
         )
         mwx.fitChoice(self.polarity_choice)
         self.polarity_choice.Bind(wx.EVT_CHOICE, self.onSave)
 
         points_label = wx.StaticText(panel, -1, "Spectrum points:")
-        self.points_value = wx.TextCtrl(panel, -1, "", size=(180, -1))
+        self.points_value = wx.TextCtrl(panel, -1, "", size=wx.Size(180, -1))
         self.points_value.Enable(False)
 
         peaklist_label = wx.StaticText(panel, -1, "Peak list:")
-        self.peaklist_value = wx.TextCtrl(panel, -1, "", size=(180, -1))
+        self.peaklist_value = wx.TextCtrl(panel, -1, "", size=wx.Size(180, -1))
         self.peaklist_value.Enable(False)
 
         # pack elements
@@ -334,7 +335,7 @@ class panelDocumentInfo(wx.Frame):
 
         # make elements
         self.notes_value = wx.TextCtrl(
-            panel, -1, "", size=(400, 200), style=wx.TE_MULTILINE
+            panel, -1, "", size=wx.Size(400, 200), style=wx.TE_MULTILINE
         )
         self.notes_value.Bind(wx.EVT_TEXT, self.onSave)
 
@@ -434,7 +435,7 @@ class panelDocumentInfo(wx.Frame):
         """Load selected presets."""
 
         # get presets
-        item = self.presets_popup.FindItemById(evt.GetId())
+        item: Any = self.presets_popup.FindItemById(evt.GetId())
         presets = libs.presets["operator"][item.GetText()]
 
         # set data
@@ -634,7 +635,7 @@ class dlgPresetsName(wx.Dialog):
 
         # make elements
         self.name_value = wx.TextCtrl(
-            self, -1, "", size=(300, -1), style=wx.TE_PROCESS_ENTER
+            self, -1, "", size=wx.Size(300, -1), style=wx.TE_PROCESS_ENTER
         )
         self.name_value.Bind(wx.EVT_TEXT_ENTER, self.onOK)
 
