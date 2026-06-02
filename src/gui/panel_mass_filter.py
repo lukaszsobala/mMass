@@ -16,15 +16,15 @@
 # -------------------------------------------------------------------------
 
 # load libs
+from typing import Any
 import wx
 
 # load modules
-from .ids import *
+from .ids import ID_listViewAll, ID_listViewMatched, ID_listViewUnmatched
 from . import mwx
 from . import images
 from . import config
 from . import libs
-import mspy
 
 from .panel_match import panelMatch
 
@@ -41,15 +41,15 @@ class panelMassFilter(wx.Frame):
             parent,
             -1,
             "Mass Filter",
-            size=(400, 300),
+            size=wx.Size(400, 300),
             style=wx.DEFAULT_FRAME_STYLE | wx.FRAME_FLOAT_ON_PARENT & ~wx.MAXIMIZE_BOX,
         )
 
         self.parent = parent
         self.matchPanel = None
 
-        self.currentDocument = None
-        self.currentReferences = None
+        self.currentDocument: Any = None
+        self.currentReferences: Any = None
 
         self._referencesFilter = 0
 
@@ -98,7 +98,7 @@ class panelMassFilter(wx.Frame):
         choices.sort()
         choices.insert(0, "Reference lists")
         self.references_choice = wx.Choice(
-            panel, -1, choices=choices, size=(200, mwx.SMALL_CHOICE_HEIGHT)
+            panel, -1, choices=choices, size=wx.Size(200, mwx.SMALL_CHOICE_HEIGHT)
         )
         mwx.fitChoice(self.references_choice)
         self.references_choice.Select(0)
@@ -106,17 +106,17 @@ class panelMassFilter(wx.Frame):
 
         # make buttons
         self.match_butt = wx.Button(
-            panel, -1, "Match", size=(-1, mwx.SMALL_BUTTON_HEIGHT)
+            panel, -1, "Match", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
         )
         self.match_butt.Bind(wx.EVT_BUTTON, self.onMatch)
 
         self.annotate_butt = wx.Button(
-            panel, -1, "Annotate", size=(-1, mwx.SMALL_BUTTON_HEIGHT)
+            panel, -1, "Annotate", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
         )
         self.annotate_butt.Bind(wx.EVT_BUTTON, self.onAnnotate)
 
         self.remove_butt = wx.Button(
-            panel, -1, "Remove", size=(-1, mwx.SMALL_BUTTON_HEIGHT)
+            panel, -1, "Remove", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
         )
         self.remove_butt.Bind(wx.EVT_BUTTON, self.onRemove)
 
@@ -146,7 +146,7 @@ class panelMassFilter(wx.Frame):
 
         # init list
         self.referencesList = mwx.sortListCtrl(
-            self, -1, size=(581, 250), style=mwx.LISTCTRL_STYLE_SINGLE
+            self, -1, size=wx.Size(581, 250), style=mwx.LISTCTRL_STYLE_SINGLE
         )
         self.referencesList.SetFont(wx.SMALL_FONT)
         self.referencesList.setSecondarySortColumn(2)
@@ -356,7 +356,7 @@ class panelMassFilter(wx.Frame):
         for item in self.currentReferences:
             if item[3]:
                 for annotation in item[-1]:
-                    if not annotation.peakIndex in indexes:
+                    if annotation.peakIndex not in indexes:
                         indexes.append(annotation.peakIndex)
 
         # delete peaks
@@ -409,7 +409,10 @@ class panelMassFilter(wx.Frame):
             wx.FONTWEIGHT_BOLD,
         )
         fontSkipped = wx.Font(
-            mwx.SMALL_FONT_SIZE, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_ITALIC, wx.NORMAL
+            mwx.SMALL_FONT_SIZE,
+            wx.FONTFAMILY_DEFAULT,
+            wx.FONTSTYLE_ITALIC,
+            wx.FONTWEIGHT_NORMAL,
         )
 
         row = -1
@@ -438,12 +441,12 @@ class panelMassFilter(wx.Frame):
 
             # mark matched
             if item[2] is not None:
-                self.referencesList.SetItemTextColour(row, (0, 200, 0))
+                self.referencesList.SetItemTextColour(row, wx.Colour(0, 200, 0))
                 self.referencesList.SetItemFont(row, fontMatched)
 
             # mark skipped
             if not item[3]:
-                self.referencesList.SetItemTextColour(row, (150, 150, 150))
+                self.referencesList.SetItemTextColour(row, wx.Colour(150, 150, 150))
                 self.referencesList.SetItemFont(row, fontSkipped)
 
         # sort data
