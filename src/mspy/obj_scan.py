@@ -35,7 +35,7 @@ from . import mod_peakpicking
 class scan:
     """Scan object definition."""
 
-    def __init__(self, profile=[], peaklist=[], **attr):
+    def __init__(self, profile=None, peaklist=None, **attr):
 
         self.title = ""
         self.scanNumber = None
@@ -58,12 +58,16 @@ class scan:
         }
 
         # convert profile to numPy array
-        if not isinstance(profile, numpy.ndarray):
+        if profile is None:
+            profile = numpy.array([])
+        elif not isinstance(profile, numpy.ndarray):
             profile = numpy.array(profile)
         self.profile = profile
 
         # convert peaks to peaklist
-        if not isinstance(peaklist, obj_peaklist.peaklist):
+        if peaklist is None:
+            peaklist = obj_peaklist.peaklist()
+        elif not isinstance(peaklist, obj_peaklist.peaklist):
             peaklist = obj_peaklist.peaklist(peaklist)
         self.peaklist = peaklist
 

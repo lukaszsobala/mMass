@@ -41,9 +41,9 @@ def _is_dark_mode():
     if wx.Platform == "__WXMSW__":
         try:
             winreg = __import__("winreg")
-            open_key = getattr(winreg, "OpenKey")
-            query_value_ex = getattr(winreg, "QueryValueEx")
-            hkey_current_user = getattr(winreg, "HKEY_CURRENT_USER")
+            open_key = winreg.OpenKey
+            query_value_ex = winreg.QueryValueEx
+            hkey_current_user = winreg.HKEY_CURRENT_USER
 
             key_path = r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
             with open_key(hkey_current_user, key_path) as key:

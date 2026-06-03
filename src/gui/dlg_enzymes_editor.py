@@ -21,7 +21,6 @@ import wx
 
 # load modules
 from . import mwx
-from . import config
 import mspy
 
 # ENZYMES EDITOR
@@ -262,7 +261,7 @@ class dlgEnzymesEditor(wx.Dialog):
         self.itemsMap = []
 
         # make map
-        for name, enzyme in sorted(mspy.enzymes.items()):
+        for _name, enzyme in sorted(mspy.enzymes.items()):
             self.itemsMap.append(
                 (
                     enzyme.name,
@@ -345,7 +344,7 @@ class dlgEnzymesEditor(wx.Dialog):
 
         # make enzyme
         try:
-            expr = re.compile(expression)
+            re.compile(expression)
             enzyme = mspy.enzyme(
                 name=name,
                 expression=expression,

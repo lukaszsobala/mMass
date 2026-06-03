@@ -238,7 +238,7 @@ def rdbe(compound):
 
 def frules(
     compound,
-    rules=["HC", "NOPSC", "NOPS", "RDBE", "RDBEInt"],
+    rules=None,
     HC=(0.1, 3.0),
     NOPSC=(4, 3, 2, 3),
     RDBE=(-1, 40),
@@ -250,6 +250,9 @@ def frules(
     NOPSC (tuple) - NOPS/C max values
     RDBE (tuple) - RDBE limits
     """
+
+    if rules is None:
+        rules = ["HC", "NOPSC", "NOPS", "RDBE", "RDBEInt"]
 
     # check compound
     if not isinstance(compound, obj_compound.compound):

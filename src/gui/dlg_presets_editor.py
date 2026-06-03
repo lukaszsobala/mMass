@@ -21,9 +21,7 @@ import copy
 
 # load modules
 from . import mwx
-from . import config
 from . import libs
-import mspy
 
 # PRESETS EDITOR
 # --------------
@@ -231,7 +229,7 @@ class dlgPresetsEditor(wx.Dialog):
 
         # make map
         for category in list(libs.presets.keys()):
-            for name, presets in sorted(libs.presets[category].items()):
+            for name, _presets in sorted(libs.presets[category].items()):
                 self.itemsMap.append((name, category))
 
     # ----

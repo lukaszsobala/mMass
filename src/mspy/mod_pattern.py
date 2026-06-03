@@ -103,12 +103,12 @@ def pattern(
             isotope = blocks.elements[symbol].isotopes[int(massNumber)]
             atomPattern.append([isotope[0], 1.0])  # [mass, abundance]
         else:
-            for massNumber, isotope in list(blocks.elements[atom].isotopes.items()):
+            for _massNumber, isotope in list(blocks.elements[atom].isotopes.items()):
                 if isotope[1] > 0.0:
                     atomPattern.append(list(isotope))  # [mass, abundance]
 
         # add atoms
-        for i in range(atomCount):
+        for _ in range(atomCount):
 
             CHECK_FORCE_QUIT()
 

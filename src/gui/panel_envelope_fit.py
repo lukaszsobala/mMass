@@ -613,8 +613,8 @@ class panelEnvelopeFit(wx.Frame, MakeModalMixin):
                 raise ValueError
 
             self.currentCompound = mspy.compound(formula)
-            lossCmpd = mspy.compound(loss)
-            gainCmpd = mspy.compound(gain)
+            mspy.compound(loss)
+            mspy.compound(gain)
 
             config.envelopeFit["loss"] = str(loss)
             config.envelopeFit["gain"] = str(gain)

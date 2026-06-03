@@ -685,10 +685,10 @@ def _fwhm_to_sigma(fwhm):
 
 def _cluster_weights(cluster):
     """Get normalized isotope weights from theoretical pattern."""
-    
+
     if not cluster:
         return []
-        
+
     parent = cluster[0]
     if parent.charge:
         # Reconstruct true monoisotopic mass to scale Poisson correctly
@@ -698,7 +698,7 @@ def _cluster_weights(cluster):
             first_iso = 0
         if first_iso > 0:
             mono_mz -= first_iso * (ISOTOPE_DISTANCE / abs(parent.charge))
-            
+
         neutralMass = _mass_scalar(
             mod_basics.mz(mono_mz, charge=0, currentCharge=parent.charge, massType=1),
             massType=1,
@@ -721,7 +721,7 @@ def _cluster_weights(cluster):
             else:
                 p_val = p_val * (lam / i)
                 pattern.append(p_val)
-                
+
         total = sum(pattern)
         if total > 0.0:
             weights = []
@@ -732,7 +732,7 @@ def _cluster_weights(cluster):
                 iso_idx = int(iso_idx)
                 weights.append(pattern[iso_idx] / total if iso_idx < len(pattern) else 0.0)
             return weights
-                
+
     intensities = [max(0.0, p.intensity) for p in cluster]
     total = sum(intensities)
     if total <= 0.0:
@@ -747,7 +747,7 @@ def _cluster_fwhm(cluster, defaultFwhm):
     """Get representative FWHM for isotope cluster."""
 
     fwhms = [p.fwhm for p in cluster if p.fwhm and p.fwhm > 0.0]
-    
+
     if not fwhms:
         return defaultFwhm
     return sum(fwhms) / float(len(fwhms))
@@ -862,11 +862,11 @@ def _cluster_pattern(parent, size):
         mod_basics.mz(parent.mz, charge=0, currentCharge=parent.charge, massType=1),
         massType=1,
     )
-    
+
     # Averagine Poisson approximation: expected number of 13C atoms
     # ~0.0444 carbons per Da, ~1.07% 13C naturally.
     lam = neutralMass * 0.000475
-    
+
     pattern = []
     p = math.exp(-lam) if lam < 700 else 0.0
     for i in range(size):
@@ -875,11 +875,11 @@ def _cluster_pattern(parent, size):
         else:
             p = p * (lam / i)
             pattern.append(p)
-            
+
     # If lambda is huge, exponential might underflow to 0. Fallback scaling:
     if sum(pattern) <= 0.0:
         return [1.0] + [0.0] * (size - 1)
-        
+
     max_p = max(pattern)
     return [x / max_p for x in pattern]
 
@@ -1169,7 +1169,7 @@ def _fit_envelope_areas(clusters, signal, defaultFwhm, nonIdeality=None):
             fwhm = _cluster_fwhm(cluster, defaultFwhm)
             sigma = _fwhm_to_sigma(fwhm)
             scale = sigma * math.sqrt(2.0 * math.pi)
-            
+
             # Find the most intense peak to securely anchor the area prediction
             best_idx = 0
             best_int = 0.0
@@ -1177,7 +1177,7 @@ def _fit_envelope_areas(clusters, signal, defaultFwhm, nonIdeality=None):
                 if p.intensity > best_int:
                     best_int = p.intensity
                     best_idx = i
-                    
+
             weights = _cluster_weights(cluster)
             w = weights[best_idx] if best_idx < len(weights) and weights[best_idx] > 0 else 1.0
             areas.append(max(0.0, best_int / w) * scale)
@@ -1198,13 +1198,13 @@ def _fit_envelope_areas(clusters, signal, defaultFwhm, nonIdeality=None):
     minMz = min(all_mzs)
     maxMz = max(all_mzs)
     maxFwhm = max(all_fwhms)
-    
+
     lo = minMz - 6.0 * maxFwhm
     hi = maxMz + 6.0 * maxFwhm
     mask = (x >= lo) & (x <= hi)
     x = x[mask]
     # copy y to avoid modifying original spectrum
-    y = y[mask].copy() 
+    y = y[mask].copy()
     if len(x) == 0:
         return [0.0] * len(clusters)
 
@@ -1219,12 +1219,12 @@ def _fit_envelope_areas(clusters, signal, defaultFwhm, nonIdeality=None):
         sigma = _fwhm_to_sigma(fwhm)
         weights = _cluster_weights(cluster)
         isotopes = [(p.mz, w) for p, w in zip(cluster, weights)]
-            
+
         if sigma <= 0.0 or not isotopes:
             models.append(numpy.zeros(len(x), dtype=float))
             initial_guesses.append(0.0)
             continue
-            
+
         isotopes = _soft_isotope_model(
             isotopes,
             x,
@@ -1238,15 +1238,15 @@ def _fit_envelope_areas(clusters, signal, defaultFwhm, nonIdeality=None):
         for mz, weight in isotopes:
             model += (float(weight) / norm) * numpy.exp(-0.5 * ((x - float(mz)) / sigma) ** 2)
         models.append(model)
-        
+
         # Smart greedy initialization based strictly on the monoisotopic peak
         mz0, w0 = isotopes[0]
         w0 = float(w0) if float(w0) > 0 else 1.0
-        
+
         idx_lo = numpy.searchsorted(x, mz0 - fwhm, side='left')
         idx_hi = numpy.searchsorted(x, mz0 + fwhm, side='right')
         current_obs_int = numpy.max(y[idx_lo:idx_hi]) if idx_lo < idx_hi else 0.0
-            
+
         area_guess = max(0.0, current_obs_int / w0) * norm
         initial_guesses.append(area_guess)
 
@@ -1258,9 +1258,9 @@ def _fit_envelope_areas(clusters, signal, defaultFwhm, nonIdeality=None):
     # seeded correctly using monoisotopic peaks to avoid getting lost!
     coeff = numpy.array(initial_guesses, dtype=float)
     coeff[coeff < 1e-6] = 1e-6 # prevent stuck-at-zero
-    
+
     mTy = numpy.dot(M.transpose(), y)
-    for i in range(120):
+    for _ in range(120):
         estimate = numpy.dot(M, coeff)
         denom = numpy.dot(M.transpose(), estimate) + 1e-12
         coeff *= mTy / denom
@@ -1376,13 +1376,13 @@ def relabelenvelopes(
         # The user mandates "The envelope must be extended to at least 3".
         ideal_pattern = _cluster_pattern(parent, 30)
         max_p = max(ideal_pattern) if ideal_pattern else 1.0
-        
+
         # Target length encompasses all theoretical peaks > 1% of the base peak (min 3)
         target_length = 3
         for i, p in enumerate(ideal_pattern):
             if p >= max_p * 0.01:  # 1% threshold
                 target_length = max(target_length, i + 1)
-                
+
         if len(cluster) < target_length:
             for mi in range(len(cluster), target_length):
                 dummy = copy.deepcopy(parent)
@@ -1414,7 +1414,7 @@ def relabelenvelopes(
         defaultFwhm,
         nonIdeality=nonIdeality,
     )
-    
+
     # Re-calculate NNLS areas as fallbacks if needed, but mainly prune zero ones
     max_area = max([a for a in areas]) if areas else 0.0
     pruned_clusters = []
@@ -1436,7 +1436,7 @@ def relabelenvelopes(
             nonIdeality=nonIdeality,
         )
         fwhm_val = float(_cluster_fwhm(cluster, defaultFwhm))
-        
+
         envelope = {
             "area": areas[c],
             "fwhm": fwhm_val,
@@ -1720,7 +1720,7 @@ def _gentable(highmass, step=200, composition=AVERAGE_AMINO, table="tuple"):
         formula = averagine(mass, charge=0, composition=composition)
 
         pattern = ""
-        for mz, abundance in formula.pattern(fwhm=0.1, threshold=0.001):
+        for _mz, abundance in formula.pattern(fwhm=0.1, threshold=0.001):
             pattern += "%.3f, " % abundance
 
         if table == "tuple":

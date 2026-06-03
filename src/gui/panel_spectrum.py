@@ -1408,7 +1408,7 @@ class panelSpectrum(wx.Panel):
 
         # Manually assemble exactly ONE envelope from the picked isotopes
         spectrum = self.documents[self.currentDocument].spectrum
-        
+
         defaultFwhm = 0.1
         if spectrum.peaklist.basepeak and spectrum.peaklist.basepeak.fwhm:
             defaultFwhm = spectrum.peaklist.basepeak.fwhm

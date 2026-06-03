@@ -234,10 +234,6 @@ class panelDocuments(wx.Panel):
         # get item data
         itemData = self.documentTree.GetItemData(item)
 
-        # get object index
-        docIndex = self._getDocumentIndex(item)
-        seqIndex = self._getSequenceIndex(item)
-
         # popup menu
         menu = wx.Menu()
         if itemType == "document":
@@ -268,7 +264,7 @@ class panelDocuments(wx.Panel):
             if itemData.offset == [0, 0]:
                 menu.Enable(ID_documentClearOffset, False)
 
-            if itemData.spectrum.hasprofile() == False:
+            if not itemData.spectrum.hasprofile():
                 menu.Enable(ID_documentStyle, False)
             elif itemData.style == wx.PENSTYLE_DOT:
                 style.Check(ID_documentStyleDot, True)
@@ -722,7 +718,6 @@ class panelDocuments(wx.Panel):
 
         # get selected item
         item = self.documentTree.GetSelection()
-        itemType = self.documentTree.getItemType(item)
         itemData = self.documentTree.GetItemData(item)
 
         # send data to Mass To Formula panel
@@ -1037,7 +1032,7 @@ class panelDocuments(wx.Panel):
 
         # set new sequences
         for seqData in self.documents[docIndex].sequences:
-            seqItem = self.documentTree.appendSequence(docItem, seqData)
+            self.documentTree.appendSequence(docItem, seqData)
 
         # expand tree
         if expand:
@@ -1217,7 +1212,7 @@ class documentsTree(wx.TreeCtrl):
 
         # get item
         itemIndent = self.getItemIndent(item) or 0
-        for x in range(level, itemIndent):
+        for _x in range(level, itemIndent):
             item = self.GetItemParent(item)
 
         return item
@@ -1328,7 +1323,7 @@ class documentsTree(wx.TreeCtrl):
 
         # add sequences
         for seqData in docData.sequences:
-            seqItem = self.appendSequence(docItem, seqData)
+            self.appendSequence(docItem, seqData)
 
         # enable/disable document and all children
         self.enableItemTree(docItem, docData.visible)

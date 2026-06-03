@@ -457,7 +457,7 @@ class sequence:
 
         # add modifications and labels
         mods = self.modifications + self.labels
-        for name, position, state in mods:
+        for name, position, _state in mods:
             multi = 1
             if (
                 isinstance(position, str)

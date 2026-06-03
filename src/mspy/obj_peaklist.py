@@ -31,11 +31,11 @@ from . import mod_peakpicking
 class peaklist:
     """Peaklist object definition."""
 
-    def __init__(self, peaks=[]):
+    def __init__(self, peaks=None):
 
         # check data
         self.peaks = []
-        for item in peaks:
+        for item in (peaks or []):
             item = self._checkPeak(item)
             self.peaks.append(item)
 
@@ -218,7 +218,7 @@ class peaklist:
 
     # ----
 
-    def delete(self, indexes=[]):
+    def delete(self, indexes=None):
         """Delete selected peaks.
         indexes (list or tuple) - indexes of peaks to be deleted
         """
@@ -229,7 +229,7 @@ class peaklist:
 
         # delete peaks
         relint = False
-        for i in sorted(indexes, reverse=True):
+        for i in sorted(indexes or [], reverse=True):
             if self.peaks[i] is self.basepeak:
                 relint = True
             del self.peaks[i]

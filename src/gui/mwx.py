@@ -1218,7 +1218,7 @@ class dlgMessage(wx.Dialog):
         parent,
         title,
         message,
-        buttons=[(wx.ID_CANCEL, "OK", 80, True, 0)],
+        buttons=None,
         style=wx.DEFAULT_DIALOG_STYLE,
     ):
         wx.Dialog.__init__(self, parent, -1, "", style=style)
@@ -1226,7 +1226,7 @@ class dlgMessage(wx.Dialog):
         self.parent = parent
         self.title = title
         self.message = message
-        self.buttons = buttons
+        self.buttons = buttons if buttons is not None else [(wx.ID_CANCEL, "OK", 80, True, 0)]
 
         # make GUI
         sizer = self.makeGUI()

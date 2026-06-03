@@ -20,7 +20,6 @@ import threading
 import wx
 import tempfile
 import os.path
-import numpy
 
 # load modules
 from typing import Any, cast
@@ -408,7 +407,7 @@ class panelMassToFormula(wx.Frame, MakeModalMixin):
         self.mainSizer.Fit(self)
         try:
             wx.GetApp().Yield()
-        except:
+        except Exception:
             pass
 
     # ----
@@ -763,7 +762,7 @@ class panelMassToFormula(wx.Frame, MakeModalMixin):
 
             return True
 
-        except:
+        except (ValueError, IndexError):
             wx.Bell()
             return False
 

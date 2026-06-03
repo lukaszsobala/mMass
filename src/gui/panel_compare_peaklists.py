@@ -757,7 +757,7 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
             wx.CallAfter(self.peaklistGrid.Scroll, scroll_x, scroll_y)
 
         wx.CallAfter(lambda: setattr(self, '_ignore_selection_events', False))
-        
+
 
         # hide processing gauge
         self.onProcessing(False)
@@ -829,7 +829,7 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
             wx.CallAfter(self.peaklistGrid.Scroll, scroll_x, scroll_y)
 
         wx.CallAfter(lambda: setattr(self, '_ignore_selection_events', False))
-        
+
 
         # hide processing gauge
         self.onProcessing(False)
@@ -1127,7 +1127,7 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
 
             # erase previous matches
             count = len(self.currentDocuments)
-            for i, item in enumerate(self.currentPeaklist):
+            for _i, item in enumerate(self.currentPeaklist):
                 item[4] = count * [None]
                 item[4][item[1]] = _peak_intensity(item[5])
 

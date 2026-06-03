@@ -1209,8 +1209,6 @@ class canvas(wx.Window):
         if filterSize is None:
             filterSize = self.properties.get("filterSize", 1.0)
 
-        start = time.perf_counter()
-
         # reset tracker
         self.mouseTracker = False
 
@@ -1962,7 +1960,7 @@ class canvas(wx.Window):
         lines += self.currentIsotopeLines
 
         diff = self.properties["isotopeDistance"] / self.currentCharge
-        for i in range(lines):
+        for _ in range(lines):
             self.currentIsotopes.append(mz)
 
             isotope = self.positionUserToScreen((mz, 0))[0]
@@ -1997,7 +1995,7 @@ class canvas(wx.Window):
         if wx.Platform != "__WXMAC__":
             dc.SetPen(wx.TRANSPARENT_PEN)
             dc.SetBrush(wx.Brush(wx.BLACK))
-        for i, isotope in enumerate(isotopes):
+        for _i, isotope in enumerate(isotopes):
             if isotope[1]:
                 dc.DrawCircle(int(isotope[0]), int(isotope[1]), int(4))
 
@@ -2300,7 +2298,7 @@ class canvas(wx.Window):
     def quickRefresh(self, dc):
 
         dc.DrawBitmap(self.cleanPlotBuffer, 0, 0)
-        
+
         if getattr(self, "highlightedPoints", None):
             y = self.plotCoords[3]
             for point in self.highlightedPoints:
@@ -2357,7 +2355,7 @@ class canvas(wx.Window):
 
     def highlightXPoints(self, points, zoom=False):
         """Move plot to see selected X position and show pointarrow"""
-        
+
         self.highlightedPoints = points
 
         # check points

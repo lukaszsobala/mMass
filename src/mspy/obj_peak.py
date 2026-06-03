@@ -16,10 +16,8 @@
 # -------------------------------------------------------------------------
 
 # load stopper
-from .mod_stopper import CHECK_FORCE_QUIT
 
 # load objects
-from . import blocks
 
 # load modules
 from . import mod_basics

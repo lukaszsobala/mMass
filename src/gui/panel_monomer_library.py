@@ -22,8 +22,6 @@ import wx
 from .ids import *
 from . import mwx
 from . import images
-from . import config
-from . import libs
 import mspy
 
 # FLOATING PANEL WITH MONOMER LIBRARY
@@ -33,7 +31,7 @@ import mspy
 class panelMonomerLibrary(wx.Frame):
     """Monomer library."""
 
-    def __init__(self, parent, filterIn=[], filterOut=[], DnD=True):
+    def __init__(self, parent, filterIn=None, filterOut=None, DnD=True):
         wx.Frame.__init__(
             self,
             parent,
@@ -44,8 +42,8 @@ class panelMonomerLibrary(wx.Frame):
         )
 
         self.parent = parent
-        self.filterIn = filterIn
-        self.filterOut = filterOut
+        self.filterIn = filterIn if filterIn is not None else []
+        self.filterOut = filterOut if filterOut is not None else []
         self.DnD = DnD
 
         # make gui items
@@ -191,12 +189,12 @@ class panelMonomerLibrary(wx.Frame):
 
     # ----
 
-    def setFilter(self, filterIn=[], filterOut=[]):
+    def setFilter(self, filterIn=None, filterOut=None):
         """Set current group filter."""
 
         # set filters
-        self.filterIn = filterIn
-        self.filterOut = filterOut
+        self.filterIn = filterIn if filterIn is not None else []
+        self.filterOut = filterOut if filterOut is not None else []
 
         # update list
         self.updateMonomerList()
@@ -221,7 +219,7 @@ class panelMonomerLibrary(wx.Frame):
         for abbr, monomer in sorted(mspy.monomers.items()):
 
             # check filters
-            if self.filterIn and not monomer.category in self.filterIn:
+            if self.filterIn and monomer.category not in self.filterIn:
                 continue
             elif self.filterOut and monomer.category in self.filterOut:
                 continue

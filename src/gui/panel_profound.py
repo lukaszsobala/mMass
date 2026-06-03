@@ -17,7 +17,6 @@
 
 # load libs
 import wx
-import webbrowser
 import tempfile
 import os.path
 from typing import Any
@@ -27,8 +26,6 @@ from .ids import *
 from . import mwx
 from . import images
 from . import config
-import mspy
-from . import doc
 
 # FLOATING PANEL WITH PROFOUND SEARCH
 # -----------------------------------
@@ -537,7 +534,7 @@ class panelProfound(wx.Frame):
         try:
             path = os.path.join(tempfile.gettempdir(), "mmass_profound_search.html")
             os.unlink(path)
-        except:
+        except OSError:
             pass
 
         self.Destroy()
@@ -652,8 +649,8 @@ class panelProfound(wx.Frame):
             path = os.path.join(tempfile.gettempdir(), "mmass_profound_search.html")
             with open(path, "wb") as f:
                 f.write(htmlData.encode("utf-8"))
-            import wx; wx.LaunchDefaultBrowser("file://" + path, flags=0)
-        except:
+            wx.LaunchDefaultBrowser("file://" + path, flags=0)
+        except Exception:
             wx.Bell()
             dlg = mwx.dlgMessage(
                 self,
@@ -757,7 +754,7 @@ class panelProfound(wx.Frame):
 
             return True
 
-        except:
+        except ValueError:
             wx.Bell()
             return False
 

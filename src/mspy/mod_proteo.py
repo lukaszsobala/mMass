@@ -192,7 +192,7 @@ def fragment(sequence, series, scrambling=False):
         for frag in frags:
 
             # check fragment
-            if len(frag) <= 2 or not frag.fragmentSerie in ("a", "b", "M"):
+            if len(frag) <= 2 or frag.fragmentSerie not in ("a", "b", "M"):
                 continue
             elif frag.fragmentSerie == "M" and sequence.cyclic:
                 continue
@@ -200,7 +200,7 @@ def fragment(sequence, series, scrambling=False):
             # generate fragments
             for peptide in frag.linearized():
                 for serie in series:
-                    if not serie in scramblingFilter:
+                    if serie not in scramblingFilter:
                         buff += fragmentserie(
                             peptide, serie, cyclicParent=sequence.cyclic
                         )
@@ -214,7 +214,7 @@ def fragment(sequence, series, scrambling=False):
         frhash = [frag.fragmentSerie] + frag.indexes()
         if frag.fragmentSerie == "M":
             frhash.sort()
-        if not frhash in have:
+        if frhash not in have:
             buff.append(frag)
             have.append(frhash)
 
@@ -333,7 +333,7 @@ def fragmentserie(sequence, serie, cyclicParent=False):
 
 
 def fragmentlosses(
-    fragments, losses=[], defined=False, limit=1, filterIn={}, filterOut={}
+    fragments, losses=None, defined=False, limit=1, filterIn=None, filterOut=None
 ):
     """Apply specified neutral losses to fragments.
     fragments: (list) list of sequence fragments
@@ -343,6 +343,13 @@ def fragmentlosses(
     filterIn: (dic) allowed series for specified losses
     filterOut: (dic) not allowed series for specified losses
     """
+
+    if losses is None:
+        losses = []
+    if filterIn is None:
+        filterIn = {}
+    if filterOut is None:
+        filterOut = {}
 
     # make losses combinations
     combinations = []
@@ -370,9 +377,9 @@ def fragmentlosses(
                         newItem = item + [loss]
                         newItem.sort()
 
-                        if not [loss] in lossesToApply:
+                        if [loss] not in lossesToApply:
                             lossesToApply.append([loss])
-                        if len(newItem) <= limit and not newItem in lossesToApply:
+                        if len(newItem) <= limit and newItem not in lossesToApply:
                             lossesToApply.append(newItem)
 
         # make fragment
@@ -391,7 +398,7 @@ def fragmentlosses(
 
                 # check fragment type filter
                 if (loss in filterOut and frag.fragmentSerie in filterOut[loss]) or (
-                    loss in filterIn and not frag.fragmentSerie in filterIn[loss]
+                    loss in filterIn and frag.fragmentSerie not in filterIn[loss]
                 ):
                     skip = True
                     break
@@ -402,7 +409,7 @@ def fragmentlosses(
                     break
 
                 # filter non-specific losses
-                if not loss in definedLosses:
+                if loss not in definedLosses:
                     newFrag.fragmentFiltered = True
 
             # store fragment
@@ -417,9 +424,9 @@ def fragmentlosses(
 
 def fragmentgains(
     fragments,
-    gains=[],
-    filterIn={"H2O": ["b"], "CO": ["b", "c", "break"]},
-    filterOut={},
+    gains=None,
+    filterIn=None,
+    filterOut=None,
 ):
     """Apply specified neutral gains to fragments.
     fragments: (list) list of sequence fragments
@@ -427,6 +434,13 @@ def fragmentgains(
     filterIn: (dic) allowed series for specified gains
     filterOut: (dic) not allowed series for specified gains
     """
+
+    if gains is None:
+        gains = []
+    if filterIn is None:
+        filterIn = {"H2O": ["b"], "CO": ["b", "c", "break"]}
+    if filterOut is None:
+        filterOut = {}
 
     # generate fragments
     buff = []
@@ -450,7 +464,7 @@ def fragmentgains(
 
             # check fragment type filters
             if (gain in filterOut and frag.fragmentSerie in filterOut[gain]) or (
-                gain in filterIn and not frag.fragmentSerie in filterIn[gain]
+                gain in filterIn and frag.fragmentSerie not in filterIn[gain]
             ):
                 continue
 

@@ -18,7 +18,6 @@
 # load libs
 import threading
 import wx
-import numpy
 from typing import Any
 
 # load modules
@@ -1306,7 +1305,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
         self.mainSizer.Fit(self)
         try:
             wx.GetApp().Yield()
-        except:
+        except Exception:
             pass
 
     # ----
@@ -1405,7 +1404,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
         elif self.currentSequence is None:
             wx.Bell()
             return
-        elif self.currentSequence.chainType != "aminoacids" and not tool in (
+        elif self.currentSequence.chainType != "aminoacids" and tool not in (
             "editor",
             "fragment",
         ):
@@ -1416,7 +1415,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
             dlg.ShowModal()
             dlg.Destroy()
             return
-        elif self.currentSequence.cyclic and not tool in (
+        elif self.currentSequence.cyclic and tool not in (
             "editor",
             "modifications",
             "fragment",
@@ -1713,12 +1712,12 @@ class panelSequence(wx.Frame, MakeModalMixin):
             position = self.modsPosition_choice.GetStringSelection()
             modification = self.modsMod_choice.GetStringSelection()
             modtype = self.modsType_choice.GetStringSelection()
-        except:
+        except Exception:
             return
 
         # check data
         if not (modification and modtype) or (
-            not position and not residue in ("N-terminus", "C-terminus")
+            not position and residue not in ("N-terminus", "C-terminus")
         ):
             wx.Bell()
             return
@@ -2530,7 +2529,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
 
             return True
 
-        except:
+        except ValueError:
             wx.Bell()
             return False
 
@@ -2591,7 +2590,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
         residues = []
         for monomer in self.currentSequence:
             name = "%s (%s)" % (mspy.monomers[monomer].name, monomer)
-            if not name in residues:
+            if name not in residues:
                 residues.append(name)
 
         # add termini
@@ -2645,7 +2644,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
         try:
             residue = self.modsResidue_choice.GetStringSelection()
             checkSpecifity = self.modsSpecifity_check.GetValue()
-        except:
+        except Exception:
             return
 
         # get corresponding modifications
@@ -2690,7 +2689,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
             name = mod[0]
 
             # format position
-            if type(mod[1]) == int:
+            if isinstance(mod[1], int):
                 position = "%s %s" % (self.currentSequence[mod[1]], mod[1] + 1)
             elif mod[1] == "nTerm":
                 position = "N-terminus"
@@ -3028,7 +3027,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
 
         # check modifications
         for mod in presets:
-            if not mod[0] in mspy.modifications:
+            if mod[0] not in mspy.modifications:
                 wx.Bell()
                 message = (
                     'Modification entitled "%s" was not found in your database.'
@@ -3515,7 +3514,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
         # get occupied positions
         occupied = []
         for mod in sequence.modifications:
-            if mod[2] == "f" and not mod[1] in ("nTerm", "cTerm"):
+            if mod[2] == "f" and mod[1] not in ("nTerm", "cTerm"):
                 count = max(1, sequence.count(str(mod[1])))
                 occupied += [mod[1]] * count
 
@@ -3529,12 +3528,12 @@ class panelSequence(wx.Frame, MakeModalMixin):
         # check combination
         for x in occupied:
             count = occupied.count(x)
-            if type(x) == int and count > maxMods:
+            if isinstance(x, int) and count > maxMods:
                 return False
-            elif type(x) in (str, str):
+            elif isinstance(x, str):
                 available = sequence.count(x)
                 for y in occupied:
-                    if type(y) == int and sequence[y] == x:
+                    if isinstance(y, int) and sequence[y] == x:
                         available -= 1
                 if count > (available * maxMods):
                     return False
@@ -3552,7 +3551,7 @@ class sequenceCanvas(wx.TextCtrl):
         parent,
         id,
         sequence=None,
-        size=wx.Size(-1, -1),
+        size=wx.Size(-1, -1),  # noqa: B008
         style=wx.TE_MULTILINE | wx.TE_RICH,
     ):
         wx.TextCtrl.__init__(self, parent, id, size=size, style=style)
@@ -3899,7 +3898,7 @@ class sequenceCanvas(wx.TextCtrl):
             try:
                 sequence = mspy.sequence(data)
                 return sequence
-            except:
+            except (ValueError, KeyError):
                 pass
 
         wx.Bell()
@@ -4006,13 +4005,13 @@ class sequenceGrid(wx.StaticBoxSizer):
         # get sequence
         sequence = []
         gap = False
-        for x, item in enumerate(self.items):
+        for _x, item in enumerate(self.items):
             monomer = item.GetValue()
 
             if not monomer:
                 gap = True
                 item.SetBackgroundColour(wx.NullColour)
-            elif not monomer in mspy.monomers:
+            elif monomer not in mspy.monomers:
                 gap = True
                 item.SetBackgroundColour((250, 100, 100))
             elif not gap:

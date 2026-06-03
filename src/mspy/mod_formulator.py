@@ -34,7 +34,7 @@ def formulator(
     charge=0,
     tolerance=1.0,
     units="ppm",
-    composition={},
+    composition=None,
     agentFormula="H",
     agentCharge=1,
     limit=1000,
@@ -80,6 +80,9 @@ def formulator(
     else:
         loMass = mass - tolerance
         hiMass = mass + tolerance
+
+    if composition is None:
+        composition = {}
 
     # sort elements by masses to speed up processing
     buff = []

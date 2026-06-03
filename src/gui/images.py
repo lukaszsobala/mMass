@@ -64,9 +64,9 @@ def is_dark_mode():
             import winreg
 
             key_path = r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
-            open_key = getattr(winreg, "OpenKey")
-            query_value_ex = getattr(winreg, "QueryValueEx")
-            hkey_current_user = getattr(winreg, "HKEY_CURRENT_USER")
+            open_key = winreg.OpenKey  # type: ignore[attr-defined]
+            query_value_ex = winreg.QueryValueEx  # type: ignore[attr-defined]
+            hkey_current_user = winreg.HKEY_CURRENT_USER  # type: ignore[attr-defined]
             with open_key(hkey_current_user, key_path) as key:
                 value, _ = query_value_ex(key, "AppsUseLightTheme")
                 return int(value) == 0

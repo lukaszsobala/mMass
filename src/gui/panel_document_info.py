@@ -23,9 +23,7 @@ from typing import Any
 from .ids import *
 from . import mwx
 from . import images
-from . import config
 from . import libs
-import mspy
 
 # FLOATING PANEL WITH DOCUMENT INFO
 # ---------------------------------
@@ -500,33 +498,33 @@ class panelDocumentInfo(wx.Frame):
             self.currentDocument.spectrum.scanNumber = int(
                 self.scanNumber_value.GetValue()
             )
-        except:
+        except ValueError:
             self.currentDocument.spectrum.scanNumber = None
 
         try:
             self.currentDocument.spectrum.retentionTime = float(
                 self.retentionTime_value.GetValue()
             )
-        except:
+        except ValueError:
             self.currentDocument.spectrum.retentionTime = None
 
         try:
             self.currentDocument.spectrum.msLevel = int(self.msLevel_value.GetValue())
-        except:
+        except ValueError:
             self.currentDocument.spectrum.msLevel = None
 
         try:
             self.currentDocument.spectrum.precursorMZ = float(
                 self.precursorMZ_value.GetValue()
             )
-        except:
+        except ValueError:
             self.currentDocument.spectrum.precursorMZ = None
 
         try:
             self.currentDocument.spectrum.precursorCharge = int(
                 self.precursorCharge_value.GetValue()
             )
-        except:
+        except ValueError:
             self.currentDocument.spectrum.precursorCharge = None
 
         if self.polarity_choice.GetStringSelection() == "Positive":

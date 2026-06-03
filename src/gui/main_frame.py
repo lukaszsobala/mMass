@@ -1559,7 +1559,7 @@ class mainFrame(wx.Frame):
 
     # ----
 
-    def onDocumentChangedMulti(self, indexes=[], items=()):
+    def onDocumentChangedMulti(self, indexes=None, items=()):
         """Multiple documents content has changed (not all changes are covered!!!)."""
 
         # check selection
@@ -4332,7 +4332,7 @@ class mainFrame(wx.Frame):
 
         # get data path
         if os.path.isdir(path):
-            for dirpath, dirnames, filenames in os.walk(path):
+            for dirpath, _dirnames, filenames in os.walk(path):
                 if "Analysis.baf" in filenames:
                     path = os.path.join(dirpath, "Analysis.baf")
                     break
@@ -4585,7 +4585,7 @@ class mainFrame(wx.Frame):
         elif extension in (".fa", ".fsa", ".faa", ".fasta"):
             return "FASTA"
         elif os.path.isdir(path):
-            for dirpath, dirnames, filenames in os.walk(path):
+            for _dirpath, _dirnames, filenames in os.walk(path):
                 names = [i.lower() for i in filenames]
                 if "fid" in names or "analysis.baf" in names or "analysis.yep" in names:
                     return "bruker"

@@ -207,7 +207,7 @@ class ConfigDict(dict):
                 super(ConfigDict, self).__setitem__(k, ConfigList(v))
             elif isinstance(v, dict) and not isinstance(v, ConfigDict):
                 super(ConfigDict, self).__setitem__(k, ConfigDict(v))
-                
+
     def __setitem__(self, key, value):
         if isinstance(value, list) and not isinstance(value, ConfigList):
             value = ConfigList(value)
@@ -216,7 +216,7 @@ class ConfigDict(dict):
         super(ConfigDict, self).__setitem__(key, value)
         if _auto_save_enabled:
             saveConfig()
-            
+
     def __delitem__(self, key):
         super(ConfigDict, self).__delitem__(key)
         if _auto_save_enabled:
@@ -807,7 +807,7 @@ replacements = {
 # -------------------------
 
 
-def loadConfig(path=os.path.join(confdir, "config.xml")):
+def loadConfig(path=os.path.join(confdir, "config.xml")):  # noqa: B008
     """Parse config XML and get data."""
 
     # parse XML
@@ -1067,7 +1067,7 @@ def loadConfig(path=os.path.join(confdir, "config.xml")):
 # ----
 
 
-def saveConfig(path=os.path.join(confdir, "config.xml")):
+def saveConfig(path=os.path.join(confdir, "config.xml")):  # noqa: B008
     """Make and save config XML."""
 
     buff = '<?xml version="1.0" encoding="utf-8" ?>\n'

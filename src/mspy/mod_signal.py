@@ -376,7 +376,7 @@ def baseline(signal, window=0.1, offset=0.0):
     # calc baseline data
     levels = []
     widths = []
-    for i, x in enumerate(raster):
+    for _i, x in enumerate(raster):
         i1 = locate(signal, x - x * window)
         i2 = locate(signal, x + x * window)
         if i1 == i2:

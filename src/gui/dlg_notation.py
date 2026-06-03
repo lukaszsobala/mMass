@@ -228,7 +228,7 @@ class dlgNotation(wx.Dialog):
             try:
                 mspy.compound(formula)
                 self.notation.formula = formula
-            except:
+            except ValueError:
                 wx.Bell()
                 return
         else:
@@ -238,7 +238,7 @@ class dlgNotation(wx.Dialog):
         if theoretical:
             try:
                 self.notation.theoretical = float(theoretical)
-            except:
+            except ValueError:
                 wx.Bell()
                 return
         else:
@@ -248,7 +248,7 @@ class dlgNotation(wx.Dialog):
         if charge:
             try:
                 self.notation.charge = int(charge)
-            except:
+            except ValueError:
                 wx.Bell()
                 return
         else:
@@ -302,7 +302,7 @@ class dlgNotation(wx.Dialog):
                 mz = compound.mz(charge=charge, agentFormula="e", agentCharge=-1)
             else:
                 mz = compound.mz(charge=charge, agentFormula="H", agentCharge=1)
-        except:
+        except (ValueError, KeyError):
             self.theoreticalMZ_value.SetValue("")
             return
 

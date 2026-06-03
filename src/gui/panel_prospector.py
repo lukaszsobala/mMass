@@ -17,7 +17,6 @@
 
 # load libs
 import wx
-import webbrowser
 import tempfile
 import os.path
 from typing import Any
@@ -27,8 +26,6 @@ from .ids import *
 from . import mwx
 from . import images
 from . import config
-import mspy
-from . import doc
 
 # FLOATING PANEL WITH PROSPECTOR SEARCH TOOLS
 # -------------------------------------------
@@ -943,7 +940,7 @@ class panelProspector(wx.Frame):
         try:
             path = os.path.join(tempfile.gettempdir(), "mmass_prospector_search.html")
             os.unlink(path)
-        except:
+        except OSError:
             pass
 
         self.Destroy()
@@ -1083,8 +1080,8 @@ class panelProspector(wx.Frame):
             path = os.path.join(tempfile.gettempdir(), "mmass_prospector_search.html")
             with open(path, "wb") as f:
                 f.write(htmlData.encode("utf-8"))
-            import wx; wx.LaunchDefaultBrowser("file://" + path, flags=0)
-        except:
+            wx.LaunchDefaultBrowser("file://" + path, flags=0)
+        except Exception:
             wx.Bell()
             dlg = mwx.dlgMessage(
                 self,
@@ -1300,7 +1297,7 @@ class panelProspector(wx.Frame):
 
                 return True
 
-        except:
+        except ValueError:
             wx.Bell()
             return False
 
@@ -2171,7 +2168,7 @@ class panelProspector(wx.Frame):
                     % (x + 1, mod)
                 )
             buff += '      <select name="mod_AA" multiple="multiple">\n'
-            for x, mod in enumerate(config.prospector["msfit"]["variableMods"]):
+            for x, _mod in enumerate(config.prospector["msfit"]["variableMods"]):
                 buff += (
                     '        <option selected="selected">User Defined %s</option>\n'
                     % (x + 1)

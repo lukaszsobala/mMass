@@ -171,7 +171,7 @@ def signal_width(array, x, height):
     # Make sure we use the closest actual peak apex
     if idx > 0 and abs(array[idx - 1, 0] - x) < abs(array[idx, 0] - x):
         idx = idx - 1
-        
+
     apex_height = array[idx, 1]
 
     ileft = idx - 1

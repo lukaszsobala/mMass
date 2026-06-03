@@ -22,17 +22,17 @@ from . import plot_objects as _plot_objects
 
 _plot_objects_names = getattr(_plot_objects, "__all__", None)
 if _plot_objects_names is None:
-	_plot_objects_names = [name for name in dir(_plot_objects) if not name.startswith("_")]
+    _plot_objects_names = [name for name in dir(_plot_objects) if not name.startswith("_")]
 
 _plot_canvas_names = getattr(_plot_canvas, "__all__", None)
 if _plot_canvas_names is None:
-	_plot_canvas_names = [name for name in dir(_plot_canvas) if not name.startswith("_")]
+    _plot_canvas_names = [name for name in dir(_plot_canvas) if not name.startswith("_")]
 
 for _name in _plot_objects_names:
-	globals()[_name] = getattr(_plot_objects, _name)
+    globals()[_name] = getattr(_plot_objects, _name)
 
 for _name in _plot_canvas_names:
-	globals()[_name] = getattr(_plot_canvas, _name)
+    globals()[_name] = getattr(_plot_canvas, _name)
 
 __all__ = [*_plot_objects_names, *_plot_canvas_names]  # pyright: ignore[reportUnsupportedDunderAll]
 

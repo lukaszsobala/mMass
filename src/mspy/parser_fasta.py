@@ -61,7 +61,7 @@ class parseFASTA:
         chain = ""
         title = ""
         accession = ""
-        
+
         for line in rawData:
             line = line.strip()
 

@@ -2244,7 +2244,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
         # update available documents in batch panel
         documentsMap = []
-        for x, document in enumerate(self.parent.documents):
+        for document in self.parent.documents:
             documentsMap.append([document.title, document.colour])
 
         self.batchDocumentsList.DeleteAllItems()

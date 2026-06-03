@@ -13,8 +13,8 @@ class dlgSettings(wx.Dialog):
         self.parent = parent
         self.Bind(wx.EVT_CLOSE, self.onClose)
 
-        self.quality_slider = wx.Slider(self, -1, 
-            value=self._get_slider_value(config.spectrum.get("filterSize", 1.0)), 
+        self.quality_slider = wx.Slider(self, -1,
+            value=self._get_slider_value(config.spectrum.get("filterSize", 1.0)),
             minValue=10, maxValue=50,
             style=wx.SL_HORIZONTAL | wx.SL_AUTOTICKS)
 
@@ -25,16 +25,16 @@ class dlgSettings(wx.Dialog):
 
         # layout
         sizer = wx.BoxSizer(wx.VERTICAL)
-        
+
         box = wx.StaticBox(self, -1, "Spectrum quality (1.0 = fastest, 5.0 = best)")
         box_sizer = wx.StaticBoxSizer(box, wx.VERTICAL)
         box_sizer.Add(self.quality_label, 0, wx.ALL | wx.ALIGN_CENTER_HORIZONTAL, 5)
         box_sizer.Add(self.quality_slider, 0, wx.ALL | wx.EXPAND, 10)
-        
+
         sizer.Add(box_sizer, 0, wx.ALL | wx.EXPAND, 10)
         self.SetSizer(sizer)
         sizer.Fit(self)
-        
+
     def _get_slider_value(self, filterSize):
         return max(10, min(50, int(round((6.0 - float(filterSize)) * 10))))
 
@@ -52,7 +52,7 @@ class dlgSettings(wx.Dialog):
                 self.parent.spectrumPanel.spectrumCanvas.setProperties(filterSize=config.spectrum["filterSize"])
                 self.parent.spectrumPanel.spectrumCanvas.refresh()
         evt.Skip()
-        
+
     def onClose(self, evt):
         self.Destroy()
         evt.Skip()

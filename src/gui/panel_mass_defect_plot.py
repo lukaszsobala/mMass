@@ -17,7 +17,6 @@
 
 # load libs
 from typing import Any
-import math
 import wx
 
 # load modules
@@ -510,7 +509,7 @@ class panelMassDefectPlot(wx.Frame):
         for peak in peaklist:
 
             # remove isotopes
-            if config.massDefectPlot["removeIsotopes"] and not peak.isotope in (
+            if config.massDefectPlot["removeIsotopes"] and peak.isotope not in (
                 0,
                 None,
             ):

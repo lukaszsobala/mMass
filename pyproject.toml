@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mMass"
-version = "7.0.0-beta12"
+version = "7.0.0-beta13"
 description = "mMass - Open Source Mass Spectrometry Tool"
 readme = "README.md"
 authors = [
@@ -38,3 +38,11 @@ include = ["gui", "gui.*", "mspy", "mspy.*", "mmass_app", "mmass_app.*"]
 
 [tool.setuptools.package-data]
 gui = ["configs/*.xml"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B"]
+ignore = ["E501"]  # line-too-long — not enforced
+
+[tool.ruff.lint.per-file-ignores]
+"src/gui/*.py" = ["F403", "F405"]  # ids.py star-import is intentional
+"src/mspy/__init__.py" = ["F403", "F401"]  # public API re-export via star imports

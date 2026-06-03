@@ -23,7 +23,6 @@ import wx
 # load modules
 from . import mwx
 from . import config
-import mspy
 from mspy.plot_canvas import canvas as plot_canvas
 from mspy.plot_objects import container as plot_container, points as plot_points
 
@@ -196,7 +195,7 @@ class dlgSelectScans(wx.Dialog):
 
         # set data map
         self.scanMap = []
-        for scanID, scan in sorted(self.scans.items()):
+        for _scanID, scan in sorted(self.scans.items()):
             self.scanMap.append(
                 (
                     scan["scanNumber"],
@@ -214,7 +213,7 @@ class dlgSelectScans(wx.Dialog):
 
         # add data
         row = 0
-        for scanID, scan in sorted(self.scans.items()):
+        for _scanID, scan in sorted(self.scans.items()):
 
             retentionTime = ""
             if scan["retentionTime"] is not None:
@@ -223,7 +222,7 @@ class dlgSelectScans(wx.Dialog):
                         scan["retentionTime"] / 60,
                         str(datetime.timedelta(seconds=round(scan["retentionTime"]))),
                     )
-                except:
+                except (TypeError, ValueError):
                     pass
 
             msLevel = ""
@@ -234,7 +233,7 @@ class dlgSelectScans(wx.Dialog):
             if scan["precursorMZ"] is not None:
                 try:
                     precursorMZ = "%.4f" % (scan["precursorMZ"])
-                except:
+                except (TypeError, ValueError):
                     pass
 
             precursorCharge = ""
@@ -248,21 +247,21 @@ class dlgSelectScans(wx.Dialog):
             if scan["lowMZ"] is not None and scan["highMZ"] is not None:
                 try:
                     mzRange = "%d-%d" % (scan["lowMZ"], scan["highMZ"])
-                except:
+                except (TypeError, ValueError):
                     pass
 
             totIonCurrent = ""
             if scan["totIonCurrent"] is not None:
                 try:
                     totIonCurrent = "%.0f" % (scan["totIonCurrent"])
-                except:
+                except (TypeError, ValueError):
                     pass
 
             pointsCount = ""
             if scan["pointsCount"] is not None:
                 try:
                     pointsCount = str(scan["pointsCount"])
-                except:
+                except (TypeError, ValueError):
                     pass
 
             self.scanList.InsertItem(row, str(scan["scanNumber"]))
@@ -290,7 +289,7 @@ class dlgSelectScans(wx.Dialog):
         # get data
         ticData = []
         bpcData = []
-        for scanID, scan in sorted(self.scans.items()):
+        for _scanID, scan in sorted(self.scans.items()):
             if scan["msLevel"] != 1 or scan["retentionTime"] is None:
                 continue
             if scan["totIonCurrent"] is not None:
@@ -443,7 +442,7 @@ class dlgSelectScans(wx.Dialog):
 
         # get colour from config
         for colour in config.colours:
-            if not colour in self.usedColours:
+            if colour not in self.usedColours:
                 self.usedColours.append(colour)
                 return colour
 

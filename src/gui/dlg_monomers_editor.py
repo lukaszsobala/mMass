@@ -158,7 +158,7 @@ class dlgMonomersEditor(wx.Dialog):
 
         itemLosses_label = wx.StaticText(self, -1, "Losses:")
         self.itemLosses_values = []
-        for x in range(4):
+        for _x in range(4):
             item = mwx.formulaCtrl(self, -1, "", size=wx.Size(100, -1))
             item.Bind(wx.EVT_TEXT, self.onLossFormula)
             item.Bind(wx.EVT_SET_FOCUS, self.onLossFormula)
@@ -308,7 +308,7 @@ class dlgMonomersEditor(wx.Dialog):
         for i in self.itemsList.getSelected():
             index = self.itemsList.GetItemData(i)
             name = self.itemsMap[index][0]
-            if not name in self.used:
+            if name not in self.used:
                 del mspy.monomers[name]
             else:
                 wx.Bell()
@@ -507,7 +507,7 @@ class dlgMonomersEditor(wx.Dialog):
             monomer = mspy.monomer(
                 abbr=abbr, name=name, formula=formula, losses=losses, category=category
             )
-        except:
+        except (ValueError, KeyError):
             wx.Bell()
             return False
 

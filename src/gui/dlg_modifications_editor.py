@@ -291,7 +291,7 @@ class dlgModificationsEditor(wx.Dialog):
         for i in self.itemsList.getSelected():
             index = self.itemsList.GetItemData(i)
             name = self.itemsMap[index][0]
-            if not name in self.used:
+            if name not in self.used:
                 del mspy.modifications[name]
             else:
                 wx.Bell()
@@ -324,7 +324,7 @@ class dlgModificationsEditor(wx.Dialog):
         self.itemsMap = []
 
         # make map
-        for name, mod in sorted(mspy.modifications.items()):
+        for _name, mod in sorted(mspy.modifications.items()):
             mod: Any = mod
             self.itemsMap.append(
                 (
@@ -448,7 +448,7 @@ class dlgModificationsEditor(wx.Dialog):
                 termSpecifity=termSpecifity,
                 description=description,
             )
-        except:
+        except (ValueError, KeyError):
             wx.Bell()
             return False
 

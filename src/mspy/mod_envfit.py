@@ -16,7 +16,6 @@
 # -------------------------------------------------------------------------
 
 # load libs
-import math
 import numpy
 from numpy.linalg import solve as solveLinEq
 
@@ -446,7 +445,7 @@ class envfit:
         params = [50.0] * len(models)
         id = numpy.identity(len(params))
         chisq, alpha = self._chiSquare(data, models, params)
-        l = 0.001
+        lmbda = 0.001
 
         niter = 0
         while True:
@@ -455,7 +454,7 @@ class envfit:
 
             niter += 1
             delta = solveLinEq(
-                alpha + l * numpy.diagonal(alpha) * id, -0.5 * numpy.array(chisq[1])
+                alpha + lmbda * numpy.diagonal(alpha) * id, -0.5 * numpy.array(chisq[1])
             )
             next_params = list(map(lambda a, b: a + b, params, delta))
 
@@ -465,11 +464,11 @@ class envfit:
 
             next_chisq, next_alpha = self._chiSquare(data, models, next_params)
             if next_chisq[0] > chisq[0]:
-                l = 5.0 * l
+                lmbda = 5.0 * lmbda
             elif chisq[0] - next_chisq[0] < chiLimit:
                 break
             else:
-                l = 0.5 * l
+                lmbda = 0.5 * lmbda
                 params = next_params
                 chisq = next_chisq
                 alpha = next_alpha

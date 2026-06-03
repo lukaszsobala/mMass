@@ -257,7 +257,7 @@ class dlgCompoundsEditor(wx.Dialog):
 
         # read data
         importedItems = self.readLibraryXML(path)
-        if importedItems == False:
+        if importedItems is False:
             wx.Bell()
             dlg = mwx.dlgMessage(
                 self,
@@ -681,9 +681,9 @@ class dlgCompoundsEditor(wx.Dialog):
         """Get text from node list."""
 
         buff = ""
-        for node in node.childNodes:
-            if node.nodeType == node.TEXT_NODE:
-                buff += node.data
+        for child in node.childNodes:
+            if child.nodeType == child.TEXT_NODE:
+                buff += child.data
 
         return buff
 
@@ -858,7 +858,7 @@ class dlgSelectItemsToImport(wx.Dialog):
 
         # set data map
         self.itemsMap = []
-        for x, item in enumerate(self.items):
+        for _x, item in enumerate(self.items):
             self.itemsMap.append((item, len(self.items[item])))
         self.itemsList.setDataMap(self.itemsMap)
 

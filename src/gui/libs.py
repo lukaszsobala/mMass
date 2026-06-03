@@ -580,7 +580,7 @@ mascot = {
 
 
 def loadPresets(
-    path=os.path.join(config.confdir, "presets.xml"), clear=True, replace=True
+    path=os.path.join(config.confdir, "presets.xml"), clear=True, replace=True  # noqa: B008
 ):
     """Parse processing presets XML and get data."""
 
@@ -704,7 +704,7 @@ def loadPresets(
 # ----
 
 
-def loadReferences(path=os.path.join(config.confdir, "references.xml"), clear=True):
+def loadReferences(path=os.path.join(config.confdir, "references.xml"), clear=True):  # noqa: B008
     """Parse calibration references XML and get data."""
 
     container = {}
@@ -736,7 +736,7 @@ def loadReferences(path=os.path.join(config.confdir, "references.xml"), clear=Tr
 # ----
 
 
-def loadCompounds(path=os.path.join(config.confdir, "compounds.xml"), clear=True):
+def loadCompounds(path=os.path.join(config.confdir, "compounds.xml"), clear=True):  # noqa: B008
     """Parse compounds XML and get data."""
 
     container = {}
@@ -757,7 +757,7 @@ def loadCompounds(path=os.path.join(config.confdir, "compounds.xml"), clear=True
                     try:
                         name = compoundTag.getAttribute("name")
                         compound = mspy.compound(compoundTag.getAttribute("formula"))
-                        setattr(compound, "description", _getNodeText(compoundTag))
+                        compound.description = _getNodeText(compoundTag)
                         container[groupName][name] = compound
                     except Exception:
                         pass
@@ -773,7 +773,7 @@ def loadCompounds(path=os.path.join(config.confdir, "compounds.xml"), clear=True
 
 
 def loadMascot(
-    path=os.path.join(config.confdir, "mascot.xml"), clear=True, replace=True
+    path=os.path.join(config.confdir, "mascot.xml"), clear=True, replace=True  # noqa: B008
 ):
     """Parse mascot servers XML and get data."""
 
@@ -837,9 +837,9 @@ def _getNodeText(node):
     """Get text from node list."""
 
     buff = ""
-    for node in node.childNodes:
-        if node.nodeType == node.TEXT_NODE:
-            buff += node.data
+    for child in node.childNodes:
+        if child.nodeType == child.TEXT_NODE:
+            buff += child.data
 
     return buff
 
@@ -851,7 +851,7 @@ def _getNodeText(node):
 # --------------
 
 
-def savePresets(path=os.path.join(config.confdir, "presets.xml")):
+def savePresets(path=os.path.join(config.confdir, "presets.xml")):  # noqa: B008
     """Make and save presets XML."""
 
     buff = '<?xml version="1.0" encoding="utf-8" ?>\n'
@@ -1046,7 +1046,7 @@ def savePresets(path=os.path.join(config.confdir, "presets.xml")):
 # ----
 
 
-def saveReferences(path=os.path.join(config.confdir, "references.xml")):
+def saveReferences(path=os.path.join(config.confdir, "references.xml")):  # noqa: B008
     """Make and save calibration references XML."""
 
     buff = '<?xml version="1.0" encoding="utf-8" ?>\n'
@@ -1075,7 +1075,7 @@ def saveReferences(path=os.path.join(config.confdir, "references.xml")):
 # ----
 
 
-def saveCompounds(path=os.path.join(config.confdir, "compounds.xml")):
+def saveCompounds(path=os.path.join(config.confdir, "compounds.xml")):  # noqa: B008
     """Make and save compounds XML."""
 
     buff = '<?xml version="1.0" encoding="utf-8" ?>\n'
@@ -1105,7 +1105,7 @@ def saveCompounds(path=os.path.join(config.confdir, "compounds.xml")):
 # ----
 
 
-def saveMascot(path=os.path.join(config.confdir, "mascot.xml")):
+def saveMascot(path=os.path.join(config.confdir, "mascot.xml")):  # noqa: B008
     """Make and save mascot servers XML."""
 
     buff = '<?xml version="1.0" encoding="utf-8" ?>\n'

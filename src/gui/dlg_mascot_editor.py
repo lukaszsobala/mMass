@@ -20,9 +20,7 @@ import wx
 
 # load modules
 from . import mwx
-from . import config
 from . import libs
-import mspy
 
 # MASCOT SERVERS EDITOR
 # ---------------------

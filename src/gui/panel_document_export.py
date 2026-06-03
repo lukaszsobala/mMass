@@ -26,7 +26,6 @@ from . import mwx
 from . import images
 from . import config
 from .mixins import MakeModalMixin
-import mspy
 
 # FLOATING PANEL WITH EXPORTING TOOLS
 # -----------------------------------
@@ -601,7 +600,7 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
         self.mainSizer.Fit(self)
         try:
             wx.GetApp().Yield()
-        except:
+        except Exception:
             pass
 
     # ----
@@ -877,7 +876,7 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
             ]
 
         # ring error bell if error
-        except:
+        except (ValueError, KeyError):
             wx.Bell()
             return False
 
@@ -930,7 +929,7 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
         # save image
         try:
             image.SaveFile(path, fileFormat)
-        except:
+        except Exception:
             wx.Bell()
 
     # ----

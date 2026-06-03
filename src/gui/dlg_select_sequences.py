@@ -20,7 +20,6 @@ import wx
 
 # load modules
 from . import mwx
-from . import config
 
 # SEQUENCE SELECTION DIALOG
 # -------------------------

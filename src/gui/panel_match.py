@@ -442,7 +442,7 @@ class panelMatch(wx.Frame, MakeModalMixin):
         self.mainSizer.Fit(self)
         try:
             wx.GetApp().Yield()
-        except:
+        except Exception:
             pass
 
     # ----
@@ -517,7 +517,7 @@ class panelMatch(wx.Frame, MakeModalMixin):
         self.getPeaklist()
 
         # check data
-        if self.currentData == None or self.currentPeaklist == None:
+        if self.currentData is None or self.currentPeaklist is None:
             self.currentSummary = None
             self.currentErrors = []
             self.currentCalibrationPoints = []
@@ -647,7 +647,7 @@ class panelMatch(wx.Frame, MakeModalMixin):
 
             return True
 
-        except:
+        except ValueError:
             wx.Bell()
             return False
 
@@ -676,6 +676,12 @@ class panelMatch(wx.Frame, MakeModalMixin):
 
     def runMatch(self):
         """Match data to peaklist."""
+
+        # set columns (initialised here so the ForceQuit handler can always access them)
+        massCol = 1
+        chargeCol: int | None = None
+        errorCol = 2
+        matchObject: type[doc.annotation] | type[doc.match] = doc.annotation
 
         # run task
         try:
@@ -719,8 +725,8 @@ class panelMatch(wx.Frame, MakeModalMixin):
 
                     # check charge
                     if (
-                        chargeCol == None
-                        or peak.charge == None
+                        chargeCol is None
+                        or peak.charge is None
                         or config.match["ignoreCharge"]
                         or peak.charge == item[chargeCol]
                     ):
@@ -739,7 +745,7 @@ class panelMatch(wx.Frame, MakeModalMixin):
                                 base=peak.base,
                                 theoretical=item[massCol],
                             )
-                            setattr(match, "peakIndex", pIndex)
+                            match.peakIndex = pIndex
                             self.currentData[x][-1].append(match)
 
                             # errors and calibration points
@@ -876,6 +882,7 @@ class panelMatch(wx.Frame, MakeModalMixin):
         self.currentSummary = []
 
         # get items name
+        itemName = ""
         if self.currentModule == "massfilter":
             itemName = "reference masses"
         elif self.currentModule == "digest":
@@ -949,7 +956,7 @@ class panelMatch(wx.Frame, MakeModalMixin):
             for item in self.currentData:
                 frag = item[6]
 
-                if not frag.fragmentSerie in (
+                if frag.fragmentSerie not in (
                     "a",
                     "b",
                     "c",
@@ -969,7 +976,7 @@ class panelMatch(wx.Frame, MakeModalMixin):
                 for gain in frag.fragmentGains:
                     name += " +" + gain
 
-                if not name in series:
+                if name not in series:
                     series[name] = []
                 if item[-1]:
                     series[name].append(frag.fragmentIndex)

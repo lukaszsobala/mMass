@@ -34,6 +34,7 @@ class compound:
         # check formula
         self._checkFormula(expression)
         self.expression = expression
+        self.description: str = ""
 
         # buffers
         self._composition = None
@@ -314,7 +315,7 @@ class compound:
             ion = compound(self.expression)
 
         # get composition
-        for atom, count in list(ion.composition().items()):
+        for _atom, count in list(ion.composition().items()):
             if count < 0:
                 return False
 
@@ -324,7 +325,7 @@ class compound:
 
     def frules(
         self,
-        rules=["HC", "NOPSC", "NOPS", "RDBE"],
+        rules=None,
         HC=(0.1, 3.0),
         NOPSC=(4, 3, 2, 3),
         RDBE=(-1, 40),

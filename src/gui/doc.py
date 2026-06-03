@@ -338,7 +338,7 @@ class document:
 
         # update document
         del self.sequences[:]
-        for title, sequence in sequences:
+        for _title, sequence in sequences:
             self.sequences.append(sequence)
 
     # ----
@@ -1136,6 +1136,7 @@ class annotation:
         self.radical = radical
         self.theoretical = theoretical
         self.formula = formula
+        self.peakIndex: int | None = None
 
     # ----
 
@@ -1178,6 +1179,7 @@ class match:
         self.theoretical = theoretical
         self.formula = formula
 
+        self.peakIndex: int | None = None
         self.sequenceRange = None
         self.fragmentSerie = None
         self.fragmentIndex = None
@@ -1906,9 +1908,9 @@ class parseMSD:
 
         # get text
         buff = ""
-        for node in node.childNodes:
-            if node.nodeType == node.TEXT_NODE:
-                buff += node.data
+        for child in node.childNodes:
+            if child.nodeType == child.TEXT_NODE:
+                buff += child.data
 
         # replace back some characters
         search = ("&amp;", "&quot;", "&#39;", "&lt;", "&gt;")
@@ -1920,7 +1922,7 @@ class parseMSD:
 
     # ----
 
-    def _addMonomer(self, abbr, formula, losses=[], name="", category=""):
+    def _addMonomer(self, abbr, formula, losses=None, name="", category=""):
         """Add monomer to library."""
 
         # check data
@@ -2004,75 +2006,75 @@ REPORT_HEADER = """<?xml version="1.0" encoding="utf-8"?>
   <script type="text/javascript">
     // This script was adapted from the original script by Mike Hall (www.brainjar.com)
     //<![CDATA[
-    
+
     // for IE
     if (document.ELEMENT_NODE == null) {
       document.ELEMENT_NODE = 1;
       document.TEXT_NODE = 3;
     }
-    
+
     // sort table
     function sortTable(id, col) {
-      
+
       // get table
       var tblEl = document.getElementById(id);
-      
+
       // init sorter
       if (tblEl.reverseSort == null) {
         tblEl.reverseSort = new Array();
       }
-      
+
       // reverse sorting
       if (col == tblEl.lastColumn) {
         tblEl.reverseSort[col] = !tblEl.reverseSort[col];
       }
-      
+
       // remember current column
       tblEl.lastColumn = col;
-      
+
       // sort table
       var tmpEl;
       var i, j;
       var minVal, minIdx;
       var testVal;
       var cmp;
-      
+
       for (i = 0; i < tblEl.rows.length - 1; i++) {
         minIdx = i;
         minVal = getTextValue(tblEl.rows[i].cells[col]);
-        
+
         // walk in other rows
         for (j = i + 1; j < tblEl.rows.length; j++) {
           testVal = getTextValue(tblEl.rows[j].cells[col]);
           cmp = compareValues(minVal, testVal);
-          
+
           // reverse sorting
           if (tblEl.reverseSort[col]) {
             cmp = -cmp;
           }
-          
+
           // set new minimum
           if (cmp > 0) {
             minIdx = j;
             minVal = testVal;
           }
         }
-        
+
         // move row before
         if (minIdx > i) {
           tmpEl = tblEl.removeChild(tblEl.rows[minIdx]);
           tblEl.insertBefore(tmpEl, tblEl.rows[i]);
         }
       }
-      
+
       return false;
     }
-    
+
     // get node text
     function getTextValue(el) {
       var i;
       var s;
-      
+
       // concatenate values of text nodes
       s = "";
       for (i = 0; i < el.childNodes.length; i++) {
@@ -2084,18 +2086,18 @@ REPORT_HEADER = """<?xml version="1.0" encoding="utf-8"?>
           s += getTextValue(el.childNodes[i]);
         }
       }
-      
+
       return s;
     }
-    
+
     // compare values
     function compareValues(v1, v2) {
       var f1, f2;
-      
+
       // lowercase values
       v1 = v1.toLowerCase()
       v2 = v2.toLowerCase()
-      
+
       // try to convert values to floats
       f1 = parseFloat(v1);
       f2 = parseFloat(v2);
@@ -2103,7 +2105,7 @@ REPORT_HEADER = """<?xml version="1.0" encoding="utf-8"?>
         v1 = f1;
         v2 = f2;
       }
-      
+
       // compare values
       if (v1 == v2) {
         return 0;
@@ -2113,7 +2115,7 @@ REPORT_HEADER = """<?xml version="1.0" encoding="utf-8"?>
         return -1;
       }
     }
-    
+
     //]]>
   </script>
 </head>

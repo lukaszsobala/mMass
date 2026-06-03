@@ -827,15 +827,15 @@ class panelPeaklist(wx.Panel):
 
         # update data
         self.currentDocument.backup(("spectrum"))
-        
+
         peaklist = self.currentDocument.spectrum.peaklist
         deleted_mzs = [peaklist[i].mz for i in indexes]
-        
+
         self.currentDocument.spectrum.peaklist.delete(indexes)
-        
+
         # recalculate local envelope areas for remaining overlapping clusters
         self._recalculateNeighborhoodEnvelopes(deleted_mzs)
-        
+
         self.parent.onDocumentChanged(items=("spectrum"))
 
     def _recalculateNeighborhoodEnvelopes(self, mzs, document=None):
@@ -846,7 +846,7 @@ class panelPeaklist(wx.Panel):
         targetDocument = document or self.currentDocument
         if targetDocument is None:
             return
-            
+
         import mspy
         spectrum = targetDocument.spectrum
         peaklist = spectrum.peaklist
@@ -863,7 +863,7 @@ class panelPeaklist(wx.Panel):
         localPeaks = []
         outsidePeaks = []
         for peak in peaklist:
-            # We want to re-run "Convert to envelopes" on all peaks in the neighborhood 
+            # We want to re-run "Convert to envelopes" on all peaks in the neighborhood
             # so that isotopic peaks can be correctly mapped back into envelopes.
             if minMz <= peak.mz <= maxMz:
                 localPeaks.append(peak)
@@ -962,14 +962,14 @@ class panelPeaklist(wx.Panel):
             # delete peaks
             if indexes:
                 self.currentDocument.backup(("spectrum"))
-                
+
                 peaklist = self.currentDocument.spectrum.peaklist
                 deleted_mzs = [peaklist[i].mz for i in indexes]
-                
+
                 self.currentDocument.spectrum.peaklist.delete(indexes)
-                
+
                 self._recalculateNeighborhoodEnvelopes(deleted_mzs)
-                
+
                 self.parent.onDocumentChanged(items=("spectrum"))
 
         else:

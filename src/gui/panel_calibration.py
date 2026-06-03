@@ -399,7 +399,7 @@ class panelCalibration(wx.Frame, MakeModalMixin):
         self.mainSizer.Fit(self)
         try:
             wx.GetApp().Yield()
-        except:
+        except Exception:
             pass
 
     # ----
@@ -870,7 +870,7 @@ class panelCalibration(wx.Frame, MakeModalMixin):
             self.calcCalibration()
 
         # enable clipboard
-        elif self.currentCalibration and document != None:
+        elif self.currentCalibration and document is not None:
             self.apply_butt.SetLabel("Apply Recent")
             self.apply_butt.Enable(True)
 
@@ -895,7 +895,7 @@ class panelCalibration(wx.Frame, MakeModalMixin):
         for item in self.currentReferences:
             item[3] = None
             item[5] = None
-            if item[6] and item[2] != None:
+            if item[6] and item[2] is not None:
                 points.append([item[2], item[1]])
 
         # get calibration
@@ -909,7 +909,7 @@ class panelCalibration(wx.Frame, MakeModalMixin):
 
             # recalculate assigned peaks
             for x, item in enumerate(self.currentReferences):
-                if item[2] != None:
+                if item[2] is not None:
                     calibrated = model(params, item[2])
                     self.currentReferences[x][3] = calibrated
                     self.currentReferences[x][5] = mspy.delta(
@@ -941,7 +941,7 @@ class panelCalibration(wx.Frame, MakeModalMixin):
         # get tolerance
         try:
             config.calibration["tolerance"] = float(self.tolerance_value.GetValue())
-        except:
+        except ValueError:
             wx.Bell()
             return
 
@@ -950,7 +950,7 @@ class panelCalibration(wx.Frame, MakeModalMixin):
             for peak in peaklist:
                 delta = mspy.delta(peak.mz, item[1], config.calibration["units"])
                 if abs(delta) <= config.calibration["tolerance"]:
-                    if self.currentReferences[x][2] == None or abs(delta) < abs(
+                    if self.currentReferences[x][2] is None or abs(delta) < abs(
                         self.currentReferences[x][4]
                     ):
                         self.currentReferences[x][2] = peak.mz

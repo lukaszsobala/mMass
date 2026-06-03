@@ -39,12 +39,12 @@ class element:
     valence: (int)
     """
 
-    def __init__(self, name, symbol, atomicNumber, isotopes={}, valence=None):
+    def __init__(self, name, symbol, atomicNumber, isotopes=None, valence=None):
 
         self.name = name
         self.symbol = symbol
         self.atomicNumber = int(atomicNumber)
-        self.isotopes = isotopes
+        self.isotopes = isotopes if isotopes is not None else {}
         self.valence = valence
 
         # init masses
@@ -57,8 +57,8 @@ class element:
                 massMo = isotop[0]
                 maxAbundance = isotop[1]
         if massMo == 0 or massAv == 0:
-            massMo = isotopes[0][0]
-            massAv = isotopes[0][0]
+            massMo = self.isotopes[0][0]
+            massAv = self.isotopes[0][0]
 
         self.mass = (massMo, massAv)
 
@@ -74,8 +74,10 @@ class monomer:
     category: (str) category name
     """
 
-    def __init__(self, abbr, formula, losses=[], name="", category=""):
+    def __init__(self, abbr, formula, losses=None, name="", category=""):
 
+        if losses is None:
+            losses = []
         self.abbr = abbr
         self.formula = formula
         self.losses = losses
@@ -2119,7 +2121,7 @@ modifications = {
 
 
 def loadMonomers(
-    path=os.path.join(blocksdir, "monomers.xml"), clear=False, replace=False
+    path=os.path.join(blocksdir, "monomers.xml"), clear=False, replace=False  # noqa: B008
 ):
     """Parse monomers XML and get data."""
 
@@ -2130,7 +2132,7 @@ def loadMonomers(
 
     # get monomers
     monomerTags = document.getElementsByTagName("monomer")
-    for x, monomerTag in enumerate(monomerTags):
+    for _x, monomerTag in enumerate(monomerTags):
 
         # get basic data
         abbr = monomerTag.getAttribute("abbr")
@@ -2160,7 +2162,7 @@ def loadMonomers(
 # ----
 
 
-def loadEnzymes(path=os.path.join(blocksdir, "enzymes.xml"), clear=False, replace=True):
+def loadEnzymes(path=os.path.join(blocksdir, "enzymes.xml"), clear=False, replace=True):  # noqa: B008
     """Parse enzymes XML and get data."""
 
     container = {}
@@ -2170,7 +2172,7 @@ def loadEnzymes(path=os.path.join(blocksdir, "enzymes.xml"), clear=False, replac
 
     # get enzymes
     enzymeTags = document.getElementsByTagName("enzyme")
-    for x, enzymeTag in enumerate(enzymeTags):
+    for _x, enzymeTag in enumerate(enzymeTags):
 
         # get name
         name = str(enzymeTag.getAttribute("name"))
@@ -2211,7 +2213,7 @@ def loadEnzymes(path=os.path.join(blocksdir, "enzymes.xml"), clear=False, replac
 
 
 def loadModifications(
-    path=os.path.join(blocksdir, "modifications.xml"), clear=False, replace=True
+    path=os.path.join(blocksdir, "modifications.xml"), clear=False, replace=True  # noqa: B008
 ):
     """Parse modifications XML and get data."""
 
@@ -2222,7 +2224,7 @@ def loadModifications(
 
     # get modifications
     modificationTags = document.getElementsByTagName("modification")
-    for x, modificationTag in enumerate(modificationTags):
+    for _x, modificationTag in enumerate(modificationTags):
 
         # get name
         name = str(modificationTag.getAttribute("name"))
@@ -2266,9 +2268,9 @@ def _getNodeText(node):
     """Get text from node list."""
 
     buff = ""
-    for node in node.childNodes:
-        if node.nodeType == node.TEXT_NODE:
-            buff += node.data
+    for child in node.childNodes:
+        if child.nodeType == child.TEXT_NODE:
+            buff += child.data
 
     return buff
 
@@ -2280,7 +2282,7 @@ def _getNodeText(node):
 # --------------
 
 
-def saveMonomers(path=os.path.join(blocksdir, "monomers.xml")):
+def saveMonomers(path=os.path.join(blocksdir, "monomers.xml")):  # noqa: B008
     """Make and save monomers XML."""
 
     # make monomers xml
@@ -2316,7 +2318,7 @@ def saveMonomers(path=os.path.join(blocksdir, "monomers.xml")):
 # ----
 
 
-def saveEnzymes(path=os.path.join(blocksdir, "enzymes.xml")):
+def saveEnzymes(path=os.path.join(blocksdir, "enzymes.xml")):  # noqa: B008
     """Make and save enzymes XML."""
 
     # make enzymes xml
@@ -2354,7 +2356,7 @@ def saveEnzymes(path=os.path.join(blocksdir, "enzymes.xml")):
 # ----
 
 
-def saveModifications(path=os.path.join(blocksdir, "modifications.xml")):
+def saveModifications(path=os.path.join(blocksdir, "modifications.xml")):  # noqa: B008
     """Make and save modifications XML."""
 
     # make modifications xml
