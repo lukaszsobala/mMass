@@ -1554,30 +1554,39 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
         # disable / enable items
         if self.mathOperationAverageAll_radio.GetValue():
+            self.mathSpectrumA_choice.Disable()
             self.mathSpectrumB_choice.Disable()
             self.mathMultiply_value.Disable()
         elif self.mathOperationCombineAll_radio.GetValue():
+            self.mathSpectrumA_choice.Disable()
             self.mathSpectrumB_choice.Disable()
             self.mathMultiply_value.Disable()
         elif self.mathOperationOverlayAll_radio.GetValue():
+            self.mathSpectrumA_choice.Disable()
             self.mathSpectrumB_choice.Disable()
             self.mathMultiply_value.Disable()
         elif self.mathOperationNorm_radio.GetValue():
+            self.mathSpectrumA_choice.Disable()
             self.mathSpectrumB_choice.Disable()
             self.mathMultiply_value.Disable()
         elif self.mathOperationCombine_radio.GetValue():
+            self.mathSpectrumA_choice.Enable()
             self.mathSpectrumB_choice.Enable()
             self.mathMultiply_value.Disable()
         elif self.mathOperationOverlay_radio.GetValue():
+            self.mathSpectrumA_choice.Enable()
             self.mathSpectrumB_choice.Enable()
             self.mathMultiply_value.Disable()
         elif self.mathOperationSubtract_radio.GetValue():
+            self.mathSpectrumA_choice.Enable()
             self.mathSpectrumB_choice.Enable()
             self.mathMultiply_value.Disable()
         elif self.mathOperationMultiply_radio.GetValue():
+            self.mathSpectrumA_choice.Disable()
             self.mathSpectrumB_choice.Disable()
             self.mathMultiply_value.Enable()
         elif self.mathOperationSqrt_radio.GetValue():
+            self.mathSpectrumA_choice.Disable()
             self.mathSpectrumB_choice.Disable()
             self.mathMultiply_value.Disable()
 
@@ -2151,24 +2160,24 @@ class panelProcessing(wx.Frame, MakeModalMixin):
     # ----
 
     def updateCurrentDocument(self):
-        """Show selected document title as Spectrum A."""
+        """Populate Spectrum A with all documents, pre-selecting the current one."""
 
-        # clear choice
         self.mathSpectrumA_choice.Clear()
 
-        # check document
-        if self.currentDocument is None:
+        if not self.parent.documents:
             self.mathSpectrumA_choice.Append("None")
             self.mathSpectrumA_choice.Select(0)
-            return
-
-        # show selected document
-        for x, document in enumerate(self.parent.documents):
-            if document is self.currentDocument:
+        else:
+            selected = 0
+            for x, document in enumerate(self.parent.documents):
                 title = "#%d: %s" % (x + 1, document.title)
                 self.mathSpectrumA_choice.Append(title)
-                self.mathSpectrumA_choice.Select(0)
-                return
+                if document is self.currentDocument:
+                    selected = x
+            self.mathSpectrumA_choice.Select(selected)
+
+        mwx.fitChoice(self.mathSpectrumA_choice, min_width=200)
+        self.mathSpectrumA_choice.GetParent().Layout()
 
     # ----
 
@@ -2179,7 +2188,9 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         if self.processing:
             return
 
-        # update available documents in math panel
+        # update available documents in math panel (both A and B dropdowns)
+        self.updateCurrentDocument()
+
         self.mathSpectrumB_choice.Clear()
         self.mathSpectrumB_choice.Append("None")
 
@@ -2188,6 +2199,8 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             self.mathSpectrumB_choice.Append(title)
 
         self.mathSpectrumB_choice.Select(0)
+        mwx.fitChoice(self.mathSpectrumB_choice, min_width=200)
+        self.mathSpectrumB_choice.GetParent().Layout()
 
         # update available documents in batch panel
         documentsMap = []
@@ -2220,6 +2233,20 @@ class panelProcessing(wx.Frame, MakeModalMixin):
                 "overlayall",
             ):
                 self.previewData = numpy.array([])
+            elif config.processing["math"]["operation"] in (
+                "combine",
+                "overlay",
+                "subtract",
+            ):
+                titleA = self.mathSpectrumA_choice.GetStringSelection()
+                if titleA and titleA != "None":
+                    indexA = int(titleA.split(":")[0][1:])
+                    self.previewData = self.parent.documents[indexA - 1].spectrum.profile
+                elif self.currentDocument:
+                    self.previewData = self.currentDocument.spectrum.profile
+                else:
+                    wx.Bell()
+                    return
             elif not self.currentDocument:
                 wx.Bell()
                 return
@@ -2556,8 +2583,25 @@ class panelProcessing(wx.Frame, MakeModalMixin):
                 "squareroot",
             ):
 
-                # check current spectrum
-                if not self.currentDocument:
+                # resolve spectrum A document
+                if config.processing["math"]["operation"] in (
+                    "combine",
+                    "overlay",
+                    "subtract",
+                ):
+                    titleA = self.mathSpectrumA_choice.GetStringSelection()
+                    if titleA and titleA != "None":
+                        indexA = int(titleA.split(":")[0][1:])
+                        docA = self.parent.documents[indexA - 1]
+                    elif self.currentDocument:
+                        docA = self.currentDocument
+                    else:
+                        wx.Bell()
+                        return
+                else:
+                    docA = self.currentDocument
+
+                if not docA:
                     wx.Bell()
                     return
 
@@ -2577,42 +2621,32 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
                 # backup document
                 if not batch:
-                    self.currentDocument.backup(("spectrum", "notations"))
+                    docA.backup(("spectrum", "notations"))
 
                 # process spectrum
                 preserve_peaks = bool(config.processing["math"]["preservePeaks"])
 
                 if config.processing["math"]["operation"] == "normalize":
-                    self.currentDocument.spectrum.normalize()
+                    docA.spectrum.normalize()
 
                 elif config.processing["math"]["operation"] == "combine":
-                    self.currentDocument.spectrum.combine(
-                        spectrumB, preservePeaks=preserve_peaks
-                    )
+                    docA.spectrum.combine(spectrumB, preservePeaks=preserve_peaks)
 
                 elif config.processing["math"]["operation"] == "overlay":
-                    self.currentDocument.spectrum.overlay(
-                        spectrumB, preservePeaks=preserve_peaks
-                    )
+                    docA.spectrum.overlay(spectrumB, preservePeaks=preserve_peaks)
 
                 elif config.processing["math"]["operation"] == "subtract":
-                    self.currentDocument.spectrum.subtract(
-                        spectrumB, preservePeaks=preserve_peaks
-                    )
+                    docA.spectrum.subtract(spectrumB, preservePeaks=preserve_peaks)
 
                 elif config.processing["math"]["operation"] == "multiply":
-                    self.currentDocument.spectrum.multiply(
-                        y=config.processing["math"]["multiplier"]
-                    )
+                    docA.spectrum.multiply(y=config.processing["math"]["multiplier"])
 
                 elif config.processing["math"]["operation"] == "squareroot":
-                    self.currentDocument.spectrum.squareroot(
-                        preservePeaks=preserve_peaks
-                    )
+                    docA.spectrum.squareroot(preservePeaks=preserve_peaks)
 
                 # remove notations
-                del self.currentDocument.annotations[:]
-                for sequence in self.currentDocument.sequences:
+                del docA.annotations[:]
+                for sequence in docA.sequences:
                     del sequence.matches[:]
 
         # task canceled

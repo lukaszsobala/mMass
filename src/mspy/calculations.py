@@ -1,5 +1,6 @@
 import numpy as np
 from numba import njit, prange
+from scipy.signal import find_peaks
 
 
 def signal_interpolate_x(x1, y1, x2, y2, y):
@@ -77,9 +78,6 @@ def signal_normalize(array):
 
 # Placeholders for more complex ones that will require Numba (Phase 3)
 def signal_local_maxima(array):
-    # Simplified placeholder for maxima detection
-    from scipy.signal import find_peaks
-
     peaks, _ = find_peaks(array[:, 1])
     # mMass local maxima C code handles interpolation? For now returning basic array slice
     # This requires detailed porting of the custom algorithms
@@ -201,23 +199,40 @@ def signal_area(array):
 
 
 def signal_combine(array1, array2):
-    # mMass combine means interleave/merge sort. Since scipy/numpy is fast:
-    # Just concatenate, sort, and handle duplicates.
-    out = np.vstack([array1, array2])
-    out = out[np.argsort(out[:, 0])]
-    # In C it interpolates overlap, but a simple unique mapping might be enough
-    # or just keep all points since a spline/interpolate handles irregular spacing.
-    return out
+    empty1 = array1.ndim < 2 or len(array1) == 0
+    empty2 = array2.ndim < 2 or len(array2) == 0
+    if empty1 and empty2:
+        return np.empty((0, 2), dtype=np.float64)
+    if empty1:
+        return array2.copy()
+    if empty2:
+        return array1.copy()
+    x_all = np.union1d(array1[:, 0], array2[:, 0])
+    y1 = np.interp(x_all, array1[:, 0], array1[:, 1], left=0.0, right=0.0)
+    y2 = np.interp(x_all, array2[:, 0], array2[:, 1], left=0.0, right=0.0)
+    return np.column_stack((x_all, y1 + y2))
 
 
 def signal_overlay(array1, array2):
-    out = np.vstack([array1, array2])
-    out = out[np.argsort(out[:, 0])]
-    return out
+    empty1 = array1.ndim < 2 or len(array1) == 0
+    empty2 = array2.ndim < 2 or len(array2) == 0
+    if empty1 and empty2:
+        return np.empty((0, 2), dtype=np.float64)
+    if empty1:
+        return array2.copy()
+    if empty2:
+        return array1.copy()
+    x_all = np.union1d(array1[:, 0], array2[:, 0])
+    y1 = np.interp(x_all, array1[:, 0], array1[:, 1], left=0.0, right=0.0)
+    y2 = np.interp(x_all, array2[:, 0], array2[:, 1], left=0.0, right=0.0)
+    return np.column_stack((x_all, np.maximum(y1, y2)))
 
 
 def signal_subtract(array1, array2):
-    # Basic difference approximation
+    if array1.ndim < 2 or len(array1) == 0:
+        return np.empty((0, 2), dtype=np.float64)
+    if array2.ndim < 2 or len(array2) == 0:
+        return array1.copy()
     out = array1.copy()
     y2_interp = np.interp(out[:, 0], array2[:, 0], array2[:, 1], left=0, right=0)
     out[:, 1] = out[:, 1] - y2_interp

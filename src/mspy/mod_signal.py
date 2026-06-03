@@ -558,7 +558,7 @@ def smooth(signal, method, window, cycles=1):
 
     # unknown smoothing method
     else:
-        raise KeyError("Unknown smoothing method! -->").with_traceback(method)
+        raise KeyError("Unknown smoothing method! --> " + str(method))
 
 
 # ----
@@ -598,7 +598,7 @@ def movaver(signal, window, cycles=1, style="flat"):
             r = numpy.array([(i - (window - 1) / 2.0) for i in range(window)])
             w = numpy.exp(-(r**2 / (window / 4.0) ** 2))
         else:
-            w = eval("numpy." + style + "(window)")
+            raise ValueError("Unknown smoothing style! --> " + str(style))
 
         s = numpy.r_[yAxis[window - 1 : 0 : -1], yAxis, yAxis[-2 : -window - 1 : -1]]
         y = numpy.convolve(w / w.sum(), s, mode="same")

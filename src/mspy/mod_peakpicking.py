@@ -703,9 +703,8 @@ def _cluster_weights(cluster):
             mod_basics.mz(mono_mz, charge=0, currentCharge=parent.charge, massType=1),
             massType=1,
         )
-        import math
         lam = max(0.0, neutralMass * 0.000475)
-        
+
         # Find maximum required isotope index
         max_iso = 30
         for i, p in enumerate(cluster):
@@ -713,7 +712,7 @@ def _cluster_weights(cluster):
             if iso_idx is None:
                 iso_idx = i
             max_iso = max(max_iso, int(iso_idx) + 1)
-            
+
         pattern = []
         p_val = math.exp(-lam) if lam < 700 else 0.0
         for i in range(max_iso):
@@ -865,8 +864,7 @@ def _cluster_pattern(parent, size):
     )
     
     # Averagine Poisson approximation: expected number of 13C atoms
-    # ~0.0444 carbons per Da, ~1.07% 13C naturally. 
-    import math
+    # ~0.0444 carbons per Da, ~1.07% 13C naturally.
     lam = neutralMass * 0.000475
     
     pattern = []
