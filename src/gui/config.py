@@ -427,6 +427,7 @@ processing = {
         "peakpicking": 0,
         "deisotoping": 0,
         "deconvolution": 0,
+        "stepOrder": ['swap', 'math', 'crop', 'baseline', 'smoothing', 'peakpicking', 'deisotoping', 'deconvolution'],
     },
 }
 

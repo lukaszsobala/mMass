@@ -1117,36 +1117,56 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
         panel = wx.Panel(self, -1)
 
-        # make elements
-        self.batchSwap_check = wx.CheckBox(panel, -1, "Swap data")
-        self.batchMath_check = wx.CheckBox(panel, -1, "Math")
-        self.batchCrop_check = wx.CheckBox(panel, -1, "Crop")
-        self.batchBaseline_check = wx.CheckBox(panel, -1, "Baseline correction")
-        self.batchSmoothing_check = wx.CheckBox(panel, -1, "Smoothing")
-        self.batchPeakpicking_check = wx.CheckBox(panel, -1, "Peak Picking")
-        self.batchDeisotoping_check = wx.CheckBox(panel, -1, "Deisotoping")
-        self.batchDeconvolution_check = wx.CheckBox(panel, -1, "Deconvolution")
+        # ordered list of step keys — determines execution order
+        self._batchStepOrder = list(config.processing["batch"].get(
+            "stepOrder",
+            ['swap', 'math', 'crop', 'baseline', 'smoothing',
+             'peakpicking', 'deisotoping', 'deconvolution'],
+        ))
+        self._batchStepLabels = {
+            'swap':          'Swap Data',
+            'math':          'Math',
+            'crop':          'Crop',
+            'baseline':      'Baseline Correction',
+            'smoothing':     'Smoothing',
+            'peakpicking':   'Peak Picking',
+            'deisotoping':   'Deisotoping',
+            'deconvolution': 'Deconvolution',
+        }
 
-        self.batchPeakpicking_check.Bind(wx.EVT_CHECKBOX, self.onBatchChanged)
+        self.batchStepsList = wx.CheckListBox(
+            panel, -1,
+            choices=[self._batchStepLabels[k] for k in self._batchStepOrder],
+        )
+        self.batchStepsList.Bind(wx.EVT_CHECKLISTBOX, self.onBatchChanged)
+        if images.is_dark_mode():
+            self.batchStepsList.SetBackgroundColour(wx.Colour(30, 30, 30))
+            self.batchStepsList.SetForegroundColour(wx.Colour(220, 220, 220))
+
+        self.batchMoveUp_butt = wx.Button(panel, -1, "Up")
+        self.batchMoveDown_butt = wx.Button(panel, -1, "Down")
+        self.batchMoveUp_butt.SetToolTip(wx.ToolTip("Move step up"))
+        self.batchMoveDown_butt.SetToolTip(wx.ToolTip("Move step down"))
+        self.batchMoveUp_butt.Bind(wx.EVT_BUTTON, self.onBatchMoveUp)
+        self.batchMoveDown_butt.Bind(wx.EVT_BUTTON, self.onBatchMoveDown)
 
         self.makeDocumentsList(panel)
 
-        # pack elements
-        grid = wx.GridBagSizer(mwx.GRIDBAG_VSPACE, mwx.GRIDBAG_HSPACE)
-        grid.Add(self.batchSwap_check, (0, 0))
-        grid.Add(self.batchMath_check, (1, 0))
-        grid.Add(self.batchCrop_check, (2, 0))
-        grid.Add(self.batchBaseline_check, (3, 0))
-        grid.Add(self.batchSmoothing_check, (4, 0))
-        grid.Add(self.batchPeakpicking_check, (5, 0))
-        grid.Add(self.batchDeisotoping_check, (6, 0))
-        grid.Add(self.batchDeconvolution_check, (7, 0))
+        btn_sizer = wx.BoxSizer(wx.VERTICAL)
+        btn_sizer.Add(self.batchMoveUp_butt, 0, wx.EXPAND | wx.BOTTOM, 4)
+        btn_sizer.Add(self.batchMoveDown_butt, 0, wx.EXPAND)
+
+        # proportion=0 keeps the steps column at its natural content width;
+        # wx.EXPAND lets it fill the full panel height as the window grows
+        steps_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        steps_sizer.Add(self.batchStepsList, 0, wx.EXPAND)
+        steps_sizer.Add(btn_sizer, 0, wx.ALIGN_TOP | wx.LEFT, 5)
 
         mainSizer = wx.BoxSizer(wx.HORIZONTAL)
         mainSizer.Add(
             self.batchDocumentsList, 1, wx.EXPAND | wx.ALL, mwx.PANEL_SPACE_MAIN
         )
-        mainSizer.Add(grid, 0, wx.TOP | wx.RIGHT | wx.BOTTOM, mwx.PANEL_SPACE_MAIN)
+        mainSizer.Add(steps_sizer, 0, wx.EXPAND | wx.TOP | wx.RIGHT | wx.BOTTOM, mwx.PANEL_SPACE_MAIN)
 
         # fit layout
         mainSizer.Fit(panel)
@@ -1190,9 +1210,11 @@ class panelProcessing(wx.Frame, MakeModalMixin):
     def makeDocumentsList(self, panel):
         """Make list for documents batch."""
 
-        # init list
+        # init list — explicit min width drives the sizer minimum for the whole
+        # batch panel (empty ListCtrl natural width on GTK is ~50 px which is too
+        # narrow; 250 px here makes the combined sizer minimum ≈ 500 px)
         self.batchDocumentsList = mwx.sortListCtrl(
-            panel, -1, size=wx.Size(251, 100), style=mwx.LISTCTRL_STYLE_MULTI
+            panel, -1, size=wx.Size(250, 100), style=mwx.LISTCTRL_STYLE_MULTI
         )
         self.batchDocumentsList.SetFont(wx.SMALL_FONT)
         self.batchDocumentsList.setAltColour(mwx.LISTCTRL_ALTCOLOUR)
@@ -1203,9 +1225,20 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             self.batchDocumentsList.setDefaultColour(wx.Colour(30, 30, 30))
             self.batchDocumentsList.setAltColour(wx.Colour(40, 40, 40))
 
-        # make columns
+        # make columns — column fills full width; EVT_SIZE keeps it in sync
         self.batchDocumentsList.InsertColumn(0, "document title", wx.LIST_FORMAT_LEFT)
-        self.batchDocumentsList.SetColumnWidth(0, 268)
+        self.batchDocumentsList.SetColumnWidth(0, wx.LIST_AUTOSIZE_USEHEADER)
+        self.batchDocumentsList.Bind(wx.EVT_SIZE, self._onBatchDocumentsListSize)
+
+    # ----
+
+    def _onBatchDocumentsListSize(self, evt):
+        """Keep the document-title column filling the full width of the list control."""
+
+        evt.Skip()
+        w = self.batchDocumentsList.GetClientSize().width
+        if w > 0:
+            self.batchDocumentsList.SetColumnWidth(0, w)
 
     # ----
 
@@ -1335,7 +1368,9 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             self.mainSizer.Show(8)
             self.batch_butt.SetBitmapLabel(images.lib["processingBatchOn"])
 
-        # fit layout
+        # fit layout — shrinks the window to the sizer minimum (which is wide
+        # enough for the batch panel because batchDocumentsList has a 250 px
+        # minimum width baked into the sizer, giving ≈ 500 px total)
         mwx.layout(self, self.mainSizer)
 
     # ----
@@ -1506,15 +1541,16 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             bool(presets["deconvolution"]["forceGroupWindow"])
         )
 
-        # batch processing
-        self.batchSwap_check.SetValue(bool(presets["batch"]["swap"]))
-        self.batchMath_check.SetValue(bool(presets["batch"]["math"]))
-        self.batchCrop_check.SetValue(bool(presets["batch"]["crop"]))
-        self.batchBaseline_check.SetValue(bool(presets["batch"]["baseline"]))
-        self.batchSmoothing_check.SetValue(bool(presets["batch"]["smoothing"]))
-        self.batchPeakpicking_check.SetValue(bool(presets["batch"]["peakpicking"]))
-        self.batchDeisotoping_check.SetValue(bool(presets["batch"]["deisotoping"]))
-        self.batchDeconvolution_check.SetValue(bool(presets["batch"]["deconvolution"]))
+        # batch processing — restore step order if saved with this preset
+        batch = presets["batch"]
+        saved_order = batch.get("stepOrder")
+        if isinstance(saved_order, list) and set(saved_order) == set(self._batchStepLabels):
+            self._batchStepOrder = list(saved_order)
+            self.batchStepsList.Set(
+                [self._batchStepLabels[k] for k in self._batchStepOrder]
+            )
+        for i, key in enumerate(self._batchStepOrder):
+            self.batchStepsList.Check(i, bool(batch.get(key, False)))
 
         # readback all params
         self.getParams()
@@ -1752,37 +1788,56 @@ class panelProcessing(wx.Frame, MakeModalMixin):
     # ----
 
     def onBatchChanged(self, evt=None):
-        """Check math operation, double baseline correction, smoothing and deisotoping."""
+        """Enforce batch step constraints (global-math cannot run per-document)."""
 
-        # enable tools
-        self.batchMath_check.Enable(True)
-        self.batchBaseline_check.Enable(True)
-        self.batchSmoothing_check.Enable(True)
-        self.batchDeisotoping_check.Enable(True)
+        math_idx = self._batchStepOrder.index('math')
 
-        # disable math if multi-document math operation is selected
+        # averageall/combineall/overlayall produce a single new document from all
+        # sources and cannot be applied per-document in a batch loop
         if (
             self.mathOperationAverageAll_radio.GetValue()
             or self.mathOperationCombineAll_radio.GetValue()
             or self.mathOperationOverlayAll_radio.GetValue()
         ):
-            self.batchMath_check.SetValue(False)
-            self.batchMath_check.Enable(False)
+            self.batchStepsList.Check(math_idx, False)
 
-        # check processing if peak picking is turned on
-        if self.batchPeakpicking_check.GetValue():
+    # ----
 
-            if self.peakpickingBaseline_check.GetValue():
-                self.batchBaseline_check.SetValue(False)
-                self.batchBaseline_check.Enable(False)
+    def onBatchMoveUp(self, evt=None):
+        """Move the selected batch step one position earlier in the execution order."""
 
-            if self.peakpickingSmoothing_check.GetValue():
-                self.batchSmoothing_check.SetValue(False)
-                self.batchSmoothing_check.Enable(False)
+        sel = self.batchStepsList.GetSelection()
+        if sel == wx.NOT_FOUND or sel <= 0:
+            return
+        n = len(self._batchStepOrder)
+        checked = [self.batchStepsList.IsChecked(i) for i in range(n)]
+        self._batchStepOrder[sel - 1], self._batchStepOrder[sel] = (
+            self._batchStepOrder[sel], self._batchStepOrder[sel - 1]
+        )
+        checked[sel - 1], checked[sel] = checked[sel], checked[sel - 1]
+        self.batchStepsList.Set([self._batchStepLabels[k] for k in self._batchStepOrder])
+        for i, c in enumerate(checked):
+            self.batchStepsList.Check(i, c)
+        self.batchStepsList.SetSelection(sel - 1)
 
-            if self.peakpickingDeisotoping_check.GetValue():
-                self.batchDeisotoping_check.SetValue(False)
-                self.batchDeisotoping_check.Enable(False)
+    # ----
+
+    def onBatchMoveDown(self, evt=None):
+        """Move the selected batch step one position later in the execution order."""
+
+        sel = self.batchStepsList.GetSelection()
+        n = len(self._batchStepOrder)
+        if sel == wx.NOT_FOUND or sel >= n - 1:
+            return
+        checked = [self.batchStepsList.IsChecked(i) for i in range(n)]
+        self._batchStepOrder[sel], self._batchStepOrder[sel + 1] = (
+            self._batchStepOrder[sel + 1], self._batchStepOrder[sel]
+        )
+        checked[sel], checked[sel + 1] = checked[sel + 1], checked[sel]
+        self.batchStepsList.Set([self._batchStepLabels[k] for k in self._batchStepOrder])
+        for i, c in enumerate(checked):
+            self.batchStepsList.Check(i, c)
+        self.batchStepsList.SetSelection(sel + 1)
 
     # ----
 
@@ -2124,25 +2179,10 @@ class panelProcessing(wx.Frame, MakeModalMixin):
                 self.deconvolutionForceGroupWindow_check.GetValue()
             )
 
-            # batch processing
-            config.processing["batch"]["swap"] = bool(self.batchSwap_check.GetValue())
-            config.processing["batch"]["math"] = bool(self.batchMath_check.GetValue())
-            config.processing["batch"]["crop"] = bool(self.batchCrop_check.GetValue())
-            config.processing["batch"]["baseline"] = bool(
-                self.batchBaseline_check.GetValue()
-            )
-            config.processing["batch"]["smoothing"] = bool(
-                self.batchSmoothing_check.GetValue()
-            )
-            config.processing["batch"]["peakpicking"] = bool(
-                self.batchPeakpicking_check.GetValue()
-            )
-            config.processing["batch"]["deisotoping"] = bool(
-                self.batchDeisotoping_check.GetValue()
-            )
-            config.processing["batch"]["deconvolution"] = bool(
-                self.batchDeconvolution_check.GetValue()
-            )
+            # batch processing — read checked state in current step order
+            for i, key in enumerate(self._batchStepOrder):
+                config.processing["batch"][key] = bool(self.batchStepsList.IsChecked(i))
+            config.processing["batch"]["stepOrder"] = list(self._batchStepOrder)
 
         # ring error bell if error
         except Exception:
@@ -2971,96 +3011,77 @@ class panelProcessing(wx.Frame, MakeModalMixin):
     # ----
 
     def runApplyBatch(self):
-        """Batch process selected documents."""
+        """Batch process selected documents in the user-defined step order."""
 
         self.batchChanged = []
         current = self.currentDocument
 
-        apply_swap = self.batchSwap_check.GetValue()
-        apply_math = self.batchMath_check.GetValue()
-        apply_crop = self.batchCrop_check.GetValue()
-        apply_baseline = self.batchBaseline_check.GetValue()
-        apply_smoothing = self.batchSmoothing_check.GetValue()
-        apply_peakpicking = self.batchPeakpicking_check.GetValue()
-        apply_deisotoping = self.batchDeisotoping_check.GetValue()
-        apply_deconvolution = self.batchDeconvolution_check.GetValue()
+        # build an ordered dict of {key: enabled} from the CheckListBox
+        step_enabled = {
+            self._batchStepOrder[i]: self.batchStepsList.IsChecked(i)
+            for i in range(len(self._batchStepOrder))
+        }
+
         math_operation = config.processing["math"]["operation"]
-        math_is_global = apply_math and math_operation in (
-            "averageall",
-            "combineall",
-            "overlayall",
+        math_is_global = step_enabled.get('math', False) and math_operation in (
+            "averageall", "combineall", "overlayall",
         )
 
-        apply_in_place = (
-            apply_swap
-            or (apply_math and not math_is_global)
-            or apply_crop
-            or apply_baseline
-            or apply_smoothing
-            or apply_peakpicking
-            or apply_deisotoping
-        )
+        # deconvolution creates a new document, so it doesn't need a backup
+        apply_in_place = any(
+            step_enabled.get(k, False)
+            for k in ['swap', 'crop', 'baseline', 'smoothing', 'peakpicking', 'deisotoping']
+        ) or (step_enabled.get('math', False) and not math_is_global)
+
+        apply_deconvolution = step_enabled.get('deconvolution', False)
 
         if not (apply_in_place or apply_deconvolution):
             return
 
+        # dispatch table for per-document steps
+        _step_runners = {
+            'swap':          lambda: self.runApplySwap(batch=True),
+            'crop':          lambda: self.runApplyCrop(batch=True),
+            'baseline':      lambda: self.runApplyBaseline(batch=True),
+            'smoothing':     lambda: self.runApplySmoothing(batch=True),
+            'peakpicking':   lambda: self.runApplyPeakpicking(batch=True),
+            'deisotoping':   lambda: self.runApplyDeisotoping(batch=True),
+            'deconvolution': lambda: self.runApplyDeconvolution(batch=True),
+        }
+
         # run task
         try:
 
-            # get selected documents
+            # collect selected documents (preserving list order for display)
             documents = []
             for x in self.batchDocumentsList.getSelected():
                 docIndex = self.batchDocumentsList.GetItemData(x)
                 documents.append(docIndex)
 
-            # process selected documents
             for docIndex in documents:
 
-                # select document
                 self.currentDocument = self.parent.documents[docIndex]
 
-                # backup document only for in-place processing operations
+                # one backup per document covers all steps — single undo entry
                 if apply_in_place:
                     self.currentDocument.backup(("spectrum", "notations"))
                     self.batchChanged.append(docIndex)
 
-                # apply swap
-                if apply_swap:
-                    self.runApplySwap(batch=True)
+                # execute checked steps in the user-defined order
+                for key in self._batchStepOrder:
+                    if not step_enabled.get(key, False):
+                        continue
+                    if key == 'math':
+                        if not math_is_global:
+                            self.runApplyMath(batch=True)
+                    else:
+                        _step_runners[key]()
 
-                # apply math
-                if apply_math and not math_is_global:
-                    self.runApplyMath(batch=True)
-
-                # apply crop
-                if apply_crop:
-                    self.runApplyCrop(batch=True)
-
-                # apply baseline correction
-                if apply_baseline:
-                    self.runApplyBaseline(batch=True)
-
-                # apply smoothing
-                if apply_smoothing:
-                    self.runApplySmoothing(batch=True)
-
-                # apply peak picking
-                if apply_peakpicking:
-                    self.runApplyPeakpicking(batch=True)
-
-                # apply deisotoping
-                if apply_deisotoping:
-                    self.runApplyDeisotoping(batch=True)
-
-                # apply deconvolution
-                if apply_deconvolution:
-                    self.runApplyDeconvolution(batch=True)
-
-            # global math operations create a new document and don't modify sources
+            # global math operations (averageall/combineall/overlayall) run once
+            # across all source documents and produce a new document
             if documents and math_is_global:
                 self.runApplyMath(batch=True)
 
-            # select original document
             self.currentDocument = current
 
         # task canceled

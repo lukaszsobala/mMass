@@ -635,7 +635,7 @@ class panelPeriodicTable(wx.Frame):
         # show selected element
         if self.currentElement:
             link = (
-                "http://en.wikipedia.org/wiki/%s"
+                "https://en.wikipedia.org/wiki/%s"
                 % mspy.elements[self.currentElement].name
             )
 
@@ -657,11 +657,11 @@ class panelPeriodicTable(wx.Frame):
                 "Metalloids": "Metalloid",
             }
 
-            link = "http://en.wikipedia.org/wiki/%s" % groups[self.currentGroup]
+            link = "https://en.wikipedia.org/wiki/%s" % groups[self.currentGroup]
 
         # show whole table
         else:
-            link = "http://en.wikipedia.org/wiki/Periodic_table"
+            link = "https://en.wikipedia.org/wiki/Periodic_table"
 
         # show the link
         if link:
@@ -678,7 +678,7 @@ class panelPeriodicTable(wx.Frame):
         # show selected element
         if self.currentElement:
             link = (
-                "http://www.periodictable.com/Elements/%0.3d/index.html"
+                "https://www.periodictable.com/Elements/%0.3d/index.html"
                 % mspy.elements[self.currentElement].atomicNumber
             )
             try:
