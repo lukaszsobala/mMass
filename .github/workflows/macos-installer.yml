@@ -1,0 +1,45 @@
+name: Build macOS Installer
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos-installer:
+    # macos-latest is Apple Silicon (arm64); the build targets arm64 only.
+    runs-on: macos-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+          python -m pip install pyinstaller
+
+      - name: Build installer
+        run: python packaging/macos/build_macos_dmg.py
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: mMass-macos-installer
+          path: build/installer/macos/*.dmg
+          if-no-files-found: error
+
+      - name: Attach installer to release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" build/installer/macos/*.dmg --clobber
