@@ -214,8 +214,10 @@ def _scale_pair(pair):
 
 
 if UI_SCALE != 1.0:
-    SMALL_FONT_SIZE = _scale_int(SMALL_FONT_SIZE)
-    NORMAL_FONT_SIZE = _scale_int(NORMAL_FONT_SIZE)
+    # NOTE: font point sizes are deliberately NOT scaled by UI_SCALE. The
+    # toolkit already renders point sizes at the system DPI, so multiplying
+    # them here double-scales fonts (canvas labels, progress dialogs, lists)
+    # on HiDPI displays. UI_SCALE only compensates pixel-based metrics below.
     SASH_SIZE = _scale_int(SASH_SIZE)
     GRIPPER_SIZE = _scale_int(GRIPPER_SIZE)
     PANEL_SPACE_MAIN = _scale_int(PANEL_SPACE_MAIN)
@@ -249,9 +251,9 @@ if UI_SCALE != 1.0:
     LISTCTRL_NO_SPACE = _scale_int(LISTCTRL_NO_SPACE)
     LISTCTRL_SPACE = _scale_int(LISTCTRL_SPACE)
     DOCTREE_BULLETSIZE = _scale_int(DOCTREE_BULLETSIZE)
-    SEQUENCE_FONT_SIZE = _scale_int(SEQUENCE_FONT_SIZE)
     PERIODIC_TABLE_GRID = _scale_pair(PERIODIC_TABLE_GRID)
-    PERIODIC_TABLE_FONT_SIZE = _scale_int(PERIODIC_TABLE_FONT_SIZE)
+    # SEQUENCE_FONT_SIZE / PERIODIC_TABLE_FONT_SIZE intentionally left unscaled
+    # (see the font-size note above).
 
 
 def cmp(a, b):

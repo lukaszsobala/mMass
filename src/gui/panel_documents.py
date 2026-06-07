@@ -1116,7 +1116,12 @@ class documentsTree(wx.TreeCtrl):
         self.parent = parent
 
         # set font and colour
-        self.SetFont(wx.SMALL_FONT)
+        # Derive from the system GUI font (as the peak list does) rather than the
+        # UI-scaled wx.SMALL_FONT: on HiDPI the toolkit already scales point sizes,
+        # so the extra UI_SCALE multiplier made the spectra list font oversized.
+        font = wx.SystemSettings.GetFont(wx.SYS_DEFAULT_GUI_FONT)
+        font.SetPointSize(font.GetPointSize() - 2)
+        self.SetFont(font)
         if images.is_dark_mode():
             self.SetOwnBackgroundColour(wx.Colour(30, 30, 30))
             self.SetForegroundColour(wx.Colour(220, 220, 220))

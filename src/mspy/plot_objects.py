@@ -1897,7 +1897,12 @@ class spectrum:
 
 
 def _scaleFont(font, scale):
-    """Scale font."""
+    """Return a copy of font scaled linearly by scale.
+
+    The print/export legibility boost is already folded into
+    printerScale["fonts"] by the canvas (see _print_font_scale), so this must
+    stay a pure linear scale or printed labels would be boosted twice.
+    """
 
     # check printerScale
     if scale == 1:
@@ -1913,7 +1918,7 @@ def _scaleFont(font, scale):
     encoding = font.GetDefaultEncoding()
 
     # scale pointSize
-    pointSize = int(pointSize * scale * 1.3)
+    pointSize = int(round(pointSize * scale))
 
     # make print font
     printerFont = wx.Font(

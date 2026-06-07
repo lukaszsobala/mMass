@@ -164,7 +164,11 @@ def _apply_ui_scale_to_small_bitmaps(scale):
 
         width = value.GetWidth()
         height = value.GetHeight()
-        if max(width, height) > 64:
+        # Skip large bitmaps (tiled toolbar backgrounds, the about logo) which
+        # are tiled/laid out independently of the icon scale. Periodic-table
+        # sprites are exempt: the connector line is 24x72 but must scale in
+        # lockstep with its 25x27 element cells or the grid pitch desyncs.
+        if max(width, height) > 64 and not key.startswith("periodicTable"):
             continue
 
         lib[key] = _scale_bitmap(value, scale)
@@ -789,13 +793,18 @@ def loadImages():
     lib["periodicTableNoSel"] = ptableSel.GetSubBitmap(wx.Rect(360, 228, 25, 27))
     lib["periodicTableLrSel"] = ptableSel.GetSubBitmap(wx.Rect(384, 228, 25, 27))
 
-    ui_scale = display_scale.get_ui_scale()
-    if ui_scale != 1.0:
-        _apply_ui_scale_to_small_bitmaps(ui_scale)
-
+    # Dark-mode transforms must run before scaling: the toolbar masking detects
+    # the baked background from the corner pixel colour (exact match / small
+    # tolerance). High-quality upscaling interpolates edge pixels into shades
+    # that miss that match, leaving an opaque halo. Masking the crisp source
+    # first lets the later scale interpolate the alpha channel for clean edges.
     if is_dark_mode():
         _apply_dark_mode_to_bitmaps()
         _apply_dark_mode_toolbar_masks()
+
+    ui_scale = display_scale.get_ui_scale()
+    if ui_scale != 1.0:
+        _apply_ui_scale_to_small_bitmaps(ui_scale)
 
 
 # ----

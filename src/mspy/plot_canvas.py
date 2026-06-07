@@ -139,9 +139,14 @@ class canvas(wx.Window):
         self.currentIsotopeLines = 0
         self.gelsCount = 0
         self.basePrinterScale = max(display_scale.get_ui_scale(), 1.0)
+        # On-screen fonts are left at 1.0: the toolkit already renders point
+        # sizes at the system DPI, so scaling them by the UI factor (as the
+        # drawings/pens are) would double-scale canvas labels. The print/export
+        # paths set a larger font scale explicitly and restore this afterwards.
+        self.baseFontScale = 1.0
         self.printerScale = {
             "drawings": self.basePrinterScale,
-            "fonts": self.basePrinterScale,
+            "fonts": self.baseFontScale,
         }
         self.viewMemory = [[], []]
 
@@ -920,10 +925,10 @@ class canvas(wx.Window):
             ratioH = float(drawHeight) / 750
             scale = max(min(ratioW, ratioH), 1)
             self.printerScale["drawings"] = scale
-            self.printerScale["fonts"] = scale
+            self.printerScale["fonts"] = _print_font_scale(scale)
         else:
             self.printerScale["drawings"] = max(printerScale["drawings"], 1)
-            self.printerScale["fonts"] = max(printerScale["fonts"], 1)
+            self.printerScale["fonts"] = _print_font_scale(max(printerScale["fonts"], 1))
 
         # set filter size
         filterSize = max(self.printerScale["drawings"] * 0.5, 0.5)
@@ -935,7 +940,7 @@ class canvas(wx.Window):
         # rescale back to original
         self.setSize()
         self.printerScale["drawings"] = self.basePrinterScale
-        self.printerScale["fonts"] = self.basePrinterScale
+        self.printerScale["fonts"] = self.baseFontScale
         self.refresh()
 
         return tmpBitmap
@@ -1146,7 +1151,7 @@ class canvas(wx.Window):
         if drawings is None:
             drawings = self.basePrinterScale
         if fonts is None:
-            fonts = self.basePrinterScale
+            fonts = self.baseFontScale
         self.printerScale["drawings"] = drawings
         self.printerScale["fonts"] = fonts
 
@@ -2747,7 +2752,7 @@ class printout(wx.Printout):
         scale = min(ratioW, ratioH)
         if not self.IsPreview():
             scale = max(scale, 2.5)
-        self.graph.setPrinterScale(drawings=scale, fonts=scale)
+        self.graph.setPrinterScale(drawings=scale, fonts=_print_font_scale(scale))
 
         # print plot
         self.graph.drawOutside(dc, self.filterSize)
@@ -2766,8 +2771,23 @@ class printout(wx.Printout):
 # -------
 
 
+# Legacy print/export legibility boost: when rendering to a printer or an
+# exported bitmap the axis fonts were enlarged by this factor on top of the
+# geometric scale. It must NOT be applied to on-screen UI scaling, or canvas
+# fonts come out ~30% larger than the selected scale.
+_PRINT_FONT_BOOST = 1.3
+
+
+def _print_font_scale(scale):
+    """Apply the print/export font legibility boost, but only when rescaling."""
+
+    if scale == 1:
+        return scale
+    return scale * _PRINT_FONT_BOOST
+
+
 def _scaleFont(font, scale):
-    """Scale font for printing"""
+    """Return a copy of font scaled linearly by scale."""
 
     # check scale
     if scale == 1:
@@ -2783,7 +2803,7 @@ def _scaleFont(font, scale):
     encoding = font.GetDefaultEncoding()
 
     # scale pointSize
-    pointSize = int(pointSize * scale * 1.3)
+    pointSize = int(round(pointSize * scale))
 
     # make print font
     printerFont = wx.Font(
