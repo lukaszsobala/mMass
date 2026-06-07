@@ -32,7 +32,12 @@ lib = {}
 
 
 def _scale_bitmap(bitmap, scale):
-    """Return a scaled copy of a bitmap."""
+    """Return a scaled copy of a bitmap.
+
+    Integer scales use nearest-neighbour so each source pixel maps to an exact
+    NxN block, keeping the pixel-art icons crisp. Fractional scales fall back to
+    high-quality interpolation since blocky nearest-neighbour looks worse there.
+    """
 
     width = bitmap.GetWidth()
     height = bitmap.GetHeight()
@@ -41,8 +46,13 @@ def _scale_bitmap(bitmap, scale):
     if new_w == width and new_h == height:
         return bitmap
 
+    if float(scale).is_integer():
+        quality = wx.IMAGE_QUALITY_NEAREST
+    else:
+        quality = wx.IMAGE_QUALITY_HIGH
+
     image = bitmap.ConvertToImage()
-    image = image.Scale(new_w, new_h, wx.IMAGE_QUALITY_HIGH)
+    image = image.Scale(new_w, new_h, quality)
     return wx.Bitmap(image)
 
 
@@ -79,9 +89,12 @@ def is_dark_mode():
     return luminance < 128
 
 
-# Bitmaps that are full-colour artwork rather than monochrome UI glyphs;
-# inverting these in dark mode would garble their colours.
-_DARK_MODE_INVERT_EXCLUDE = frozenset(("iconAbout",))
+# Key prefixes that must never be inverted in dark mode regardless of the
+# saturation heuristic. "iconAbout" is full-colour artwork; the periodic-table
+# cells are one coherent set whose near-grey "Off" cells would otherwise invert
+# (going dark) while the coloured "On"/"Sel" cells stay light, splitting the
+# table into a mismatched light/dark grid.
+_DARK_MODE_INVERT_EXCLUDE_PREFIXES = ("iconAbout", "periodicTable")
 
 
 def _invert_bitmap(bitmap):
@@ -93,66 +106,97 @@ def _invert_bitmap(bitmap):
     return wx.Bitmap(image)
 
 
+def _is_colored_image(image, sat_threshold=50, frac_threshold=0.12):
+    """True if a meaningful fraction of opaque pixels are saturated (coloured).
+
+    Monochrome glyphs (black/grey on transparent) benefit from inversion in
+    dark mode, but inverting full-colour icons turns them into garish negatives
+    (e.g. the red error icon becomes cyan), so those are left untouched.
+    """
+
+    w, h = image.GetWidth(), image.GetHeight()
+    if w <= 0 or h <= 0:
+        return False
+
+    rgb = np.frombuffer(image.GetDataBuffer(), dtype=np.uint8)
+    rgb = rgb.reshape((h, w, 3)).astype(np.int16)
+    if image.HasAlpha():
+        alpha = np.frombuffer(image.GetAlphaBuffer(), dtype=np.uint8).reshape((h, w))
+        opaque = alpha > 40
+    else:
+        opaque = np.ones((h, w), dtype=bool)
+
+    if not opaque.any():
+        return False
+
+    px = rgb[opaque]
+    saturation = px.max(axis=1) - px.min(axis=1)
+    return float((saturation > sat_threshold).mean()) > frac_threshold
+
+
 def _apply_dark_mode_to_bitmaps():
-    """Invert all wx.Bitmap entries in lib for dark-mode display."""
+    """Invert monochrome wx.Bitmap entries in lib for dark-mode display.
+
+    Coloured artwork is left as-is; only near-greyscale glyphs are inverted so
+    that dark icons become visible on the dark background.
+    """
     for key in list(lib.keys()):
-        if key in _DARK_MODE_INVERT_EXCLUDE:
+        if key.startswith(_DARK_MODE_INVERT_EXCLUDE_PREFIXES):
             continue
         value = lib[key]
-        if isinstance(value, wx.Bitmap):
-            lib[key] = _invert_bitmap(value)
+        if not isinstance(value, wx.Bitmap):
+            continue
+        if _is_colored_image(value.ConvertToImage()):
+            continue
+        lib[key] = _invert_bitmap(value)
 
 
-def _mask_bitmap_background_from_corner(bitmap):
-    """Treat top-left colour as transparent mask for toolbar-style bitmaps."""
+# Dark panel colour the lower controlbars paint behind their icon buttons
+# (kept in sync with the wx.Colour(30, 30, 30) used by the panels / mwx._DARK_BG).
+_DARK_PANEL_BG = (30, 30, 30)
+
+
+def _flatten_over_background(bitmap, bg):
+    """Composite bitmap over an opaque background colour, dropping alpha.
+
+    The lower controlbars draw their icons in wx.BitmapButtons, and wxGTK
+    BitmapButton ignores the alpha channel: a transparent (white) icon
+    background renders as a solid block on the dark bar. Pre-compositing the
+    icon onto the panel colour makes it display correctly regardless of whether
+    the widget honours alpha.
+    """
 
     image = bitmap.ConvertToImage()
-    if image.GetWidth() <= 0 or image.GetHeight() <= 0:
+    w, h = image.GetWidth(), image.GetHeight()
+    if w <= 0 or h <= 0 or not image.HasAlpha():
         return bitmap
 
-    r = image.GetRed(0, 0)
-    g = image.GetGreen(0, 0)
-    b = image.GetBlue(0, 0)
-    image.SetMaskColour(r, g, b)
-    return wx.Bitmap(image)
+    rgb = np.frombuffer(image.GetDataBuffer(), dtype=np.uint8)
+    rgb = rgb.reshape((h, w, 3)).astype(np.float32)
+    alpha = np.frombuffer(image.GetAlphaBuffer(), dtype=np.uint8)
+    alpha = (alpha.reshape((h, w, 1)).astype(np.float32)) / 255.0
 
+    out = rgb * alpha + np.array(bg, dtype=np.float32) * (1.0 - alpha)
 
-def _transparentize_bitmap_background_from_corner(bitmap, tolerance=10):
-    """Convert corner-like background colour to alpha transparency."""
-
-    image = bitmap.ConvertToImage()
-    if image.GetWidth() <= 0 or image.GetHeight() <= 0:
-        return bitmap
-
-    rgb_buf = image.GetDataBuffer()
-    rgb = np.frombuffer(rgb_buf, dtype=np.uint8)
-    rgb = rgb.reshape((image.GetHeight(), image.GetWidth(), 3))
-
-    c0 = rgb[0, 0].astype(np.int16)
-    diff = np.abs(rgb.astype(np.int16) - c0)
-    bg_mask = np.all(diff <= int(tolerance), axis=2)
-
-    if not image.HasAlpha():
-        image.InitAlpha()
-
-    alpha_buf = image.GetAlphaBuffer()
-    alpha = np.frombuffer(alpha_buf, dtype=np.uint8)
-    alpha = alpha.reshape((image.GetHeight(), image.GetWidth()))
-    alpha[bg_mask] = 0
-
-    return wx.Bitmap(image)
+    flat = wx.Image(w, h)
+    flat.SetData(out.astype(np.uint8).tobytes())
+    return wx.Bitmap(flat)
 
 
 def _apply_dark_mode_toolbar_masks():
-    """Remove baked background colour from lower-toolbar icons in dark mode."""
+    """Flatten lower-controlbar icons onto the dark panel colour.
+
+    See _flatten_over_background: these icons live in wx.BitmapButtons whose
+    GTK rendering drops alpha, so the transparent background must be baked to
+    the dark panel colour instead of left white.
+    """
 
     icon_prefixes = ("documents", "peaklist", "spectrum")
     for key, value in list(lib.items()):
         if not isinstance(value, wx.Bitmap):
             continue
         if key.startswith(icon_prefixes):
-            value = _mask_bitmap_background_from_corner(value)
-            lib[key] = _transparentize_bitmap_background_from_corner(value)
+            lib[key] = _flatten_over_background(value, _DARK_PANEL_BG)
 
 
 def _apply_ui_scale_to_small_bitmaps(scale):
