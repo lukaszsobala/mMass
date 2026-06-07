@@ -79,6 +79,11 @@ def is_dark_mode():
     return luminance < 128
 
 
+# Bitmaps that are full-colour artwork rather than monochrome UI glyphs;
+# inverting these in dark mode would garble their colours.
+_DARK_MODE_INVERT_EXCLUDE = frozenset(("iconAbout",))
+
+
 def _invert_bitmap(bitmap):
     """Return a copy of bitmap with RGB channels inverted (alpha preserved)."""
     image = bitmap.ConvertToImage()
@@ -91,6 +96,8 @@ def _invert_bitmap(bitmap):
 def _apply_dark_mode_to_bitmaps():
     """Invert all wx.Bitmap entries in lib for dark-mode display."""
     for key in list(lib.keys()):
+        if key in _DARK_MODE_INVERT_EXCLUDE:
+            continue
         value = lib[key]
         if isinstance(value, wx.Bitmap):
             lib[key] = _invert_bitmap(value)
