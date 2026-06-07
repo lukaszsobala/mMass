@@ -1266,9 +1266,9 @@ class dlgMessage(wx.Dialog):
         # make buttons
         buttons = wx.BoxSizer(wx.HORIZONTAL)
         for item in self.buttons:
-            button_butt = wx.Button(self, item[0], item[1], size=wx.Size(item[2], -1))
+            button_butt = makeButton(self, item[0], item[1], item[2])
             button_butt.Bind(wx.EVT_BUTTON, self.onButton)
-            buttons.Add(button_butt, 0, wx.RIGHT, item[4])
+            buttons.Add(button_butt, 0, wx.RIGHT, display_scale.scale_metric(item[4], UI_SCALE))
             if item[3]:
                 button_butt.SetDefault()
                 button_butt.SetFocus()
@@ -1298,6 +1298,23 @@ class dlgMessage(wx.Dialog):
 
 # HELPERS
 # -------
+
+
+def makeButton(parent, id, label, width=-1):
+    """Create a button sized to fit its label and the UI scale.
+
+    `width` is a design-width hint (in unscaled pixels); it is scaled by
+    UI_SCALE but the button is never made narrower than its natural best width
+    for the current font/DPI, so the label is not clipped on HiDPI displays.
+    Pass width=-1 to size purely from the label.
+    """
+
+    button = wx.Button(parent, id, label)
+    desired = display_scale.scale_metric(width, UI_SCALE)
+    best = button.GetBestSize().width
+    target = best if desired == -1 else max(desired, best)
+    button.SetMinSize(wx.Size(target, -1))
+    return button
 
 
 def layout(parent, sizer):

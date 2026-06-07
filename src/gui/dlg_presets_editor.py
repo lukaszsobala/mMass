@@ -115,10 +115,10 @@ class dlgPresetsEditor(wx.Dialog):
         self.itemCategory_value.Enable(False)
 
         # buttons
-        rename_butt = wx.Button(self, -1, "Rename", size=wx.Size(80, -1))
+        rename_butt = mwx.makeButton(self, -1, "Rename", 80)
         rename_butt.Bind(wx.EVT_BUTTON, self.onRenameItem)
 
-        delete_butt = wx.Button(self, -1, "Delete", size=wx.Size(80, -1))
+        delete_butt = mwx.makeButton(self, -1, "Delete", 80)
         delete_butt.Bind(wx.EVT_BUTTON, self.onDeleteItem)
 
         # pack elements

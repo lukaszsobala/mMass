@@ -39,6 +39,7 @@ from .ids import (
 from . import mwx
 from . import images
 from . import config
+from . import display_scale
 import mspy
 from . import doc
 
@@ -52,8 +53,13 @@ class panelPeaklist(wx.Panel):
     """Make peaklist panel."""
 
     def __init__(self, parent):
+        panelWidth = display_scale.scale_metric(150, display_scale.get_ui_scale())
         wx.Panel.__init__(
-            self, parent, -1, size=wx.Size(150, -1), style=wx.NO_FULL_REPAINT_ON_RESIZE
+            self,
+            parent,
+            -1,
+            size=wx.Size(panelWidth, -1),
+            style=wx.NO_FULL_REPAINT_ON_RESIZE,
         )
 
         self.parent = parent
@@ -199,9 +205,11 @@ class panelPeaklist(wx.Panel):
     def makePeakList(self):
         """Make peaklist list."""
 
-        # init peaklist
+        # init peaklist (initial width scales with the UI so the responsive
+        # column widths fit without forcing a horizontal scrollbar)
+        listWidth = display_scale.scale_metric(201, display_scale.get_ui_scale())
         self.peakList = mwx.sortListCtrl(
-            self, -1, size=wx.Size(201, -1), style=mwx.LISTCTRL_STYLE_MULTI
+            self, -1, size=wx.Size(listWidth, -1), style=mwx.LISTCTRL_STYLE_MULTI
         )
         font = wx.SystemSettings.GetFont(wx.SYS_DEFAULT_GUI_FONT)
         font.SetPointSize(font.GetPointSize() - 2)
@@ -1170,6 +1178,9 @@ class panelPeaklist(wx.Panel):
         if self.peakList.GetColumnCount() == 0:
             return
 
+        # Reference widths are tuned for UI scale 1.0; scale them so the column
+        # min/max limits track the (DPI/UI-scaled) text rendered in the list.
+        scale = display_scale.get_ui_scale()
         preferredWidths = {
             "mz": 64,
             "ai": 62,
@@ -1198,8 +1209,16 @@ class panelPeaklist(wx.Panel):
             "resol": 72,
             "group": 96,
         }
+        preferredWidths = {
+            key: display_scale.scale_metric(value, scale)
+            for key, value in preferredWidths.items()
+        }
+        maxWidths = {
+            key: display_scale.scale_metric(value, scale)
+            for key, value in maxWidths.items()
+        }
 
-        padding = 8
+        padding = display_scale.scale_metric(8, scale)
         sample_percentile = 0.7
         row_count = self.peakList.GetItemCount()
         dc = wx.ScreenDC()
@@ -1216,15 +1235,18 @@ class panelPeaklist(wx.Panel):
                 if text:
                     widths.append(dc.GetTextExtent(text)[0])
 
+            defaultPreferred = display_scale.scale_metric(60, scale)
+            defaultMax = display_scale.scale_metric(120, scale)
+
             widths.sort()
             if widths:
                 sampleIndex = int((len(widths) - 1) * sample_percentile)
                 width = widths[sampleIndex] + padding
             else:
-                width = preferredWidths.get(column, 60)
+                width = preferredWidths.get(column, defaultPreferred)
 
-            width = max(preferredWidths.get(column, 60), width)
-            width = min(maxWidths.get(column, 120), width)
+            width = max(preferredWidths.get(column, defaultPreferred), width)
+            width = min(maxWidths.get(column, defaultMax), width)
             self.peakList.SetColumnWidth(colIndex, width)
 
     # ----

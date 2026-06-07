@@ -154,10 +154,10 @@ class dlgReferencesEditor(wx.Dialog):
         self.itemMass_value: Any = wx.TextCtrl(self, -1, "", size=wx.Size(280, -1))
 
         # buttons
-        add_butt = wx.Button(self, -1, "Add", size=wx.Size(80, -1))
+        add_butt = mwx.makeButton(self, -1, "Add", 80)
         add_butt.Bind(wx.EVT_BUTTON, self.onAddItem)
 
-        delete_butt = wx.Button(self, -1, "Delete", size=wx.Size(80, -1))
+        delete_butt = mwx.makeButton(self, -1, "Delete", 80)
         delete_butt.Bind(wx.EVT_BUTTON, self.onDeleteItem)
 
         # pack elements

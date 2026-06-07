@@ -93,13 +93,13 @@ class panelAbout(frame):
         copyright = wx.StaticText(panel, -1, "(c) 2005-2013 Martin Strohalm")
         copyright.SetFont(wx.SMALL_FONT)
 
-        homepage_butt = wx.Button(panel, ID_helpHomepage, "Homepage", size=wx.Size(150, -1))
+        homepage_butt = mwx.makeButton(panel, ID_helpHomepage, "Homepage", 150)
         homepage_butt.Bind(wx.EVT_BUTTON, self.parent.onLibraryLink)
 
-        donate_butt = wx.Button(panel, ID_helpDonate, "Make a Donation", size=wx.Size(150, -1))
+        donate_butt = mwx.makeButton(panel, ID_helpDonate, "Make a Donation", 150)
         donate_butt.Bind(wx.EVT_BUTTON, self.parent.onLibraryLink)
 
-        cite_butt = wx.Button(panel, ID_helpCite, "How to Cite", size=wx.Size(150, -1))
+        cite_butt = mwx.makeButton(panel, ID_helpCite, "How to Cite", 150)
         cite_butt.Bind(wx.EVT_BUTTON, self.parent.onLibraryLink)
 
         # pack element

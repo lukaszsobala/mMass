@@ -43,6 +43,7 @@ from .ids import *
 from . import mwx
 from . import images
 from . import config
+from . import display_scale
 from . import libs
 from . import doc
 
@@ -85,6 +86,15 @@ from .dlg_settings import dlgSettings
 
 # MAIN FRAME
 # ----------
+
+
+def _scaledPaneSize(width, height):
+    """Scale an AUI pane size tuple by the current UI scale factor."""
+    scale = display_scale.get_ui_scale()
+    return (
+        display_scale.scale_metric(width, scale),
+        display_scale.scale_metric(height, scale),
+    )
 
 
 class mainFrame(wx.Frame):
@@ -1164,7 +1174,7 @@ class mainFrame(wx.Frame):
             wx.aui.AuiPaneInfo()
             .Name("documents")
             .Left()
-            .MinSize((195, 100))
+            .MinSize(_scaledPaneSize(195, 100))
             .Caption("Opened Documents")
             .CaptionVisible(False)
             .Gripper(config.main["unlockGUI"])
@@ -1190,7 +1200,7 @@ class mainFrame(wx.Frame):
             wx.aui.AuiPaneInfo()
             .Name("peaklist")
             .Right()
-            .MinSize((195, 100))
+            .MinSize(_scaledPaneSize(195, 100))
             .Caption("Current Peak List")
             .CaptionVisible(False)
             .Gripper(config.main["unlockGUI"])
@@ -4014,10 +4024,10 @@ class mainFrame(wx.Frame):
             self.menubar.Check(ID_windowLayout2, True)
             self.AUIManager.GetPane("documents").Show().Bottom().Layer(0).Row(
                 0
-            ).Position(0).MinSize((100, 195)).BestSize((100, 195))
+            ).Position(0).MinSize(_scaledPaneSize(100, 195)).BestSize(_scaledPaneSize(100, 195))
             self.AUIManager.GetPane("peaklist").Show().Right().Layer(0).Row(0).Position(
                 0
-            ).MinSize((195, 100)).BestSize((195, 100))
+            ).MinSize(_scaledPaneSize(195, 100)).BestSize(_scaledPaneSize(195, 100))
 
         # peaklist bottom
         elif layout == "layout3" or (evt and evt.GetId() == ID_windowLayout3):
@@ -4025,10 +4035,10 @@ class mainFrame(wx.Frame):
             self.menubar.Check(ID_windowLayout3, True)
             self.AUIManager.GetPane("documents").Show().Left().Layer(0).Row(0).Position(
                 0
-            ).MinSize((195, 100)).BestSize((195, 100))
+            ).MinSize(_scaledPaneSize(195, 100)).BestSize(_scaledPaneSize(195, 100))
             self.AUIManager.GetPane("peaklist").Show().Bottom().Layer(0).Row(
                 0
-            ).Position(0).MinSize((100, 195)).BestSize((100, 195))
+            ).Position(0).MinSize(_scaledPaneSize(100, 195)).BestSize(_scaledPaneSize(100, 195))
 
         # documents and peaklist bottom
         elif layout == "layout4" or (evt and evt.GetId() == ID_windowLayout4):
@@ -4036,10 +4046,10 @@ class mainFrame(wx.Frame):
             self.menubar.Check(ID_windowLayout4, True)
             self.AUIManager.GetPane("documents").Show().Bottom().Layer(0).Row(
                 0
-            ).Position(0).MinSize((100, 195)).BestSize((100, 195))
+            ).Position(0).MinSize(_scaledPaneSize(100, 195)).BestSize(_scaledPaneSize(100, 195))
             self.AUIManager.GetPane("peaklist").Show().Bottom().Layer(0).Row(
                 0
-            ).Position(1).MinSize((100, 195)).BestSize((100, 195))
+            ).Position(1).MinSize(_scaledPaneSize(100, 195)).BestSize(_scaledPaneSize(100, 195))
 
         # default
         else:
@@ -4047,10 +4057,10 @@ class mainFrame(wx.Frame):
             self.menubar.Check(ID_windowLayout1, True)
             self.AUIManager.GetPane("documents").Show().Left().Layer(0).Row(0).Position(
                 0
-            ).MinSize((195, 100)).BestSize((195, 100))
+            ).MinSize(_scaledPaneSize(195, 100)).BestSize(_scaledPaneSize(195, 100))
             self.AUIManager.GetPane("peaklist").Show().Right().Layer(0).Row(0).Position(
                 0
-            ).MinSize((195, 100)).BestSize((195, 100))
+            ).MinSize(_scaledPaneSize(195, 100)).BestSize(_scaledPaneSize(195, 100))
 
         # set last size
         if layout:

@@ -24,6 +24,7 @@ from .ids import *
 from . import mwx
 from . import images
 from . import config
+from . import display_scale
 import mspy
 from . import doc
 
@@ -37,8 +38,9 @@ class panelDocuments(wx.Panel):
     """Make documents panel."""
 
     def __init__(self, parent, documents):
+        panelWidth = display_scale.scale_metric(150, display_scale.get_ui_scale())
         wx.Panel.__init__(
-            self, parent, -1, size=wx.Size(150, -1), style=wx.NO_FULL_REPAINT_ON_RESIZE
+            self, parent, -1, size=wx.Size(panelWidth, -1), style=wx.NO_FULL_REPAINT_ON_RESIZE
         )
 
         self.parent = parent
