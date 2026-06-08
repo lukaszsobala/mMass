@@ -1855,7 +1855,7 @@ class canvas(wx.Window):
                 x = x2 + 5
                 y = y2 - textSize[1] - 2
 
-            elif self.mouseFnLMB == "yDistance":
+            else:  # "yDistance" -- the only other mode this tracker is used in
                 format = "%0." + repr(self.properties["yPosDigits"]) + "f"
                 distance = format % (dist2[1] - dist1[1])
                 textSize = dc.GetTextExtent(distance)
@@ -2058,6 +2058,7 @@ class canvas(wx.Window):
         maxY = max(maxY, minYPlot)
 
         # get gel coords
+        minYGel = maxYGel = 0
         if self.properties["showGel"]:
             minYGel = minYPlot - (8 * self.printerScale["drawings"])
             maxYGel = minYGel - self.gelsCount * self.properties["gelHeight"]
@@ -2190,33 +2191,36 @@ class canvas(wx.Window):
         dc.SetPen(wx.TRANSPARENT_PEN)
         dc.SetBrush(wx.Brush(self.properties["highlightColour"], wx.SOLID))
 
+        # scale the arrow with the UI so it stays visible on HiDPI displays
+        s = self.printerScale["drawings"]
+
         # draw arrow
         if direction == "up":
             dc.DrawPolygon(
                 [
                     (int(p[0]), int(p[1]))
-                    for p in [(x, y), (x - 3, y + 7), (x + 3, y + 7)]
+                    for p in [(x, y), (x - 3 * s, y + 7 * s), (x + 3 * s, y + 7 * s)]
                 ]
             )
         elif direction == "down":
             dc.DrawPolygon(
                 [
                     (int(p[0]), int(p[1]))
-                    for p in [(x, y), (x - 3, y - 7), (x + 3, y - 7)]
+                    for p in [(x, y), (x - 3 * s, y - 7 * s), (x + 3 * s, y - 7 * s)]
                 ]
             )
         elif direction == "left":
             dc.DrawPolygon(
                 [
                     (int(p[0]), int(p[1]))
-                    for p in [(x + 7, y + 2), (x, y + 5), (x + 7, y + 8)]
+                    for p in [(x + 7 * s, y + 2 * s), (x, y + 5 * s), (x + 7 * s, y + 8 * s)]
                 ]
             )
         elif direction == "right":
             dc.DrawPolygon(
                 [
                     (int(p[0]), int(p[1]))
-                    for p in [(x - 7, y + 2), (x, y + 5), (x - 7, y + 8)]
+                    for p in [(x - 7 * s, y + 2 * s), (x, y + 5 * s), (x - 7 * s, y + 8 * s)]
                 ]
             )
 
@@ -2460,6 +2464,7 @@ class canvas(wx.Window):
         error = fraction
         multiples = [(3.0, numpy.log10(2.0)), (5.0, numpy.log10(5.0))]
 
+        f = 1.0
         for f, lf in multiples:
             e = numpy.fabs(fraction - lf)
             if e < error:
@@ -2705,8 +2710,8 @@ class printout(wx.Printout):
 
     # ----
 
-    def HasPage(self, page):
-        if page == 1:
+    def HasPage(self, pageNum):
+        if pageNum == 1:
             return True
         else:
             return False
@@ -2719,7 +2724,7 @@ class printout(wx.Printout):
 
     # ----
 
-    def OnPrintPage(self, page):
+    def OnPrintPage(self, pageNum):
         """Get and format data to print."""
 
         # get DC
