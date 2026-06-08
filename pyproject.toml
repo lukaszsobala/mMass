@@ -4,10 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mMass"
-version = "7.0.0-beta13"
+version = "7.0.0-beta14"
 description = "mMass - Open Source Mass Spectrometry Tool"
 readme = "README.md"
 authors = [
+    { name = "Łukasz Sobala" },
     { name = "Edd Salkield", email = "edd@salkield.uk" },
     { name = "Martin Strohalm" }
 ]
