@@ -115,7 +115,7 @@ class panelMascot(wx.Frame, MakeModalMixin):
         )
 
         # make tools
-        self.pmf_butt = wx.BitmapButton(
+        self.pmf_butt = mwx.makeBitmapButton(
             panel,
             ID_mascotPMF,
             images.lib["mascotPMFOff"],
@@ -125,7 +125,7 @@ class panelMascot(wx.Frame, MakeModalMixin):
         self.pmf_butt.SetToolTip(wx.ToolTip("Peptide mass fingerprint"))
         self.pmf_butt.Bind(wx.EVT_BUTTON, self.onToolSelected)
 
-        self.mis_butt = wx.BitmapButton(
+        self.mis_butt = mwx.makeBitmapButton(
             panel,
             ID_mascotMIS,
             images.lib["mascotMISOff"],
@@ -135,7 +135,7 @@ class panelMascot(wx.Frame, MakeModalMixin):
         self.mis_butt.SetToolTip(wx.ToolTip("MS/MS ion search"))
         self.mis_butt.Bind(wx.EVT_BUTTON, self.onToolSelected)
 
-        self.sq_butt = wx.BitmapButton(
+        self.sq_butt = mwx.makeBitmapButton(
             panel,
             ID_mascotSQ,
             images.lib["mascotSQOff"],
@@ -145,7 +145,7 @@ class panelMascot(wx.Frame, MakeModalMixin):
         self.sq_butt.SetToolTip(wx.ToolTip("Sequence query"))
         self.sq_butt.Bind(wx.EVT_BUTTON, self.onToolSelected)
 
-        self.query_butt = wx.BitmapButton(
+        self.query_butt = mwx.makeBitmapButton(
             panel,
             ID_mascotQuery,
             images.lib["mascotQueryOff"],

@@ -1763,7 +1763,7 @@ class canvas(wx.Window):
             yText = yFormat % (self.cursorPosition[1])
 
             # get text position
-            dc.SetFont(self.properties["axisFont"])
+            dc.SetFont(_scaleFont(self.properties["axisFont"], self.printerScale["fonts"]))
             xTextSize = dc.GetTextExtent(xText)
             yTextSize = dc.GetTextExtent(yText)
             x += 5
@@ -1842,7 +1842,7 @@ class canvas(wx.Window):
         if self.properties["showCurDistance"]:
 
             # set font
-            dc.SetFont(self.properties["axisFont"])
+            dc.SetFont(_scaleFont(self.properties["axisFont"], self.printerScale["fonts"]))
 
             # get distance
             dist1 = self.positionScreenToUser((x1, y1))
@@ -1917,7 +1917,7 @@ class canvas(wx.Window):
             text = format % (self.cursorPosition[0])
 
             # get text position
-            dc.SetFont(self.properties["axisFont"])
+            dc.SetFont(_scaleFont(self.properties["axisFont"], self.printerScale["fonts"]))
             textSize = dc.GetTextExtent(text)
             x = x + 5
             y = y - textSize[1] - 2
@@ -2017,7 +2017,7 @@ class canvas(wx.Window):
             chargeText = str(self.currentCharge)
 
             # get text position
-            dc.SetFont(self.properties["axisFont"])
+            dc.SetFont(_scaleFont(self.properties["axisFont"], self.printerScale["fonts"]))
             textSize = dc.GetTextExtent(chargeText)
             x -= textSize[0] + 5
             y -= textSize[1] + 5

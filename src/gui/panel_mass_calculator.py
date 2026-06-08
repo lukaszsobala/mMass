@@ -116,7 +116,7 @@ class panelMassCalculator(wx.Frame):
         )
 
         # make buttons
-        self.summary_butt = wx.BitmapButton(
+        self.summary_butt = mwx.makeBitmapButton(
             panel,
             ID_massCalculatorSummary,
             images.lib["massCalculatorSummaryOff"],
@@ -126,7 +126,7 @@ class panelMassCalculator(wx.Frame):
         self.summary_butt.SetToolTip(wx.ToolTip("Compound summary"))
         self.summary_butt.Bind(wx.EVT_BUTTON, self.onToolSelected)
 
-        self.ionseries_butt = wx.BitmapButton(
+        self.ionseries_butt = mwx.makeBitmapButton(
             panel,
             ID_massCalculatorIonSeries,
             images.lib["massCalculatorIonSeriesOff"],
@@ -136,7 +136,7 @@ class panelMassCalculator(wx.Frame):
         self.ionseries_butt.SetToolTip(wx.ToolTip("Ion series"))
         self.ionseries_butt.Bind(wx.EVT_BUTTON, self.onToolSelected)
 
-        self.pattern_butt = wx.BitmapButton(
+        self.pattern_butt = mwx.makeBitmapButton(
             panel,
             ID_massCalculatorPattern,
             images.lib["massCalculatorPatternOff"],
@@ -329,7 +329,7 @@ class panelMassCalculator(wx.Frame):
         )
 
         # make controls
-        self.patternCollapse_butt = wx.BitmapButton(
+        self.patternCollapse_butt = mwx.makeBitmapButton(
             ctrlPanel,
             ID_massCalculatorCollapse,
             images.lib["arrowsDown"],

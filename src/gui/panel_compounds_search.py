@@ -119,7 +119,7 @@ class panelCompoundsSearch(wx.Frame, MakeModalMixin):
         )
 
         # make tools
-        self.compounds_butt = wx.BitmapButton(
+        self.compounds_butt = mwx.makeBitmapButton(
             panel,
             ID_compoundsSearchCompounds,
             images.lib["compoundsSearchCompoundsOff"],
@@ -129,7 +129,7 @@ class panelCompoundsSearch(wx.Frame, MakeModalMixin):
         self.compounds_butt.SetToolTip(wx.ToolTip("Compounds search"))
         self.compounds_butt.Bind(wx.EVT_BUTTON, self.onToolSelected)
 
-        self.formula_butt = wx.BitmapButton(
+        self.formula_butt = mwx.makeBitmapButton(
             panel,
             ID_compoundsSearchFormula,
             images.lib["compoundsSearchFormulaOff"],
@@ -346,7 +346,7 @@ class panelCompoundsSearch(wx.Frame, MakeModalMixin):
         # make elements
         self.gauge = mwx.gauge(panel, -1)
 
-        stop_butt = wx.BitmapButton(
+        stop_butt = mwx.makeBitmapButton(
             panel, -1, images.lib["stopper"], style=wx.BORDER_NONE
         )
         stop_butt.Bind(wx.EVT_BUTTON, self.onStop)

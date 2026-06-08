@@ -130,7 +130,7 @@ class panelMatch(wx.Frame, MakeModalMixin):
         )
 
         # make buttons
-        self.errors_butt = wx.BitmapButton(
+        self.errors_butt = mwx.makeBitmapButton(
             panel,
             ID_matchErrors,
             images.lib["matchErrorsOff"],
@@ -140,7 +140,7 @@ class panelMatch(wx.Frame, MakeModalMixin):
         self.errors_butt.SetToolTip(wx.ToolTip("Error plot"))
         self.errors_butt.Bind(wx.EVT_BUTTON, self.onToolSelected)
 
-        self.summary_butt = wx.BitmapButton(
+        self.summary_butt = mwx.makeBitmapButton(
             panel,
             ID_matchSummary,
             images.lib["matchSummaryOff"],
@@ -351,7 +351,7 @@ class panelMatch(wx.Frame, MakeModalMixin):
         # make elements
         self.gauge = mwx.gauge(panel, -1)
 
-        stop_butt = wx.BitmapButton(
+        stop_butt = mwx.makeBitmapButton(
             panel, -1, images.lib["stopper"], style=wx.BORDER_NONE
         )
         stop_butt.Bind(wx.EVT_BUTTON, self.onStop)

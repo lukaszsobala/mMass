@@ -98,7 +98,7 @@ class panelDocumentInfo(wx.Frame):
         )
 
         # make buttons
-        self.summary_butt = wx.BitmapButton(
+        self.summary_butt = mwx.makeBitmapButton(
             panel,
             ID_documentInfoSummary,
             images.lib["documentInfoSummaryOff"],
@@ -108,7 +108,7 @@ class panelDocumentInfo(wx.Frame):
         self.summary_butt.SetToolTip(wx.ToolTip("Document summary"))
         self.summary_butt.Bind(wx.EVT_BUTTON, self.onToolSelected)
 
-        self.spectrum_butt = wx.BitmapButton(
+        self.spectrum_butt = mwx.makeBitmapButton(
             panel,
             ID_documentInfoSpectrum,
             images.lib["documentInfoSpectrumOff"],
@@ -118,7 +118,7 @@ class panelDocumentInfo(wx.Frame):
         self.spectrum_butt.SetToolTip(wx.ToolTip("Spectrum information"))
         self.spectrum_butt.Bind(wx.EVT_BUTTON, self.onToolSelected)
 
-        self.notes_butt = wx.BitmapButton(
+        self.notes_butt = mwx.makeBitmapButton(
             panel,
             ID_documentInfoNotes,
             images.lib["documentInfoNotesOff"],
@@ -128,7 +128,7 @@ class panelDocumentInfo(wx.Frame):
         self.notes_butt.SetToolTip(wx.ToolTip("Analysis notes"))
         self.notes_butt.Bind(wx.EVT_BUTTON, self.onToolSelected)
 
-        self.presets_butt = wx.BitmapButton(
+        self.presets_butt = mwx.makeBitmapButton(
             panel,
             -1,
             images.lib["toolsPresets"],

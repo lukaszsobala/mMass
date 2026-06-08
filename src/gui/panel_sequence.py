@@ -124,7 +124,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
         )
 
         # make buttons
-        self.editor_butt = wx.BitmapButton(
+        self.editor_butt = mwx.makeBitmapButton(
             panel,
             ID_sequenceEditor,
             images.lib["sequenceEditorOff"],
@@ -134,7 +134,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
         self.editor_butt.SetToolTip(wx.ToolTip("Sequence editor"))
         self.editor_butt.Bind(wx.EVT_BUTTON, self.onToolSelected)
 
-        self.modifications_butt = wx.BitmapButton(
+        self.modifications_butt = mwx.makeBitmapButton(
             panel,
             ID_sequenceModifications,
             images.lib["sequenceModificationsOff"],
@@ -144,7 +144,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
         self.modifications_butt.SetToolTip(wx.ToolTip("Sequence modifications"))
         self.modifications_butt.Bind(wx.EVT_BUTTON, self.onToolSelected)
 
-        self.digest_butt = wx.BitmapButton(
+        self.digest_butt = mwx.makeBitmapButton(
             panel,
             ID_sequenceDigest,
             images.lib["sequenceDigestOff"],
@@ -154,7 +154,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
         self.digest_butt.SetToolTip(wx.ToolTip("Protein digest"))
         self.digest_butt.Bind(wx.EVT_BUTTON, self.onToolSelected)
 
-        self.fragment_butt = wx.BitmapButton(
+        self.fragment_butt = mwx.makeBitmapButton(
             panel,
             ID_sequenceFragment,
             images.lib["sequenceFragmentOff"],
@@ -164,7 +164,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
         self.fragment_butt.SetToolTip(wx.ToolTip("Peptide fragmentation"))
         self.fragment_butt.Bind(wx.EVT_BUTTON, self.onToolSelected)
 
-        self.search_butt = wx.BitmapButton(
+        self.search_butt = mwx.makeBitmapButton(
             panel,
             ID_sequenceSearch,
             images.lib["sequenceSearchOff"],
@@ -232,7 +232,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
         """Make toolbar for sequence panel."""
 
         # make elements
-        self.monomerLibrary_butt = wx.BitmapButton(
+        self.monomerLibrary_butt = mwx.makeBitmapButton(
             panel,
             -1,
             images.lib["toolsLibrary"],
@@ -286,7 +286,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
         """Make toolbar for modifications panel."""
 
         # make elements
-        self.modsPresets_butt = wx.BitmapButton(
+        self.modsPresets_butt = mwx.makeBitmapButton(
             panel,
             -1,
             images.lib["toolsPresets"],
@@ -396,7 +396,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
         """Make toolbar for fragment panel."""
 
         # make elements
-        self.fragmentPresets_butt = wx.BitmapButton(
+        self.fragmentPresets_butt = mwx.makeBitmapButton(
             panel,
             -1,
             images.lib["toolsPresets"],
@@ -1119,7 +1119,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
         # make elements
         self.gauge = mwx.gauge(panel, -1)
 
-        stop_butt = wx.BitmapButton(
+        stop_butt = mwx.makeBitmapButton(
             panel, -1, images.lib["stopper"], style=wx.BORDER_NONE
         )
         stop_butt.Bind(wx.EVT_BUTTON, self.onStop)

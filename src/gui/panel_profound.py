@@ -101,7 +101,7 @@ class panelProfound(wx.Frame):
         )
 
         # make tools
-        self.pmf_butt = wx.BitmapButton(
+        self.pmf_butt = mwx.makeBitmapButton(
             panel,
             ID_profoundPMF,
             images.lib["profoundPMFOff"],
@@ -111,7 +111,7 @@ class panelProfound(wx.Frame):
         self.pmf_butt.SetToolTip(wx.ToolTip("Peptide mass fingerprint"))
         self.pmf_butt.Bind(wx.EVT_BUTTON, self.onToolSelected)
 
-        self.query_butt = wx.BitmapButton(
+        self.query_butt = mwx.makeBitmapButton(
             panel,
             ID_profoundQuery,
             images.lib["profoundQueryOff"],

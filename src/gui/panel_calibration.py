@@ -110,7 +110,7 @@ class panelCalibration(wx.Frame, MakeModalMixin):
         )
 
         # make buttons
-        self.references_butt = wx.BitmapButton(
+        self.references_butt = mwx.makeBitmapButton(
             panel,
             ID_calibrationReferences,
             images.lib["calibrationReferencesOff"],
@@ -120,7 +120,7 @@ class panelCalibration(wx.Frame, MakeModalMixin):
         self.references_butt.SetToolTip(wx.ToolTip("Calibration references"))
         self.references_butt.Bind(wx.EVT_BUTTON, self.onToolSelected)
 
-        self.errors_butt = wx.BitmapButton(
+        self.errors_butt = mwx.makeBitmapButton(
             panel,
             ID_calibrationErrors,
             images.lib["calibrationErrorsOff"],

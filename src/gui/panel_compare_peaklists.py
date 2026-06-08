@@ -375,7 +375,7 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         # make elements
         self.gauge = mwx.gauge(panel, -1)
 
-        stop_butt = wx.BitmapButton(
+        stop_butt = mwx.makeBitmapButton(
             panel, -1, images.lib["stopper"], style=wx.BORDER_NONE
         )
         stop_butt.Bind(wx.EVT_BUTTON, self.onStop)

@@ -1317,6 +1317,48 @@ def makeButton(parent, id, label, width=-1):
     return button
 
 
+def makeBitmapButton(parent, id=wx.ID_ANY, bitmap=wx.NullBitmap, *args, **kwargs):
+    """Create a wx.BitmapButton, tagging the bitmap as HiDPI on wxMSW.
+
+    On Windows, a per-monitor-DPI-aware wxBitmapButton treats a plain wx.Bitmap
+    as a 96-DPI image and re-upscales it by the DPI factor. Our icons are
+    already scaled by UI_SCALE in images.loadImages(), so that doubles their
+    size (and the native main toolbar does not, because SetToolBitmapSize pins
+    the display size). Marking the bitmap's scale factor lets wx render our
+    pre-scaled bitmap at the correct logical size -- crisp, no re-upscale.
+
+    The scale factor is applied to a non-mutating copy so other consumers of the
+    shared lib bitmap (DrawBitmap on the canvas/periodic table, the native
+    toolbar) are unaffected. Only small, already-scaled icon bitmaps qualify.
+    """
+
+    if (
+        wx.Platform == "__WXMSW__"
+        and UI_SCALE != 1.0
+        and isinstance(bitmap, wx.Bitmap)
+        and bitmap.IsOk()
+        and max(bitmap.GetWidth(), bitmap.GetHeight()) <= 64 * UI_SCALE
+    ):
+        tagged = bitmap.GetSubBitmap(
+            wx.Rect(0, 0, bitmap.GetWidth(), bitmap.GetHeight())
+        )
+        try:
+            tagged.SetScaleFactor(UI_SCALE)
+            bitmap = tagged
+        except Exception:
+            pass
+
+    # wx.BitmapButton expects a wx.BitmapBundle; converting explicitly (wx does
+    # this internally for a plain bitmap anyway) keeps the bundle's scale factor
+    # and satisfies the type checker.
+    bundle = (
+        bitmap
+        if isinstance(bitmap, wx.BitmapBundle)
+        else wx.BitmapBundle.FromBitmap(bitmap)
+    )
+    return wx.BitmapButton(parent, id, bundle, *args, **kwargs)
+
+
 def layout(parent, sizer):
     """Ensure correct panel layout - hack."""
 

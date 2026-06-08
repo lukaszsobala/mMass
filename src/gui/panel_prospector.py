@@ -104,7 +104,7 @@ class panelProspector(wx.Frame):
         )
 
         # make tools
-        self.msFit_butt = wx.BitmapButton(
+        self.msFit_butt = mwx.makeBitmapButton(
             panel,
             ID_prospectorMSFit,
             images.lib["prospectorMSFitOff"],
@@ -114,7 +114,7 @@ class panelProspector(wx.Frame):
         self.msFit_butt.SetToolTip(wx.ToolTip("MS-Fit Tool"))
         self.msFit_butt.Bind(wx.EVT_BUTTON, self.onToolSelected)
 
-        self.msTag_butt = wx.BitmapButton(
+        self.msTag_butt = mwx.makeBitmapButton(
             panel,
             ID_prospectorMSTag,
             images.lib["prospectorMSTagOff"],
@@ -124,7 +124,7 @@ class panelProspector(wx.Frame):
         self.msTag_butt.SetToolTip(wx.ToolTip("MS-Tag Tool"))
         self.msTag_butt.Bind(wx.EVT_BUTTON, self.onToolSelected)
 
-        self.query_butt = wx.BitmapButton(
+        self.query_butt = mwx.makeBitmapButton(
             panel,
             ID_prospectorQuery,
             images.lib["prospectorQueryOff"],

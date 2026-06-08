@@ -103,7 +103,7 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
         )
 
         # make buttons
-        self.image_butt = wx.BitmapButton(
+        self.image_butt = mwx.makeBitmapButton(
             panel,
             ID_documentExportImage,
             images.lib["documentExportImageOff"],
@@ -113,7 +113,7 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
         self.image_butt.SetToolTip(wx.ToolTip("Export spectrum image"))
         self.image_butt.Bind(wx.EVT_BUTTON, self.onToolSelected)
 
-        self.peaklist_butt = wx.BitmapButton(
+        self.peaklist_butt = mwx.makeBitmapButton(
             panel,
             ID_documentExportPeaklist,
             images.lib["documentExportPeaklistOff"],
@@ -123,7 +123,7 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
         self.peaklist_butt.SetToolTip(wx.ToolTip("Export peak list"))
         self.peaklist_butt.Bind(wx.EVT_BUTTON, self.onToolSelected)
 
-        self.spectrum_butt = wx.BitmapButton(
+        self.spectrum_butt = mwx.makeBitmapButton(
             panel,
             ID_documentExportSpectrum,
             images.lib["documentExportSpectrumOff"],

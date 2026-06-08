@@ -163,7 +163,7 @@ class panelSpectrum(wx.Panel):
         image = (images.lib["spectrumLabelsOff"], images.lib["spectrumLabelsOn"])[
             config.spectrum["showLabels"]
         ]
-        self.showLabels_butt = wx.BitmapButton(
+        self.showLabels_butt = mwx.makeBitmapButton(
             panel,
             ID_viewLabels,
             image,
@@ -176,7 +176,7 @@ class panelSpectrum(wx.Panel):
         image = (images.lib["spectrumTicksOff"], images.lib["spectrumTicksOn"])[
             config.spectrum["showTicks"]
         ]
-        self.showTicks_butt = wx.BitmapButton(
+        self.showTicks_butt = mwx.makeBitmapButton(
             panel,
             ID_viewTicks,
             image,
@@ -189,7 +189,7 @@ class panelSpectrum(wx.Panel):
         image = (images.lib["spectrumNotationsOff"], images.lib["spectrumNotationsOn"])[
             config.spectrum["showNotations"]
         ]
-        self.showNotations_butt = wx.BitmapButton(
+        self.showNotations_butt = mwx.makeBitmapButton(
             panel,
             ID_viewNotations,
             image,
@@ -203,7 +203,7 @@ class panelSpectrum(wx.Panel):
             images.lib["spectrumLabelAngleOff"],
             images.lib["spectrumLabelAngleOn"],
         )[bool(config.spectrum["labelAngle"])]
-        self.labelAngle_butt = wx.BitmapButton(
+        self.labelAngle_butt = mwx.makeBitmapButton(
             panel,
             ID_viewLabelAngle,
             image,
@@ -216,7 +216,7 @@ class panelSpectrum(wx.Panel):
         image = (images.lib["spectrumPosBarsOff"], images.lib["spectrumPosBarsOn"])[
             config.spectrum["showPosBars"]
         ]
-        self.showPosBars_butt = wx.BitmapButton(
+        self.showPosBars_butt = mwx.makeBitmapButton(
             panel,
             ID_viewPosBars,
             image,
@@ -229,7 +229,7 @@ class panelSpectrum(wx.Panel):
         image = (images.lib["spectrumGelOff"], images.lib["spectrumGelOn"])[
             config.spectrum["showGel"]
         ]
-        self.showGel_butt = wx.BitmapButton(
+        self.showGel_butt = mwx.makeBitmapButton(
             panel,
             ID_viewGel,
             image,
@@ -242,7 +242,7 @@ class panelSpectrum(wx.Panel):
         image = (images.lib["spectrumTrackerOff"], images.lib["spectrumTrackerOn"])[
             config.spectrum["showTracker"]
         ]
-        self.showTracker_butt = wx.BitmapButton(
+        self.showTracker_butt = mwx.makeBitmapButton(
             panel,
             ID_viewTracker,
             image,
@@ -255,7 +255,7 @@ class panelSpectrum(wx.Panel):
         image = (images.lib["spectrumAutoscaleOff"], images.lib["spectrumAutoscaleOn"])[
             config.spectrum["autoscale"]
         ]
-        self.autoscale_butt = wx.BitmapButton(
+        self.autoscale_butt = mwx.makeBitmapButton(
             panel,
             ID_viewAutoscale,
             image,
@@ -268,7 +268,7 @@ class panelSpectrum(wx.Panel):
         image = (images.lib["spectrumNormalizeOff"], images.lib["spectrumNormalizeOn"])[
             config.spectrum["normalize"]
         ]
-        self.normalize_butt = wx.BitmapButton(
+        self.normalize_butt = mwx.makeBitmapButton(
             panel,
             ID_viewNormalize,
             image,
@@ -279,7 +279,7 @@ class panelSpectrum(wx.Panel):
         self.normalize_butt.Bind(wx.EVT_BUTTON, self.parent.onView)
 
         # make processing toolset
-        self.toolsRuler_butt = wx.BitmapButton(
+        self.toolsRuler_butt = mwx.makeBitmapButton(
             panel,
             ID_toolsRuler,
             images.lib["spectrumRulerOff"],
@@ -289,7 +289,7 @@ class panelSpectrum(wx.Panel):
         self.toolsRuler_butt.SetToolTip(wx.ToolTip("Spectrum ruler"))
         self.toolsRuler_butt.Bind(wx.EVT_BUTTON, self.parent.onToolsSpectrum)
 
-        self.toolsLabelPeak_butt = wx.BitmapButton(
+        self.toolsLabelPeak_butt = mwx.makeBitmapButton(
             panel,
             ID_toolsLabelPeak,
             images.lib["spectrumLabelPeakOff"],
@@ -299,7 +299,7 @@ class panelSpectrum(wx.Panel):
         self.toolsLabelPeak_butt.SetToolTip(wx.ToolTip("Label peak"))
         self.toolsLabelPeak_butt.Bind(wx.EVT_BUTTON, self.parent.onToolsSpectrum)
 
-        self.toolsLabelPoint_butt = wx.BitmapButton(
+        self.toolsLabelPoint_butt = mwx.makeBitmapButton(
             panel,
             ID_toolsLabelPoint,
             images.lib["spectrumLabelPointOff"],
@@ -309,7 +309,7 @@ class panelSpectrum(wx.Panel):
         self.toolsLabelPoint_butt.SetToolTip(wx.ToolTip("Label point"))
         self.toolsLabelPoint_butt.Bind(wx.EVT_BUTTON, self.parent.onToolsSpectrum)
 
-        self.toolsLabelEnvelope_butt = wx.BitmapButton(
+        self.toolsLabelEnvelope_butt = mwx.makeBitmapButton(
             panel,
             ID_toolsLabelEnvelope,
             images.lib["spectrumLabelEnvelopeOff"],
@@ -319,7 +319,7 @@ class panelSpectrum(wx.Panel):
         self.toolsLabelEnvelope_butt.SetToolTip(wx.ToolTip("Label envelope"))
         self.toolsLabelEnvelope_butt.Bind(wx.EVT_BUTTON, self.parent.onToolsSpectrum)
 
-        self.toolsDeleteLabel_butt = wx.BitmapButton(
+        self.toolsDeleteLabel_butt = mwx.makeBitmapButton(
             panel,
             ID_toolsDeleteLabel,
             images.lib["spectrumDeleteLabelOff"],
@@ -329,7 +329,7 @@ class panelSpectrum(wx.Panel):
         self.toolsDeleteLabel_butt.SetToolTip(wx.ToolTip("Delete label"))
         self.toolsDeleteLabel_butt.Bind(wx.EVT_BUTTON, self.parent.onToolsSpectrum)
 
-        self.toolsOffset_butt = wx.BitmapButton(
+        self.toolsOffset_butt = mwx.makeBitmapButton(
             panel,
             ID_toolsOffset,
             images.lib["spectrumOffsetOff"],

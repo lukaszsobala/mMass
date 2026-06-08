@@ -88,7 +88,7 @@ class panelDocuments(wx.Panel):
                 size=wx.Size(-1, mwx.BOTTOMBAR_HEIGHT),
             )
 
-        self.add_butt = wx.BitmapButton(
+        self.add_butt = mwx.makeBitmapButton(
             panel,
             -1,
             images.lib["documentsAdd"],
@@ -98,7 +98,7 @@ class panelDocuments(wx.Panel):
         self.add_butt.SetToolTip(wx.ToolTip("Add..."))
         self.add_butt.Bind(wx.EVT_BUTTON, self.onAdd)
 
-        self.delete_butt = wx.BitmapButton(
+        self.delete_butt = mwx.makeBitmapButton(
             panel,
             -1,
             images.lib["documentsDelete"],

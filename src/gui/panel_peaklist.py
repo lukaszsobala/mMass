@@ -114,7 +114,7 @@ class panelPeaklist(wx.Panel):
                 self, -1, images.lib["bgrBottombar"], size=wx.Size(-1, mwx.BOTTOMBAR_HEIGHT)
             )
 
-        self.addPeak_butt = wx.BitmapButton(
+        self.addPeak_butt = mwx.makeBitmapButton(
             panel,
             -1,
             images.lib["peaklistAdd"],
@@ -124,7 +124,7 @@ class panelPeaklist(wx.Panel):
         self.addPeak_butt.SetToolTip(wx.ToolTip("Add peak manually..."))
         self.addPeak_butt.Bind(wx.EVT_BUTTON, self.onAdd)
 
-        self.deletePeak_butt = wx.BitmapButton(
+        self.deletePeak_butt = mwx.makeBitmapButton(
             panel,
             -1,
             images.lib["peaklistDelete"],
@@ -134,7 +134,7 @@ class panelPeaklist(wx.Panel):
         self.deletePeak_butt.SetToolTip(wx.ToolTip("Remove peaks..."))
         self.deletePeak_butt.Bind(wx.EVT_BUTTON, self.onDelete)
 
-        self.annotatePeak_butt = wx.BitmapButton(
+        self.annotatePeak_butt = mwx.makeBitmapButton(
             panel,
             -1,
             images.lib["peaklistAnnotate"],
@@ -144,7 +144,7 @@ class panelPeaklist(wx.Panel):
         self.annotatePeak_butt.SetToolTip(wx.ToolTip("Annotate peak..."))
         self.annotatePeak_butt.Bind(wx.EVT_BUTTON, self.onAnnotate)
 
-        self.editPeak_butt = wx.BitmapButton(
+        self.editPeak_butt = mwx.makeBitmapButton(
             panel,
             -1,
             images.lib["peaklistEditorOff"],

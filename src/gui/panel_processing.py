@@ -157,7 +157,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         )
 
         # make tools
-        self.math_butt = wx.BitmapButton(
+        self.math_butt = mwx.makeBitmapButton(
             panel,
             ID_processingMath,
             images.lib["processingMathOff"],
@@ -167,7 +167,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         self.math_butt.SetToolTip(wx.ToolTip("Math operations"))
         self.math_butt.Bind(wx.EVT_BUTTON, self.onToolSelected)
 
-        self.crop_butt = wx.BitmapButton(
+        self.crop_butt = mwx.makeBitmapButton(
             panel,
             ID_processingCrop,
             images.lib["processingCropOff"],
@@ -177,7 +177,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         self.crop_butt.SetToolTip(wx.ToolTip("Crop data"))
         self.crop_butt.Bind(wx.EVT_BUTTON, self.onToolSelected)
 
-        self.baseline_butt = wx.BitmapButton(
+        self.baseline_butt = mwx.makeBitmapButton(
             panel,
             ID_processingBaseline,
             images.lib["processingBaselineOff"],
@@ -187,7 +187,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         self.baseline_butt.SetToolTip(wx.ToolTip("Baseline correction"))
         self.baseline_butt.Bind(wx.EVT_BUTTON, self.onToolSelected)
 
-        self.smoothing_butt = wx.BitmapButton(
+        self.smoothing_butt = mwx.makeBitmapButton(
             panel,
             ID_processingSmoothing,
             images.lib["processingSmoothingOff"],
@@ -197,7 +197,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         self.smoothing_butt.SetToolTip(wx.ToolTip("Smoothing"))
         self.smoothing_butt.Bind(wx.EVT_BUTTON, self.onToolSelected)
 
-        self.peakpicking_butt = wx.BitmapButton(
+        self.peakpicking_butt = mwx.makeBitmapButton(
             panel,
             ID_processingPeakpicking,
             images.lib["processingPeakpickingOff"],
@@ -207,7 +207,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         self.peakpicking_butt.SetToolTip(wx.ToolTip("Peak picking"))
         self.peakpicking_butt.Bind(wx.EVT_BUTTON, self.onToolSelected)
 
-        self.deisotoping_butt = wx.BitmapButton(
+        self.deisotoping_butt = mwx.makeBitmapButton(
             panel,
             ID_processingDeisotoping,
             images.lib["processingDeisotopingOff"],
@@ -217,7 +217,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         self.deisotoping_butt.SetToolTip(wx.ToolTip("Deisotoping"))
         self.deisotoping_butt.Bind(wx.EVT_BUTTON, self.onToolSelected)
 
-        self.deconvolution_butt = wx.BitmapButton(
+        self.deconvolution_butt = mwx.makeBitmapButton(
             panel,
             ID_processingDeconvolution,
             images.lib["processingDeconvolutionOff"],
@@ -227,7 +227,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         self.deconvolution_butt.SetToolTip(wx.ToolTip("Deconvolution"))
         self.deconvolution_butt.Bind(wx.EVT_BUTTON, self.onToolSelected)
 
-        self.batch_butt = wx.BitmapButton(
+        self.batch_butt = mwx.makeBitmapButton(
             panel,
             ID_processingBatch,
             images.lib["processingBatchOff"],
@@ -237,7 +237,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         self.batch_butt.SetToolTip(wx.ToolTip("Batch processing"))
         self.batch_butt.Bind(wx.EVT_BUTTON, self.onToolSelected)
 
-        self.presets_butt = wx.BitmapButton(
+        self.presets_butt = mwx.makeBitmapButton(
             panel,
             -1,
             images.lib["toolsPresets"],
@@ -1184,7 +1184,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         # make elements
         self.gauge = mwx.gauge(panel, -1)
 
-        stop_butt = wx.BitmapButton(
+        stop_butt = mwx.makeBitmapButton(
             panel, -1, images.lib["stopper"], style=wx.BORDER_NONE
         )
         stop_butt.Bind(wx.EVT_BUTTON, self.onStop)
