@@ -653,6 +653,7 @@ class annotations:
 
             # get text position
             textSize = dc.GetTextExtent(label)
+            textCoords = None
             if self.properties["labelAngle"] == 90:
                 if self.properties["flipped"]:
                     textXPos = xPos + textSize[1] * 0.5
@@ -1521,6 +1522,7 @@ class spectrum:
 
             # get text position
             textSize = dc.GetTextExtent(label)
+            textCoords = None
             if self.properties["labelAngle"] == 90:
                 if self.properties["flipped"]:
                     textXPos = xPos + textSize[1] * 0.5
@@ -1573,41 +1575,49 @@ class spectrum:
     def _drawSpectrum(self, dc, printerScale):
         """Draw spectrum lines."""
 
-        # set pen and brush
-        pen = wx.Pen(
-            self.properties["spectrumColour"],
-            int(self.properties["spectrumWidth"] * printerScale["drawings"]),
-            self.properties["spectrumStyle"],
+        colour = self.properties["spectrumColour"]
+        style = self.properties["spectrumStyle"]
+        # Proportional line width (e.g. 2 at 200% UI scale, or thicker for
+        # printing/exporting where printerScale["drawings"] is larger).
+        width = max(
+            1, int(round(self.properties["spectrumWidth"] * printerScale["drawings"]))
         )
-        brush = wx.Brush(self.properties["spectrumColour"], _WX_BRUSHSTYLE_SOLID)
-        dc.SetPen(pen)
-        dc.SetBrush(brush)
+
+        dc.SetBrush(wx.Brush(colour, _WX_BRUSHSTYLE_SOLID))
 
         # draw lines
         if len(self.spectrumScaled) > 0:
-            # wxGTK can stutter on highly jagged, dense polylines because
-            # join-heavy path stroking is expensive. DrawLineList renders the
-            # same curve as independent segments and is often smoother there.
-            if wx.Platform == "__WXGTK__" and len(self.spectrumScaled) > 1500:
+            if wx.Platform == "__WXMSW__" and width > 1:
+                # On wxMSW a pen width >= 2 forces GDI onto its slow
+                # geometric-pen path (joins/caps computed per vertex), which
+                # makes panning/zooming a dense spectrum extremely sluggish.
+                # Build the heavier line from several fast 1px cosmetic strokes
+                # offset by a pixel: an N-pixel line is N*N cheap passes, still
+                # far quicker than one wide geometric stroke.
+                dc.SetPen(wx.Pen(colour, 1, style))
+                lo = -(width // 2)
+                for dx in range(lo, lo + width):
+                    for dy in range(lo, lo + width):
+                        dc.DrawLines(self.spectrumScaled, dx, dy)
+            elif wx.Platform == "__WXGTK__" and len(self.spectrumScaled) > 1500:
+                # wxGTK can stutter on highly jagged, dense polylines because
+                # join-heavy path stroking is expensive. DrawLineList renders
+                # the same curve as independent segments and is smoother there.
+                dc.SetPen(wx.Pen(colour, width, style))
                 points = _compress_screen_polyline(self.spectrumScaled)
-                if len(points) < 2:
-                    return
-                segments = numpy.empty((len(points) - 1, 4), dtype=numpy.int32)
-                segments[:, 0] = points[:-1, 0]
-                segments[:, 1] = points[:-1, 1]
-                segments[:, 2] = points[1:, 0]
-                segments[:, 3] = points[1:, 1]
-                dc.DrawLineList(segments)
+                if len(points) >= 2:
+                    segments = numpy.empty((len(points) - 1, 4), dtype=numpy.int32)
+                    segments[:, 0] = points[:-1, 0]
+                    segments[:, 1] = points[:-1, 1]
+                    segments[:, 2] = points[1:, 0]
+                    segments[:, 3] = points[1:, 1]
+                    dc.DrawLineList(segments)
             else:
+                dc.SetPen(wx.Pen(colour, width, style))
                 dc.DrawLines(self.spectrumScaled)
 
         # set pen for points
-        pen = wx.Pen(
-            self.properties["spectrumColour"],
-            int(self.properties["spectrumWidth"] * printerScale["drawings"]),
-            _WX_PENSTYLE_SOLID,
-        )
-        dc.SetPen(pen)
+        dc.SetPen(wx.Pen(colour, width, _WX_PENSTYLE_SOLID))
 
         # draw points if it makes sense
         count = len(self.spectrumScaled)
