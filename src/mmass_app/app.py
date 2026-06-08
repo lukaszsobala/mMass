@@ -65,6 +65,39 @@ def _collect_startup_document_paths(argv):
     return paths
 
 
+def _show_dpi_debug(frame):
+    """Show a HiDPI diagnostics dialog (enabled via MMASS_DPI_DEBUG=1)."""
+
+    from gui import display_scale, images
+
+    lines = ["mMass HiDPI diagnostics", ""]
+    for key, value in display_scale.debug_report().items():
+        lines.append(f"{key}: {value}")
+
+    lines.append("")
+    for label, getter in (
+        ("frame.GetDPIScaleFactor", frame.GetDPIScaleFactor),
+        ("frame.GetContentScaleFactor", frame.GetContentScaleFactor),
+    ):
+        try:
+            lines.append(f"{label}: {getter()}")
+        except Exception as exc:
+            lines.append(f"{label}: err: {exc}")
+
+    try:
+        bmp = images.lib["toolsOpen"]
+        lines.append(f"lib['toolsOpen'] size: {bmp.GetWidth()}x{bmp.GetHeight()}")
+    except Exception as exc:
+        lines.append(f"lib['toolsOpen'] size: err: {exc}")
+
+    try:
+        lines.append(f"wx.SMALL_FONT pt: {wx.SMALL_FONT.GetPointSize()}")
+    except Exception:
+        pass
+
+    wx.MessageBox("\n".join(lines), "mMass DPI debug", wx.OK | wx.ICON_INFORMATION)
+
+
 class mMass(wx.App):
     """Run mMass run..."""
 
@@ -76,6 +109,10 @@ class mMass(wx.App):
 
         # init frame
         self.frame = mainFrame(None, -1, "mMass")
+
+        # optional HiDPI diagnostics
+        if os.environ.get("MMASS_DPI_DEBUG", "0") == "1":
+            _show_dpi_debug(self.frame)
 
         # show frame
         self.SetTopWindow(self.frame)

@@ -129,6 +129,42 @@ def enable_high_dpi_awareness() -> None:
 # ---------
 
 
+def debug_report() -> dict:
+    """Diagnostic snapshot of scale resolution, for MMASS_DPI_DEBUG.
+
+    Pure (no wx); callers can fold in window/toolkit values separately.
+    """
+
+    report = {
+        "platform": sys.platform,
+        "env.MMASS_UI_SCALE": os.environ.get("MMASS_UI_SCALE", "") or "(unset)",
+        "env.MMASS_UI_AUTOSCALE": os.environ.get("MMASS_UI_AUTOSCALE", "")
+        or "(unset)",
+        "detect_system_scale": detect_system_scale(),
+        "get_ui_scale": get_ui_scale(),
+    }
+    if sys.platform.startswith("win"):
+        import ctypes
+
+        windll = getattr(ctypes, "windll", None)
+        raw = {}
+        if windll is not None:
+            dpi = _windows_primary_monitor_dpi(windll)
+            raw["GetDpiForMonitor"] = dpi
+            try:
+                raw["GetDpiForSystem"] = windll.user32.GetDpiForSystem()
+            except Exception as exc:
+                raw["GetDpiForSystem"] = f"err: {exc}"
+            try:
+                raw["GetScaleFactorForDevice"] = (
+                    windll.shcore.GetScaleFactorForDevice(0)
+                )
+            except Exception as exc:
+                raw["GetScaleFactorForDevice"] = f"err: {exc}"
+        report["windows_raw"] = raw
+    return report
+
+
 def detect_system_scale() -> float | None:
     """Best-effort detection of the OS display scale, or None if unknown.
 
@@ -176,21 +212,28 @@ def _detect_windows() -> float | None:
     if windll is None:
         return None
 
-    # GetScaleFactorForDevice (Win8.1+) reports the per-monitor scale the user
-    # picked (125/150/...), independent of this process' DPI-awareness mode.
-    try:
-        percent = windll.shcore.GetScaleFactorForDevice(0)  # DEVICE_PRIMARY
-        if percent:
-            return percent / 100.0
-    except Exception:
-        pass
+    # Primary monitor's *effective* DPI (Win8.1+). This is the most reliable
+    # source: it reflects the user's chosen scale (125/150/200%) and, unlike
+    # GetDpiForSystem, is independent of this process' DPI-awareness mode.
+    dpi = _windows_primary_monitor_dpi(windll)
+    if dpi:
+        return dpi / 96.0
 
-    # GetDpiForSystem (Win10 1607+) is accurate only for a DPI-aware process,
-    # but harmless as a secondary source.
+    # System DPI (Win10 1607+). Accurate once the process is DPI-aware, which we
+    # ensure via enable_high_dpi_awareness() before this runs.
     try:
         dpi = windll.user32.GetDpiForSystem()
         if dpi:
             return dpi / 96.0
+    except Exception:
+        pass
+
+    # GetScaleFactorForDevice is documented as unreliable and frequently returns
+    # SCALE_100_PERCENT even on HiDPI displays, so only trust a HiDPI answer.
+    try:
+        percent = windll.shcore.GetScaleFactorForDevice(0)  # DEVICE_PRIMARY
+        if percent and percent > 100:
+            return percent / 100.0
     except Exception:
         pass
 
@@ -209,6 +252,42 @@ def _detect_windows() -> float | None:
     except Exception:
         pass
 
+    return None
+
+
+def _windows_primary_monitor_dpi(windll) -> int | None:
+    """Effective DPI of the primary monitor via GetDpiForMonitor, or None."""
+
+    import ctypes
+
+    try:
+
+        class POINT(ctypes.Structure):
+            _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+
+        user32 = windll.user32
+        user32.MonitorFromPoint.restype = ctypes.c_void_p
+        user32.MonitorFromPoint.argtypes = [POINT, ctypes.c_ulong]
+        # MONITOR_DEFAULTTOPRIMARY == 1
+        hmonitor = user32.MonitorFromPoint(POINT(0, 0), 1)
+        if not hmonitor:
+            return None
+
+        dpi_x = ctypes.c_uint()
+        dpi_y = ctypes.c_uint()
+        get_dpi = windll.shcore.GetDpiForMonitor
+        get_dpi.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_int,
+            ctypes.POINTER(ctypes.c_uint),
+            ctypes.POINTER(ctypes.c_uint),
+        ]
+        # MDT_EFFECTIVE_DPI == 0, S_OK == 0
+        if get_dpi(hmonitor, 0, ctypes.byref(dpi_x), ctypes.byref(dpi_y)) == 0:
+            if dpi_x.value:
+                return dpi_x.value
+    except Exception:
+        return None
     return None
 
 

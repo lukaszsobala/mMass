@@ -139,11 +139,17 @@ class canvas(wx.Window):
         self.currentIsotopeLines = 0
         self.gelsCount = 0
         self.basePrinterScale = max(display_scale.get_ui_scale(), 1.0)
-        # On-screen fonts are left at 1.0: the toolkit already renders point
+        # On-screen fonts are normally left at 1.0: the toolkit renders point
         # sizes at the system DPI, so scaling them by the UI factor (as the
-        # drawings/pens are) would double-scale canvas labels. The print/export
-        # paths set a larger font scale explicitly and restore this afterwards.
-        self.baseFontScale = 1.0
+        # drawings/pens are) would double-scale canvas labels. wxMSW is the
+        # exception -- the canvas draws into an off-screen GDI buffer that is
+        # NOT DPI-scaled, so its point-size fonts come out too small on HiDPI
+        # and must track the drawing scale. GTK/cairo already device-scales the
+        # buffer's text. Print/export paths override the font scale explicitly.
+        if wx.Platform == "__WXMSW__":
+            self.baseFontScale = self.basePrinterScale
+        else:
+            self.baseFontScale = 1.0
         self.printerScale = {
             "drawings": self.basePrinterScale,
             "fonts": self.baseFontScale,
