@@ -5,7 +5,8 @@ This is a fork of the official repository for mMass on Python3. The purpose of t
 This version contains fixes that allow it to launch using modern Python and updated requirements. So far it has been tested on Linux (`amd64` and `arm64`) and on Windows 11 (`x86_64`).
 
 Many thanks to Martin Strohalm for his hard work on the project over many years!
-Thank you to Dreaming Spires for the initial Python 3 port.
+
+Thank you also to Dreaming Spires for the initial Python 3 port.
 
 ## Installation
 
@@ -60,9 +61,8 @@ both X11 and Wayland). To override the detected factor, set `MMASS_UI_SCALE`
 disable autodetection.
 
 ## Packaging
-Because the legacy C extensions have been removed, pre-building ABI-specific wheels targeting `manylinux` arrays via Docker is **no longer required**. 
 
-Simply build it using modern Python buildup tools:
+Simply build mMass using modern Python buildup tools:
 ```bash
 uv pip install build
 python -m build
@@ -93,14 +93,6 @@ On Windows, runtime user configuration XML files are stored in
 
 During uninstall, user XML config is kept by default. The uninstaller offers an
 optional checkbox to remove `%APPDATA%\\mMass\\*.xml`.
-
-### GitHub Actions
-
-An automated Windows installer workflow is available at
-`.github/workflows/windows-installer.yml`.
-
-It runs on `workflow_dispatch` and on tags matching `v*`, and uploads the
-generated installer as an Actions artifact named `mMass-windows-installer`.
 
 ## Contributing
 
