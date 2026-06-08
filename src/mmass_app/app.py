@@ -1,6 +1,12 @@
 # load main config and libs
 from gui import config
 
+# Opt into per-monitor DPI awareness before wx initialises, otherwise Windows
+# bitmap-stretches the whole UI on HiDPI displays (blurry text and icons).
+from gui import display_scale
+
+display_scale.enable_high_dpi_awareness()
+
 # load libs
 import os
 import sys

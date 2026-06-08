@@ -6,6 +6,7 @@ from PyInstaller.utils.hooks import collect_submodules
 
 PROJECT_ROOT = Path(SPECPATH).resolve().parents[1]
 APP_ICON = PROJECT_ROOT / "src" / "gui" / "images" / "msw" / "icon.ico"
+APP_MANIFEST = Path(SPECPATH) / "mMass.manifest"
 
 datas = [
     (str(PROJECT_ROOT / "src" / "gui" / "configs"), "gui/configs"),
@@ -48,6 +49,7 @@ exe = EXE(
     disable_windowed_traceback=False,
     argv_emulation=False,
     icon=str(APP_ICON),
+    manifest=str(APP_MANIFEST),
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,

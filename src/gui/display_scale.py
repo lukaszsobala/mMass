@@ -78,6 +78,53 @@ def scale_metric(value: int, scale: float) -> int:
     return int(round(value * scale))
 
 
+def enable_high_dpi_awareness() -> None:
+    """Opt the process into per-monitor DPI awareness (Windows only).
+
+    Must run before wx creates any window -- ideally before ``import wx`` --
+    because process DPI awareness is locked in by the first caller. Without it a
+    frozen/manifest-less build is treated as 96 DPI and Windows bitmap-stretches
+    the whole UI on HiDPI displays, so text and icons look blurry (and our own
+    scaling then compounds with the OS stretch). With it, Windows renders at the
+    native resolution and wx draws fonts crisply at the real DPI.
+
+    No-op on non-Windows; every probe is guarded so an old OS degrades quietly.
+    """
+
+    if not sys.platform.startswith("win"):
+        return
+
+    import ctypes
+
+    windll = getattr(ctypes, "windll", None)
+    if windll is None:
+        return
+
+    # Per-Monitor v2 (Win10 1703+): sharpest, follows per-monitor DPI changes.
+    try:
+        set_ctx = windll.user32.SetProcessDpiAwarenessContext
+        set_ctx.restype = ctypes.c_bool
+        set_ctx.argtypes = [ctypes.c_void_p]
+        # DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 == (HANDLE)-4
+        if set_ctx(ctypes.c_void_p(-4)):
+            return
+    except Exception:
+        pass
+
+    # Per-Monitor (Win8.1+).
+    try:
+        windll.shcore.SetProcessDpiAwareness(2)  # PROCESS_PER_MONITOR_DPI_AWARE
+        return
+    except Exception:
+        pass
+
+    # System DPI aware (Vista+).
+    try:
+        windll.user32.SetProcessDPIAware()
+    except Exception:
+        pass
+
+
 # DETECTION
 # ---------
 
