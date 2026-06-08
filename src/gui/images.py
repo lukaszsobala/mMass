@@ -53,7 +53,22 @@ def _scale_bitmap(bitmap, scale):
 
     image = bitmap.ConvertToImage()
     image = image.Scale(new_w, new_h, quality)
-    return wx.Bitmap(image)
+    result = wx.Bitmap(image)
+
+    # On wxMSW, tag the upscaled bitmap as a HiDPI representation so every
+    # consumer -- wx.BitmapButton, wx.StaticBitmap, SetBitmap/SetBitmapLabel --
+    # renders it at the correct logical size instead of re-upscaling it again by
+    # the monitor DPI (which doubled icon sizes for the spectrum tools, periodic
+    # table, etc.). The native main toolbar requests an explicit bitmap size via
+    # SetToolBitmapSize so it is unaffected, and only large untagged background
+    # bitmaps are painted with dc.DrawBitmap.
+    if wx.Platform == "__WXMSW__":
+        try:
+            result.SetScaleFactor(float(scale))
+        except Exception:
+            pass
+
+    return result
 
 
 def is_dark_mode():

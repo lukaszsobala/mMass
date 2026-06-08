@@ -2227,7 +2227,10 @@ class canvas(wx.Window):
 
         # draw normal text using the axis colour so it respects dark mode
         dc.SetTextForeground(self.properties["axisColour"])
-        dc.SetFont(font)
+        # Callers pass the unscaled axisFont; scale it like the axis labels so
+        # tracker readouts (cursor m/z + intensity, distance, charge) track the
+        # UI/DPI scale instead of staying tiny on HiDPI.
+        dc.SetFont(_scaleFont(font, self.printerScale["fonts"]))
         dc.DrawText(text, int(x), int(y))
         return
 
