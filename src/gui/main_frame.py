@@ -4958,7 +4958,10 @@ class mainFrame(wx.Frame):
             ID = eval("ID_documentRecent" + str(i))
             self.menuRecent.Insert(i, ID, path, "Open Document")
             self.Bind(wx.EVT_MENU, self.onDocumentRecent, id=ID)
-            if not os.path.exists(path):
+            # Skip os.path.exists for UNC/network paths: on Windows the SMB
+            # timeout can hang the main thread for 30+ seconds if the share is
+            # unreachable, preventing the app from starting.
+            if not path.startswith("\\\\") and not os.path.exists(path):
                 self.menuRecent.Enable(ID, False)
 
         # append clear
