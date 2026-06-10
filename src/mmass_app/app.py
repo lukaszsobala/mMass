@@ -24,6 +24,64 @@ from gui.main_frame import mainFrame
 _FAULT_LOG_HANDLE = None
 
 
+def _filter_benign_gtk_warnings():
+    """Silence a benign but noisy GTK-on-Wayland warning.
+
+    GTK 3.24 emits
+
+        Gdk-CRITICAL **: gdk_wayland_window_set_dbus_properties_libgtk_only:
+        assertion 'GDK_IS_WAYLAND_WINDOW (window)' failed
+
+    every time a window, dialog, popup menu or tooltip is shown on Wayland. It
+    is a known upstream GTK bug with no functional impact -- the property-setting
+    simply no-ops after the assertion -- but during normal use it floods stderr.
+
+    GTK writes it from C straight to file descriptor 2, so a Python-level
+    sys.stderr wrapper cannot catch it. We splice a pipe in front of fd 2 and
+    drop only that exact line in a background thread, passing every other byte
+    (real errors, tracebacks, faulthandler output) through unchanged.
+
+    Set MMASS_KEEP_GTK_WARNINGS=1 to disable the filter (e.g. when debugging).
+    """
+
+    if not sys.platform.startswith("linux"):
+        return
+    if not os.environ.get("WAYLAND_DISPLAY"):
+        return
+    if os.environ.get("MMASS_KEEP_GTK_WARNINGS", "0") == "1":
+        return
+
+    try:
+        saved_fd = os.dup(2)
+        read_fd, write_fd = os.pipe()
+        os.dup2(write_fd, 2)
+        os.close(write_fd)
+    except OSError:
+        return
+
+    needle = b"gdk_wayland_window_set_dbus_properties_libgtk_only"
+
+    def _pump():
+        with os.fdopen(read_fd, "rb", buffering=0) as reader:
+            buf = b""
+            while True:
+                chunk = reader.read(4096)
+                if not chunk:
+                    break
+                buf += chunk
+                while b"\n" in buf:
+                    line, buf = buf.split(b"\n", 1)
+                    if needle in line:
+                        continue
+                    os.write(saved_fd, line + b"\n")
+            if buf:
+                os.write(saved_fd, buf)
+
+    threading.Thread(
+        target=_pump, name="mmass-stderr-filter", daemon=True
+    ).start()
+
+
 def _setup_faulthandler():
     """Enable faulthandler for temporary crash diagnostics.
 
@@ -210,6 +268,7 @@ class TCPServerHandler(socketserver.BaseRequestHandler):
 def main():
     server = None
 
+    _filter_benign_gtk_warnings()
     _setup_faulthandler()
 
     # use server
