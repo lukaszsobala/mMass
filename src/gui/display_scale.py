@@ -9,6 +9,8 @@ Resolution order for ``get_ui_scale()``:
 1. ``MMASS_UI_SCALE`` -- explicit manual override (e.g. ``1.5``). Always wins.
 2. ``MMASS_UI_AUTOSCALE=0`` -- disable autodetection, fall back to ``1.0``.
 3. Autodetected system scale (Windows DPI, GNOME/KDE display scale, X11 DPI).
+   On the native Wayland (GTK) backend autodetection reports no compensation:
+   the compositor already scales the whole surface, like macOS/Retina.
 4. ``1.0`` -- safe default when nothing can be detected.
 
 Detection is import-safe: it never requires a running ``wx.App`` and any
@@ -352,7 +354,35 @@ def _macos_backing_scale() -> float | None:
 # ------------
 
 
+def _running_native_wayland_gtk() -> bool:
+    """True when wx/GTK will draw on the native Wayland backend.
+
+    GTK3 picks the Wayland backend whenever ``WAYLAND_DISPLAY`` is set, unless
+    ``GDK_BACKEND`` forces something else (e.g. ``x11`` -> XWayland). On the
+    native backend the compositor scales the whole surface by the output scale,
+    so GTK already enlarges every pixel metric for us.
+    """
+
+    if not os.environ.get("WAYLAND_DISPLAY", "").strip():
+        return False
+    backend = os.environ.get("GDK_BACKEND", "").strip().lower()
+    if backend and "wayland" not in backend:
+        # Explicitly forced onto another backend (typically x11 / XWayland),
+        # where GTK does *not* auto-scale and our compensation is still needed.
+        return False
+    return True
+
+
 def _detect_linux() -> float | None:
+    # Like macOS/Cocoa, GTK on the native Wayland backend renders the entire UI
+    # at the compositor's output scale: fonts, layout and hardcoded pixel
+    # metrics all track the display already. Re-applying the detected scale here
+    # would double the size of buttons and widget widths, so report no
+    # compensation. (XWayland and plain X11 still need it -- GTK does not
+    # buffer-scale there -- so this only fires on the native Wayland backend.)
+    if _running_native_wayland_gtk():
+        return None
+
     desktop = os.environ.get("XDG_CURRENT_DESKTOP", "").lower()
 
     # Compositor-specific probes give the true *current* scale (fractional aware)

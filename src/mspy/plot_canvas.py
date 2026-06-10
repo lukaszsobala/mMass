@@ -188,6 +188,45 @@ class canvas(wx.Window):
 
     # ----
 
+    def _contentScale(self):
+        """Backend content-scale factor (2.0 on native Wayland @200%, else 1.0).
+
+        GetContentScaleFactor reflects compositor surface scaling that wx/GTK
+        applies transparently: on the native Wayland backend the whole window
+        is rendered at this factor. It stays 1.0 on Windows and X11, where our
+        own pixel scaling (see gui.display_scale) handles HiDPI instead, so the
+        two mechanisms never compound.
+        """
+
+        try:
+            scale = float(self.GetContentScaleFactor())
+        except Exception:
+            return 1.0
+        return scale if scale and scale > 0 else 1.0
+
+    # ----
+
+    def _newOffscreenBitmap(self, width, height):
+        """Create a 24-bit offscreen plot buffer at device resolution.
+
+        When the backend reports a content scale > 1 (native Wayland), the
+        buffer is allocated at device pixels via CreateWithDIPSize so the plot
+        is drawn sharp instead of being rendered at logical resolution and then
+        stretched up by the compositor. A wx.MemoryDC selecting the bitmap still
+        works in logical coordinates, so all the pixel-based drawing code stays
+        unchanged. At scale 1.0 (Windows, X11) this is an ordinary bitmap.
+
+        24-bit RGB avoids alpha-channel artifacts on MSW where a transparent
+        32-bit buffer can hide the full plot content.
+        """
+
+        scale = self._contentScale()
+        bitmap = wx.Bitmap()
+        bitmap.CreateWithDIPSize((width, height), scale, depth=24)
+        return bitmap
+
+    # ----
+
     def onPaint(self, evt):
         """Repaint plot."""
         dc = wx.AutoBufferedPaintDC(self)
@@ -211,11 +250,9 @@ class canvas(wx.Window):
         width = max(1, width)
         height = max(1, height)
 
-        # make new offscreen bitmap
-        # Use 24-bit RGB to avoid alpha-channel artifacts on MSW where a
-        # transparent (alpha=0) 32-bit buffer can hide the full plot content.
-        self.plotBuffer = wx.Bitmap(width, height, 24)
-        self.cleanPlotBuffer = wx.Bitmap(width, height, 24)
+        # make new offscreen bitmaps (device-resolution on HiDPI/Wayland)
+        self.plotBuffer = self._newOffscreenBitmap(width, height)
+        self.cleanPlotBuffer = self._newOffscreenBitmap(width, height)
         self.setSize()
 
         # redraw plot or clear area
@@ -956,20 +993,12 @@ class canvas(wx.Window):
     def getCurrentBitmap(self):
         """Get bitmap of the currently rendered plot buffer."""
 
+        # On HiDPI/Wayland plotBuffer holds full device-resolution pixels (its
+        # scale factor > 1). ConvertToImage yields all of them, so just return
+        # the whole image as a plain scale-1.0 bitmap -- that is the sharp,
+        # screen-equivalent rendering callers want. (Cropping to the logical
+        # size here would return only the top-left quadrant of the plot.)
         image = self.plotBuffer.ConvertToImage()
-
-        scale_factor = 1.0
-        if hasattr(self.plotBuffer, "GetScaleFactor"):
-            try:
-                scale_factor = float(self.plotBuffer.GetScaleFactor())
-            except Exception:
-                scale_factor = 1.0
-
-        if scale_factor > 1.0:
-            logical_width = max(1, int(round(image.GetWidth() / scale_factor)))
-            logical_height = max(1, int(round(image.GetHeight() / scale_factor)))
-            image = image.GetSubImage(wx.Rect(0, 0, logical_width, logical_height))
-
         bitmap = image.ConvertToBitmap()
         if hasattr(bitmap, "SetScaleFactor"):
             bitmap.SetScaleFactor(1.0)
@@ -1355,7 +1384,12 @@ class canvas(wx.Window):
         # unchanged from the previous on-screen draw).
         # MSW can return a blank sub-bitmap here when sourced from a bitmap
         # participating in active DC drawing; image round-trip is more robust.
+        # The image round-trip drops the scale factor, so restore it -- otherwise
+        # the clean buffer's logical size would mismatch plotBuffer and
+        # quickRefresh would blit it at the wrong scale on HiDPI/Wayland.
         self.cleanPlotBuffer = self.plotBuffer.ConvertToImage().ConvertToBitmap()
+        if hasattr(self.plotBuffer, "GetScaleFactor"):
+            self.cleanPlotBuffer.SetScaleFactor(self.plotBuffer.GetScaleFactor())
 
         # Apply dynamic overlays (highlighted points etc.) only for live
         # on-screen draws. Off-screen export/print DCs must keep only the
