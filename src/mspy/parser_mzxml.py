@@ -79,6 +79,10 @@ class parseMZXML:
                 del self._scanlist[scanNumber]["byteOrder"]
                 del self._scanlist[scanNumber]["compression"]
                 del self._scanlist[scanNumber]["precision"]
+                del self._scanlist[scanNumber]["peakPoints"]
+                del self._scanlist[scanNumber]["peakByteOrder"]
+                del self._scanlist[scanNumber]["peakCompression"]
+                del self._scanlist[scanNumber]["peakPrecision"]
 
     # ----
 
@@ -172,6 +176,12 @@ class parseMZXML:
         else:
             scan = obj_scan.scan(profile=points)
 
+            # attach the mMass peak-list extension (peaks stored with a profile)
+            peakPoints = self._parsePeakPoints(scanData)
+            if len(peakPoints):
+                peaks = [obj_peak.peak(p[0], p[1]) for p in peakPoints]
+                scan.setpeaklist(obj_peaklist.peaklist(peaks))
+
         # set metadata
         scan.title = scanData["title"]
         scan.scanNumber = scanData["scanNumber"]
@@ -197,27 +207,13 @@ class parseMZXML:
         if not scanData["points"]:
             return []
 
-        # get precision
-        precision = "f"
-        if scanData["precision"] == 64:
-            precision = "d"
-
-        # get endian
-        endian = ">"
-        if scanData["byteOrder"] == "little":
-            endian = "<"
-        elif scanData["byteOrder"] == "big":
-            endian = ">"
-
-        # decode data
-        data = base64.b64decode(scanData["points"])
-
-        # decompress data
-        if scanData["compression"] == "zlib":
-            data = zlib.decompress(data)
-
-        # convert from binary
-        data = numpy.frombuffer(data[: (len(data) // struct.calcsize(endian + precision)) * struct.calcsize(endian + precision)], dtype=endian + precision)
+        # decode interleaved pairs
+        data = self._decodePeaks(
+            scanData["points"],
+            scanData["byteOrder"],
+            scanData["compression"],
+            scanData["precision"],
+        )
 
         # format
         if scanData["spectrumType"] == "discrete":
@@ -228,6 +224,43 @@ class parseMZXML:
             data = data.astype(numpy.float64)
 
         return data
+
+    # ----
+
+    def _parsePeakPoints(self, scanData):
+        """Parse the mMass peak-list extension (interleaved m/z-intensity pairs)."""
+
+        if not scanData.get("peakPoints"):
+            return []
+
+        data = self._decodePeaks(
+            scanData["peakPoints"],
+            scanData["peakByteOrder"],
+            scanData["peakCompression"],
+            scanData["peakPrecision"],
+        )
+
+        return list(map(list, list(zip(data[::2], data[1::2]))))
+
+    # ----
+
+    def _decodePeaks(self, encoded, byteOrder, compression, precision):
+        """Decode a base64/zlib interleaved peaks blob into a flat array."""
+
+        # get precision
+        fmt = "d" if precision == 64 else "f"
+
+        # get endian (mzXML defaults to network/big-endian)
+        endian = "<" if byteOrder == "little" else ">"
+
+        # decode and decompress
+        data = base64.b64decode(encoded)
+        if compression == "zlib":
+            data = zlib.decompress(data)
+
+        # convert from binary
+        size = struct.calcsize(endian + fmt)
+        return numpy.frombuffer(data[: (len(data) // size) * size], dtype=endian + fmt)
 
     # ----
 
@@ -335,6 +368,14 @@ class scanlistHandler(ContentHandler):
             if attribute is not None:
                 scan["pointsCount"] = int(attribute)
 
+            # honor per-scan centroided flag (overrides the global default)
+            attribute = attrs.get("centroided", None)
+            if attribute is not None:
+                if attribute in ("0", "false", "False"):
+                    scan["spectrumType"] = "continuous"
+                else:
+                    scan["spectrumType"] = "discrete"
+
             # get polarity
             attribute = attrs.get("polarity", None)
             if attribute in ("positive", "Positive", "+"):
@@ -435,6 +476,7 @@ class scanHandler(ContentHandler):
 
         self._isMatch = False
         self._isPeaks = False
+        self._isPeakList = False
         self._isPrecursor = False
         self._scanHierarchy: list[int | None] = [None]
         self._spectrumType = "unknown"
@@ -487,6 +529,10 @@ class scanHandler(ContentHandler):
                     "byteOrder": None,
                     "compression": None,
                     "precision": None,
+                    "peakPoints": None,
+                    "peakByteOrder": None,
+                    "peakCompression": None,
+                    "peakPrecision": None,
                 }
 
                 # get ms level
@@ -498,6 +544,14 @@ class scanHandler(ContentHandler):
                 attribute = attrs.get("peaksCount", None)
                 if attribute is not None:
                     self.data["pointsCount"] = int(attribute)
+
+                # honor per-scan centroided flag (overrides the global default)
+                attribute = attrs.get("centroided", None)
+                if attribute is not None:
+                    if attribute in ("0", "false", "False"):
+                        self.data["spectrumType"] = "continuous"
+                    else:
+                        self.data["spectrumType"] = "discrete"
 
                 # get polarity
                 attribute = attrs.get("polarity", None)
@@ -539,20 +593,29 @@ class scanHandler(ContentHandler):
         # get peaks data
         elif name == "peaks" and self._isMatch:
             self._isPeaks = True
-            self.data["points"] = []
+
+            # the mMass peak-list extension is stored separately from the main
+            # spectrum data so peaks travel with a profile in a single scan
+            self._isPeakList = attrs.get("contentType", "") == "mMass-peaklist"
+            keyPoints = "peakPoints" if self._isPeakList else "points"
+            keyByteOrder = "peakByteOrder" if self._isPeakList else "byteOrder"
+            keyCompression = "peakCompression" if self._isPeakList else "compression"
+            keyPrecision = "peakPrecision" if self._isPeakList else "precision"
+
+            self.data[keyPoints] = []
 
             # get byte order
-            self.data["byteOrder"] = attrs.get("byteOrder", "network")
+            self.data[keyByteOrder] = attrs.get("byteOrder", "network")
 
             # get compression
             attribute = attrs.get("compressionType", None)
             if attribute and attribute != "none":
-                self.data["compression"] = attribute
+                self.data[keyCompression] = attribute
 
             # get precision
             attribute = attrs.get("precision", "32")
             if attribute:
-                self.data["precision"] = int(attribute)
+                self.data[keyPrecision] = int(attribute)
 
         # get precursor data
         elif name == "precursorMz" and self._isMatch:
@@ -587,9 +650,11 @@ class scanHandler(ContentHandler):
         # stop reading peaks data
         elif name == "peaks" and self._isMatch:
             self._isPeaks = False
-            self.data["points"] = "".join(self.data["points"])
-            if not self.data["points"]:
-                self.data["points"] = None
+            key = "peakPoints" if self._isPeakList else "points"
+            self.data[key] = "".join(self.data[key])
+            if not self.data[key]:
+                self.data[key] = None
+            self._isPeakList = False
 
         # stop reading precursor data
         elif name == "precursorMz" and self._isMatch:
@@ -606,9 +671,10 @@ class scanHandler(ContentHandler):
     def characters(self, content):
         """Grab characters."""
 
-        # get peaks
+        # get peaks (main spectrum data or the mMass peak-list extension)
         if self._isPeaks:
-            self.data["points"].append(content)
+            key = "peakPoints" if self._isPeakList else "points"
+            self.data[key].append(content)
 
         # get precursor
         if self._isPrecursor:
@@ -625,6 +691,7 @@ class runHandler(ContentHandler):
         self.currentID = None
 
         self._isPeaks = False
+        self._isPeakList = False
         self._isPrecursor = False
         self._scanHierarchy: list[int | None] = [None]
         self._spectrumType = "unknown"
@@ -672,6 +739,10 @@ class runHandler(ContentHandler):
                 "byteOrder": None,
                 "compression": None,
                 "precision": None,
+                "peakPoints": None,
+                "peakByteOrder": None,
+                "peakCompression": None,
+                "peakPrecision": None,
             }
 
             # get ms level
@@ -683,6 +754,14 @@ class runHandler(ContentHandler):
             attribute = attrs.get("peaksCount", None)
             if attribute is not None:
                 scan["pointsCount"] = int(attribute)
+
+            # honor per-scan centroided flag (overrides the global default)
+            attribute = attrs.get("centroided", None)
+            if attribute is not None:
+                if attribute in ("0", "false", "False"):
+                    scan["spectrumType"] = "continuous"
+                else:
+                    scan["spectrumType"] = "discrete"
 
             # get polarity
             attribute = attrs.get("polarity", None)
@@ -727,20 +806,29 @@ class runHandler(ContentHandler):
         # get peaks data
         elif name == "peaks":
             self._isPeaks = True
-            self.data[self.currentID]["points"] = []
+
+            # the mMass peak-list extension is stored separately from the main
+            # spectrum data so peaks travel with a profile in a single scan
+            self._isPeakList = attrs.get("contentType", "") == "mMass-peaklist"
+            keyPoints = "peakPoints" if self._isPeakList else "points"
+            keyByteOrder = "peakByteOrder" if self._isPeakList else "byteOrder"
+            keyCompression = "peakCompression" if self._isPeakList else "compression"
+            keyPrecision = "peakPrecision" if self._isPeakList else "precision"
+
+            self.data[self.currentID][keyPoints] = []
 
             # get byte order
-            self.data[self.currentID]["byteOrder"] = attrs.get("byteOrder", "network")
+            self.data[self.currentID][keyByteOrder] = attrs.get("byteOrder", "network")
 
             # get compression
             attribute = attrs.get("compressionType", None)
             if attribute and attribute != "none":
-                self.data[self.currentID]["compression"] = attribute
+                self.data[self.currentID][keyCompression] = attribute
 
             # get precision
             attribute = attrs.get("precision", "32")
             if attribute:
-                self.data[self.currentID]["precision"] = int(attribute)
+                self.data[self.currentID][keyPrecision] = int(attribute)
 
         # get precursor data
         elif name == "precursorMz":
@@ -772,11 +860,11 @@ class runHandler(ContentHandler):
         # stop reading peaks data
         elif name == "peaks":
             self._isPeaks = False
-            self.data[self.currentID]["points"] = "".join(
-                self.data[self.currentID]["points"]
-            )
-            if not self.data[self.currentID]:
-                self.data[self.currentID]["points"] = None
+            key = "peakPoints" if self._isPeakList else "points"
+            self.data[self.currentID][key] = "".join(self.data[self.currentID][key])
+            if not self.data[self.currentID][key]:
+                self.data[self.currentID][key] = None
+            self._isPeakList = False
 
         # stop reading precursor data
         elif name == "precursorMz":
@@ -795,9 +883,10 @@ class runHandler(ContentHandler):
     def characters(self, content):
         """Grab characters."""
 
-        # get peaks
+        # get peaks (main spectrum data or the mMass peak-list extension)
         if self._isPeaks:
-            self.data[self.currentID]["points"].append(content)
+            key = "peakPoints" if self._isPeakList else "points"
+            self.data[self.currentID][key].append(content)
 
         # get precursor mz
         if self._isPrecursor:

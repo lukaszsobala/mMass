@@ -315,6 +315,7 @@ export = {
     "peaklistFormat": "ASCII",
     "peaklistSeparator": "tab",
     "spectrumSeparator": "tab",
+    "spectrumFormat": "ASCII",
 }
 
 spectrum = {
@@ -1206,6 +1207,9 @@ def saveConfig(path=os.path.join(confdir, "config.xml")):  # noqa: B008
     )
     buff += '    <param name="spectrumSeparator" value="%s" type="str" />\n' % (
         export["spectrumSeparator"]
+    )
+    buff += '    <param name="spectrumFormat" value="%s" type="str" />\n' % (
+        export["spectrumFormat"]
     )
     buff += "  </export>\n\n"
 

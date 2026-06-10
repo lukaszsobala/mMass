@@ -5002,6 +5002,16 @@ class mainFrame(wx.Frame):
 
     # ----
 
+    def getCurrentDocument(self):
+        """Get current document object."""
+
+        if self.currentDocument is None:
+            return None
+
+        return self.documents[self.currentDocument]
+
+    # ----
+
     def getCurrentSpectrumPoints(self, currentView=False):
         """Get spectrum profile from current document."""
 

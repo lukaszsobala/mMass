@@ -81,6 +81,12 @@ class parseMZML:
                 del self._scanlist[scanNumber]["intData"]
                 del self._scanlist[scanNumber]["intPrecision"]
                 del self._scanlist[scanNumber]["intCompression"]
+                del self._scanlist[scanNumber]["peakMzData"]
+                del self._scanlist[scanNumber]["peakMzPrecision"]
+                del self._scanlist[scanNumber]["peakMzCompression"]
+                del self._scanlist[scanNumber]["peakIntData"]
+                del self._scanlist[scanNumber]["peakIntPrecision"]
+                del self._scanlist[scanNumber]["peakIntCompression"]
 
     # ----
 
@@ -174,6 +180,12 @@ class parseMZML:
         else:
             scan = obj_scan.scan(profile=points)
 
+            # attach the mMass peak-list extension (peaks stored with a profile)
+            peakPoints = self._parsePeakPoints(scanData)
+            if len(peakPoints):
+                peaks = [obj_peak.peak(p[0], p[1]) for p in peakPoints]
+                scan.setpeaklist(obj_peaklist.peaklist(peaks))
+
         # set metadata
         scan.title = scanData["title"]
         scan.scanNumber = scanData["scanNumber"]
@@ -199,27 +211,13 @@ class parseMZML:
         if not scanData["mzData"] or not scanData["intData"]:
             return []
 
-        # decode data
-        mzData = base64.b64decode(scanData["mzData"])
-        intData = base64.b64decode(scanData["intData"])
-
-        # decompress data
-        if scanData["mzCompression"] == "zlib":
-            mzData = zlib.decompress(mzData)
-        if scanData["intCompression"] == "zlib":
-            intData = zlib.decompress(intData)
-
-        # get precision
-        mzPrecision = "f"
-        intPrecision = "f"
-        if scanData["mzPrecision"] == 64:
-            mzPrecision = "d"
-        if scanData["intPrecision"] == 64:
-            intPrecision = "d"
-
-        # convert from binary
-        mzData = numpy.frombuffer(mzData[: (len(mzData) // struct.calcsize("<" + mzPrecision)) * struct.calcsize("<" + mzPrecision)], dtype="<" + mzPrecision)
-        intData = numpy.frombuffer(intData[: (len(intData) // struct.calcsize("<" + intPrecision)) * struct.calcsize("<" + intPrecision)], dtype="<" + intPrecision)
+        # decode arrays
+        mzData = self._decodeArray(
+            scanData["mzData"], scanData["mzCompression"], scanData["mzPrecision"]
+        )
+        intData = self._decodeArray(
+            scanData["intData"], scanData["intCompression"], scanData["intPrecision"]
+        )
 
         # format
         if scanData["spectrumType"] == "discrete":
@@ -233,6 +231,41 @@ class parseMZML:
             data = data.astype(numpy.float64)
 
         return data
+
+    # ----
+
+    def _parsePeakPoints(self, scanData):
+        """Parse the mMass peak-list extension arrays (m/z and intensity pairs)."""
+
+        if not scanData.get("peakMzData") or not scanData.get("peakIntData"):
+            return []
+
+        mzData = self._decodeArray(
+            scanData["peakMzData"],
+            scanData["peakMzCompression"],
+            scanData["peakMzPrecision"],
+        )
+        intData = self._decodeArray(
+            scanData["peakIntData"],
+            scanData["peakIntCompression"],
+            scanData["peakIntPrecision"],
+        )
+
+        return list(map(list, list(zip(mzData, intData))))
+
+    # ----
+
+    def _decodeArray(self, encoded, compression, precision):
+        """Decode a single base64/zlib little-endian binary array."""
+
+        raw = base64.b64decode(encoded)
+        if compression == "zlib":
+            raw = zlib.decompress(raw)
+
+        fmt = "d" if precision == 64 else "f"
+        size = struct.calcsize("<" + fmt)
+
+        return numpy.frombuffer(raw[: (len(raw) // size) * size], dtype="<" + fmt)
 
     # ----
 
@@ -288,8 +321,12 @@ class infoHandler(ContentHandler):
     def endElement(self, name):
         """Element ended."""
 
+        # end file description (so later cvParams are not treated as description)
+        if name == "fileDescription":
+            self._isDescription = False
+
         # stop parsing
-        if name == "instrumentConfiguration":
+        elif name == "instrumentConfiguration":
             raise stopParsing()
 
     # ----
@@ -501,6 +538,12 @@ class scanHandler(ContentHandler):
                     "intData": None,
                     "intPrecision": None,
                     "intCompression": None,
+                    "peakMzData": None,
+                    "peakMzPrecision": None,
+                    "peakMzCompression": None,
+                    "peakIntData": None,
+                    "peakIntPrecision": None,
+                    "peakIntCompression": None,
                 }
 
                 # get points count
@@ -565,6 +608,12 @@ class scanHandler(ContentHandler):
                 self.tmpArrayType = "mzArray"
             elif paramName == "intensity array":
                 self.tmpArrayType = "intArray"
+
+            # non-standard arrays carrying the mMass peak list
+            elif paramValue == "mMass peak m/z array":
+                self.tmpArrayType = "peakMzArray"
+            elif paramValue == "mMass peak intensity array":
+                self.tmpArrayType = "peakIntArray"
 
         # get scan metadata
         elif name == "cvParam" and self._isMatch:
@@ -645,6 +694,18 @@ class scanHandler(ContentHandler):
                 self.data["intPrecision"] = self.tmpPrecision
                 self.data["intCompression"] = self.tmpCompression
 
+            # peak list m/z array (mMass extension)
+            elif self.tmpArrayType == "peakMzArray":
+                self.data["peakMzData"] = "".join(self.tmpBinaryData or [])
+                self.data["peakMzPrecision"] = self.tmpPrecision
+                self.data["peakMzCompression"] = self.tmpCompression
+
+            # peak list intensity array (mMass extension)
+            elif self.tmpArrayType == "peakIntArray":
+                self.data["peakIntData"] = "".join(self.tmpBinaryData or [])
+                self.data["peakIntPrecision"] = self.tmpPrecision
+                self.data["peakIntCompression"] = self.tmpCompression
+
             self.tmpBinaryData = None
             self.tmpPrecision = None
             self.tmpCompression = None
@@ -720,6 +781,12 @@ class runHandler(ContentHandler):
                 "intData": None,
                 "intPrecision": None,
                 "intCompression": None,
+                "peakMzData": None,
+                "peakMzPrecision": None,
+                "peakMzCompression": None,
+                "peakIntData": None,
+                "peakIntPrecision": None,
+                "peakIntCompression": None,
             }
 
             # get points count
@@ -789,6 +856,12 @@ class runHandler(ContentHandler):
                 self.tmpArrayType = "mzArray"
             elif paramName == "intensity array":
                 self.tmpArrayType = "intArray"
+
+            # non-standard arrays carrying the mMass peak list
+            elif paramValue == "mMass peak m/z array":
+                self.tmpArrayType = "peakMzArray"
+            elif paramValue == "mMass peak intensity array":
+                self.tmpArrayType = "peakIntArray"
 
         # get scan metadata
         elif name == "cvParam" and self._isSpectrum:
@@ -866,6 +939,22 @@ class runHandler(ContentHandler):
                 self.data[self.currentID]["intData"] = "".join(self.tmpBinaryData or [])
                 self.data[self.currentID]["intPrecision"] = self.tmpPrecision
                 self.data[self.currentID]["intCompression"] = self.tmpCompression
+
+            # peak list m/z array (mMass extension)
+            elif self.tmpArrayType == "peakMzArray":
+                self.data[self.currentID]["peakMzData"] = "".join(
+                    self.tmpBinaryData or []
+                )
+                self.data[self.currentID]["peakMzPrecision"] = self.tmpPrecision
+                self.data[self.currentID]["peakMzCompression"] = self.tmpCompression
+
+            # peak list intensity array (mMass extension)
+            elif self.tmpArrayType == "peakIntArray":
+                self.data[self.currentID]["peakIntData"] = "".join(
+                    self.tmpBinaryData or []
+                )
+                self.data[self.currentID]["peakIntPrecision"] = self.tmpPrecision
+                self.data[self.currentID]["peakIntCompression"] = self.tmpCompression
 
             self.tmpBinaryData = None
             self.tmpPrecision = None

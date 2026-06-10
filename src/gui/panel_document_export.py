@@ -16,9 +16,13 @@
 # -------------------------------------------------------------------------
 
 # load libs
+import re
 import threading
 import os.path
 import wx
+
+# load mspy
+import mspy
 
 # load modules
 from .ids import *
@@ -446,6 +450,17 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
         panel = wx.Panel(self, -1)
 
         # make elements
+        spectrumFormat_label = wx.StaticText(panel, -1, "Format:")
+        self.spectrumFormat_choice = wx.Choice(
+            panel,
+            -1,
+            choices=["ASCII", "mzML", "mzXML"],
+            size=wx.Size(130, mwx.CHOICE_HEIGHT),
+        )
+        mwx.fitChoice(self.spectrumFormat_choice)
+        self.spectrumFormat_choice.SetStringSelection(config.export["spectrumFormat"])
+        self.spectrumFormat_choice.Bind(wx.EVT_CHOICE, self.onSpectrumFormatChanged)
+
         spectrumRange_label = wx.StaticText(panel, -1, "Range:")
         self.spectrumRange_choice = wx.Choice(
             panel,
@@ -475,24 +490,45 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
         # pack elements
         grid = wx.GridBagSizer(mwx.GRIDBAG_VSPACE, mwx.GRIDBAG_HSPACE)
         grid.Add(
-            spectrumRange_label, (0, 0), flag=wx.ALIGN_CENTER_VERTICAL | wx.ALIGN_RIGHT
+            spectrumFormat_label, (0, 0), flag=wx.ALIGN_CENTER_VERTICAL | wx.ALIGN_RIGHT
         )
-        grid.Add(self.spectrumRange_choice, (0, 1))
+        grid.Add(self.spectrumFormat_choice, (0, 1))
+        grid.Add(
+            spectrumRange_label, (1, 0), flag=wx.ALIGN_CENTER_VERTICAL | wx.ALIGN_RIGHT
+        )
+        grid.Add(self.spectrumRange_choice, (1, 1))
         grid.Add(
             spectrumSeparator_label,
-            (1, 0),
+            (2, 0),
             flag=wx.ALIGN_CENTER_VERTICAL | wx.ALIGN_RIGHT,
         )
-        grid.Add(self.spectrumSeparator_choice, (1, 1))
+        grid.Add(self.spectrumSeparator_choice, (2, 1))
 
         mainSizer = wx.BoxSizer(wx.VERTICAL)
         mainSizer.Add(grid, 0, wx.ALIGN_CENTER | wx.ALL, mwx.PANEL_SPACE_MAIN)
+
+        # set initial enable state
+        self.onSpectrumFormatChanged()
 
         # fit layout
         mainSizer.Fit(panel)
         panel.SetSizer(mainSizer)
 
         return panel
+
+    # ----
+
+    def onSpectrumFormatChanged(self, evt=None):
+        """Enable/disable controls based on the spectrum export format."""
+
+        config.export["spectrumFormat"] = (
+            self.spectrumFormat_choice.GetStringSelection()
+        )
+
+        # separator and range only apply to ASCII export
+        enable = config.export["spectrumFormat"] == "ASCII"
+        self.spectrumSeparator_choice.Enable(enable)
+        self.spectrumRange_choice.Enable(enable)
 
     # ----
 
@@ -685,14 +721,15 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
         """Export image."""
 
         # get format
+        baseName = self.exportBaseName()
         if config.export["imageFormat"] == "PNG":
-            fileName = "spectrum.png"
+            fileName = baseName + ".png"
             fileType = "PNG image file|*.png"
         elif config.export["imageFormat"] == "TIFF":
-            fileName = "spectrum.tif"
+            fileName = baseName + ".tif"
             fileType = "TIFF image file|*.tif"
         elif config.export["imageFormat"] == "JPEG":
-            fileName = "spectrum.jpg"
+            fileName = baseName + ".jpg"
             fileType = "JPEG image file|*.jpg"
 
         # raise export dialog
@@ -731,11 +768,12 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
         """Export peeaklist data."""
 
         # get format
+        baseName = self.exportBaseName(fallback="peaklist")
         if config.export["peaklistFormat"] in ("ASCII" "ASCII with Headers"):
-            fileName = "peaklist.txt"
+            fileName = baseName + ".txt"
             fileType = "ASCII file|*.txt"
         elif config.export["peaklistFormat"] == "MGF":
-            fileName = "peaklist.mgf"
+            fileName = baseName + ".mgf"
             fileType = "MGF file|*.mgf"
 
         # raise export dialog
@@ -779,8 +817,16 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
         """Export spectrum data."""
 
         # set default filename
-        fileName = "spectrum.txt"
-        fileType = "ASCII file|*.txt"
+        baseName = self.exportBaseName()
+        if config.export["spectrumFormat"] == "mzML":
+            fileName = baseName + ".mzML"
+            fileType = "mzML file|*.mzML"
+        elif config.export["spectrumFormat"] == "mzXML":
+            fileName = baseName + ".mzXML"
+            fileType = "mzXML file|*.mzXML"
+        else:
+            fileName = baseName + ".txt"
+            fileType = "ASCII file|*.txt"
 
         # raise export dialog
         dlg = wx.FileDialog(
@@ -816,6 +862,20 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
         # hide processing gauge
         self.onProcessing(False)
         self.export_butt.Enable(True)
+
+    # ----
+
+    def exportBaseName(self, fallback="spectrum"):
+        """Return the current document title as a safe default filename base."""
+
+        document = self.parent.getCurrentDocument()
+        if document is not None and getattr(document, "title", ""):
+            # replace characters that are problematic in filenames
+            name = re.sub(r'[\\/:*?"<>|\r\n\t]', "_", document.title).strip()
+            if name:
+                return name
+
+        return fallback
 
     # ----
 
@@ -874,6 +934,9 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
             config.export["spectrumSeparator"] = choices[
                 self.spectrumSeparator_choice.GetStringSelection()
             ]
+            config.export["spectrumFormat"] = (
+                self.spectrumFormat_choice.GetStringSelection()
+            )
 
         # ring error bell if error
         except (ValueError, KeyError):
@@ -1034,6 +1097,11 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
     def runExportSpectrum(self, path):
         """Export spectrum data."""
 
+        # export to mzML / mzXML (full scan with metadata)
+        if config.export["spectrumFormat"] in ("mzML", "mzXML"):
+            self.runExportSpectrumMZ(path)
+            return
+
         # get spectrum
         if self.spectrumRange_choice.GetStringSelection() == "Full Spectrum":
             spectrum = self.parent.getCurrentSpectrumPoints()
@@ -1059,6 +1127,42 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
         try:
             with open(path, "wb") as f:
                 f.write(buff.encode("utf-8"))
+        except IOError:
+            wx.Bell()
+
+    # ----
+
+    def runExportSpectrumMZ(self, path):
+        """Export full scan as mzML or mzXML."""
+
+        # get current document
+        document = self.parent.getCurrentDocument()
+        if document is None:
+            wx.Bell()
+            return
+
+        # check data
+        if not (document.spectrum.hasprofile() or document.spectrum.haspeaks()):
+            wx.Bell()
+            return
+
+        # collect document metadata
+        info = {
+            "title": document.title,
+            "operator": document.operator,
+            "contact": document.contact,
+            "institution": document.institution,
+            "instrument": document.instrument,
+            "date": document.date,
+        }
+
+        # export data
+        try:
+            if config.export["spectrumFormat"] == "mzML":
+                writer = mspy.writeMZML(document.spectrum, info)
+            else:
+                writer = mspy.writeMZXML(document.spectrum, info)
+            writer.write(path)
         except IOError:
             wx.Bell()
 

@@ -47,3 +47,7 @@ from .parser_mzdata import parseMZDATA
 from .parser_mzml import parseMZML
 from .parser_mgf import parseMGF
 from .parser_fasta import parseFASTA
+
+# load writers
+from .writer_mzml import writeMZML
+from .writer_mzxml import writeMZXML
