@@ -2166,14 +2166,15 @@ class mainFrame(wx.Frame):
 
             # get tmp folder
             tmpDir = tempfile.gettempdir()
-            imagePath = os.path.join(tmpDir, "mmass_spectrum.png")
+            imagePath = os.path.join(tmpDir, "mmass_spectrum.svg")
             reportFd, reportPath = tempfile.mkstemp(
                 prefix="mmass_report_", suffix=".html", dir=tmpDir
             )
             os.close(reportFd)
 
-            # Render report image off-screen at explicit pixel dimensions so
-            # desktop UI scaling does not reduce output resolution.
+            # Render the report image off-screen at explicit pixel dimensions so
+            # desktop UI scaling does not affect the output. The spectrum is
+            # exported as scalable vector graphics so it stays crisp at any zoom.
             canvas_width, canvas_height = self.spectrumPanel.spectrumCanvas.GetClientSize()
             canvas_width = max(1, int(round(canvas_width)))
             canvas_height = max(1, int(round(canvas_height)))
@@ -2200,25 +2201,12 @@ class mainFrame(wx.Frame):
                 plot_objects._DARK_MODE = False
                 reportCanvas.setProperties(**lightPalette)
                 reportCanvas.SetBackgroundColour(wx.Colour(*lightPalette["canvasColour"]))
-                reportBitmap = self.spectrumPanel.getBitmap(
-                    target_width, target_height, None
-                )
-                if not reportBitmap.IsOk():
-                    reportBitmap = self.spectrumPanel.getCurrentBitmap()
+                self.getSpectrumSVG(imagePath, target_width, target_height, None)
             finally:
                 plot_objects._DARK_MODE = originalDarkModeCache
                 reportCanvas.setProperties(**originalPalette)
                 reportCanvas.SetBackgroundColour(originalBgColour)
                 reportCanvas.refresh()
-
-            reportImage = reportBitmap.ConvertToImage()
-
-            reportImage.SetOption(wx.IMAGE_OPTION_QUALITY, "100")
-            reportImage.SetOption(wx.IMAGE_OPTION_RESOLUTION, "144")
-            reportImage.SetOption(wx.IMAGE_OPTION_RESOLUTIONX, "144")
-            reportImage.SetOption(wx.IMAGE_OPTION_RESOLUTIONY, "144")
-            reportImage.SetOption(wx.IMAGE_OPTION_RESOLUTIONUNIT, "1")
-            reportImage.SaveFile(imagePath, wx.BITMAP_TYPE_PNG)
 
             # make report file
             reportHTML = self.documents[self.currentDocument].report(image=imagePath)
