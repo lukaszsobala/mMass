@@ -205,7 +205,10 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
 
         imageFormat_label = wx.StaticText(panel, -1, "Format:")
         self.imageFormat_choice = wx.Choice(
-            panel, -1, choices=["PNG", "TIFF", "JPEG"], size=wx.Size(140, mwx.CHOICE_HEIGHT)
+            panel,
+            -1,
+            choices=["PNG", "TIFF", "JPEG", "SVG"],
+            size=wx.Size(140, mwx.CHOICE_HEIGHT),
         )
         mwx.fitChoice(self.imageFormat_choice)
         self.imageFormat_choice.SetStringSelection(config.export["imageFormat"])
@@ -731,6 +734,9 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
         elif config.export["imageFormat"] == "JPEG":
             fileName = baseName + ".jpg"
             fileType = "JPEG image file|*.jpg"
+        elif config.export["imageFormat"] == "SVG":
+            fileName = baseName + ".svg"
+            fileType = "SVG image file|*.svg"
 
         # raise export dialog
         dlg = wx.FileDialog(
@@ -950,14 +956,6 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
     def runExportImage(self, path):
         """Make spectrum image."""
 
-        # get format
-        if config.export["imageFormat"] == "PNG":
-            fileFormat = wx.BITMAP_TYPE_PNG
-        elif config.export["imageFormat"] == "TIFF":
-            fileFormat = wx.BITMAP_TYPE_TIF
-        elif config.export["imageFormat"] == "JPEG":
-            fileFormat = wx.BITMAP_TYPE_JPEG
-
         # get image size in pixels
         width = float(config.export["imageWidth"])
         height = float(config.export["imageHeight"])
@@ -975,6 +973,24 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
             "drawings": config.export["imageDrawingsScale"],
             "fonts": config.export["imageFontsScale"],
         }
+
+        # export to vector graphics
+        if config.export["imageFormat"] == "SVG":
+            try:
+                self.parent.getSpectrumSVG(
+                    path, width, height, printerScale, resolution
+                )
+            except Exception:
+                wx.Bell()
+            return
+
+        # get raster format
+        if config.export["imageFormat"] == "PNG":
+            fileFormat = wx.BITMAP_TYPE_PNG
+        elif config.export["imageFormat"] == "TIFF":
+            fileFormat = wx.BITMAP_TYPE_TIF
+        elif config.export["imageFormat"] == "JPEG":
+            fileFormat = wx.BITMAP_TYPE_JPEG
 
         # make image
         bitmap = self.parent.getSpectrumBitmap(width, height, printerScale)

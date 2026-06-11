@@ -990,6 +990,56 @@ class canvas(wx.Window):
 
     # ----
 
+    def getSVG(self, path, width=None, height=None, printerScale=None, dpi=72):
+        """Export current plot to a scalable vector graphics (SVG) file.
+
+        Draws through a wx.SVGFileDC so the whole plot -- axis, labels, peaks,
+        gel view and legend -- is recorded as vector primitives rather than
+        rasterised pixels.
+        """
+
+        # get width/height if not set
+        if not width or not height:
+            width, height = self.GetClientSize()
+        width = max(1, int(round(width)))
+        height = max(1, int(round(height)))
+
+        # create the SVG DC (the file is written as we draw and finalised
+        # when the DC is deleted below)
+        dc = wx.SVGFileDC(path, width, height, dpi)
+
+        # rescale plot to the export size (SVGFileDC has no HiDPI scaling, so
+        # the requested size is the drawing size)
+        self.setSize(width, height)
+
+        # thicken up pens and fonts
+        if not printerScale:
+            ratioW = float(width) / 750
+            ratioH = float(height) / 750
+            scale = max(min(ratioW, ratioH), 1)
+            self.printerScale["drawings"] = scale
+            self.printerScale["fonts"] = _print_font_scale(scale)
+        else:
+            self.printerScale["drawings"] = max(printerScale["drawings"], 1)
+            self.printerScale["fonts"] = _print_font_scale(max(printerScale["fonts"], 1))
+
+        # set filter size
+        filterSize = max(self.printerScale["drawings"] * 0.5, 0.5)
+
+        # draw plot
+        self.drawOutside(dc, filterSize)
+
+        # finalise and close the SVG file
+        del dc
+
+        # rescale back to original
+        self.setSize()
+        self.printerScale["drawings"] = self.basePrinterScale
+        self.printerScale["fonts"] = self.baseFontScale
+        self.refresh()
+
+    # ----
+
     def getCurrentBitmap(self):
         """Get bitmap of the currently rendered plot buffer."""
 

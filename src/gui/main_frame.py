@@ -5081,6 +5081,12 @@ class mainFrame(wx.Frame):
 
     # ----
 
+    def getSpectrumSVG(self, path, width, height, printerScale, dpi=72):
+        """Export current spectrum canvas to an SVG file."""
+        return self.spectrumPanel.getSVG(path, width, height, printerScale, dpi)
+
+    # ----
+
     def getUsedMonomers(self):
         """Search all sequences for used monomers."""
 
