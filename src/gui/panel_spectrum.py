@@ -1517,6 +1517,12 @@ class panelSpectrum(wx.Panel):
 
     # ----
 
+    def getSVG(self, path, width, height, printerScale, dpi=72):
+        """Export spectrum image as SVG."""
+        return self.spectrumCanvas.getSVG(path, width, height, printerScale, dpi)
+
+    # ----
+
     def getCurrentBitmap(self):
         """Get currently rendered spectrum image."""
         return self.spectrumCanvas.getCurrentBitmap()

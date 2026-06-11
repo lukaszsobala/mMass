@@ -1585,9 +1585,16 @@ class spectrum:
 
         dc.SetBrush(wx.Brush(colour, _WX_BRUSHSTYLE_SOLID))
 
+        # When exporting to SVG the platform-specific fast paths below (multi-pass
+        # strokes on MSW, per-segment DrawLineList on GTK) exist only to keep
+        # interactive panning smooth; in a vector file they would bloat the
+        # output into thousands of separate path elements. Draw the profile as a
+        # single polyline instead so it becomes one editable object.
+        is_vector = isinstance(dc, wx.SVGFileDC)
+
         # draw lines
         if len(self.spectrumScaled) > 0:
-            if wx.Platform == "__WXMSW__" and width > 1:
+            if not is_vector and wx.Platform == "__WXMSW__" and width > 1:
                 # On wxMSW a pen width >= 2 forces GDI onto its slow
                 # geometric-pen path (joins/caps computed per vertex), which
                 # makes panning/zooming a dense spectrum extremely sluggish.
@@ -1599,7 +1606,11 @@ class spectrum:
                 for dx in range(lo, lo + width):
                     for dy in range(lo, lo + width):
                         dc.DrawLines(self.spectrumScaled, dx, dy)
-            elif wx.Platform == "__WXGTK__" and len(self.spectrumScaled) > 1500:
+            elif (
+                not is_vector
+                and wx.Platform == "__WXGTK__"
+                and len(self.spectrumScaled) > 1500
+            ):
                 # wxGTK can stutter on highly jagged, dense polylines because
                 # join-heavy path stroking is expensive. DrawLineList renders
                 # the same curve as independent segments and is smoother there.
