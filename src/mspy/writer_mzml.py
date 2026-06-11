@@ -372,7 +372,7 @@ class writeMZML:
         buff = '        <binaryDataArrayList count="%d">\n' % count
         buff += self._binaryDataArray(points[:, 0] if len(points) else [], "mz")
         buff += self._binaryDataArray(points[:, 1] if len(points) else [], "int")
-        if hasPeaks:
+        if peakPoints is not None and hasPeaks:
             buff += self._binaryDataArray(peakPoints[:, 0], "peakmz", len(peakPoints))
             buff += self._binaryDataArray(peakPoints[:, 1], "peakint", len(peakPoints))
         buff += "        </binaryDataArrayList>\n"
