@@ -4920,20 +4920,51 @@ class mainFrame(wx.Frame):
 
     # ----
 
-    def loadScan(self, document, scanID):
-        """Load a scan for a chromatogram document, using the cache."""
+    def loadScanRaw(self, document, scanID):
+        """Load and cache a scan without touching the GUI.
+
+        Safe to call from worker threads (e.g. batch peak picking across an
+        entire LC-MS run). Returns the cached scan or None.
+        """
 
         # already loaded
         if scanID in document.scanCache:
             return document.scanCache[scanID]
 
         # parse the scan from file
+        parser = self.makeScanParser(document.path, document.format)
+        if parser is None:
+            return None
+        scan = parser.scan(scanID)
+
+        if scan:
+            # precalculate baseline once
+            if scan.hasprofile():
+                scan.baseline(
+                    window=(1.0 / config.processing["baseline"]["precision"]),
+                    offset=config.processing["baseline"]["offset"],
+                )
+            document.scanCache[scanID] = scan
+
+        return scan
+
+    # ----
+
+    def loadScan(self, document, scanID):
+        """Load a scan for a chromatogram document, using the cache.
+
+        Shows a progress gauge; for interactive (main-thread) use.
+        """
+
+        # already loaded
+        if scanID in document.scanCache:
+            return document.scanCache[scanID]
+
+        # parse the scan from file in a worker thread
         self._loadedScan = None
 
         def worker():
-            parser = self.makeScanParser(document.path, document.format)
-            if parser is not None:
-                self._loadedScan = parser.scan(scanID)
+            self._loadedScan = self.loadScanRaw(document, scanID)
 
         gauge = mwx.gaugePanel(self, "Reading scan...")
         gauge.show()
@@ -4945,15 +4976,6 @@ class mainFrame(wx.Frame):
 
         scan = self._loadedScan
         self._loadedScan = None
-
-        if scan:
-            # precalculate baseline once
-            if scan.hasprofile():
-                scan.baseline(
-                    window=(1.0 / config.processing["baseline"]["precision"]),
-                    offset=config.processing["baseline"]["offset"],
-                )
-            document.scanCache[scanID] = scan
 
         return scan
 
