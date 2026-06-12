@@ -644,10 +644,12 @@ class document:
 
         # show spectrum
         if image:
+            mimeType = "image/svg+xml" if image.lower().endswith(".svg") else "image/png"
             with open(image, "rb") as image_handle:
-                image_src = "data:image/png;base64,%s" % base64.b64encode(
-                    image_handle.read()
-                ).decode("ascii")
+                image_src = "data:%s;base64,%s" % (
+                    mimeType,
+                    base64.b64encode(image_handle.read()).decode("ascii"),
+                )
             buff += (
                 '  <div id="spectrum"><img src="%s" alt="Mass Spectrum" style="max-width: 100%%; height: auto;" /></div>\n'
                 % image_src
