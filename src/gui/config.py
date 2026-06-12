@@ -741,7 +741,6 @@ prospector = {
 links = {
     "mMassHomepage": "https://github.com/lukaszsobala/mMass",
     "mMassForum": "https://github.com/lukaszsobala/mMass",
-    "mMassTwitter": "https://www.twitter.com/mmassorg/",
     "mMassCite": "https://web.archive.org/web/20220307182056/http://www.mmass.org/donate/papers.php",
     "mMassDonate": "https://web.archive.org/web/20220123052313/http://www.mmass.org/donate/",
     "mMassDownload": "https://github.com/lukaszsobala/mMass/",
@@ -763,6 +762,20 @@ links = {
     "unimod": "https://www.unimod.org/",
     "uniprot": "https://www.uniprot.org/",
 }
+
+# Links whose URL is owned by the defaults above rather than by the user's
+# config XML. Their values are force-synced on every launch: a stale value in
+# an existing config (e.g. an old http:// URL) is ignored on load and dropped
+# on save, so default updates reach existing installs. Only genuinely custom
+# links (names not built into mMass) are read from / written to the user XML.
+# "Retired" names are links that no longer exist and must never be restored.
+_builtinLinks = frozenset(links)
+_retiredLinks = frozenset({"mMassTwitter"})
+
+
+def isManagedLink(name):
+    """Whether a link's URL is force-synced to the code default."""
+    return name in _builtinLinks or name in _retiredLinks
 
 replacements = {
     "sequences": {
@@ -1054,14 +1067,8 @@ def loadConfig(path=os.path.join(confdir, "config.xml")):  # noqa: B008
         for linkTag in linkTags:
             name = linkTag.getAttribute("name")
             value = linkTag.getAttribute("value")
-            if name not in (
-                "mMassHomepage",
-                "mMassForum",
-                "mMassTwitter",
-                "mMassCite",
-                "mMassDonate",
-                "mMassDownload",
-            ):
+            # managed links keep the code default; only load custom links
+            if not isManagedLink(name):
                 links[name] = value
 
 
@@ -2175,17 +2182,11 @@ def saveConfig(path=os.path.join(confdir, "config.xml")):  # noqa: B008
     buff += "    </mstag>\n"
     buff += "  </prospector>\n\n"
 
-    # links
+    # links (managed links always come from the defaults, so don't persist
+    # them; this also purges any stale values from an existing config)
     buff += "  <links>\n"
     for name in links:
-        if name not in (
-            "mMassHomepage",
-            "mMassForum",
-            "mMassTwitter",
-            "mMassCite",
-            "mMassDonate",
-            "mMassDownload",
-        ):
+        if not isManagedLink(name):
             buff += '    <link name="%s" value="%s" />\n' % (
                 _escape(name),
                 _escape(links[name]),
