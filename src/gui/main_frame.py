@@ -156,6 +156,10 @@ class mainFrame(wx.Frame):
         self.SetToolBar(self.toolbar)
         self.toolbar.Realize()
 
+        # Defunct external search services: keep their toolbar buttons greyed out.
+        self.toolbar.EnableTool(ID_toolsMascot, False)
+        self.toolbar.EnableTool(ID_toolsProfound, False)
+
         self.makeGUI()
         self.updateControls()
 
@@ -712,14 +716,27 @@ class mainFrame(wx.Frame):
         tools.AppendSeparator()
         tools.Append(ID_toolsEnvelopeFit, "Envelope Fit" + HK_toolsEnvelopeFit, "")
         tools.AppendSeparator()
-        tools.Append(ID_mascotPMF, "Mascot PMF", "")
-        tools.Append(ID_mascotMIS, "Mascot MS/MS Search", "")
-        tools.Append(ID_mascotSQ, "Mascot Sequence Query", "")
+        unavailableHelp = "Currently unavailable: the external search service is no longer reachable"
+        tools.Append(ID_mascotPMF, "Mascot PMF", unavailableHelp)
+        tools.Append(ID_mascotMIS, "Mascot MS/MS Search", unavailableHelp)
+        tools.Append(ID_mascotSQ, "Mascot Sequence Query", unavailableHelp)
         tools.AppendSeparator()
-        tools.Append(ID_toolsProfound, "ProFound Search", "")
+        tools.Append(ID_toolsProfound, "ProFound Search", unavailableHelp)
         tools.AppendSeparator()
-        tools.Append(ID_prospectorMSFit, "Protein Prospector MS-Fit", "")
-        tools.Append(ID_prospectorMSTag, "Protein Prospector MS-Tag", "")
+        tools.Append(ID_prospectorMSFit, "Protein Prospector MS-Fit", unavailableHelp)
+        tools.Append(ID_prospectorMSTag, "Protein Prospector MS-Tag", unavailableHelp)
+
+        # Greyed out for now: these rely on external web services (Mascot,
+        # ProFound, Protein Prospector) whose public endpoints are defunct.
+        for _disabledTool in (
+            ID_mascotPMF,
+            ID_mascotMIS,
+            ID_mascotSQ,
+            ID_toolsProfound,
+            ID_prospectorMSFit,
+            ID_prospectorMSTag,
+        ):
+            tools.Enable(_disabledTool, False)
 
         self.Bind(wx.EVT_MENU, self.onToolsSpectrum, id=ID_toolsRuler)
         self.Bind(wx.EVT_MENU, self.onToolsSpectrum, id=ID_toolsLabelPeak)
@@ -759,7 +776,11 @@ class mainFrame(wx.Frame):
         libraries.Append(ID_libraryMonomers, "Monomers...", "")
         libraries.Append(ID_libraryEnzymes, "Enzymes...", "")
         libraries.Append(ID_libraryReferences, "Reference Masses...", "")
-        libraries.Append(ID_libraryMascot, "Mascot Servers...", "")
+        libraries.Append(
+            ID_libraryMascot,
+            "Mascot Servers...",
+            "Currently unavailable: the external search service is no longer reachable",
+        )
         libraries.AppendSeparator()
         libraries.Append(ID_libraryPresets, "Presets...", "")
 
@@ -772,6 +793,9 @@ class mainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.onLibraryEdit, id=ID_libraryPresets)
 
         self.menubar.Append(libraries, "Libraries")
+
+        # Defunct Mascot search service: keep its server-library editor greyed out.
+        libraries.Enable(ID_libraryMascot, False)
 
         # links
         links = wx.Menu()
@@ -861,7 +885,6 @@ class mainFrame(wx.Frame):
         help.AppendSeparator()
         help.Append(ID_helpHomepage, "Homepage...", "")
         help.Append(ID_helpForum, "Support Forum...", "")
-        help.Append(ID_helpTwitter, "Twitter Account...", "")
         help.AppendSeparator()
         help.Append(ID_helpCite, "Papers to Cite...", "")
         help.Append(ID_helpDonate, "Make a Donation...", "")
@@ -873,7 +896,6 @@ class mainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.onHelpUserGuide, id=ID_helpUserGuide)
         self.Bind(wx.EVT_MENU, self.onLibraryLink, id=ID_helpHomepage)
         self.Bind(wx.EVT_MENU, self.onLibraryLink, id=ID_helpForum)
-        self.Bind(wx.EVT_MENU, self.onLibraryLink, id=ID_helpTwitter)
         self.Bind(wx.EVT_MENU, self.onLibraryLink, id=ID_helpCite)
         self.Bind(wx.EVT_MENU, self.onLibraryLink, id=ID_helpDonate)
         self.Bind(wx.EVT_MENU, self.onHelpAbout, id=ID_helpAbout)
@@ -3959,7 +3981,6 @@ class mainFrame(wx.Frame):
         links = {
             ID_helpHomepage: "mMassHomepage",
             ID_helpForum: "mMassForum",
-            ID_helpTwitter: "mMassTwitter",
             ID_helpCite: "mMassCite",
             ID_helpDonate: "mMassDonate",
             ID_linksBiomedMSTools: "biomedmstools",
@@ -4872,12 +4893,13 @@ class mainFrame(wx.Frame):
         self.menubar.Enable(ID_toolsSpectrumGenerator, enable)
         self.menubar.Enable(ID_toolsEnvelopeFit, enable)
         self.menubar.Enable(ID_toolsMassDefectPlot, enable)
-        self.menubar.Enable(ID_mascotPMF, enable)
-        self.menubar.Enable(ID_mascotSQ, enable)
-        self.menubar.Enable(ID_mascotMIS, enable)
-        self.menubar.Enable(ID_toolsProfound, enable)
-        self.menubar.Enable(ID_prospectorMSFit, enable)
-        self.menubar.Enable(ID_prospectorMSTag, enable)
+        # Defunct external search services: kept permanently disabled (see menu build).
+        self.menubar.Enable(ID_mascotPMF, False)
+        self.menubar.Enable(ID_mascotSQ, False)
+        self.menubar.Enable(ID_mascotMIS, False)
+        self.menubar.Enable(ID_toolsProfound, False)
+        self.menubar.Enable(ID_prospectorMSFit, False)
+        self.menubar.Enable(ID_prospectorMSTag, False)
 
         # update toolbar
         if wx.Platform != "__WXMAC__":
@@ -4892,8 +4914,8 @@ class mainFrame(wx.Frame):
         self.toolbar.EnableTool(ID_toolsSpectrumGenerator, enable)
         self.toolbar.EnableTool(ID_toolsEnvelopeFit, enable)
         self.toolbar.EnableTool(ID_toolsMassDefectPlot, enable)
-        self.toolbar.EnableTool(ID_toolsMascot, enable)
-        self.toolbar.EnableTool(ID_toolsProfound, enable)
+        self.toolbar.EnableTool(ID_toolsMascot, False)
+        self.toolbar.EnableTool(ID_toolsProfound, False)
         self.toolbar.EnableTool(ID_toolsDocumentExport, bool(self.documents))
         self.toolbar.EnableTool(ID_toolsDocumentInfo, enable)
         self.toolbar.EnableTool(ID_toolsDocumentReport, enable)

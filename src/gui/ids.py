@@ -273,7 +273,6 @@ HK_windowLayout4 = "\tF8"
 ID_helpAbout = wx.ID_ABOUT
 ID_helpHomepage = wx.NewId()
 ID_helpForum = wx.NewId()
-ID_helpTwitter = wx.NewId()
 ID_helpCite = wx.NewId()
 ID_helpDonate = wx.NewId()
 ID_helpUserGuide = wx.NewId()

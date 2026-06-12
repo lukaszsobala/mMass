@@ -741,7 +741,6 @@ prospector = {
 links = {
     "mMassHomepage": "https://github.com/lukaszsobala/mMass",
     "mMassForum": "https://github.com/lukaszsobala/mMass",
-    "mMassTwitter": "https://www.twitter.com/mmassorg/",
     "mMassCite": "https://web.archive.org/web/20220307182056/http://www.mmass.org/donate/papers.php",
     "mMassDonate": "https://web.archive.org/web/20220123052313/http://www.mmass.org/donate/",
     "mMassDownload": "https://github.com/lukaszsobala/mMass/",
