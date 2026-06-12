@@ -481,6 +481,30 @@ def fitChoice(choice, min_width=None, extra_padding=35):
 # -------------------
 
 
+class menuTipWindow(wx.PopupWindow):
+    """Lightweight tooltip-style bubble shown next to the cursor."""
+
+    def __init__(self, parent, text):
+        wx.PopupWindow.__init__(self, parent, flags=wx.BORDER_SIMPLE)
+
+        if images.is_dark_mode():
+            bg = wx.Colour(60, 60, 60)
+            fg = wx.Colour(230, 230, 230)
+        else:
+            bg = wx.Colour(255, 255, 225)
+            fg = wx.Colour(0, 0, 0)
+
+        self.SetBackgroundColour(bg)
+        label = wx.StaticText(self, -1, text)
+        label.SetBackgroundColour(bg)
+        label.SetForegroundColour(fg)
+
+        pad = max(1, _scale_int(4))
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(label, 0, wx.ALL, pad)
+        self.SetSizerAndFit(sizer)
+
+
 class bgrPanel(wx.Panel):
     """Simple panel with image background."""
 

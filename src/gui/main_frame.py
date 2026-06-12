@@ -98,6 +98,12 @@ def _scaledPaneSize(width, height):
 
 
 class mainFrame(wx.Frame):
+
+    # Status-bar fallback for the link-URL hover hint (used on Wayland, where
+    # the cursor tooltip can't map over native menus). Kept in place but
+    # disabled for now -- flip to True to re-enable. To be decided later.
+    _STATUS_BAR_FALLBACK = False
+
     def __init__(self, parent, id, title):
         wx.Frame.__init__(
             self,
@@ -148,9 +154,19 @@ class mainFrame(wx.Frame):
         self.tmpCompassXport = None
         self.tmpLibrarySaved = None
 
+        # Link menu items advertise their destination URL on hover. A
+        # cursor-following tooltip works on X11/Windows/macOS, but native
+        # Wayland menus won't let such a popup map over them, so there we
+        # fall back to showing the URL in the status bar.
+        self._menuTipEnabled = not self._isWaylandSession()
+
         # make GUI
         self.makeMenubar()
         self.SetMenuBar(self.menubar)
+
+        # status bar: also where the URL fallback is shown on Wayland
+        if not self._menuTipEnabled and self._STATUS_BAR_FALLBACK:
+            self.CreateStatusBar()
 
         self.makeToolbar()
         self.SetToolBar(self.toolbar)
@@ -175,6 +191,17 @@ class mainFrame(wx.Frame):
         self.Bind(wx.EVT_CLOSE, self.onQuit)
         self.Bind(wx.EVT_SIZE, self.onSize)
         self.Bind(wx.EVT_DROP_FILES, self.onDocumentDropped)
+
+        # hover tooltip showing the destination URL of link menu items
+        # (Wayland uses the status bar instead, set up above)
+        if self._menuTipEnabled:
+            self._menuTip = None
+            self._menuTipText = None
+            self._menuTipItemId = None
+            self._menuTipTimer = wx.Timer(self)
+            self.Bind(wx.EVT_TIMER, self.onMenuTipTimer, self._menuTipTimer)
+            self.Bind(wx.EVT_MENU_HIGHLIGHT_ALL, self.onMenuHighlight)
+            self.Bind(wx.EVT_MENU_CLOSE, self.onMenuClosed)
 
         # show app
         self.Layout()
@@ -218,6 +245,30 @@ class mainFrame(wx.Frame):
 
         # init menubar
         self.menubar = wx.MenuBar()
+
+        # map of menu items that open a webpage -> their config.links key
+        self.linkTargets = {
+            ID_helpHomepage: "mMassHomepage",
+            ID_helpForum: "mMassForum",
+            ID_helpCite: "mMassCite",
+            ID_helpDonate: "mMassDonate",
+            ID_linksBiomedMSTools: "biomedmstools",
+            ID_linksBLAST: "blast",
+            ID_linksClustalW: "clustalw",
+            ID_linksDeltaMass: "deltamass",
+            ID_linksEMBLEBI: "emblebi",
+            ID_linksExpasy: "expasy",
+            ID_linksFASTA: "fasta",
+            ID_linksMatrixScience: "matrixscience",
+            ID_linksMUSCLE: "muscle",
+            ID_linksNCBI: "ncbi",
+            ID_linksPDB: "pdb",
+            ID_linksPIR: "pir",
+            ID_linksProfound: "profound",
+            ID_linksProspector: "prospector",
+            ID_linksUniMod: "unimod",
+            ID_linksUniProt: "uniprot",
+        }
 
         # init recent documents
         self.menuRecent = wx.Menu()
@@ -901,6 +952,15 @@ class mainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.onHelpAbout, id=ID_helpAbout)
 
         self.menubar.Append(help, "&Help")
+
+        # advertise each link item's destination URL as its help string
+        # (shown in the status bar on platforms that use the status-bar
+        # fallback instead of the cursor tooltip)
+        for itemID, linkKey in self.linkTargets.items():
+            item = self.menubar.FindItemById(itemID)
+            url = config.links.get(linkKey)
+            if item is not None and url:
+                item.SetHelp(url)
 
     # ----
 
@@ -3978,35 +4038,98 @@ class mainFrame(wx.Frame):
         """Open selected webpage."""
 
         # set link
-        links = {
-            ID_helpHomepage: "mMassHomepage",
-            ID_helpForum: "mMassForum",
-            ID_helpCite: "mMassCite",
-            ID_helpDonate: "mMassDonate",
-            ID_linksBiomedMSTools: "biomedmstools",
-            ID_linksBLAST: "blast",
-            ID_linksClustalW: "clustalw",
-            ID_linksDeltaMass: "deltamass",
-            ID_linksEMBLEBI: "emblebi",
-            ID_linksExpasy: "expasy",
-            ID_linksFASTA: "fasta",
-            ID_linksMatrixScience: "matrixscience",
-            ID_linksMUSCLE: "muscle",
-            ID_linksNCBI: "ncbi",
-            ID_linksPDB: "pdb",
-            ID_linksPIR: "pir",
-            ID_linksProfound: "profound",
-            ID_linksProspector: "prospector",
-            ID_linksUniMod: "unimod",
-            ID_linksUniProt: "uniprot",
-        }
-        link = config.links[links[evt.GetId()]]
+        link = config.links[self.linkTargets[evt.GetId()]]
 
         # open webpage
         try:
             wx.LaunchDefaultBrowser(link)
         except Exception:
             pass
+
+    # ----
+
+    def _isWaylandSession(self):
+        """Whether we're running on a native Wayland GTK backend.
+
+        A forced X11/XWayland backend (GDK_BACKEND=x11) behaves like X11.
+        """
+
+        if wx.Platform != "__WXGTK__":
+            return False
+        backend = os.environ.get("GDK_BACKEND", "").lower()
+        if "x11" in backend:
+            return False
+        if "wayland" in backend:
+            return True
+        return bool(os.environ.get("WAYLAND_DISPLAY"))
+
+    # ----
+
+    def onMenuHighlight(self, evt):
+        """Schedule a hover tooltip for link menu items."""
+
+        evt.Skip()
+
+        itemId = evt.GetMenuId()
+        linkKey = self.linkTargets.get(itemId)
+        url = config.links.get(linkKey) if linkKey else None
+
+        # not a link item (or no URL): cancel any pending/visible tip
+        if not url:
+            if self._menuTipItemId is not None:
+                self._cancelMenuTip()
+            return
+
+        # same item still highlighted: nothing to do
+        if itemId == self._menuTipItemId:
+            return
+
+        # new link item: (re)start the hover delay
+        self._cancelMenuTip()
+        self._menuTipItemId = itemId
+        self._menuTipText = url
+        self._menuTipTimer.StartOnce(500)
+
+    # ----
+
+    def onMenuTipTimer(self, evt):
+        """Show the hover tooltip once the delay has elapsed."""
+
+        if not self._menuTipText:
+            return
+
+        self._destroyMenuTip()
+        self._menuTip = mwx.menuTipWindow(self, self._menuTipText)
+        pos = wx.GetMousePosition() + wx.Point(16, 18)
+        self._menuTip.SetPosition(pos)
+        self._menuTip.Show()
+
+    # ----
+
+    def onMenuClosed(self, evt):
+        """Drop any tooltip when a menu closes."""
+
+        evt.Skip()
+        self._cancelMenuTip()
+
+    # ----
+
+    def _cancelMenuTip(self):
+        """Stop the pending timer and hide the tooltip."""
+
+        self._menuTipTimer.Stop()
+        self._menuTipItemId = None
+        self._menuTipText = None
+        self._destroyMenuTip()
+
+    # ----
+
+    def _destroyMenuTip(self):
+        """Destroy the tooltip window if shown."""
+
+        if self._menuTip:
+            self._menuTip.Destroy()
+            self._menuTip = None
 
     # ----
 
