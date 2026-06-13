@@ -78,14 +78,13 @@ class panelChromatogram(wx.Panel):
             self, size=wx.Size(-1, 130), style=mwx.PLOTCANVAS_STYLE_PANEL
         )
 
-        self.canvas.setProperties(xLabel="retention time in min.")
-        self.canvas.setProperties(yLabel="normalized ion current")
+        self.canvas.setProperties(xLabel="min")
+        self.canvas.setProperties(yLabel="norm. ion current")
         self.canvas.setProperties(showGrid=True)
         self.canvas.setProperties(showMinorTicks=config.spectrum["showMinorTicks"])
         self.canvas.setProperties(showLegend=True)
-        self.canvas.setProperties(showXPosBar=True)
-        self.canvas.setProperties(showYPosBar=True)
-        self.canvas.setProperties(posBarSize=6)
+        self.canvas.setProperties(showXPosBar=False)
+        self.canvas.setProperties(showYPosBar=False)
         self.canvas.setProperties(showGel=False)
         self.canvas.setProperties(checkLimits=True)
         self.canvas.setProperties(autoScaleY=True)
