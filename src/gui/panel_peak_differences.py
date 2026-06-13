@@ -57,6 +57,9 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
         # init amino acids and dipeptides
         self.initAminoacids()
 
+        # init sugars and permethylated sugars
+        self.initSugars()
+
         # make gui items
         self.makeGUI()
         self.Bind(wx.EVT_CLOSE, self.onClose)
@@ -126,6 +129,14 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
         self.dipeptides_check.SetFont(wx.SMALL_FONT)
         self.dipeptides_check.SetValue(config.peakDifferences["dipeptides"])
 
+        self.sugars_check = wx.CheckBox(panel, -1, "Sugars")
+        self.sugars_check.SetFont(wx.SMALL_FONT)
+        self.sugars_check.SetValue(config.peakDifferences["sugars"])
+
+        self.permesugars_check = wx.CheckBox(panel, -1, "PerMe-Sugars")
+        self.permesugars_check.SetFont(wx.SMALL_FONT)
+        self.permesugars_check.SetValue(config.peakDifferences["permesugars"])
+
         massType_label = wx.StaticText(panel, -1, "Mass:")
         massType_label.SetFont(wx.SMALL_FONT)
 
@@ -168,6 +179,9 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
         sizer.AddSpacer(20)
         sizer.Add(self.aminoacids_check, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         sizer.Add(self.dipeptides_check, 0, wx.ALIGN_CENTER_VERTICAL)
+        sizer.AddSpacer(20)
+        sizer.Add(self.sugars_check, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        sizer.Add(self.permesugars_check, 0, wx.ALIGN_CENTER_VERTICAL)
         sizer.AddSpacer(20)
         sizer.Add(massType_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         sizer.Add(self.massTypeMo_radio, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
@@ -499,6 +513,10 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
 
             config.peakDifferences["aminoacids"] = int(self.aminoacids_check.GetValue())
             config.peakDifferences["dipeptides"] = int(self.dipeptides_check.GetValue())
+            config.peakDifferences["sugars"] = int(self.sugars_check.GetValue())
+            config.peakDifferences["permesugars"] = int(
+                self.permesugars_check.GetValue()
+            )
             config.peakDifferences["tolerance"] = float(self.tolerance_value.GetValue())
             config.peakDifferences["massType"] = int(self.massTypeAv_radio.GetValue())
             config.peakDifferences["consolidate"] = int(
@@ -575,10 +593,22 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
                     self.differencesGrid.SetCellBackgroundColour(
                         x, y, wx.Colour(0, 200, 255)
                     )
+                    self.differencesGrid.SetCellTextColour(x, y, wx.BLACK)
                 elif self.currentDifferences[i][j][1] == "dipep":
                     self.differencesGrid.SetCellBackgroundColour(
                         x, y, wx.Colour(100, 255, 255)
                     )
+                    self.differencesGrid.SetCellTextColour(x, y, wx.BLACK)
+                elif self.currentDifferences[i][j][1] == "sugar":
+                    self.differencesGrid.SetCellBackgroundColour(
+                        x, y, wx.Colour(255, 170, 0)
+                    )
+                    self.differencesGrid.SetCellTextColour(x, y, wx.BLACK)
+                elif self.currentDifferences[i][j][1] == "permesugar":
+                    self.differencesGrid.SetCellBackgroundColour(
+                        x, y, wx.Colour(255, 210, 100)
+                    )
+                    self.differencesGrid.SetCellTextColour(x, y, wx.BLACK)
 
     # ----
 
@@ -649,6 +679,23 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
                 if abs(error) <= config.peakDifferences["tolerance"]:
                     self.currentMatches.append([dip, error])
 
+        # search for sugars
+        if config.peakDifferences["sugars"]:
+            for sug in self._sugarMasses:
+                error = diff - self._sugarMasses[sug][config.peakDifferences["massType"]]
+                if abs(error) <= config.peakDifferences["tolerance"]:
+                    self.currentMatches.append([sug, error])
+
+        # search for permethylated sugars
+        if config.peakDifferences["permesugars"]:
+            for sug in self._permeSugarMasses:
+                error = (
+                    diff
+                    - self._permeSugarMasses[sug][config.peakDifferences["massType"]]
+                )
+                if abs(error) <= config.peakDifferences["tolerance"]:
+                    self.currentMatches.append([sug, error])
+
     # ----
 
     def runSearch(self):
@@ -676,6 +723,10 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
             aaMax = self._aaLimits[1] + config.peakDifferences["tolerance"]
             dipMin = self._dipLimits[0] - config.peakDifferences["tolerance"]
             dipMax = self._dipLimits[1] + config.peakDifferences["tolerance"]
+            sugMin = self._sugarLimits[0] - config.peakDifferences["tolerance"]
+            sugMax = self._sugarLimits[1] + config.peakDifferences["tolerance"]
+            permeMin = self._permeSugarLimits[0] - config.peakDifferences["tolerance"]
+            permeMax = self._permeSugarLimits[1] + config.peakDifferences["tolerance"]
 
             # calc differences
             self.currentDifferences = []
@@ -724,6 +775,40 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
                             )
                             if abs(error) <= config.peakDifferences["tolerance"]:
                                 match = "dipep"
+                                break
+
+                    # match sugars
+                    if (
+                        not match
+                        and config.peakDifferences["sugars"]
+                        and (sugMin <= diff <= sugMax)
+                    ):
+                        for sug in self._sugarMasses:
+                            error = (
+                                diff
+                                - self._sugarMasses[sug][
+                                    config.peakDifferences["massType"]
+                                ]
+                            )
+                            if abs(error) <= config.peakDifferences["tolerance"]:
+                                match = "sugar"
+                                break
+
+                    # match permethylated sugars
+                    if (
+                        not match
+                        and config.peakDifferences["permesugars"]
+                        and (permeMin <= diff <= permeMax)
+                    ):
+                        for sug in self._permeSugarMasses:
+                            error = (
+                                diff
+                                - self._permeSugarMasses[sug][
+                                    config.peakDifferences["massType"]
+                                ]
+                            )
+                            if abs(error) <= config.peakDifferences["tolerance"]:
+                                match = "permesugar"
                                 break
 
                     # append difference
@@ -782,6 +867,60 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
                     label = aX + aY
 
                 self._dipMasses[label] = mass
+
+    # ----
+
+    def initSugars(self):
+        """Calculate sugar / permethylated sugar masses and ranges."""
+
+        # elemental formulas of residue (glycosidic) masses
+        sugarFormulas = {
+            "Hex": "C6H10O5",
+            "dHex": "C6H10O4",
+            "HexNAc": "C8H13NO5",
+            "NeuAc": "C11H17NO8",
+            "NeuGc": "C11H17NO9",
+            "KDN": "C9H14O8",
+            "HexA": "C6H8O6",
+            "HexN": "C6H11NO4",
+            "Pent": "C5H8O4",
+        }
+        permeSugarFormulas = {
+            "Hex-PM": "C9H16O5",
+            "dHex-PM": "C8H14O4",
+            "HexNAc-PM": "C11H19NO5",
+            "NeuAc-PM": "C16H27NO8",
+            "NeuGc-PM": "C17H29NO9",
+            "KDN-PM": "C14H24O8",
+            "HexA-PM": "C9H14O6",
+            "Pent-PM": "C7H12O4",
+        }
+
+        self._sugarMasses = {}
+        for abbr, formula in sugarFormulas.items():
+            mass = mspy.obj_compound.compound(formula).mass()
+            self._sugarMasses[abbr] = self._to_mass_pair(mass)
+
+        self._permeSugarMasses = {}
+        for abbr, formula in permeSugarFormulas.items():
+            mass = mspy.obj_compound.compound(formula).mass()
+            self._permeSugarMasses[abbr] = self._to_mass_pair(mass)
+
+        # approximate mass limits (span mono..avg to cover both mass types)
+        self._sugarLimits = self._massLimits(self._sugarMasses)
+        self._permeSugarLimits = self._massLimits(self._permeSugarMasses)
+
+    # ----
+
+    def _massLimits(self, masses):
+        """Get [min, max] limits spanning mono and average masses."""
+
+        if not masses:
+            return [0.0, 1000.0]
+
+        lows = [pair[0] for pair in masses.values()]
+        highs = [pair[1] for pair in masses.values()]
+        return [min(lows) - 1, max(highs) + 1]
 
     # ----
 
