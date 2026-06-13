@@ -430,7 +430,10 @@ def applyDarkModeToWindow(window):
             pass
 
     def _recurse(w):
-        if isinstance(w, (wx.Panel, wx.ScrolledWindow)):
+        if isinstance(w, sortListCtrl):
+            # Virtual list tables manage their own row/header colours.
+            w.applyDarkTheme()
+        elif isinstance(w, (wx.Panel, wx.ScrolledWindow)):
             w.SetBackgroundColour(_DARK_BG)
             w.SetForegroundColour(_DARK_FG)
         elif isinstance(w, wx.StaticBox):
@@ -441,6 +444,11 @@ def applyDarkModeToWindow(window):
             w.SetBackgroundColour(_DARK_BG)
             w.SetForegroundColour(_DARK_FG)
         elif isinstance(w, (wx.ComboBox, wx.Choice)):
+            _disable_system_theme(w)
+            w.SetBackgroundColour(_DARK_INPUT_BG)
+            w.SetForegroundColour(_DARK_FG)
+        elif isinstance(w, wx.ListBox):
+            # Covers wx.CheckListBox too (a ListBox subclass).
             _disable_system_theme(w)
             w.SetBackgroundColour(_DARK_INPUT_BG)
             w.SetForegroundColour(_DARK_FG)
@@ -797,6 +805,44 @@ class sortListCtrl(wx.ListCtrl):
             self._altColour = colour
         else:
             self._altColour = self._defaultColour
+
+    # ----
+
+    def applyDarkTheme(self):
+        """Apply dark-mode colours to the rows, text and column header.
+
+        Centralises the table dark-theming pattern so every sortListCtrl reads
+        dark on wxMSW (where the native list keeps its light theme unless we opt
+        out and set the colours explicitly).  No-op outside dark mode.
+        """
+
+        if not images.is_dark_mode():
+            return
+
+        try:
+            self.EnableSystemTheme(False)
+        except Exception:
+            pass
+
+        self.SetBackgroundColour(_DARK_BG)
+        self.SetTextColour(_DARK_FG)
+        self.setDefaultColour(_DARK_BG)
+        self.setAltColour(wx.Colour(40, 40, 40))
+
+        try:
+            header_attr = wx.ItemAttr()
+            header_attr.SetBackgroundColour(wx.Colour(45, 45, 45))
+            if wx.Platform == "__WXMSW__":
+                # Native Windows headers ignore the background in themed mode, so
+                # the label sits on a light strip -- keep it black to stay legible.
+                header_attr.SetTextColour(wx.BLACK)
+            else:
+                header_attr.SetTextColour(_DARK_FG)
+            self.SetHeaderAttr(header_attr)
+        except Exception:
+            pass
+
+        self.Refresh()
 
     # ----
 

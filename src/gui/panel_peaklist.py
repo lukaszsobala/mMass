@@ -221,26 +221,7 @@ class panelPeaklist(wx.Panel):
         self.peakList.setSecondarySortColumn(0)
         self.peakList.setAltColour(mwx.LISTCTRL_ALTCOLOUR)
 
-        if images.is_dark_mode():
-            self.peakList.EnableSystemTheme(False)
-            self.peakList.SetBackgroundColour(wx.Colour(30, 30, 30))
-            self.peakList.SetTextColour(wx.Colour(220, 220, 220))
-            self.peakList.setDefaultColour(wx.Colour(30, 30, 30))
-            self.peakList.setAltColour(wx.Colour(40, 40, 40))
-            try:
-                header_attr = wx.ItemAttr()
-                if wx.Platform == "__WXMSW__":
-                    # Native Windows headers may ignore background colour in themed mode.
-                    # Keep text readable in that case.
-                    header_attr.SetBackgroundColour(wx.Colour(45, 45, 45))
-                    header_attr.SetTextColour(wx.BLACK)
-                else:
-                    header_attr.SetBackgroundColour(wx.Colour(45, 45, 45))
-                    header_attr.SetTextColour(wx.Colour(220, 220, 220))
-                self.peakList.SetHeaderAttr(header_attr)
-            except Exception:
-                pass
-            self.peakList.Refresh()
+        self.peakList.applyDarkTheme()
 
         # set events
         self.peakList.Bind(wx.EVT_LIST_COL_RIGHT_CLICK, self.onColumnRMU)
