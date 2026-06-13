@@ -467,6 +467,29 @@ class panelPeaklist(wx.Panel):
 
     # ----
 
+    def _showPeakEditor(self):
+        """Show the peak editor.
+
+        The editor is a tall, fixed-height panel that does not fit when the
+        peak list is docked at the bottom, so make sure we are in a layout
+        with the list docked on the (tall) right-hand side first."""
+
+        self.parent.ensurePeaklistEditorLayout()
+        self.editPeak_butt.SetBitmapLabel(images.lib["peaklistEditorOn"])
+        self.mainSizer.Show(1)
+        self.Layout()
+
+    # ----
+
+    def _hidePeakEditor(self):
+        """Hide the peak editor."""
+
+        self.editPeak_butt.SetBitmapLabel(images.lib["peaklistEditorOff"])
+        self.mainSizer.Hide(1)
+        self.Layout()
+
+    # ----
+
     def onItemSelected(self, evt):
         """Highlight selected peak in the spectrum and refresh peak editor."""
 
@@ -735,9 +758,7 @@ class panelPeaklist(wx.Panel):
 
         # show editing panel if not shown
         if not self.mainSizer.IsShown(1):
-            self.editPeak_butt.SetBitmapLabel(images.lib["peaklistEditorOn"])
-            self.mainSizer.Show(1)
-            self.Layout()
+            self._showPeakEditor()
 
     # ----
 
@@ -804,15 +825,11 @@ class panelPeaklist(wx.Panel):
 
         # hide peak editing panel
         if self.mainSizer.IsShown(1):
-            self.editPeak_butt.SetBitmapLabel(images.lib["peaklistEditorOff"])
-            self.mainSizer.Hide(1)
-            self.Layout()
+            self._hidePeakEditor()
 
         # show peak editing panel
         else:
-            self.editPeak_butt.SetBitmapLabel(images.lib["peaklistEditorOn"])
-            self.mainSizer.Show(1)
-            self.Layout()
+            self._showPeakEditor()
 
     # ----
 

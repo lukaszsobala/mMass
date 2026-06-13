@@ -5195,6 +5195,25 @@ class mainFrame(wx.Frame):
 
     # ----
 
+    def ensurePeaklistEditorLayout(self):
+        """Switch to a layout where the peak editor fits before showing it.
+
+        The peak editor is a tall, fixed-height panel. When the peak list is
+        docked at the bottom the pane is too short for it, clipping its
+        controls (GTK 'Negative content' warnings on Linux, clipped buttons on
+        Windows). Fall back to the default layout, where the peak list is
+        docked on the (tall) right-hand side and the editor fits."""
+
+        pane = self.AUIManager.GetPane("peaklist")
+        if (
+            pane.IsOk()
+            and pane.IsDocked()
+            and pane.dock_direction == wx.aui.AUI_DOCK_BOTTOM
+        ):
+            self.onWindowLayout(layout="default")
+
+    # ----
+
     def updateChromatogramPane(self, docData):
         """Show or hide the chromatogram pane for the active document."""
 
