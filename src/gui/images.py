@@ -166,16 +166,32 @@ def _apply_dark_mode_to_bitmaps():
         lib[key] = _invert_bitmap(value)
 
 
-# The active ("On") toolbar / bottombar icons are baked as a single pure-blue
-# accent (0, 71, 255) in the sprite sheets. That blue is hard to read on the
-# dark controlbars (and looks like a stray system highlight), so it is recoloured
-# to a warm yellow in dark mode. The "Off" icons are black and are handled by the
+# The active ("On") toolbar / bottombar icons are baked with a pure-blue accent
+# (0, 71, 255) in the sprite sheets. That blue is hard to read on the dark
+# controlbars (and looks like a stray system highlight), so it is recoloured to a
+# warm yellow in dark mode. The "Off" icons are black and are handled by the
 # greyscale inversion above instead.
 _DARK_MODE_ACTIVE_COLOUR = (255, 199, 0)
 
 
+def _bluish_rgb_mask(rgb):
+    """Return an (h, w) bool mask of pixels matching the blue accent hue.
+
+    Blue clearly dominates red and green for the accent (and for its antialiased
+    blends with an icon's white/black detail pixels), so a per-channel dominance
+    test isolates the blue strokes without touching that detail.
+    """
+
+    blue = rgb[:, :, 2]
+    return (blue > rgb[:, :, 0] + 40) & (blue > rgb[:, :, 1] + 40)
+
+
 def _is_blue_accent_image(image):
-    """True if the icon's opaque pixels are predominantly the blue accent."""
+    """True if a meaningful fraction of opaque pixels are the blue accent.
+
+    A simple majority is too strict: the cursor-tracker icon mixes blue strokes
+    with white/black crosshair detail, so blue is well under half its pixels.
+    """
 
     w, h = image.GetWidth(), image.GetHeight()
     if w <= 0 or h <= 0:
@@ -192,19 +208,15 @@ def _is_blue_accent_image(image):
     if not opaque.any():
         return False
 
-    px = rgb[opaque]
-    blue = px[:, 2]
-    # Blue clearly dominates red and green for the accent colour.
-    is_blue = (blue > px[:, 0] + 40) & (blue > px[:, 1] + 40)
-    return float(is_blue.mean()) > 0.5
+    return float((_bluish_rgb_mask(rgb) & opaque).sum()) / float(opaque.sum()) > 0.12
 
 
 def _recolor_blue_to_yellow(bitmap):
-    """Return a copy of bitmap with its blue accent replaced by yellow.
+    """Return a copy of bitmap with its blue accent pixels replaced by yellow.
 
-    The glyph is a single blue hue with antialiased edges, so only the RGB
-    channels are swapped for the target yellow while the alpha (and thus the
-    crisp anti-aliasing) is preserved.
+    Only the blue strokes (and their antialiased edges) are remapped; any
+    white/black detail pixels and the alpha channel are left untouched so the
+    icon's shape and anti-aliasing are preserved.
     """
 
     image = bitmap.ConvertToImage()
@@ -213,9 +225,7 @@ def _recolor_blue_to_yellow(bitmap):
         return bitmap
 
     rgb = np.frombuffer(image.GetDataBuffer(), dtype=np.uint8).reshape((h, w, 3))
-    rgb[:, :, 0] = _DARK_MODE_ACTIVE_COLOUR[0]
-    rgb[:, :, 1] = _DARK_MODE_ACTIVE_COLOUR[1]
-    rgb[:, :, 2] = _DARK_MODE_ACTIVE_COLOUR[2]
+    rgb[_bluish_rgb_mask(rgb.astype(np.int16))] = _DARK_MODE_ACTIVE_COLOUR
     return wx.Bitmap(image)
 
 
