@@ -54,6 +54,9 @@ class panelMassDefectPlot(wx.Frame):
         self.makeGUI()
         self.Bind(wx.EVT_CLOSE, self.onClose)
 
+        # apply dark mode
+        mwx.applyDarkMode(self)
+
     # ----
 
     def makeGUI(self):

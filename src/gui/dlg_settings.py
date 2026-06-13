@@ -1,5 +1,6 @@
 import wx
 from . import config
+from . import mwx
 
 class dlgSettings(wx.Dialog):
     """Settings dialog."""
@@ -34,6 +35,9 @@ class dlgSettings(wx.Dialog):
         sizer.Add(box_sizer, 0, wx.ALL | wx.EXPAND, 10)
         self.SetSizer(sizer)
         sizer.Fit(self)
+
+        # apply dark mode
+        mwx.applyDarkMode(self)
 
     def _get_slider_value(self, filterSize):
         return max(10, min(50, int(round((6.0 - float(filterSize)) * 10))))

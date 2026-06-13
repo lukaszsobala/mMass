@@ -419,25 +419,39 @@ def applyDarkModeToWindow(window):
     if not images.is_dark_mode():
         return
 
+    def _disable_system_theme(w):
+        # On wxMSW the native (light) theme keeps painting the control unless we
+        # opt out of it; harmless no-op elsewhere.
+        try:
+            enable_system_theme = getattr(w, "EnableSystemTheme", None)
+            if enable_system_theme is not None:
+                enable_system_theme(False)
+        except Exception:
+            pass
+
     def _recurse(w):
         if isinstance(w, (wx.Panel, wx.ScrolledWindow)):
             w.SetBackgroundColour(_DARK_BG)
             w.SetForegroundColour(_DARK_FG)
-        elif isinstance(w, (wx.StaticText, wx.CheckBox, wx.RadioButton)):
+        elif isinstance(w, wx.StaticBox):
+            # Only the box label/border honour the foreground colour; leave the
+            # background transparent so the parent panel shows through.
+            w.SetForegroundColour(_DARK_FG)
+        elif isinstance(w, (wx.StaticText, wx.CheckBox, wx.RadioButton, wx.StaticLine)):
             w.SetBackgroundColour(_DARK_BG)
             w.SetForegroundColour(_DARK_FG)
+        elif isinstance(w, (wx.ComboBox, wx.Choice)):
+            _disable_system_theme(w)
+            w.SetBackgroundColour(_DARK_INPUT_BG)
+            w.SetForegroundColour(_DARK_FG)
         elif isinstance(w, (wx.TextCtrl, wx.SpinCtrl)):
+            _disable_system_theme(w)
             w.SetBackgroundColour(_DARK_INPUT_BG)
             w.SetForegroundColour(_DARK_FG)
-        elif isinstance(w, wx.Choice):
-            try:
-                enable_system_theme = getattr(w, "EnableSystemTheme", None)
-                if enable_system_theme is not None:
-                    enable_system_theme(False)
-            except Exception:
-                pass
-            w.SetBackgroundColour(_DARK_INPUT_BG)
-            w.SetForegroundColour(_DARK_FG)
+        elif isinstance(w, wx.BitmapButton):
+            # Bitmap toolbar buttons should melt into their toolbar, not take the
+            # lighter input-field shade used for ordinary push buttons.
+            w.SetBackgroundColour(w.GetParent().GetBackgroundColour())
         elif isinstance(w, wx.Button):
             w.SetBackgroundColour(_DARK_INPUT_BG)
             w.SetForegroundColour(_DARK_FG)
@@ -446,6 +460,23 @@ def applyDarkModeToWindow(window):
 
     _recurse(window)
     window.Refresh()
+
+
+def applyDarkMode(window):
+    """Apply the full dark theme to a top-level *window*.
+
+    Sets the window's own colours, recolours every child control, and switches
+    the native Windows frame (title bar / menus) to dark.  No-op outside dark
+    mode.  This centralises the per-window dark block so every tool frame and
+    dialog gets identical treatment -- needed because on wxMSW child controls do
+    not inherit the parent's colours the way they do on GTK.
+    """
+    if not images.is_dark_mode():
+        return
+    window.SetBackgroundColour(_DARK_BG)
+    window.SetForegroundColour(_DARK_FG)
+    applyDarkModeToWindow(window)
+    applyWindowsDarkMode(window)
 
 
 def fitChoice(choice, min_width=None, extra_padding=35):
@@ -1018,6 +1049,16 @@ class formulaCtrl(wx.TextCtrl):
         validator=wx.DefaultValidator,
     ):
         wx.TextCtrl.__init__(self, parent, id, value, pos, size, style, validator)
+
+        # Background used when the current formula is valid.  In dark mode this
+        # must stay dark instead of reverting to the light system default.
+        if images.is_dark_mode():
+            self._validColour = _DARK_INPUT_BG
+            self.SetBackgroundColour(self._validColour)
+            self.SetForegroundColour(_DARK_FG)
+        else:
+            self._validColour = wx.NullColour
+
         self.Bind(wx.EVT_TEXT, self._onText)
 
     # ----
@@ -1034,7 +1075,7 @@ class formulaCtrl(wx.TextCtrl):
 
         try:
             mspy.compound(self.GetValue())
-            self.SetBackgroundColour(wx.NullColour)
+            self.SetBackgroundColour(self._validColour)
         except Exception:
             self.SetBackgroundColour(wx.Colour(250, 100, 100))
 

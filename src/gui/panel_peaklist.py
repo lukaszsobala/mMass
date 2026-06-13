@@ -99,6 +99,10 @@ class panelPeaklist(wx.Panel):
         self.mainSizer.Fit(self)
         self.SetSizer(self.mainSizer)
 
+        # recolour static labels / inputs for dark mode (wxMSW does not inherit
+        # the parent colours the way GTK does)
+        mwx.applyDarkModeToWindow(self)
+
     # ----
 
     def makeToolbar(self):
