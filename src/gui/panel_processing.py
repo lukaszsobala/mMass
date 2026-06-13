@@ -737,6 +737,18 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             bool(config.processing["peakpicking"]["removeShoulders"])
         )
 
+        peakpickingAllScans_label = wx.StaticText(panel, -1, "Pick in all spectra:")
+        peakpickingAllScans_label.SetToolTip(
+            wx.ToolTip(
+                "For LC-MS runs: pick peaks in every scan of the run, "
+                "not just the displayed one."
+            )
+        )
+        self.peakpickingAllScans_check = wx.CheckBox(panel, -1, " LC-MS run")
+        self.peakpickingAllScans_check.SetFont(wx.SMALL_FONT)
+        self.peakpickingAllScans_check.SetValue(True)
+        self.peakpickingAllScans_check.Enable(False)
+
         # pack elements
         grid = wx.GridBagSizer(mwx.GRIDBAG_VSPACE, mwx.GRIDBAG_HSPACE)
         grid.Add(
@@ -790,6 +802,12 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL,
         )
         grid.Add(self.peakpickingRemoveShoulders_check, (7, 1))
+        grid.Add(
+            peakpickingAllScans_label,
+            (8, 0),
+            flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL,
+        )
+        grid.Add(self.peakpickingAllScans_check, (8, 1), (1, 2))
 
         mainSizer = wx.BoxSizer(wx.VERTICAL)
         mainSizer.Add(grid, 0, wx.ALIGN_CENTER | wx.ALL, mwx.PANEL_SPACE_MAIN)
@@ -1992,6 +2010,10 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         self.currentDocument = document
         self.updateCurrentDocument()
 
+        # enable the "all spectra" option only for LC-MS runs
+        isLCMS = bool(document is not None and document.islcms())
+        self.peakpickingAllScans_check.Enable(isLCMS)
+
         # clear preview
         self.clearPreview()
 
@@ -2823,6 +2845,70 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
     # ----
 
+    def pickPeaksOnScan(self, scan):
+        """Run the configured peak-picking pipeline on one scan, in place."""
+
+        # nothing to do without profile data
+        if not scan.hasprofile():
+            return
+
+        # get baseline window
+        baselineWindow = 1.0
+        if config.processing["peakpicking"]["baseline"]:
+            baselineWindow = 1.0 / config.processing["baseline"]["precision"]
+
+        # get smoothing method
+        smoothMethod = None
+        if config.processing["peakpicking"]["smoothing"]:
+            smoothMethod = config.processing["smoothing"]["method"]
+
+        # label spectrum
+        scan.labelscan(
+            pickingHeight=config.processing["peakpicking"]["pickingHeight"],
+            absThreshold=config.processing["peakpicking"]["absIntThreshold"],
+            relThreshold=config.processing["peakpicking"]["relIntThreshold"],
+            snThreshold=config.processing["peakpicking"]["snThreshold"],
+            baselineWindow=baselineWindow,
+            baselineOffset=config.processing["baseline"]["offset"],
+            smoothMethod=smoothMethod,
+            smoothWindow=config.processing["smoothing"]["windowSize"],
+            smoothCycles=int(config.processing["smoothing"]["cycles"]),
+        )
+
+        # remove shoulder peaks
+        if config.processing["peakpicking"]["removeShoulders"]:
+            scan.remshoulders(window=2.5, relThreshold=0.05, fwhm=0.01)
+
+        # find isotopes and calculate charges
+        if config.processing["peakpicking"]["deisotoping"]:
+            scan.deisotope(
+                maxCharge=config.processing["deisotoping"]["maxCharge"],
+                mzTolerance=config.processing["deisotoping"]["massTolerance"],
+                intTolerance=config.processing["deisotoping"]["intTolerance"],
+                isotopeShift=config.processing["deisotoping"]["isotopeShift"],
+            )
+
+            if config.processing["deisotoping"].get("convertToEnvelopes"):
+                scan.labelenvelopes(
+                    label=config.processing["deisotoping"]["labelEnvelope"],
+                    intensity=config.processing["deisotoping"]["envelopeIntensity"],
+                    mzTolerance=config.processing["deisotoping"]["massTolerance"],
+                    isotopeShift=config.processing["deisotoping"]["isotopeShift"],
+                    nonIdeality=config.processing["deisotoping"].get(
+                        "envelopeNonIdeality"
+                    ),
+                )
+
+            # remove isotopes
+            if config.processing["deisotoping"]["removeIsotopes"]:
+                scan.remisotopes()
+
+            # remove unknown
+            if config.processing["deisotoping"]["removeUnknown"]:
+                scan.remuncharged()
+
+    # ----
+
     def runApplyPeakpicking(self, batch=False):
         """Find peaks."""
 
@@ -2831,6 +2917,13 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             wx.Bell()
             return
 
+        # for LC-MS runs, optionally pick peaks in every scan of the run
+        allScans = (
+            not batch
+            and self.currentDocument.islcms()
+            and self.peakpickingAllScans_check.GetValue()
+        )
+
         # run task
         try:
 
@@ -2838,62 +2931,19 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             if not batch:
                 self.currentDocument.backup(("spectrum", "notations"))
 
-            # get baseline window
-            baselineWindow = 1.0
-            if config.processing["peakpicking"]["baseline"]:
-                baselineWindow = 1.0 / config.processing["baseline"]["precision"]
-
-            # get smoothing method
-            smoothMethod = None
-            if config.processing["peakpicking"]["smoothing"]:
-                smoothMethod = config.processing["smoothing"]["method"]
-
-            # label spectrum
-            self.currentDocument.spectrum.labelscan(
-                pickingHeight=config.processing["peakpicking"]["pickingHeight"],
-                absThreshold=config.processing["peakpicking"]["absIntThreshold"],
-                relThreshold=config.processing["peakpicking"]["relIntThreshold"],
-                snThreshold=config.processing["peakpicking"]["snThreshold"],
-                baselineWindow=baselineWindow,
-                baselineOffset=config.processing["baseline"]["offset"],
-                smoothMethod=smoothMethod,
-                smoothWindow=config.processing["smoothing"]["windowSize"],
-                smoothCycles=int(config.processing["smoothing"]["cycles"]),
-            )
-
-            # remove shoulder peaks
-            if config.processing["peakpicking"]["removeShoulders"]:
-                self.currentDocument.spectrum.remshoulders(
-                    window=2.5, relThreshold=0.05, fwhm=0.01
-                )
-
-            # find isotopes and calculate charges
-            if config.processing["peakpicking"]["deisotoping"]:
-                self.currentDocument.spectrum.deisotope(
-                    maxCharge=config.processing["deisotoping"]["maxCharge"],
-                    mzTolerance=config.processing["deisotoping"]["massTolerance"],
-                    intTolerance=config.processing["deisotoping"]["intTolerance"],
-                    isotopeShift=config.processing["deisotoping"]["isotopeShift"],
-                )
-
-                if config.processing["deisotoping"].get("convertToEnvelopes"):
-                    self.currentDocument.spectrum.labelenvelopes(
-                        label=config.processing["deisotoping"]["labelEnvelope"],
-                        intensity=config.processing["deisotoping"]["envelopeIntensity"],
-                        mzTolerance=config.processing["deisotoping"]["massTolerance"],
-                        isotopeShift=config.processing["deisotoping"]["isotopeShift"],
-                        nonIdeality=config.processing["deisotoping"].get(
-                            "envelopeNonIdeality"
-                        ),
-                    )
-
-                # remove isotopes
-                if config.processing["deisotoping"]["removeIsotopes"]:
-                    self.currentDocument.spectrum.remisotopes()
-
-                # remove unknown
-                if config.processing["deisotoping"]["removeUnknown"]:
-                    self.currentDocument.spectrum.remuncharged()
+            if allScans:
+                document = self.currentDocument
+                scanlist = document.scanlist or {}
+                for scanID in scanlist:
+                    # load the scan (cached, GUI-free) and pick its peaks
+                    scan = self.parent.loadScanRaw(document, scanID)
+                    if scan is not None and scan.hasprofile():
+                        self.pickPeaksOnScan(scan)
+                # keep the displayed spectrum pointing at the current scan's peaks
+                if document.currentScanID in document.scanCache:
+                    document.spectrum = document.scanCache[document.currentScanID]
+            else:
+                self.pickPeaksOnScan(self.currentDocument.spectrum)
 
             # remove notations
             del self.currentDocument.annotations[:]

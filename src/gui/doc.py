@@ -56,6 +56,16 @@ class document:
         self.annotations = []
         self.sequences = []
 
+        # LC-MS / chromatogram support
+        # When a multi-scan file is opened as a single browsable run, the
+        # document keeps the whole scan index plus a cache of already-loaded
+        # scans so navigating the chromatogram restores each scan (and any
+        # peaks picked on it). 'spectrum' always mirrors the current scan.
+        self.scanlist: Any = None  # {scanNumber: metadata dict} or None
+        self.scanCache: dict[Any, Any] = {}  # {scanNumber: mspy.scan}
+        self.currentScanID: Any = None  # scanNumber currently shown
+        self.chromatograms: dict[str, list] = {}  # {"tic": [(rt, ai)..], "bpc": [..]}
+
         self.colour = (0, 0, 255)
         self.style = wx.SOLID  # type: ignore[attr-defined]
         self.dirty = False
@@ -76,6 +86,12 @@ class document:
         self._redoAnnotationsBuff: Any = None
         self._redoSequencesBuff: Any = None
         self._redoInfoBuff: dict[str, Any] | None = None
+
+    # ----
+
+    def islcms(self):
+        """Return True if this document is a browsable multi-scan LC-MS run."""
+        return bool(self.scanlist) and len(self.scanlist) > 1
 
     # ----
 

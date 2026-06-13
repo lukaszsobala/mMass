@@ -63,6 +63,7 @@ from .panel_mass_defect_plot import panelMassDefectPlot
 from .panel_peak_differences import panelPeakDifferences
 from .panel_periodic_table import panelPeriodicTable
 from .panel_peaklist import panelPeaklist
+from .panel_chromatogram import panelChromatogram
 from .panel_processing import panelProcessing
 from .panel_profound import panelProfound
 from .panel_prospector import panelProspector
@@ -1226,6 +1227,9 @@ class mainFrame(wx.Frame):
         # make peaklist panel
         self.peaklistPanel = panelPeaklist(self)
 
+        # make chromatogram panel (LC-MS browsing)
+        self.chromatogramPanel = panelChromatogram(self)
+
         # init other tools
         self.processingPanel = None
         self.calibrationPanel = None
@@ -1289,6 +1293,23 @@ class mainFrame(wx.Frame):
             .GripperTop(True)
             .CloseButton(False)
             .PaneBorder(False),
+        )
+
+        self.AUIManager.AddPane(
+            self.chromatogramPanel,
+            wx.aui.AuiPaneInfo()
+            .Name("chromatogram")
+            .Bottom()
+            .Layer(0)
+            .MinSize(_scaledPaneSize(300, 140))
+            .BestSize(_scaledPaneSize(400, 170))
+            .Caption("Chromatogram")
+            .CaptionVisible(True)
+            .Gripper(config.main["unlockGUI"])
+            .GripperTop(True)
+            .CloseButton(False)
+            .PaneBorder(False)
+            .Hide(),
         )
 
         # show panels
@@ -1460,6 +1481,9 @@ class mainFrame(wx.Frame):
 
             # update peaklist panel
             self.peaklistPanel.setData(docData)
+
+            # update chromatogram panel (LC-MS browsing)
+            self.updateChromatogramPane(docData)
 
             # update processing panel
             if self.processingPanel:
@@ -4341,7 +4365,20 @@ class mainFrame(wx.Frame):
 
         # select scans from multiscan documents
         scans = [None]
-        if docType in ("mzXML", "mzData", "mzML", "MGF"):
+        if docType in ("mzXML", "mzData", "mzML"):
+            # gather the scan index for this run
+            if not self.ensureScanlist(path, docType):
+                return
+
+            # open a real multiscan run as a single browsable
+            # chromatogram document (LC-MS is first-class)
+            if self.tmpScanlist and len(self.tmpScanlist) > 1:
+                if self.openChromatogramDocument(path, docType, self.tmpScanlist):
+                    self.updateRecentFiles(path)
+                return
+
+            # single-scan file: fall through to the normal open path
+        elif docType == "MGF":
             scans = self.askForScans(path, docType)
             if not scans:
                 return
@@ -4798,8 +4835,11 @@ class mainFrame(wx.Frame):
 
     # ----
 
-    def askForScans(self, path, docType):
-        """Select scans to import."""
+    def ensureScanlist(self, path, docType):
+        """Load the scan index for a document into self.tmpScanlist.
+
+        Returns True on success, False (with an error dialog) otherwise.
+        """
 
         self.tmpScanlist = None
 
@@ -4826,6 +4866,22 @@ class mainFrame(wx.Frame):
             dlg.Destroy()
             return False
 
+        return True
+
+    # ----
+
+    def askForScans(self, path, docType, scanlist=None):
+        """Select scans to import using the classic scan picker.
+
+        If scanlist is given (e.g. an already-open chromatogram document),
+        the picker is shown for it directly instead of re-parsing the file.
+        """
+
+        if scanlist is not None:
+            self.tmpScanlist = scanlist
+        elif not self.ensureScanlist(path, docType):
+            return False
+
         # select scans to open
         if len(self.tmpScanlist) > 1:
             dlg = dlgSelectScans(self, self.tmpScanlist)
@@ -4838,6 +4894,360 @@ class mainFrame(wx.Frame):
                 return None
         else:
             return [None]
+
+    # ----
+
+    # LC-MS / CHROMATOGRAM SUPPORT
+
+    def makeScanParser(self, path, docType):
+        """Make an mspy parser for lazily loading scans from a run."""
+
+        if docType == "mzData":
+            return mspy.parseMZDATA(path)
+        elif docType == "mzXML":
+            return mspy.parseMZXML(path)
+        elif docType == "mzML":
+            return mspy.parseMZML(path)
+        elif docType == "MGF":
+            return mspy.parseMGF(path)
+        return None
+
+    # ----
+
+    def pickInitialScan(self, scanlist):
+        """Pick the scan first shown when a run is opened (TIC apex MS1)."""
+
+        best = None
+        bestTIC = None
+        firstMS1 = None
+        for scanID, meta in scanlist.items():
+            if meta.get("msLevel") not in (None, 1):
+                continue
+            if firstMS1 is None:
+                firstMS1 = scanID
+            tic = meta.get("totIonCurrent")
+            if tic is not None and (bestTIC is None or tic > bestTIC):
+                bestTIC = tic
+                best = scanID
+
+        if best is not None:
+            return best
+        if firstMS1 is not None:
+            return firstMS1
+        # no MS1 scans at all - use the first scan available
+        return next(iter(scanlist), None)
+
+    # ----
+
+    def buildChromatograms(self, scanlist):
+        """Build TIC/BPC traces (MS1 only) from a scan index."""
+
+        tic = []
+        bpc = []
+        for _scanID, meta in scanlist.items():
+            if meta.get("msLevel") not in (None, 1):
+                continue
+            rt = meta.get("retentionTime")
+            if rt is None:
+                continue
+            if meta.get("totIonCurrent") is not None:
+                tic.append((rt / 60.0, meta["totIonCurrent"]))
+            if meta.get("basePeakIntensity") is not None:
+                bpc.append((rt / 60.0, meta["basePeakIntensity"]))
+
+        tic.sort()
+        bpc.sort()
+        return {"tic": tic, "bpc": bpc}
+
+    # ----
+
+    def runChromatogramParser(self, path, docType, scanlist):
+        """Build a browsable chromatogram document from a multiscan run."""
+
+        # make parser and load the initial scan
+        parser = self.makeScanParser(path, docType)
+        if parser is None:
+            return
+
+        initialID = self.pickInitialScan(scanlist)
+        if initialID is None:
+            return
+
+        spectrum = parser.scan(initialID)
+        if not spectrum:
+            return
+
+        # init document
+        document = doc.document()
+        document.format = docType
+        document.path = path
+        document.spectrum = spectrum
+
+        # attach chromatogram / scan index
+        document.scanlist = scanlist
+        document.chromatograms = self.buildChromatograms(scanlist)
+        document.currentScanID = initialID
+        document.scanCache = {initialID: spectrum}
+
+        # get info
+        info = parser.info()
+        if isinstance(info, dict):
+            document.title = info["title"]
+            document.operator = info["operator"]
+            document.contact = info["contact"]
+            document.institution = info["institution"]
+            document.date = info["date"]
+            document.instrument = info["instrument"]
+            document.notes = info["notes"]
+
+        # set date if empty
+        if not document.date:
+            document.date = time.ctime(os.path.getctime(path))
+
+        # set title if empty
+        if not document.title:
+            dirName, fileName = os.path.split(path)
+            baseName, extension = os.path.splitext(fileName)
+            if baseName.lower() == "analysis":
+                document.title = os.path.split(dirName)[1]
+            else:
+                document.title = baseName
+
+        # finalize document
+        document.colour = self.getFreeColour()
+        document.sortAnnotations()
+        document.sortSequenceMatches()
+        self.documents.append(document)
+
+        # precalculate baseline for the initial scan
+        if spectrum.hasprofile():
+            spectrum.baseline(
+                window=(1.0 / config.processing["baseline"]["precision"]),
+                offset=config.processing["baseline"]["offset"],
+            )
+
+    # ----
+
+    def openChromatogramDocument(self, path, docType, scanlist):
+        """Open a multiscan run as a single browsable chromatogram document."""
+
+        before = len(self.documents)
+
+        # init processing gauge
+        gauge = mwx.gaugePanel(self, "Reading data...")
+        gauge.show()
+
+        # load document in a thread
+        process = threading.Thread(
+            target=self.runChromatogramParser,
+            kwargs={"path": path, "docType": docType, "scanlist": scanlist},
+        )
+        process.start()
+        while process.is_alive():
+            gauge.pulse()
+        gauge.close()
+
+        # check result
+        if before < len(self.documents):
+            self.onDocumentLoaded(select=True)
+            return True
+
+        wx.Bell()
+        dlg = mwx.dlgMessage(
+            self,
+            title="Unable to open the document.",
+            message="There were some errors while reading selected document\nor it contains no data.",
+        )
+        dlg.ShowModal()
+        dlg.Destroy()
+        return False
+
+    # ----
+
+    def loadScanRaw(self, document, scanID):
+        """Load and cache a scan without touching the GUI.
+
+        Safe to call from worker threads (e.g. batch peak picking across an
+        entire LC-MS run). Returns the cached scan or None.
+        """
+
+        # already loaded
+        if scanID in document.scanCache:
+            return document.scanCache[scanID]
+
+        # parse the scan from file
+        parser = self.makeScanParser(document.path, document.format)
+        if parser is None:
+            return None
+        scan = parser.scan(scanID)
+
+        if scan:
+            # precalculate baseline once
+            if scan.hasprofile():
+                scan.baseline(
+                    window=(1.0 / config.processing["baseline"]["precision"]),
+                    offset=config.processing["baseline"]["offset"],
+                )
+            document.scanCache[scanID] = scan
+
+        return scan
+
+    # ----
+
+    def loadScan(self, document, scanID):
+        """Load a scan for a chromatogram document, using the cache.
+
+        Shows a progress gauge; for interactive (main-thread) use.
+        """
+
+        # already loaded
+        if scanID in document.scanCache:
+            return document.scanCache[scanID]
+
+        # parse the scan from file in a worker thread
+        self._loadedScan = None
+
+        def worker():
+            self._loadedScan = self.loadScanRaw(document, scanID)
+
+        gauge = mwx.gaugePanel(self, "Reading scan...")
+        gauge.show()
+        process = threading.Thread(target=worker)
+        process.start()
+        while process.is_alive():
+            gauge.pulse()
+        gauge.close()
+
+        scan = self._loadedScan
+        self._loadedScan = None
+
+        return scan
+
+    # ----
+
+    def selectChromatogramScan(self, document, scanID):
+        """Show the given scan of a chromatogram document in the viewer.
+
+        The previously shown scan stays cached (with any peaks picked on it)
+        so navigating back restores it. Navigation alone does not mark the
+        document dirty.
+        """
+
+        # this only applies to the active document
+        if (
+            self.currentDocument is None
+            or self.documents[self.currentDocument] is not document
+        ):
+            return
+
+        # sync the currently shown scan back into the cache so any edits
+        # (peak picking, processing, undo/redo) are preserved when we return
+        if document.currentScanID is not None:
+            document.scanCache[document.currentScanID] = document.spectrum
+
+        # load the requested scan
+        scan = self.loadScan(document, scanID)
+        if not scan:
+            wx.Bell()
+            return
+
+        # remember dirty state - browsing scans is not an edit
+        wasDirty = document.dirty
+
+        # switch the shown scan
+        document.spectrum = scan
+        document.currentScanID = scanID
+
+        docIndex = self.currentDocument
+
+        # refresh spectrum and dependent panels
+        self.spectrumPanel.updateSpectrum(docIndex)
+        self.peaklistPanel.updatePeakList()
+
+        if self.documentInfoPanel:
+            self.documentInfoPanel.setData(document)
+        if self.processingPanel:
+            self.processingPanel.setData(document)
+        if self.calibrationPanel:
+            self.calibrationPanel.setData(document)
+        if self.massToFormulaPanel:
+            self.massToFormulaPanel.setData(document)
+        if self.massDefectPlotPanel:
+            self.massDefectPlotPanel.setData(document)
+        if self.massFilterPanel:
+            self.massFilterPanel.setData(document)
+        if self.compoundsSearchPanel:
+            self.compoundsSearchPanel.setData(document)
+        if self.peakDifferencesPanel:
+            self.peakDifferencesPanel.setData(document)
+        if self.spectrumGeneratorPanel:
+            self.spectrumGeneratorPanel.setData(document)
+        if self.envelopeFitPanel:
+            self.envelopeFitPanel.setData(document)
+
+        # update the chromatogram marker / label
+        self.chromatogramPanel.highlightCurrentScan()
+        self.chromatogramPanel.updateScanLabel()
+
+        # restore dirty state and controls
+        document.dirty = wasDirty
+        self.updateControls()
+
+    # ----
+
+    def updateChromatogramPane(self, docData):
+        """Show or hide the chromatogram pane for the active document."""
+
+        pane = self.AUIManager.GetPane("chromatogram")
+        if not pane.IsOk():
+            return
+
+        if docData is not None and docData.islcms():
+            self.chromatogramPanel.setData(docData)
+            pane.Show()
+        else:
+            self.chromatogramPanel.setData(None)
+            pane.Hide()
+
+        self.AUIManager.Update()
+
+    # ----
+
+    def onExtractScansFromChromatogram(self, document):
+        """Open the classic scan picker to extract scans as new documents."""
+
+        selected = self.askForScans(
+            document.path, document.format, scanlist=document.scanlist
+        )
+        if not selected:
+            return
+
+        # open each selected scan as its own single-spectrum document
+        status = True
+        for scan in selected:
+            before = len(self.documents)
+
+            gauge = mwx.gaugePanel(self, "Reading data...")
+            gauge.show()
+            process = threading.Thread(
+                target=self.runDocumentParser,
+                kwargs={
+                    "path": document.path,
+                    "docType": document.format,
+                    "scan": scan,
+                },
+            )
+            process.start()
+            while process.is_alive():
+                gauge.pulse()
+            if before < len(self.documents):
+                self.onDocumentLoaded(select=True)
+            else:
+                status = False
+            gauge.close()
+
+        if not status:
+            wx.Bell()
 
     # ----
 
