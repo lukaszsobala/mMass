@@ -549,6 +549,8 @@ compoundsSearch = {
 peakDifferences = {
     "aminoacids": 1,
     "dipeptides": 0,
+    "sugars": 0,
+    "permesugars": 0,
     "massType": 0,
     "tolerance": 0.1,
     "consolidate": 0,
@@ -1714,6 +1716,12 @@ def saveConfig(path=os.path.join(confdir, "config.xml")):  # noqa: B008
     )
     buff += '    <param name="dipeptides" value="%d" type="int" />\n' % (
         bool(peakDifferences["dipeptides"])
+    )
+    buff += '    <param name="sugars" value="%d" type="int" />\n' % (
+        bool(peakDifferences["sugars"])
+    )
+    buff += '    <param name="permesugars" value="%d" type="int" />\n' % (
+        bool(peakDifferences["permesugars"])
     )
     buff += '    <param name="tolerance" value="%f" type="float" />\n' % (
         peakDifferences["tolerance"]
