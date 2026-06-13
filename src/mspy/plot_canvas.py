@@ -1824,8 +1824,8 @@ class canvas(wx.Window):
             maxYPlot -= 1
             maxYGel += 1
 
-        # draw tracker lines
-        dc.SetPen(wx.Pen(wx.BLACK, style=wx.PENSTYLE_SHORT_DASH))
+        # draw tracker lines (axisColour follows the dark/light theme)
+        dc.SetPen(wx.Pen(self.properties["axisColour"], style=wx.PENSTYLE_SHORT_DASH))
         # dc.SetLogicalFunction(wx.INVERT)
 
         dc.DrawLine(int(x), int(minYPlot), int(x), int(maxYPlot))
@@ -1904,9 +1904,9 @@ class canvas(wx.Window):
             maxX -= 1
             maxY -= 1
 
-        # draw tracker
+        # draw tracker (axisColour follows the dark/light theme)
         # dc.SetLogicalFunction(wx.INVERT)
-        dc.SetPen(wx.Pen(wx.BLACK))
+        dc.SetPen(wx.Pen(self.properties["axisColour"]))
 
         if self.mouseFnLMB == "xDistance":
             dc.DrawLine(int(x1), int(minY), int(x1), int(maxY))
@@ -1980,8 +1980,8 @@ class canvas(wx.Window):
         # get Y value
         currentY = self.getPoint(x, coord="screen")
 
-        # draw tracker lines
-        dc.SetPen(wx.Pen(wx.BLACK))
+        # draw tracker lines (axisColour follows the dark/light theme)
+        dc.SetPen(wx.Pen(self.properties["axisColour"]))
         # dc.SetLogicalFunction(wx.INVERT)
         if wx.Platform == "__WXMAC__":
             dc.DrawLine(int(x), int(minY), int(x), int(maxY - 1))
@@ -2071,9 +2071,9 @@ class canvas(wx.Window):
 
             mz += diff
 
-        # set pen
+        # set pen (axisColour follows the dark/light theme)
         # dc.SetLogicalFunction(wx.INVERT)
-        dc.SetPen(wx.Pen(wx.BLACK))
+        dc.SetPen(wx.Pen(self.properties["axisColour"]))
 
         # draw lines
         for i, isotope in enumerate(isotopes):
@@ -2089,7 +2089,7 @@ class canvas(wx.Window):
         # draw circles
         if wx.Platform != "__WXMAC__":
             dc.SetPen(wx.TRANSPARENT_PEN)
-            dc.SetBrush(wx.Brush(wx.BLACK))
+            dc.SetBrush(wx.Brush(self.properties["axisColour"]))
         for _i, isotope in enumerate(isotopes):
             if isotope[1]:
                 dc.DrawCircle(int(isotope[0]), int(isotope[1]), int(4))
@@ -2154,8 +2154,8 @@ class canvas(wx.Window):
         except Exception as e:
             print("GCDC error:", e)
 
-        # set canvas and pen
-        dc.SetPen(wx.Pen(wx.BLACK))
+        # set canvas and pen (axisColour follows the dark/light theme)
+        dc.SetPen(wx.Pen(self.properties["axisColour"]))
         c = self.properties["zoomBoxColour"]
         dc.SetBrush(wx.Brush(wx.Colour(c.Red(), c.Green(), c.Blue(), 80), wx.SOLID))
         dc.SetLogicalFunction(wx.COPY)
@@ -2214,7 +2214,7 @@ class canvas(wx.Window):
 
         # draw tracker lines
         # dc.SetLogicalFunction(wx.INVERT)
-        dc.SetPen(wx.Pen(wx.BLACK))
+        dc.SetPen(wx.Pen(self.properties["axisColour"]))
         dc.SetBrush(wx.Brush(wx.BLACK, wx.TRANSPARENT))
         dc.DrawRectangle(int(x1), int(y1), int(width), int(height))
         dc.SetLogicalFunction(wx.COPY)
@@ -2240,7 +2240,7 @@ class canvas(wx.Window):
 
         # draw tracker lines
         # dc.SetLogicalFunction(wx.INVERT)
-        dc.SetPen(wx.Pen(wx.BLACK))
+        dc.SetPen(wx.Pen(self.properties["axisColour"]))
         dc.SetBrush(wx.Brush(wx.BLACK, wx.TRANSPARENT))
         if wx.Platform == "__WXMAC__":
             dc.DrawLine(int(x1), int(y1 - 3), int(x1), int(y1 + 3))
