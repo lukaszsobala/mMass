@@ -166,6 +166,72 @@ def _apply_dark_mode_to_bitmaps():
         lib[key] = _invert_bitmap(value)
 
 
+# The active ("On") toolbar / bottombar icons are baked as a single pure-blue
+# accent (0, 71, 255) in the sprite sheets. That blue is hard to read on the
+# dark controlbars (and looks like a stray system highlight), so it is recoloured
+# to a warm yellow in dark mode. The "Off" icons are black and are handled by the
+# greyscale inversion above instead.
+_DARK_MODE_ACTIVE_COLOUR = (255, 199, 0)
+
+
+def _is_blue_accent_image(image):
+    """True if the icon's opaque pixels are predominantly the blue accent."""
+
+    w, h = image.GetWidth(), image.GetHeight()
+    if w <= 0 or h <= 0:
+        return False
+
+    rgb = np.frombuffer(image.GetDataBuffer(), dtype=np.uint8)
+    rgb = rgb.reshape((h, w, 3)).astype(np.int16)
+    if image.HasAlpha():
+        alpha = np.frombuffer(image.GetAlphaBuffer(), dtype=np.uint8).reshape((h, w))
+        opaque = alpha > 40
+    else:
+        opaque = np.ones((h, w), dtype=bool)
+
+    if not opaque.any():
+        return False
+
+    px = rgb[opaque]
+    blue = px[:, 2]
+    # Blue clearly dominates red and green for the accent colour.
+    is_blue = (blue > px[:, 0] + 40) & (blue > px[:, 1] + 40)
+    return float(is_blue.mean()) > 0.5
+
+
+def _recolor_blue_to_yellow(bitmap):
+    """Return a copy of bitmap with its blue accent replaced by yellow.
+
+    The glyph is a single blue hue with antialiased edges, so only the RGB
+    channels are swapped for the target yellow while the alpha (and thus the
+    crisp anti-aliasing) is preserved.
+    """
+
+    image = bitmap.ConvertToImage()
+    w, h = image.GetWidth(), image.GetHeight()
+    if w <= 0 or h <= 0:
+        return bitmap
+
+    rgb = np.frombuffer(image.GetDataBuffer(), dtype=np.uint8).reshape((h, w, 3))
+    rgb[:, :, 0] = _DARK_MODE_ACTIVE_COLOUR[0]
+    rgb[:, :, 1] = _DARK_MODE_ACTIVE_COLOUR[1]
+    rgb[:, :, 2] = _DARK_MODE_ACTIVE_COLOUR[2]
+    return wx.Bitmap(image)
+
+
+def _apply_dark_mode_active_accent():
+    """Recolour the blue active-icon accent to yellow for dark-mode display."""
+
+    for key in list(lib.keys()):
+        if key.startswith(_DARK_MODE_INVERT_EXCLUDE_PREFIXES):
+            continue
+        value = lib[key]
+        if not isinstance(value, wx.Bitmap):
+            continue
+        if _is_blue_accent_image(value.ConvertToImage()):
+            lib[key] = _recolor_blue_to_yellow(value)
+
+
 # Dark panel colour the lower controlbars paint behind their icon buttons
 # (kept in sync with the wx.Colour(30, 30, 30) used by the panels / mwx._DARK_BG).
 _DARK_PANEL_BG = (30, 30, 30)
@@ -859,6 +925,7 @@ def loadImages():
     # first lets the later scale interpolate the alpha channel for clean edges.
     if is_dark_mode():
         _apply_dark_mode_to_bitmaps()
+        _apply_dark_mode_active_accent()
         _apply_dark_mode_toolbar_masks()
 
     ui_scale = display_scale.get_ui_scale()
