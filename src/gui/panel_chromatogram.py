@@ -81,7 +81,7 @@ class panelChromatogram(wx.Panel):
         self.canvas.setProperties(xLabel="min")
         self.canvas.setProperties(yLabel="norm. ion current")
         self.canvas.setProperties(showGrid=True)
-        self.canvas.setProperties(showMinorTicks=config.spectrum["showMinorTicks"])
+        self.canvas.setProperties(showMinorTicks=False)
         self.canvas.setProperties(showLegend=True)
         self.canvas.setProperties(showXPosBar=False)
         self.canvas.setProperties(showYPosBar=False)
