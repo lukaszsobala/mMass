@@ -10,7 +10,10 @@ Resolution order for ``get_ui_scale()``:
 2. ``MMASS_UI_AUTOSCALE=0`` -- disable autodetection, fall back to ``1.0``.
 3. Autodetected system scale (Windows DPI, GNOME/KDE display scale, X11 DPI).
    On the native Wayland (GTK) backend autodetection reports no compensation:
-   the compositor already scales the whole surface, like macOS/Retina.
+   the compositor already scales the whole surface, like macOS/Retina. On the
+   X11/XWayland backend GTK applies an integer window scale of its own
+   (``GDK_SCALE`` / XSETTINGS ``Gdk/WindowScalingFactor``); that factor is
+   divided out so we only compensate the residual the toolkit does not handle.
 4. ``1.0`` -- safe default when nothing can be detected.
 
 Detection is import-safe: it never requires a running ``wx.App`` and any
@@ -164,6 +167,12 @@ def debug_report() -> dict:
             except Exception as exc:
                 raw["GetScaleFactorForDevice"] = f"err: {exc}"
         report["windows_raw"] = raw
+    elif sys.platform != "darwin":
+        report["linux_raw"] = {
+            "native_wayland_gtk": _running_native_wayland_gtk(),
+            "linux_scale": _detect_linux_scale(),
+            "gtk_x11_window_scale": _gtk_x11_window_scale(),
+        }
     return report
 
 
@@ -378,11 +387,29 @@ def _detect_linux() -> float | None:
     # at the compositor's output scale: fonts, layout and hardcoded pixel
     # metrics all track the display already. Re-applying the detected scale here
     # would double the size of buttons and widget widths, so report no
-    # compensation. (XWayland and plain X11 still need it -- GTK does not
-    # buffer-scale there -- so this only fires on the native Wayland backend.)
+    # compensation.
     if _running_native_wayland_gtk():
         return None
 
+    scale = _detect_linux_scale()
+    if scale is None:
+        return None
+
+    # On the X11/XWayland backend GTK still applies an *integer* window scale of
+    # its own (from GDK_SCALE or the XSETTINGS Gdk/WindowScalingFactor that a
+    # compositor like Mutter/KWin publishes for XWayland clients). That already
+    # enlarges every pixel metric, so compensating by the full detected scale on
+    # top double-scales the UI -- e.g. GDK_BACKEND=x11 on GNOME @200% gave a 4x
+    # UI (GTK 2x * our 2x). Divide the toolkit's own factor out and keep only the
+    # residual (which is 1.0 for integer scales, but e.g. 1.5 for a 150% display
+    # where GTK applies a window scale of 1 and only bumps the font DPI).
+    window_scale = _gtk_x11_window_scale()
+    if window_scale > 1:
+        scale = scale / window_scale
+    return scale
+
+
+def _detect_linux_scale() -> float | None:
     desktop = os.environ.get("XDG_CURRENT_DESKTOP", "").lower()
 
     # Compositor-specific probes give the true *current* scale (fractional aware)
@@ -582,3 +609,133 @@ def _detect_x11_dpi() -> float | None:
     scale = dpi / 96.0
     # Only treat a clearly-HiDPI DPI as a scale signal; 96 == 1.0.
     return scale if scale >= 1.05 else None
+
+
+def _gtk_x11_window_scale() -> int:
+    """Integer window scale GTK's X11 backend will apply to the UI.
+
+    Mirrors GDK's own precedence: an explicit ``GDK_SCALE`` wins, otherwise the
+    XSETTINGS ``Gdk/WindowScalingFactor`` published by the compositor (Mutter
+    sets it to the per-monitor integer scale for XWayland clients). Defaults to
+    1 when nothing applies (plain X11 with no HiDPI scaling).
+    """
+
+    raw = os.environ.get("GDK_SCALE", "").strip()
+    if raw:
+        try:
+            value = int(float(raw))
+            if value >= 1:
+                return value
+        except ValueError:
+            pass
+
+    value = _read_x11_xsetting_int("Gdk/WindowScalingFactor")
+    if value and value >= 1:
+        return value
+    return 1
+
+
+def _read_x11_xsetting_int(name: str) -> int | None:
+    """Read an integer XSETTINGS value (e.g. Gdk/WindowScalingFactor) via Xlib.
+
+    Parses the ``_XSETTINGS_SETTINGS`` property on the XSETTINGS manager window
+    directly through libX11 so it works without GTK/wx. Returns None on any
+    failure (no display, no manager, missing/non-int setting).
+    """
+
+    import ctypes
+
+    try:
+        xlib = ctypes.CDLL("libX11.so.6")
+    except OSError:
+        return None
+
+    xlib.XOpenDisplay.restype = ctypes.c_void_p
+    xlib.XOpenDisplay.argtypes = [ctypes.c_char_p]
+    dpy = xlib.XOpenDisplay(None)
+    if not dpy:
+        return None
+
+    try:
+        xlib.XDefaultScreen.restype = ctypes.c_int
+        xlib.XDefaultScreen.argtypes = [ctypes.c_void_p]
+        xlib.XInternAtom.restype = ctypes.c_ulong
+        xlib.XInternAtom.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int]
+        xlib.XGetSelectionOwner.restype = ctypes.c_ulong
+        xlib.XGetSelectionOwner.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+        xlib.XGetWindowProperty.restype = ctypes.c_int
+        xlib.XGetWindowProperty.argtypes = [
+            ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong,
+            ctypes.c_long, ctypes.c_long, ctypes.c_int, ctypes.c_ulong,
+            ctypes.POINTER(ctypes.c_ulong), ctypes.POINTER(ctypes.c_int),
+            ctypes.POINTER(ctypes.c_ulong), ctypes.POINTER(ctypes.c_ulong),
+            ctypes.POINTER(ctypes.POINTER(ctypes.c_ubyte)),
+        ]
+        xlib.XFree.argtypes = [ctypes.c_void_p]
+
+        screen = xlib.XDefaultScreen(dpy)
+        sel = xlib.XInternAtom(dpy, f"_XSETTINGS_S{screen}".encode(), False)
+        owner = xlib.XGetSelectionOwner(dpy, sel)
+        if not owner:
+            return None
+        prop = xlib.XInternAtom(dpy, b"_XSETTINGS_SETTINGS", False)
+
+        actual_type = ctypes.c_ulong()
+        actual_fmt = ctypes.c_int()
+        nitems = ctypes.c_ulong()
+        bytes_after = ctypes.c_ulong()
+        data = ctypes.POINTER(ctypes.c_ubyte)()
+        # AnyPropertyType == 0; request up to 16 MiB of the property in one go.
+        status = xlib.XGetWindowProperty(
+            dpy, owner, prop, 0, 1 << 22, False, 0,
+            ctypes.byref(actual_type), ctypes.byref(actual_fmt),
+            ctypes.byref(nitems), ctypes.byref(bytes_after), ctypes.byref(data),
+        )
+        if status != 0 or not data:
+            return None
+        try:
+            buf = bytes(bytearray(data[i] for i in range(nitems.value)))
+        finally:
+            xlib.XFree(data)
+        return _parse_xsettings_int(buf, name)
+    finally:
+        xlib.XCloseDisplay.argtypes = [ctypes.c_void_p]
+        xlib.XCloseDisplay(dpy)
+
+
+def _parse_xsettings_int(buf: bytes, name: str) -> int | None:
+    """Find an integer setting by name in a raw _XSETTINGS_SETTINGS blob."""
+
+    import struct
+
+    try:
+        if len(buf) < 12:
+            return None
+        endian = "<" if buf[0] == 0 else ">"  # byte-order flag
+        (n_settings,) = struct.unpack(endian + "I", buf[8:12])
+        off = 12
+        for _ in range(n_settings):
+            stype = buf[off]
+            off += 2  # type byte + 1 pad
+            (nlen,) = struct.unpack(endian + "H", buf[off:off + 2])
+            off += 2
+            key = buf[off:off + nlen].decode("latin-1")
+            off += nlen
+            off += (4 - nlen % 4) % 4  # pad name to 4 bytes
+            off += 4                   # last-change serial
+            if stype == 0:             # XSettingsTypeInteger
+                (value,) = struct.unpack(endian + "i", buf[off:off + 4])
+                off += 4
+                if key == name:
+                    return value
+            elif stype == 1:           # XSettingsTypeString
+                (slen,) = struct.unpack(endian + "I", buf[off:off + 4])
+                off += 4 + slen
+                off += (4 - slen % 4) % 4
+            elif stype == 2:           # XSettingsTypeColor
+                off += 8
+            else:
+                return None            # unknown type: cannot keep parsing
+    except (IndexError, struct.error):
+        return None
+    return None
