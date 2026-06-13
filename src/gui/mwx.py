@@ -412,6 +412,44 @@ _DARK_FG = wx.Colour(220, 220, 220)
 _DARK_INPUT_BG = wx.Colour(50, 50, 50)
 
 
+def _setWindowsControlTheme(window, theme):
+    """Best-effort: assign a native visual-styles theme class to a control's HWND.
+
+    The colour setters (SetBackgroundColour/SetForegroundColour) do not reach
+    natively-drawn parts on wxMSW -- scrollbars, a combo box's closed display, or
+    the check/radio glyphs.  Re-theming the control with a "DarkMode_*" class
+    makes Windows draw those parts dark.  No-op off Windows or on any failure.
+
+    Requires SetPreferredAppMode(AllowDark), which appInit() sets at startup.
+    """
+
+    if wx.Platform != "__WXMSW__":
+        return
+
+    try:
+        import ctypes
+
+        hwnd = window.GetHandle()
+        if not hwnd:
+            return
+
+        windll = getattr(ctypes, "WinDLL", None)
+        if windll is None:
+            return
+        uxtheme = windll("uxtheme", use_last_error=True)
+
+        set_window_theme = uxtheme.SetWindowTheme
+        set_window_theme.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_wchar_p,
+            ctypes.c_wchar_p,
+        ]
+        set_window_theme.restype = ctypes.c_long  # HRESULT
+        set_window_theme(ctypes.c_void_p(hwnd), theme, None)
+    except Exception:
+        pass
+
+
 def applyDarkModeToWindow(window):
     """Recursively apply dark background/foreground colours to *window* and
     all its children.  Call after the window's GUI has been fully constructed.
@@ -433,25 +471,41 @@ def applyDarkModeToWindow(window):
         if isinstance(w, sortListCtrl):
             # Virtual list tables manage their own row/header colours.
             w.applyDarkTheme()
-        elif isinstance(w, (wx.Panel, wx.ScrolledWindow)):
+            # Dark scrollbars and selection highlight.
+            _setWindowsControlTheme(w, "DarkMode_Explorer")
+        elif isinstance(w, wx.ScrolledWindow):
+            w.SetBackgroundColour(_DARK_BG)
+            w.SetForegroundColour(_DARK_FG)
+            # Dark scrollbars.
+            _setWindowsControlTheme(w, "DarkMode_Explorer")
+        elif isinstance(w, wx.Panel):
             w.SetBackgroundColour(_DARK_BG)
             w.SetForegroundColour(_DARK_FG)
         elif isinstance(w, wx.StaticBox):
             # Only the box label/border honour the foreground colour; leave the
             # background transparent so the parent panel shows through.
             w.SetForegroundColour(_DARK_FG)
-        elif isinstance(w, (wx.StaticText, wx.CheckBox, wx.RadioButton, wx.StaticLine)):
+        elif isinstance(w, (wx.StaticText, wx.StaticLine)):
             w.SetBackgroundColour(_DARK_BG)
             w.SetForegroundColour(_DARK_FG)
+        elif isinstance(w, (wx.CheckBox, wx.RadioButton)):
+            w.SetBackgroundColour(_DARK_BG)
+            w.SetForegroundColour(_DARK_FG)
+            # Repaint the tick box / radio dot for a dark background.
+            _setWindowsControlTheme(w, "DarkMode_Explorer")
         elif isinstance(w, (wx.ComboBox, wx.Choice)):
             _disable_system_theme(w)
             w.SetBackgroundColour(_DARK_INPUT_BG)
             w.SetForegroundColour(_DARK_FG)
+            # Dark closed-display field and dropdown button (CFD = combo/filled
+            # dropdown); colour setters alone leave the selected item light.
+            _setWindowsControlTheme(w, "DarkMode_CFD")
         elif isinstance(w, wx.ListBox):
             # Covers wx.CheckListBox too (a ListBox subclass).
             _disable_system_theme(w)
             w.SetBackgroundColour(_DARK_INPUT_BG)
             w.SetForegroundColour(_DARK_FG)
+            _setWindowsControlTheme(w, "DarkMode_Explorer")
         elif isinstance(w, (wx.TextCtrl, wx.SpinCtrl)):
             _disable_system_theme(w)
             w.SetBackgroundColour(_DARK_INPUT_BG)
