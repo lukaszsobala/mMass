@@ -21,6 +21,7 @@ import wx
 # load modules
 from . import mwx
 from . import config
+from . import images
 from mspy.plot_canvas import canvas as plot_canvas
 from mspy.plot_objects import container as plot_container, points as plot_points
 
@@ -174,11 +175,18 @@ class panelChromatogram(wx.Panel):
 
         chroms = self.currentDocument.chromatograms or {}
 
+        # invert trace colours in dark mode, matching the main spectrum view
+        ticColour = (16, 71, 185)
+        bpcColour = (50, 140, 0)
+        if images.is_dark_mode():
+            ticColour = tuple(255 - c for c in ticColour)
+            bpcColour = tuple(255 - c for c in bpcColour)
+
         if self.showTIC and chroms.get("tic"):
             container.append(
                 plot_points(
                     list(chroms["tic"]),
-                    lineColour=(16, 71, 185),
+                    lineColour=ticColour,
                     legend="TIC",
                     showLines=True,
                     showPoints=False,
@@ -191,7 +199,7 @@ class panelChromatogram(wx.Panel):
             container.append(
                 plot_points(
                     list(chroms["bpc"]),
-                    lineColour=(50, 140, 0),
+                    lineColour=bpcColour,
                     legend="BPC",
                     showLines=True,
                     showPoints=False,
