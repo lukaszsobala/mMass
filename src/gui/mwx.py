@@ -412,24 +412,16 @@ _DARK_FG = wx.Colour(220, 220, 220)
 _DARK_INPUT_BG = wx.Colour(50, 50, 50)
 
 
-def _setWindowsControlTheme(window, theme):
-    """Best-effort: assign a native visual-styles theme class to a control's HWND.
-
-    The colour setters (SetBackgroundColour/SetForegroundColour) do not reach
-    natively-drawn parts on wxMSW -- scrollbars, a combo box's closed display, or
-    the check/radio glyphs.  Re-theming the control with a "DarkMode_*" class
-    makes Windows draw those parts dark.  No-op off Windows or on any failure.
+def _setHwndTheme(hwnd, theme):
+    """Best-effort: assign a native visual-styles theme class to a raw HWND.
 
     Requires SetPreferredAppMode(AllowDark), which appInit() sets at startup.
+    No-op on any failure.
     """
-
-    if wx.Platform != "__WXMSW__":
-        return
 
     try:
         import ctypes
 
-        hwnd = window.GetHandle()
         if not hwnd:
             return
 
@@ -446,6 +438,59 @@ def _setWindowsControlTheme(window, theme):
         ]
         set_window_theme.restype = ctypes.c_long  # HRESULT
         set_window_theme(ctypes.c_void_p(hwnd), theme, None)
+    except Exception:
+        pass
+
+
+def _setWindowsControlTheme(window, theme):
+    """Best-effort: assign a native visual-styles theme class to a control's HWND.
+
+    The colour setters (SetBackgroundColour/SetForegroundColour) do not reach
+    natively-drawn parts on wxMSW -- scrollbars, a combo box's closed display, or
+    the check/radio glyphs.  Re-theming the control with a "DarkMode_*" class
+    makes Windows draw those parts dark.  No-op off Windows or on any failure.
+    """
+
+    if wx.Platform != "__WXMSW__":
+        return
+    try:
+        _setHwndTheme(window.GetHandle(), theme)
+    except Exception:
+        pass
+
+
+def _setWindowsListHeaderTheme(listctrl, theme):
+    """Best-effort: dark-theme the native header band of a list control on wxMSW.
+
+    The header is a separate SysHeader32 child window, so it ignores the list's
+    colours and theme; fetch its HWND (LVM_GETHEADER) and theme it directly.
+    No-op off Windows or on any failure.
+    """
+
+    if wx.Platform != "__WXMSW__":
+        return
+    try:
+        import ctypes
+
+        hwnd = listctrl.GetHandle()
+        if not hwnd:
+            return
+        windll = getattr(ctypes, "WinDLL", None)
+        if windll is None:
+            return
+        user32 = windll("user32", use_last_error=True)
+        send = user32.SendMessageW
+        send.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_uint,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+        ]
+        send.restype = ctypes.c_void_p
+        LVM_GETHEADER = 0x1000 + 31
+        header = send(ctypes.c_void_p(hwnd), LVM_GETHEADER, None, None)
+        if header:
+            _setHwndTheme(header, theme)
     except Exception:
         pass
 
@@ -886,15 +931,15 @@ class sortListCtrl(wx.ListCtrl):
         try:
             header_attr = wx.ItemAttr()
             header_attr.SetBackgroundColour(wx.Colour(45, 45, 45))
-            if wx.Platform == "__WXMSW__":
-                # Native Windows headers ignore the background in themed mode, so
-                # the label sits on a light strip -- keep it black to stay legible.
-                header_attr.SetTextColour(wx.BLACK)
-            else:
-                header_attr.SetTextColour(_DARK_FG)
+            header_attr.SetTextColour(_DARK_FG)
             self.SetHeaderAttr(header_attr)
         except Exception:
             pass
+
+        # The native MSW header is a separate SysHeader32 child that ignores the
+        # attr above under the light theme; re-theme it dark so it stops painting
+        # a light strip behind the (now light) header labels.
+        _setWindowsListHeaderTheme(self, "DarkMode_Explorer")
 
         self.Refresh()
 
