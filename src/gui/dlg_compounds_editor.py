@@ -55,6 +55,9 @@ class dlgCompoundsEditor(wx.Dialog):
         sizer.Fit(self)
         self.SetSizer(sizer)
         self.SetMinSize(self.GetSize())
+        # apply dark mode
+        mwx.applyDarkMode(self)
+
         self.Centre()
 
         # show data
@@ -710,6 +713,10 @@ class dlgGroupName(wx.Dialog):
         sizer.Fit(self)
         self.SetSizer(sizer)
         self.SetMinSize(self.GetSize())
+
+        # apply dark mode
+        mwx.applyDarkMode(self)
+
         self.Centre()
 
     # ----
@@ -788,6 +795,10 @@ class dlgSelectItemsToImport(wx.Dialog):
         sizer.Fit(self)
         self.SetSizer(sizer)
         self.SetMinSize(self.GetSize())
+
+        # apply dark mode
+        mwx.applyDarkMode(self)
+
         self.Centre()
 
     # ----

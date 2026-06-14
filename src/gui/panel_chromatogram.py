@@ -70,6 +70,10 @@ class panelChromatogram(wx.Panel):
 
         self.SetSizer(self.mainSizer)
 
+        # recolour the control-bar widgets for dark mode (the canvas themes
+        # itself; applyDarkModeToWindow skips it as it is a wx.Window, not a panel)
+        mwx.applyDarkModeToWindow(self)
+
     # ----
 
     def makeCanvas(self):

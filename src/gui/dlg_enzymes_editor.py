@@ -49,6 +49,9 @@ class dlgEnzymesEditor(wx.Dialog):
         sizer.Fit(self)
         self.SetSizer(sizer)
         self.SetMinSize(self.GetSize())
+        # apply dark mode
+        mwx.applyDarkMode(self)
+
         self.Centre()
 
         # show data

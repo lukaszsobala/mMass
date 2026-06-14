@@ -51,6 +51,9 @@ class dlgNotation(wx.Dialog):
         self.Layout()
         sizer.Fit(self)
         self.SetSizer(sizer)
+        # apply dark mode
+        mwx.applyDarkMode(self)
+
         self.Centre()
 
     # ----

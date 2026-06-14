@@ -412,6 +412,288 @@ _DARK_FG = wx.Colour(220, 220, 220)
 _DARK_INPUT_BG = wx.Colour(50, 50, 50)
 
 
+def _setHwndTheme(hwnd, theme, sub_id=None):
+    """Best-effort: assign a native visual-styles theme class to a raw HWND.
+
+    Pass empty strings for both *theme* and *sub_id* to instead *disable* visual
+    styles on the control, which makes it honour the colours wx paints (e.g. a
+    list header's SetHeaderAttr background, which the themed header ignores).
+
+    Requires SetPreferredAppMode(AllowDark), which appInit() sets at startup.
+    No-op on any failure.
+    """
+
+    try:
+        import ctypes
+
+        if not hwnd:
+            return
+
+        windll = getattr(ctypes, "WinDLL", None)
+        if windll is None:
+            return
+        uxtheme = windll("uxtheme", use_last_error=True)
+
+        set_window_theme = uxtheme.SetWindowTheme
+        set_window_theme.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_wchar_p,
+            ctypes.c_wchar_p,
+        ]
+        set_window_theme.restype = ctypes.c_long  # HRESULT
+        set_window_theme(ctypes.c_void_p(hwnd), theme, sub_id)
+    except Exception:
+        pass
+
+
+def _setWindowsControlTheme(window, theme):
+    """Best-effort: assign a native visual-styles theme class to a control's HWND.
+
+    The colour setters (SetBackgroundColour/SetForegroundColour) do not reach
+    natively-drawn parts on wxMSW -- scrollbars, a combo box's closed display, or
+    the check/radio glyphs.  Re-theming the control with a "DarkMode_*" class
+    makes Windows draw those parts dark.  No-op off Windows or on any failure.
+    """
+
+    if wx.Platform != "__WXMSW__":
+        return
+    try:
+        _setHwndTheme(window.GetHandle(), theme)
+    except Exception:
+        pass
+
+
+def _rgb(r, g, b):
+    """Pack an (r, g, b) triple into a Win32 COLORREF (0x00BBGGRR)."""
+    return r | (g << 8) | (b << 16)
+
+
+# Header colours (kept close to the list/header attr palette).
+_HDR_BG = _rgb(45, 45, 45)
+_HDR_FG = _rgb(220, 220, 220)
+_HDR_SEP = _rgb(70, 70, 70)
+
+# Keep owner-draw callbacks alive for the process lifetime (ctypes callbacks must
+# not be garbage-collected while Windows can still invoke them).
+_header_subclass_procs = []
+
+
+def _darkenWindowsListHeader(listctrl):
+    """Best-effort: owner-draw the native list header dark on wxMSW.
+
+    The header is a separate SysHeader32 child window.  Neither a "DarkMode_*"
+    theme class nor wx's SetHeaderAttr fully darkens it: a themed header keeps a
+    light fill, and an un-themed one only paints colour *behind the text*, so the
+    rest of each cell stays light.  The only reliable fix is to take over its
+    painting -- subclass the header and draw every cell (background, label,
+    separator) ourselves in WM_PAINT.  No-op off Windows or on any failure; on
+    failure it falls back to disabling the header's visual styles (partial dark).
+    """
+
+    if wx.Platform != "__WXMSW__":
+        return
+    if getattr(listctrl, "_headerDarkened", False):
+        return
+
+    try:
+        import ctypes
+
+        c_void_p = ctypes.c_void_p
+        c_uint = ctypes.c_uint
+        c_int = ctypes.c_int
+        c_ssize_t = ctypes.c_ssize_t
+        c_size_t = ctypes.c_size_t
+
+        windll = getattr(ctypes, "WinDLL", None)
+        winfunctype = getattr(ctypes, "WINFUNCTYPE", None)
+        if windll is None or winfunctype is None:
+            return
+
+        user32 = windll("user32", use_last_error=True)
+        gdi32 = windll("gdi32", use_last_error=True)
+        comctl32 = windll("comctl32", use_last_error=True)
+
+        # Locate the header child of the list control.
+        send = user32.SendMessageW
+        send.restype = c_ssize_t
+        send.argtypes = [c_void_p, c_uint, c_size_t, c_void_p]
+        LVM_GETHEADER = 0x1000 + 31
+        header = send(listctrl.GetHandle(), LVM_GETHEADER, 0, None)
+        if not header:
+            return
+
+        # ctypes structures (basic types only, so the module stays importable off
+        # Windows -- this code only ever runs under __WXMSW__).
+        class _RECT(ctypes.Structure):
+            _fields_ = [
+                ("left", c_int),
+                ("top", c_int),
+                ("right", c_int),
+                ("bottom", c_int),
+            ]
+
+        class _PAINTSTRUCT(ctypes.Structure):
+            _fields_ = [
+                ("hdc", c_void_p),
+                ("fErase", c_int),
+                ("rcPaint", _RECT),
+                ("fRestore", c_int),
+                ("fIncUpdate", c_int),
+                ("rgbReserved", ctypes.c_byte * 32),
+            ]
+
+        class _HDITEM(ctypes.Structure):
+            _fields_ = [
+                ("mask", c_uint),
+                ("cxy", c_int),
+                ("pszText", ctypes.c_wchar_p),
+                ("hbm", c_void_p),
+                ("cchTextMax", c_int),
+                ("fmt", c_int),
+                ("lParam", c_ssize_t),
+                ("iImage", c_int),
+                ("iOrder", c_int),
+                ("type", c_uint),
+                ("pvFilter", c_void_p),
+                ("state", c_uint),
+            ]
+
+        # GDI / user32 signatures (set so handles are not truncated on Win64).
+        gdi32.CreateSolidBrush.restype = c_void_p
+        gdi32.CreateSolidBrush.argtypes = [c_uint]
+        gdi32.DeleteObject.argtypes = [c_void_p]
+        gdi32.SelectObject.restype = c_void_p
+        gdi32.SelectObject.argtypes = [c_void_p, c_void_p]
+        gdi32.SetBkMode.argtypes = [c_void_p, c_int]
+        gdi32.SetTextColor.argtypes = [c_void_p, c_uint]
+        user32.BeginPaint.restype = c_void_p
+        user32.BeginPaint.argtypes = [c_void_p, c_void_p]
+        user32.EndPaint.argtypes = [c_void_p, c_void_p]
+        user32.GetClientRect.argtypes = [c_void_p, c_void_p]
+        user32.FillRect.argtypes = [c_void_p, c_void_p, c_void_p]
+        user32.DrawTextW.argtypes = [c_void_p, ctypes.c_wchar_p, c_int, c_void_p, c_uint]
+        user32.InvalidateRect.argtypes = [c_void_p, c_void_p, c_int]
+
+        comctl32.DefSubclassProc.restype = c_ssize_t
+        comctl32.DefSubclassProc.argtypes = [c_void_p, c_uint, c_size_t, c_ssize_t]
+        comctl32.SetWindowSubclass.restype = c_int
+        comctl32.RemoveWindowSubclass.restype = c_int
+
+        WM_PAINT = 0x000F
+        WM_NCDESTROY = 0x0082
+        WM_GETFONT = 0x0031
+        HDM_GETITEMCOUNT = 0x1200
+        HDM_GETITEMRECT = 0x1200 + 7
+        HDM_GETITEMW = 0x1200 + 11
+        HDI_TEXT = 0x0002
+        HDI_FORMAT = 0x0004
+        HDF_JUSTIFY = 0x0003  # mask: 0 left, 1 right, 2 centre
+        DT_NOPREFIX = 0x0800
+        DT_SINGLELINE = 0x0020
+        DT_VCENTER = 0x0004
+        DT_RIGHT = 0x0002
+        DT_CENTER = 0x0001
+        DT_END_ELLIPSIS = 0x8000
+        SUBCLASS_ID = 1
+
+        SUBCLASSPROC = winfunctype(
+            c_ssize_t, c_void_p, c_uint, c_size_t, c_ssize_t, c_size_t, c_size_t
+        )
+
+        def _paint(hwnd):
+            ps = _PAINTSTRUCT()
+            hdc = user32.BeginPaint(hwnd, ctypes.byref(ps))
+            try:
+                rc = _RECT()
+                user32.GetClientRect(hwnd, ctypes.byref(rc))
+                bg = gdi32.CreateSolidBrush(_HDR_BG)
+                user32.FillRect(hdc, ctypes.byref(rc), bg)
+                gdi32.DeleteObject(bg)
+
+                hfont = send(hwnd, WM_GETFONT, 0, None)
+                old_font = (
+                    gdi32.SelectObject(hdc, c_void_p(hfont)) if hfont else None
+                )
+                gdi32.SetBkMode(hdc, 1)  # TRANSPARENT
+                gdi32.SetTextColor(hdc, _HDR_FG)
+
+                sep = gdi32.CreateSolidBrush(_HDR_SEP)
+                count = send(hwnd, HDM_GETITEMCOUNT, 0, None)
+                for i in range(max(0, int(count))):
+                    item_rc = _RECT()
+                    send(hwnd, HDM_GETITEMRECT, i, ctypes.byref(item_rc))
+
+                    buf = ctypes.create_unicode_buffer(260)
+                    hdi = _HDITEM()
+                    hdi.mask = HDI_TEXT | HDI_FORMAT
+                    hdi.pszText = ctypes.cast(buf, ctypes.c_wchar_p)
+                    hdi.cchTextMax = 260
+                    send(hwnd, HDM_GETITEMW, i, ctypes.byref(hdi))
+
+                    # 1px separator on the right edge of each cell.
+                    sep_rc = _RECT()
+                    sep_rc.left = item_rc.right - 1
+                    sep_rc.top = item_rc.top
+                    sep_rc.right = item_rc.right
+                    sep_rc.bottom = item_rc.bottom
+                    user32.FillRect(hdc, ctypes.byref(sep_rc), sep)
+
+                    txt_rc = _RECT()
+                    txt_rc.left = item_rc.left + 6
+                    txt_rc.top = item_rc.top
+                    txt_rc.right = item_rc.right - 6
+                    txt_rc.bottom = item_rc.bottom
+                    flags = (
+                        DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX
+                    )
+                    justify = hdi.fmt & HDF_JUSTIFY
+                    if justify == 1:
+                        flags |= DT_RIGHT
+                    elif justify == 2:
+                        flags |= DT_CENTER
+                    user32.DrawTextW(hdc, buf, -1, ctypes.byref(txt_rc), flags)
+                gdi32.DeleteObject(sep)
+                if old_font:
+                    gdi32.SelectObject(hdc, old_font)
+            finally:
+                user32.EndPaint(hwnd, ctypes.byref(ps))
+
+        def _proc(hwnd, msg, wparam, lparam, uid, refdata):
+            try:
+                if msg == WM_PAINT:
+                    _paint(hwnd)
+                    return 0
+                if msg == WM_NCDESTROY:
+                    comctl32.RemoveWindowSubclass(
+                        c_void_p(hwnd), subclass_proc, SUBCLASS_ID
+                    )
+            except Exception:
+                pass
+            return comctl32.DefSubclassProc(c_void_p(hwnd), msg, wparam, lparam)
+
+        subclass_proc = SUBCLASSPROC(_proc)
+        comctl32.SetWindowSubclass.argtypes = [
+            c_void_p,
+            SUBCLASSPROC,
+            c_size_t,
+            c_size_t,
+        ]
+        if comctl32.SetWindowSubclass(
+            c_void_p(header), subclass_proc, SUBCLASS_ID, 0
+        ):
+            # Keep the callback (and the list's reference) alive.
+            _header_subclass_procs.append(subclass_proc)
+            listctrl._headerSubclassProc = subclass_proc
+            listctrl._headerDarkened = True
+            user32.InvalidateRect(c_void_p(header), None, 1)
+        else:
+            # Subclassing unavailable: at least disable the light visual style so
+            # the SetHeaderAttr colour paints behind the labels (partial dark).
+            _setHwndTheme(header, "", "")
+    except Exception:
+        pass
+
+
 def applyDarkModeToWindow(window):
     """Recursively apply dark background/foreground colours to *window* and
     all its children.  Call after the window's GUI has been fully constructed.
@@ -419,25 +701,63 @@ def applyDarkModeToWindow(window):
     if not images.is_dark_mode():
         return
 
+    def _disable_system_theme(w):
+        # On wxMSW the native (light) theme keeps painting the control unless we
+        # opt out of it; harmless no-op elsewhere.
+        try:
+            enable_system_theme = getattr(w, "EnableSystemTheme", None)
+            if enable_system_theme is not None:
+                enable_system_theme(False)
+        except Exception:
+            pass
+
     def _recurse(w):
-        if isinstance(w, (wx.Panel, wx.ScrolledWindow)):
+        if isinstance(w, sortListCtrl):
+            # Virtual list tables manage their own row/header colours.
+            w.applyDarkTheme()
+            # Dark scrollbars and selection highlight.
+            _setWindowsControlTheme(w, "DarkMode_Explorer")
+        elif isinstance(w, wx.ScrolledWindow):
             w.SetBackgroundColour(_DARK_BG)
             w.SetForegroundColour(_DARK_FG)
-        elif isinstance(w, (wx.StaticText, wx.CheckBox, wx.RadioButton)):
+            # Dark scrollbars.
+            _setWindowsControlTheme(w, "DarkMode_Explorer")
+        elif isinstance(w, wx.Panel):
             w.SetBackgroundColour(_DARK_BG)
             w.SetForegroundColour(_DARK_FG)
+        elif isinstance(w, wx.StaticBox):
+            # Only the box label/border honour the foreground colour; leave the
+            # background transparent so the parent panel shows through.
+            w.SetForegroundColour(_DARK_FG)
+        elif isinstance(w, (wx.StaticText, wx.StaticLine)):
+            w.SetBackgroundColour(_DARK_BG)
+            w.SetForegroundColour(_DARK_FG)
+        elif isinstance(w, (wx.CheckBox, wx.RadioButton)):
+            w.SetBackgroundColour(_DARK_BG)
+            w.SetForegroundColour(_DARK_FG)
+            # Repaint the tick box / radio dot for a dark background.
+            _setWindowsControlTheme(w, "DarkMode_Explorer")
+        elif isinstance(w, (wx.ComboBox, wx.Choice)):
+            _disable_system_theme(w)
+            w.SetBackgroundColour(_DARK_INPUT_BG)
+            w.SetForegroundColour(_DARK_FG)
+            # Dark closed-display field and dropdown button (CFD = combo/filled
+            # dropdown); colour setters alone leave the selected item light.
+            _setWindowsControlTheme(w, "DarkMode_CFD")
+        elif isinstance(w, wx.ListBox):
+            # Covers wx.CheckListBox too (a ListBox subclass).
+            _disable_system_theme(w)
+            w.SetBackgroundColour(_DARK_INPUT_BG)
+            w.SetForegroundColour(_DARK_FG)
+            _setWindowsControlTheme(w, "DarkMode_Explorer")
         elif isinstance(w, (wx.TextCtrl, wx.SpinCtrl)):
+            _disable_system_theme(w)
             w.SetBackgroundColour(_DARK_INPUT_BG)
             w.SetForegroundColour(_DARK_FG)
-        elif isinstance(w, wx.Choice):
-            try:
-                enable_system_theme = getattr(w, "EnableSystemTheme", None)
-                if enable_system_theme is not None:
-                    enable_system_theme(False)
-            except Exception:
-                pass
-            w.SetBackgroundColour(_DARK_INPUT_BG)
-            w.SetForegroundColour(_DARK_FG)
+        elif isinstance(w, wx.BitmapButton):
+            # Bitmap toolbar buttons should melt into their toolbar, not take the
+            # lighter input-field shade used for ordinary push buttons.
+            w.SetBackgroundColour(w.GetParent().GetBackgroundColour())
         elif isinstance(w, wx.Button):
             w.SetBackgroundColour(_DARK_INPUT_BG)
             w.SetForegroundColour(_DARK_FG)
@@ -446,6 +766,23 @@ def applyDarkModeToWindow(window):
 
     _recurse(window)
     window.Refresh()
+
+
+def applyDarkMode(window):
+    """Apply the full dark theme to a top-level *window*.
+
+    Sets the window's own colours, recolours every child control, and switches
+    the native Windows frame (title bar / menus) to dark.  No-op outside dark
+    mode.  This centralises the per-window dark block so every tool frame and
+    dialog gets identical treatment -- needed because on wxMSW child controls do
+    not inherit the parent's colours the way they do on GTK.
+    """
+    if not images.is_dark_mode():
+        return
+    window.SetBackgroundColour(_DARK_BG)
+    window.SetForegroundColour(_DARK_FG)
+    applyDarkModeToWindow(window)
+    applyWindowsDarkMode(window)
 
 
 def fitChoice(choice, min_width=None, extra_padding=35):
@@ -769,6 +1106,44 @@ class sortListCtrl(wx.ListCtrl):
 
     # ----
 
+    def applyDarkTheme(self):
+        """Apply dark-mode colours to the rows, text and column header.
+
+        Centralises the table dark-theming pattern so every sortListCtrl reads
+        dark on wxMSW (where the native list keeps its light theme unless we opt
+        out and set the colours explicitly).  No-op outside dark mode.
+        """
+
+        if not images.is_dark_mode():
+            return
+
+        try:
+            self.EnableSystemTheme(False)
+        except Exception:
+            pass
+
+        self.SetBackgroundColour(_DARK_BG)
+        self.SetTextColour(_DARK_FG)
+        self.setDefaultColour(_DARK_BG)
+        self.setAltColour(wx.Colour(40, 40, 40))
+
+        try:
+            header_attr = wx.ItemAttr()
+            header_attr.SetBackgroundColour(wx.Colour(45, 45, 45))
+            header_attr.SetTextColour(_DARK_FG)
+            self.SetHeaderAttr(header_attr)
+        except Exception:
+            pass
+
+        # The native MSW header is a separate SysHeader32 child that ignores the
+        # attr above while it is themed; disable its visual styles so the dark
+        # SetHeaderAttr background actually paints instead of a light strip.
+        _darkenWindowsListHeader(self)
+
+        self.Refresh()
+
+    # ----
+
     def getSelected(self):
         """Return indexes of selected items."""
 
@@ -1018,6 +1393,16 @@ class formulaCtrl(wx.TextCtrl):
         validator=wx.DefaultValidator,
     ):
         wx.TextCtrl.__init__(self, parent, id, value, pos, size, style, validator)
+
+        # Background used when the current formula is valid.  In dark mode this
+        # must stay dark instead of reverting to the light system default.
+        if images.is_dark_mode():
+            self._validColour = _DARK_INPUT_BG
+            self.SetBackgroundColour(self._validColour)
+            self.SetForegroundColour(_DARK_FG)
+        else:
+            self._validColour = wx.NullColour
+
         self.Bind(wx.EVT_TEXT, self._onText)
 
     # ----
@@ -1034,7 +1419,7 @@ class formulaCtrl(wx.TextCtrl):
 
         try:
             mspy.compound(self.GetValue())
-            self.SetBackgroundColour(wx.NullColour)
+            self.SetBackgroundColour(self._validColour)
         except Exception:
             self.SetBackgroundColour(wx.Colour(250, 100, 100))
 

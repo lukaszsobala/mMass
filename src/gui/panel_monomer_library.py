@@ -50,6 +50,9 @@ class panelMonomerLibrary(wx.Frame):
         self.makeGUI()
         self.Bind(wx.EVT_CLOSE, self.onClose)
 
+        # apply dark mode
+        mwx.applyDarkMode(self)
+
         # update list
         self.updateMonomerList()
 

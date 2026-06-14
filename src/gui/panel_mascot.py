@@ -63,6 +63,9 @@ class panelMascot(wx.Frame, MakeModalMixin):
         self.makeGUI()
         self.Bind(wx.EVT_CLOSE, self.onClose)
 
+        # apply dark mode
+        mwx.applyDarkMode(self)
+
         # select tool
         self.onToolSelected(tool=self.currentTool)
 
