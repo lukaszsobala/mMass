@@ -23,6 +23,7 @@ import wx
 # load modules
 from . import mwx
 from . import config
+from . import images
 from mspy.plot_canvas import canvas as plot_canvas
 from mspy.plot_objects import container as plot_container, points as plot_points
 
@@ -159,13 +160,13 @@ class dlgSelectScans(wx.Dialog):
         )
 
         # set default params
-        self.chromCanvas.setProperties(xLabel="retention time in min.")
-        self.chromCanvas.setProperties(yLabel="normalized ion current")
+        self.chromCanvas.setProperties(xLabel="min")
+        self.chromCanvas.setProperties(yLabel="norm. ion cur.")
         self.chromCanvas.setProperties(showGrid=True)
-        self.chromCanvas.setProperties(showMinorTicks=config.spectrum["showMinorTicks"])
+        self.chromCanvas.setProperties(showMinorTicks=False)
         self.chromCanvas.setProperties(showLegend=True)
-        self.chromCanvas.setProperties(showXPosBar=True)
-        self.chromCanvas.setProperties(showYPosBar=True)
+        self.chromCanvas.setProperties(showXPosBar=False)
+        self.chromCanvas.setProperties(showYPosBar=False)
         self.chromCanvas.setProperties(posBarSize=6)
         self.chromCanvas.setProperties(showGel=False)
         self.chromCanvas.setProperties(checkLimits=True)
@@ -300,12 +301,19 @@ class dlgSelectScans(wx.Dialog):
             if scan["basePeakIntensity"] is not None:
                 bpcData.append((scan["retentionTime"] / 60, scan["basePeakIntensity"]))
 
+        # invert trace colours in dark mode, matching panel_chromatogram
+        ticColour = (16, 71, 185)
+        bpcColour = (50, 140, 0)
+        if images.is_dark_mode():
+            ticColour = tuple(255 - c for c in ticColour)
+            bpcColour = tuple(255 - c for c in bpcColour)
+
         # make objects
         if len(ticData) > 10:
             ticData.sort()
             obj = plot_points(
                 ticData,
-                lineColour=(16, 71, 185),
+                lineColour=ticColour,
                 legend="TIC (MS)",
                 showLines=True,
                 showPoints=False,
@@ -319,7 +327,7 @@ class dlgSelectScans(wx.Dialog):
             bpcData.sort()
             obj = plot_points(
                 bpcData,
-                lineColour=(50, 140, 0),
+                lineColour=bpcColour,
                 legend="BPC (MS)",
                 showLines=True,
                 showPoints=False,
