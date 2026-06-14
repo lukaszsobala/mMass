@@ -1812,9 +1812,15 @@ class canvas(wx.Window):
         # set clipping area
         dc.SetClippingRegion(int(plotX1), int(gelY1), int(width), int(height))
 
-        # draw background
+        # draw background: use the gel colormap's "zero" colour (black in dark
+        # mode, white in light mode) so areas with no data read as empty rather
+        # than showing the lighter plot background, which would otherwise look
+        # paler than genuinely low-intensity data.
+        gelBackground = (
+            wx.Colour(0, 0, 0) if _is_dark_mode() else wx.Colour(255, 255, 255)
+        )
         dc.SetPen(wx.TRANSPARENT_PEN)
-        dc.SetBrush(wx.Brush(self.properties["plotColour"], wx.SOLID))
+        dc.SetBrush(wx.Brush(gelBackground, wx.SOLID))
         dc.DrawRectangle(int(plotX1), int(gelY1), int(width), int(height))
 
         # draw gels
