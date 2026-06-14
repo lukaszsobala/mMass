@@ -546,8 +546,8 @@ class panelSpectrumGenerator(wx.Frame, MakeModalMixin):
         self.spectrumCanvas.setProperties(
             showMinorTicks=config.spectrum["showMinorTicks"]
         )
-        self.spectrumCanvas.setProperties(showXPosBar=config.spectrum["showPosBars"])
-        self.spectrumCanvas.setProperties(showYPosBar=config.spectrum["showPosBars"])
+        self.spectrumCanvas.setProperties(showXPosBar=False)
+        self.spectrumCanvas.setProperties(showYPosBar=False)
         self.spectrumCanvas.setProperties(posBarSize=config.spectrum["posBarSize"])
         self.spectrumCanvas.setProperties(
             showCurImage=config.spectrum["showCursorImage"]
