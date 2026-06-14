@@ -463,42 +463,232 @@ def _setWindowsControlTheme(window, theme):
         pass
 
 
-def _darkenWindowsListHeader(listctrl):
-    """Best-effort: make the native header band of a list control read dark on
-    wxMSW.
+def _rgb(r, g, b):
+    """Pack an (r, g, b) triple into a Win32 COLORREF (0x00BBGGRR)."""
+    return r | (g << 8) | (b << 16)
 
-    The header is a separate SysHeader32 child window.  A *themed* header paints
-    its own light background and ignores the colours wx sets via SetHeaderAttr;
-    applying a "DarkMode_*" class doesn't darken that fill on most builds.  So we
-    instead *disable* visual styles on the header (SetWindowTheme with empty
-    strings), which lets the SetHeaderAttr background take effect and renders a
-    dark header.  No-op off Windows or on any failure.
+
+# Header colours (kept close to the list/header attr palette).
+_HDR_BG = _rgb(45, 45, 45)
+_HDR_FG = _rgb(220, 220, 220)
+_HDR_SEP = _rgb(70, 70, 70)
+
+# Keep owner-draw callbacks alive for the process lifetime (ctypes callbacks must
+# not be garbage-collected while Windows can still invoke them).
+_header_subclass_procs = []
+
+
+def _darkenWindowsListHeader(listctrl):
+    """Best-effort: owner-draw the native list header dark on wxMSW.
+
+    The header is a separate SysHeader32 child window.  Neither a "DarkMode_*"
+    theme class nor wx's SetHeaderAttr fully darkens it: a themed header keeps a
+    light fill, and an un-themed one only paints colour *behind the text*, so the
+    rest of each cell stays light.  The only reliable fix is to take over its
+    painting -- subclass the header and draw every cell (background, label,
+    separator) ourselves in WM_PAINT.  No-op off Windows or on any failure; on
+    failure it falls back to disabling the header's visual styles (partial dark).
     """
 
     if wx.Platform != "__WXMSW__":
         return
+    if getattr(listctrl, "_headerDarkened", False):
+        return
+
     try:
         import ctypes
 
-        hwnd = listctrl.GetHandle()
-        if not hwnd:
-            return
+        c_void_p = ctypes.c_void_p
+        c_uint = ctypes.c_uint
+        c_int = ctypes.c_int
+        c_ssize_t = ctypes.c_ssize_t
+        c_size_t = ctypes.c_size_t
+
         windll = getattr(ctypes, "WinDLL", None)
-        if windll is None:
+        winfunctype = getattr(ctypes, "WINFUNCTYPE", None)
+        if windll is None or winfunctype is None:
             return
+
         user32 = windll("user32", use_last_error=True)
+        gdi32 = windll("gdi32", use_last_error=True)
+        comctl32 = windll("comctl32", use_last_error=True)
+
+        # Locate the header child of the list control.
         send = user32.SendMessageW
-        send.argtypes = [
-            ctypes.c_void_p,
-            ctypes.c_uint,
-            ctypes.c_void_p,
-            ctypes.c_void_p,
-        ]
-        send.restype = ctypes.c_void_p
+        send.restype = c_ssize_t
+        send.argtypes = [c_void_p, c_uint, c_size_t, c_void_p]
         LVM_GETHEADER = 0x1000 + 31
-        header = send(ctypes.c_void_p(hwnd), LVM_GETHEADER, None, None)
-        if header:
-            # Empty strings disable visual styles so wx's header colours apply.
+        header = send(listctrl.GetHandle(), LVM_GETHEADER, 0, None)
+        if not header:
+            return
+
+        # ctypes structures (basic types only, so the module stays importable off
+        # Windows -- this code only ever runs under __WXMSW__).
+        class _RECT(ctypes.Structure):
+            _fields_ = [
+                ("left", c_int),
+                ("top", c_int),
+                ("right", c_int),
+                ("bottom", c_int),
+            ]
+
+        class _PAINTSTRUCT(ctypes.Structure):
+            _fields_ = [
+                ("hdc", c_void_p),
+                ("fErase", c_int),
+                ("rcPaint", _RECT),
+                ("fRestore", c_int),
+                ("fIncUpdate", c_int),
+                ("rgbReserved", ctypes.c_byte * 32),
+            ]
+
+        class _HDITEM(ctypes.Structure):
+            _fields_ = [
+                ("mask", c_uint),
+                ("cxy", c_int),
+                ("pszText", ctypes.c_wchar_p),
+                ("hbm", c_void_p),
+                ("cchTextMax", c_int),
+                ("fmt", c_int),
+                ("lParam", c_ssize_t),
+                ("iImage", c_int),
+                ("iOrder", c_int),
+                ("type", c_uint),
+                ("pvFilter", c_void_p),
+                ("state", c_uint),
+            ]
+
+        # GDI / user32 signatures (set so handles are not truncated on Win64).
+        gdi32.CreateSolidBrush.restype = c_void_p
+        gdi32.CreateSolidBrush.argtypes = [c_uint]
+        gdi32.DeleteObject.argtypes = [c_void_p]
+        gdi32.SelectObject.restype = c_void_p
+        gdi32.SelectObject.argtypes = [c_void_p, c_void_p]
+        gdi32.SetBkMode.argtypes = [c_void_p, c_int]
+        gdi32.SetTextColor.argtypes = [c_void_p, c_uint]
+        user32.BeginPaint.restype = c_void_p
+        user32.BeginPaint.argtypes = [c_void_p, c_void_p]
+        user32.EndPaint.argtypes = [c_void_p, c_void_p]
+        user32.GetClientRect.argtypes = [c_void_p, c_void_p]
+        user32.FillRect.argtypes = [c_void_p, c_void_p, c_void_p]
+        user32.DrawTextW.argtypes = [c_void_p, ctypes.c_wchar_p, c_int, c_void_p, c_uint]
+        user32.InvalidateRect.argtypes = [c_void_p, c_void_p, c_int]
+
+        comctl32.DefSubclassProc.restype = c_ssize_t
+        comctl32.DefSubclassProc.argtypes = [c_void_p, c_uint, c_size_t, c_ssize_t]
+        comctl32.SetWindowSubclass.restype = c_int
+        comctl32.RemoveWindowSubclass.restype = c_int
+
+        WM_PAINT = 0x000F
+        WM_NCDESTROY = 0x0082
+        WM_GETFONT = 0x0031
+        HDM_GETITEMCOUNT = 0x1200
+        HDM_GETITEMRECT = 0x1200 + 7
+        HDM_GETITEMW = 0x1200 + 11
+        HDI_TEXT = 0x0002
+        HDI_FORMAT = 0x0004
+        HDF_JUSTIFY = 0x0003  # mask: 0 left, 1 right, 2 centre
+        DT_NOPREFIX = 0x0800
+        DT_SINGLELINE = 0x0020
+        DT_VCENTER = 0x0004
+        DT_RIGHT = 0x0002
+        DT_CENTER = 0x0001
+        DT_END_ELLIPSIS = 0x8000
+        SUBCLASS_ID = 1
+
+        SUBCLASSPROC = winfunctype(
+            c_ssize_t, c_void_p, c_uint, c_size_t, c_ssize_t, c_size_t, c_size_t
+        )
+
+        def _paint(hwnd):
+            ps = _PAINTSTRUCT()
+            hdc = user32.BeginPaint(hwnd, ctypes.byref(ps))
+            try:
+                rc = _RECT()
+                user32.GetClientRect(hwnd, ctypes.byref(rc))
+                bg = gdi32.CreateSolidBrush(_HDR_BG)
+                user32.FillRect(hdc, ctypes.byref(rc), bg)
+                gdi32.DeleteObject(bg)
+
+                hfont = send(hwnd, WM_GETFONT, 0, None)
+                old_font = (
+                    gdi32.SelectObject(hdc, c_void_p(hfont)) if hfont else None
+                )
+                gdi32.SetBkMode(hdc, 1)  # TRANSPARENT
+                gdi32.SetTextColor(hdc, _HDR_FG)
+
+                sep = gdi32.CreateSolidBrush(_HDR_SEP)
+                count = send(hwnd, HDM_GETITEMCOUNT, 0, None)
+                for i in range(max(0, int(count))):
+                    item_rc = _RECT()
+                    send(hwnd, HDM_GETITEMRECT, i, ctypes.byref(item_rc))
+
+                    buf = ctypes.create_unicode_buffer(260)
+                    hdi = _HDITEM()
+                    hdi.mask = HDI_TEXT | HDI_FORMAT
+                    hdi.pszText = ctypes.cast(buf, ctypes.c_wchar_p)
+                    hdi.cchTextMax = 260
+                    send(hwnd, HDM_GETITEMW, i, ctypes.byref(hdi))
+
+                    # 1px separator on the right edge of each cell.
+                    sep_rc = _RECT()
+                    sep_rc.left = item_rc.right - 1
+                    sep_rc.top = item_rc.top
+                    sep_rc.right = item_rc.right
+                    sep_rc.bottom = item_rc.bottom
+                    user32.FillRect(hdc, ctypes.byref(sep_rc), sep)
+
+                    txt_rc = _RECT()
+                    txt_rc.left = item_rc.left + 6
+                    txt_rc.top = item_rc.top
+                    txt_rc.right = item_rc.right - 6
+                    txt_rc.bottom = item_rc.bottom
+                    flags = (
+                        DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX
+                    )
+                    justify = hdi.fmt & HDF_JUSTIFY
+                    if justify == 1:
+                        flags |= DT_RIGHT
+                    elif justify == 2:
+                        flags |= DT_CENTER
+                    user32.DrawTextW(hdc, buf, -1, ctypes.byref(txt_rc), flags)
+                gdi32.DeleteObject(sep)
+                if old_font:
+                    gdi32.SelectObject(hdc, old_font)
+            finally:
+                user32.EndPaint(hwnd, ctypes.byref(ps))
+
+        def _proc(hwnd, msg, wparam, lparam, uid, refdata):
+            try:
+                if msg == WM_PAINT:
+                    _paint(hwnd)
+                    return 0
+                if msg == WM_NCDESTROY:
+                    comctl32.RemoveWindowSubclass(
+                        c_void_p(hwnd), subclass_proc, SUBCLASS_ID
+                    )
+            except Exception:
+                pass
+            return comctl32.DefSubclassProc(c_void_p(hwnd), msg, wparam, lparam)
+
+        subclass_proc = SUBCLASSPROC(_proc)
+        comctl32.SetWindowSubclass.argtypes = [
+            c_void_p,
+            SUBCLASSPROC,
+            c_size_t,
+            c_size_t,
+        ]
+        if comctl32.SetWindowSubclass(
+            c_void_p(header), subclass_proc, SUBCLASS_ID, 0
+        ):
+            # Keep the callback (and the list's reference) alive.
+            _header_subclass_procs.append(subclass_proc)
+            listctrl._headerSubclassProc = subclass_proc
+            listctrl._headerDarkened = True
+            user32.InvalidateRect(c_void_p(header), None, 1)
+        else:
+            # Subclassing unavailable: at least disable the light visual style so
+            # the SetHeaderAttr colour paints behind the labels (partial dark).
             _setHwndTheme(header, "", "")
     except Exception:
         pass
