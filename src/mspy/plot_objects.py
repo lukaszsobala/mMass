@@ -1657,15 +1657,23 @@ class spectrum:
         # get plot coordinates
         gelY1, plotX1, plotY1, plotX2, plotY2, zeroY = gelCoords
 
-        # correct zero
-        if self.properties["flipped"] and (plotY1 < zeroY < plotY2):
-            plotY1 = zeroY
-            shift = zeroY
-        elif plotY1 < zeroY < plotY2:
-            plotY2 = zeroY
-            shift = plotY1
+        # Correct zero. A gel encodes positive signal only: the band runs from
+        # the zero baseline (empty) up to the tallest peak (solid). Negative
+        # excursions clamp to the empty shade in _build_gel_runs. Normal spectra
+        # live above the zero line, flipped spectra below it; when zero has
+        # moved past the relevant edge there is no signal on that side, so the
+        # gel is left entirely empty (painted by the gel background).
+        if self.properties["flipped"]:
+            if zeroY >= plotY2:
+                return False
+            if plotY1 < zeroY < plotY2:
+                plotY1 = zeroY
         else:
-            shift = plotY1
+            if zeroY <= plotY1:
+                return False
+            if plotY1 < zeroY < plotY2:
+                plotY2 = zeroY
+        shift = plotY1
 
         # set color step
         step = (plotY2 - plotY1) / 255
@@ -1799,15 +1807,19 @@ class spectrum:
         # get plot coordinates
         gelY1, plotX1, plotY1, plotX2, plotY2, zeroY = gelCoords
 
-        # correct zero
-        if self.properties["flipped"] and (plotY1 < zeroY < plotY2):
-            plotY1 = zeroY
-            shift = zeroY
-        elif plotY1 < zeroY < plotY2:
-            plotY2 = zeroY
-            shift = plotY1
+        # Correct zero (see _drawSpectrumGel): the gel encodes positive signal
+        # only, so leave it empty when zero has moved past the relevant edge.
+        if self.properties["flipped"]:
+            if zeroY >= plotY2:
+                return False
+            if plotY1 < zeroY < plotY2:
+                plotY1 = zeroY
         else:
-            shift = plotY1
+            if zeroY <= plotY1:
+                return False
+            if plotY1 < zeroY < plotY2:
+                plotY2 = zeroY
+        shift = plotY1
 
         # set color step
         step = (plotY2 - plotY1) / 255
