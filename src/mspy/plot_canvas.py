@@ -160,6 +160,8 @@ class canvas(wx.Window):
         self.cursorImage = wx.Cursor(wx.CURSOR_ARROW)
         self.draggingStart = False
         self.mouseEvent = False
+        self.xPosBarBox = None
+        self.yPosBarBox = None
         self.lastDraw = None
         self.pointScale = 1
         self.pointShift = 0
@@ -320,9 +322,19 @@ class canvas(wx.Window):
         # get starting coords for movement
         self.draggingStart = self.cursorPosition[:]
         location = self.getCursorLocation()
+        posBar = self.getPosBarLocation()
+
+        # navigate by clicking/dragging the position bars
+        if posBar == "xPosBar":
+            self.mouseEvent = "xPosBar"
+            self.movePositionBar("x", dc=dc)
+
+        elif posBar == "yPosBar":
+            self.mouseEvent = "yPosBar"
+            self.movePositionBar("y", dc=dc)
 
         # set zooming with Control (for one-button mouse)
-        if location == "plot" and evt.ControlDown():
+        elif location == "plot" and evt.ControlDown():
             self.mouseEvent = "zoom"
             self.drawZoomBox(dc)
 
@@ -395,7 +407,7 @@ class canvas(wx.Window):
                 self.zoom(yAxis=(minY, maxY), dc=dc)
 
         # remember zoom
-        elif self.mouseEvent in ("xShift", "yShift"):
+        elif self.mouseEvent in ("xShift", "yShift", "xPosBar", "yPosBar"):
             self.rememberView()
 
         # set cursor positions
@@ -413,6 +425,8 @@ class canvas(wx.Window):
             "distance",
             "xShift",
             "yShift",
+            "xPosBar",
+            "yPosBar",
         ):
             self.mouseEvent = False
 
@@ -593,6 +607,8 @@ class canvas(wx.Window):
             "yShift",
             "xScale",
             "yScale",
+            "xPosBar",
+            "yPosBar",
             "zoom",
             "range",
             "rectangle",
@@ -610,7 +626,8 @@ class canvas(wx.Window):
         dc = wx.MemoryDC(self.plotBuffer)
         immediate_paint = (
             wx.Platform == "__WXGTK__"
-            and self.mouseEvent in ("xShift", "yShift", "xScale", "yScale")
+            and self.mouseEvent
+            in ("xShift", "yShift", "xScale", "yScale", "xPosBar", "yPosBar")
         )
 
         # guard against stacking multiple pending Refresh calls
@@ -671,6 +688,14 @@ class canvas(wx.Window):
         # scale y axis
         elif self.mouseEvent == "yScale":
             self.scaleAxis("y", dc=dc)
+
+        # navigate via x position bar
+        elif self.mouseEvent == "xPosBar":
+            self.movePositionBar("x", dc=dc)
+
+        # navigate via y position bar
+        elif self.mouseEvent == "yPosBar":
+            self.movePositionBar("y", dc=dc)
 
         # On Linux/GTK especially, deferred paint events can be starved by
         # continuous motion events. Force paint for drag/axis-scale frames so
@@ -1125,6 +1150,26 @@ class canvas(wx.Window):
 
     # ----
 
+    def getPosBarLocation(self):
+        """Locate cursor within the X/Y position bars."""
+
+        x = self.cursorPosition[2]
+        y = self.cursorPosition[3]
+
+        if self.properties["showXPosBar"] and self.xPosBarBox:
+            bx, by, bw, bh = self.xPosBarBox
+            if bx <= x <= bx + bw and by <= y <= by + bh:
+                return "xPosBar"
+
+        if self.properties["showYPosBar"] and self.yPosBarBox:
+            bx, by, bw, bh = self.yPosBarBox
+            if bx <= x <= bx + bw and by <= y <= by + bh:
+                return "yPosBar"
+
+        return None
+
+    # ----
+
     def getCursorPosition(self):
         """Get cursor position in user coordinations."""
 
@@ -1277,6 +1322,10 @@ class canvas(wx.Window):
     def setCursorByLocation(self):
         """Set cursor-type according to location."""
 
+        if self.getPosBarLocation() is not None:
+            self.SetCursor(wx.Cursor(wx.CURSOR_HAND))
+            return
+
         location = self.getCursorLocation()
         if location == "xAxis":
             self.SetCursor(wx.Cursor(wx.CURSOR_SIZEWE))
@@ -1403,10 +1452,14 @@ class canvas(wx.Window):
         # draw plot x position box
         if self.properties["showXPosBar"]:
             self.drawXPositionBar(dc, xAxis)
+        else:
+            self.xPosBarBox = None
 
         # draw plot y position box
         if self.properties["showYPosBar"]:
             self.drawYPositionBar(dc, yAxis)
+        else:
+            self.yPosBarBox = None
 
         # draw gel
         if self.properties["showGel"]:
@@ -1617,6 +1670,9 @@ class canvas(wx.Window):
         width = x2 - x1
         height = self.properties["posBarSize"] * self.printerScale["drawings"]
 
+        # remember hit-test box for click/drag navigation
+        self.xPosBarBox = (x1, y1, width, height)
+
         # get current position
         minX, maxX = self.getMaxXRange(absolute=True)
         x = x1 + (xAxis[0] - minX) * width / abs((maxX - minX))
@@ -1677,6 +1733,9 @@ class canvas(wx.Window):
         y2 += self.printerScale["drawings"]
         height = y2 - y1
         width = self.properties["posBarSize"] * self.printerScale["drawings"]
+
+        # remember hit-test box for click/drag navigation
+        self.yPosBarBox = (x1, y1, width, height)
 
         # get current position
         minY, maxY = self.getMaxYRange(absolute=True)
@@ -2675,6 +2734,77 @@ class canvas(wx.Window):
 
         # redraw plot
         self.draw(self.lastDraw[0], (minX, maxX), (minY, maxY), dc=dc)
+
+    # ----
+
+    def movePositionBar(self, axis, dc=None):
+        """Move plot view to follow a click/drag on the position bar."""
+
+        if axis == "x":
+            if not self.xPosBarBox:
+                return
+            bx, by, bw, bh = self.xPosBarBox
+            rangeMin, rangeMax = self.getMaxXRange(absolute=True)
+            if bw <= 0 or rangeMax == rangeMin:
+                return
+
+            # map cursor along the bar to a target center position
+            frac = (self.cursorPosition[2] - bx) / bw
+            frac = min(max(frac, 0.0), 1.0)
+            target = rangeMin + frac * (rangeMax - rangeMin)
+
+            # keep the current window width, centered on the target
+            minX, maxX = self.getCurrentXRange()
+            half = (maxX - minX) / 2.0
+            minX, maxX = target - half, target + half
+
+            # clamp to data range, preserving width
+            if minX < rangeMin:
+                maxX += rangeMin - minX
+                minX = rangeMin
+            if maxX > rangeMax:
+                minX -= maxX - rangeMax
+                maxX = rangeMax
+            minX = max(minX, rangeMin)
+            maxX = min(maxX, rangeMax)
+
+            # autoscale Y to the new window
+            minY, maxY = self.getCurrentYRange()
+            if self.properties["autoScaleY"]:
+                minY, maxY = self.getMaxYRange(minX, maxX)
+
+            self.draw(self.lastDraw[0], (minX, maxX), (minY, maxY), dc=dc)
+
+        elif axis == "y":
+            if not self.yPosBarBox or self.properties["ySymmetry"]:
+                return
+            bx, by, bw, bh = self.yPosBarBox
+            rangeMin, rangeMax = self.getMaxYRange(absolute=True)
+            if bh <= 0 or rangeMax == rangeMin:
+                return
+
+            # bar maps top -> maxY, bottom -> minY
+            frac = (self.cursorPosition[3] - by) / bh
+            frac = min(max(frac, 0.0), 1.0)
+            target = rangeMax - frac * (rangeMax - rangeMin)
+
+            # keep the current window height, centered on the target
+            minY, maxY = self.getCurrentYRange()
+            half = (maxY - minY) / 2.0
+            minY, maxY = target - half, target + half
+
+            # clamp to data range, preserving height
+            if minY < rangeMin:
+                maxY += rangeMin - minY
+                minY = rangeMin
+            if maxY > rangeMax:
+                minY -= maxY - rangeMax
+                maxY = rangeMax
+            minY = max(minY, rangeMin)
+            maxY = min(maxY, rangeMax)
+
+            minX, maxX = self.getCurrentXRange()
+            self.draw(self.lastDraw[0], (minX, maxX), (minY, maxY), dc=dc)
 
     # ----
 
