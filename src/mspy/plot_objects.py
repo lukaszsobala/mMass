@@ -1657,27 +1657,14 @@ class spectrum:
         # get plot coordinates
         gelY1, plotX1, plotY1, plotX2, plotY2, zeroY = gelCoords
 
-        # Correct zero. A gel encodes positive signal only: the band runs from
-        # the zero baseline (empty) up to the tallest peak (solid). Negative
-        # excursions clamp to the empty shade in _build_gel_runs. Normal spectra
-        # live above the zero line, flipped spectra below it; when zero has
-        # moved past the relevant edge there is no signal on that side, so the
-        # gel is left entirely empty (painted by the gel background).
-        if self.properties["flipped"]:
-            if zeroY >= plotY2:
-                return False
-            if plotY1 < zeroY < plotY2:
-                plotY1 = zeroY
-        else:
-            if zeroY <= plotY1:
-                return False
-            if plotY1 < zeroY < plotY2:
-                plotY2 = zeroY
-        shift = plotY1
-
-        # set color step
-        step = (plotY2 - plotY1) / 255
-        if step == 0:
+        # Reference scale = the largest absolute intensity on display, i.e. the
+        # screen distance from the zero line to whichever axis extreme (top peak
+        # or bottom trough) is farther from it. Peaks (grayscale) and troughs
+        # (red) share this one scale, so the most intense feature -- of either
+        # sign -- saturates and everything else is proportional. Reading it from
+        # the axis extents (not the data) keeps the gel responsive to Y-zoom.
+        scale = max(zeroY - plotY1, plotY2 - zeroY)
+        if scale <= 0:
             return False
 
         pixel_step = max(1, int(round(printerScale["drawings"])))
@@ -1687,8 +1674,8 @@ class spectrum:
         # to O(number_of_screen_columns) draw operations.
         runs = _build_gel_runs(
             self.spectrumScaled,
-            shift,
-            step,
+            zeroY,
+            scale,
             self.properties["flipped"],
             pixel_step,
             plotX1,
@@ -1709,8 +1696,8 @@ class spectrum:
         )
         dc.SetBrush(brush)
 
-        for x_start, width, shade in runs:
-            brush.SetColour(wx.Colour(int(shade), int(shade), int(shade)))
+        for x_start, width, r, g, b in runs:
+            brush.SetColour(wx.Colour(int(r), int(g), int(b)))
             dc.SetBrush(brush)
             dc.DrawRectangle(int(x_start), int(gelY1), int(width), int(gelHeight))
 
@@ -1807,31 +1794,18 @@ class spectrum:
         # get plot coordinates
         gelY1, plotX1, plotY1, plotX2, plotY2, zeroY = gelCoords
 
-        # Correct zero (see _drawSpectrumGel): the gel encodes positive signal
-        # only, so leave it empty when zero has moved past the relevant edge.
-        if self.properties["flipped"]:
-            if zeroY >= plotY2:
-                return False
-            if plotY1 < zeroY < plotY2:
-                plotY1 = zeroY
-        else:
-            if zeroY <= plotY1:
-                return False
-            if plotY1 < zeroY < plotY2:
-                plotY2 = zeroY
-        shift = plotY1
-
-        # set color step
-        step = (plotY2 - plotY1) / 255
-        if step == 0:
+        # Reference scale = largest absolute intensity on display (see
+        # _drawSpectrumGel).
+        scale = max(zeroY - plotY1, plotY2 - zeroY)
+        if scale <= 0:
             return False
 
         pixel_step = max(1, int(round(printerScale["drawings"])))
 
         runs = _build_gel_runs(
             self.peaklistScaled,
-            shift,
-            step,
+            zeroY,
+            scale,
             self.properties["flipped"],
             pixel_step,
             plotX1,
@@ -1851,8 +1825,8 @@ class spectrum:
         )
         dc.SetBrush(brush)
 
-        for x_start, width, shade in runs:
-            brush.SetColour(wx.Colour(int(shade), int(shade), int(shade)))
+        for x_start, width, r, g, b in runs:
+            brush.SetColour(wx.Colour(int(r), int(g), int(b)))
             dc.SetBrush(brush)
             dc.DrawRectangle(int(x_start), int(gelY1), int(width), int(gelHeight))
 
@@ -2024,10 +1998,51 @@ _GEL_FILL_GAP_FACTOR = 4
 _GEL_FILL_GAP_MIN = 4
 
 
+# Gel columns are encoded as a single scalar in [0, 510] so the whole pipeline
+# (per-column reduction, gap interpolation, run-length merging) stays 1-D:
+#   0   == the tallest peak           -> solid (black in light, white in dark)
+#   255 == the zero baseline / no data -> empty (white in light, black in dark)
+#   510 == a trough as deep as the tallest peak -> saturated red
+# The 255..510 half is the negative ramp: a virtual gel can't be "blacker than
+# black", so below-zero signal is shown by reddening instead of darkening.
+_GEL_ZERO = 255
+_GEL_RED_MAX = 510
+
+
+def _gel_values_to_rgb(values, dark_mode):
+    """Map gel column values in [0, 510] onto (R, G, B) int arrays.
+
+    Positive signal (0..255) is grayscale; negative signal (255..510) keeps the
+    zero baseline's empty colour but mixes in progressively more red, reaching
+    pure red (255, 0, 0) for a trough as deep as the tallest peak. Red is scaled
+    to the tallest peak (the same reference as the grayscale), so a shallow
+    trough stays only faintly red even when it is the most negative point.
+    """
+
+    values = numpy.clip(numpy.rint(values), 0, _GEL_RED_MAX).astype(numpy.int32)
+    is_red = values > _GEL_ZERO
+    red_amt = numpy.clip(values - _GEL_ZERO, 0, 255)
+    gray = numpy.clip(values, 0, 255)
+
+    if dark_mode:
+        # Empty is black; redden up from black, darken peaks down to white.
+        gray_shade = 255 - gray
+        red = numpy.where(is_red, red_amt, gray_shade)
+        green = numpy.where(is_red, 0, gray_shade)
+    else:
+        # Empty is white; redden by draining green/blue, darken peaks to black.
+        gray_shade = gray
+        red = numpy.where(is_red, 255, gray_shade)
+        green = numpy.where(is_red, 255 - red_amt, gray_shade)
+    blue = green
+
+    return red.astype(numpy.int32), green.astype(numpy.int32), blue.astype(numpy.int32)
+
+
 def _build_gel_runs(
     scaled_points,
-    shift,
-    step,
+    zero_y,
+    scale,
     flipped,
     pixel_step,
     plot_x1,
@@ -2035,21 +2050,27 @@ def _build_gel_runs(
     dark_mode,
     fill_gaps=False,
 ):
-    """Build run-length encoded gel stripes as (x_start, width, shade).
+    """Build run-length encoded gel stripes as (x_start, width, r, g, b).
 
-    Every visible column receives a shade so the gel paints its whole band and
-    columns with no data take the background "zero" shade (white in light mode,
+    Every visible column receives a colour so the gel paints its whole band and
+    columns with no data take the background "zero" colour (white in light mode,
     black in dark mode) rather than letting the plot background show through.
+    Below-zero (negative) signal is rendered as red rather than collapsed to
+    empty (see ``_gel_values_to_rgb``).
+
+    ``zero_y`` is the screen-y of the zero line and ``scale`` the screen distance
+    from it to the largest absolute intensity on display; together they map each
+    point's signed distance from zero onto the [0, 510] gel value.
 
     When ``fill_gaps`` is set, columns that fall in a normal-sized gap between
-    sampled points are filled with a shade linearly interpolated from their
+    sampled points are filled with a value linearly interpolated from their
     neighbours, so a sparse, zoomed-in profile reads as a continuous band
     instead of isolated vertical lines. Abnormally wide gaps (relative to the
     local sampling density) are left empty so truly missing data stays
     distinguishable.
     """
 
-    if len(scaled_points) == 0:
+    if len(scaled_points) == 0 or scale <= 0:
         return []
 
     plot_x1 = int(plot_x1)
@@ -2058,27 +2079,37 @@ def _build_gel_runs(
         return []
 
     x_values = numpy.rint(scaled_points[:, 0]).astype(numpy.int64)
-    intensity = numpy.rint((scaled_points[:, 1] - shift) / step).astype(numpy.int32)
-    intensity = numpy.clip(intensity, 0, 255)
-    if flipped:
-        intensity = 255 - intensity
+
+    # Map screen-y to the [0, 510] gel value via signed distance from zero:
+    # +scale (tallest peak) -> 0, 0 (zero line) -> 255, -scale (deepest trough)
+    # -> 510. For flipped spectra the signal direction is mirrored about zero.
+    signed = (zero_y - scaled_points[:, 1]) if not flipped else (
+        scaled_points[:, 1] - zero_y
+    )
+    signal = 255.0 * (1.0 - signed / scale)
+    signal = numpy.clip(signal, 0.0, float(_GEL_RED_MAX))
 
     # Quantize columns to drawing step so work scales with visible pixels, not
-    # with the number of source data points. Keep the darkest (lowest) value
-    # per column so thin, intense peaks are not lost between samples.
+    # with the number of source data points. Keep the most prominent feature per
+    # column -- the value farthest from the zero baseline -- so thin tall peaks
+    # stay dark and deep troughs stay red even between samples.
     bins = (x_values // pixel_step).astype(numpy.int64)
     unique_bins, inverse = numpy.unique(bins, return_inverse=True)
-    sample = numpy.full(unique_bins.shape, 255, dtype=numpy.int32)
-    numpy.minimum.at(sample, inverse, intensity)
+    col_min = numpy.full(unique_bins.shape, numpy.inf)
+    col_max = numpy.full(unique_bins.shape, -numpy.inf)
+    numpy.minimum.at(col_min, inverse, signal)
+    numpy.maximum.at(col_max, inverse, signal)
+    use_max = numpy.abs(col_max - _GEL_ZERO) >= numpy.abs(col_min - _GEL_ZERO)
+    sample = numpy.where(use_max, col_max, col_min)
 
-    # Build a shade for every visible column; 255 == background "zero".
+    # Build a value for every visible column; 255 == background "zero".
     first_bin = plot_x1 // pixel_step
     last_bin = (plot_x2 - 1) // pixel_step
     grid_bins = numpy.arange(first_bin, last_bin + 1, dtype=numpy.int64)
     if len(grid_bins) == 0:
         return []
 
-    values = numpy.full(grid_bins.shape, 255, dtype=numpy.int32)
+    values = numpy.full(grid_bins.shape, float(_GEL_ZERO))
 
     # Place the sampled columns onto the grid.
     offset = unique_bins - first_bin
@@ -2091,7 +2122,9 @@ def _build_gel_runs(
 
         # Linear interpolation across every column from the sampled points;
         # off-data columns become "zero" via left/right.
-        interp = numpy.interp(grid_bins, unique_bins, sample, left=255, right=255)
+        interp = numpy.interp(
+            grid_bins, unique_bins, sample, left=_GEL_ZERO, right=_GEL_ZERO
+        )
 
         # Only keep the interpolated value where the bridged gap is narrow
         # enough to be real signal and the column is not itself a sample.
@@ -2103,10 +2136,9 @@ def _build_gel_runs(
         seg_gap[within] = gaps[seg[within]]
         fillable = within & (~on_sample) & (seg_gap <= max_gap)
 
-        values[fillable] = numpy.rint(interp[fillable]).astype(numpy.int32)
+        values[fillable] = interp[fillable]
 
-    values = numpy.clip(values, 0, 255)
-    shades = (255 - values) if dark_mode else values
+    vq = numpy.clip(numpy.rint(values), 0, _GEL_RED_MAX).astype(numpy.int32)
 
     # Clip each column to the visible plot area.
     raw_start = grid_bins * pixel_step
@@ -2119,18 +2151,26 @@ def _build_gel_runs(
         return []
     x_start = x_start[valid]
     x_end = x_end[valid]
-    shades = shades[valid]
+    vq = vq[valid]
 
-    # Merge contiguous columns with identical shades to minimize DC calls.
-    change = numpy.ones(len(shades), dtype=bool)
-    change[1:] = shades[1:] != shades[:-1]
+    # Merge contiguous columns with identical values to minimize DC calls.
+    change = numpy.ones(len(vq), dtype=bool)
+    change[1:] = vq[1:] != vq[:-1]
     starts = numpy.where(change)[0]
-    last_in_run = numpy.r_[starts[1:] - 1, len(shades) - 1]
+    last_in_run = numpy.r_[starts[1:] - 1, len(vq) - 1]
     run_x = x_start[starts]
     run_w = x_end[last_in_run] - run_x
-    run_shade = shades[starts]
+    run_r, run_g, run_b = _gel_values_to_rgb(vq[starts], dark_mode)
 
-    return list(zip(run_x.tolist(), run_w.tolist(), run_shade.tolist()))
+    return list(
+        zip(
+            run_x.tolist(),
+            run_w.tolist(),
+            run_r.tolist(),
+            run_g.tolist(),
+            run_b.tolist(),
+        )
+    )
 
 
 def _compress_screen_polyline(points):
