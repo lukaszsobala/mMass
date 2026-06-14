@@ -333,7 +333,7 @@ class panelEnvelopeFit(wx.Frame, MakeModalMixin):
         self.spectrumCanvas.setProperties(showZero=False)
         self.spectrumCanvas.setProperties(showLegend=True)
         self.spectrumCanvas.setProperties(showXPosBar=False)
-        self.spectrumCanvas.setProperties(showYPosBar=True)
+        self.spectrumCanvas.setProperties(showYPosBar=False)
         self.spectrumCanvas.setProperties(showGel=False)
         self.spectrumCanvas.setProperties(zoomAxis="x")
         self.spectrumCanvas.setProperties(checkLimits=True)
