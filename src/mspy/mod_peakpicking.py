@@ -1439,8 +1439,28 @@ def relabelenvelopes(
 
         # summed envelope intensity: sum of the measured intensities of all
         # peaks (isotopes) that make up this envelope; padding dummy peaks have
-        # intensity 0.0 and therefore do not contribute
-        sumint = float(sum(p.intensity for p in cluster))
+        # intensity 0.0 and therefore do not contribute.
+        #
+        # When envelopes were previously collapsed to a single representative
+        # peak (label "1st"/"monoisotope"/"centroid"), the individual isotope
+        # peaks no longer exist, so re-summing the live peaks would undercount.
+        # In that case (exactly one real peak that already carries an envelope
+        # sum) keep the stored value so re-running "Convert to Envelopes" stays
+        # stable. With full isotope series present we always re-sum the peaks.
+        realPeaks = [p for p in cluster if p.intensity > 0.0]
+        parentEnvelope = (
+            parent.attributes.get("envelope")
+            if hasattr(parent, "attributes")
+            else None
+        )
+        if (
+            len(realPeaks) == 1
+            and isinstance(parentEnvelope, dict)
+            and parentEnvelope.get("sumint")
+        ):
+            sumint = float(parentEnvelope["sumint"])
+        else:
+            sumint = float(sum(p.intensity for p in cluster))
 
         envelope = {
             "area": areas[c],
