@@ -429,6 +429,9 @@ class mainFrame(wx.Frame):
         viewPeaklistColumns.Append(
             ID_viewPeaklistColumnEnvArea, "Env. Area", "", wx.ITEM_CHECK
         )
+        viewPeaklistColumns.Append(
+            ID_viewPeaklistColumnEnvInt, "Summed Env. Intensity", "", wx.ITEM_CHECK
+        )
         viewPeaklistColumns.Append(ID_viewPeaklistColumnFwhm, "FWHM", "", wx.ITEM_CHECK)
         viewPeaklistColumns.Append(
             ID_viewPeaklistColumnResol, "Resolution", "", wx.ITEM_CHECK
@@ -510,6 +513,9 @@ class mainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.onViewPeaklistColumns, id=ID_viewPeaklistColumnMass)
         self.Bind(
             wx.EVT_MENU, self.onViewPeaklistColumns, id=ID_viewPeaklistColumnEnvArea
+        )
+        self.Bind(
+            wx.EVT_MENU, self.onViewPeaklistColumns, id=ID_viewPeaklistColumnEnvInt
         )
         self.Bind(wx.EVT_MENU, self.onViewPeaklistColumns, id=ID_viewPeaklistColumnFwhm)
         self.Bind(
@@ -600,6 +606,10 @@ class mainFrame(wx.Frame):
         self.menubar.Check(
             ID_viewPeaklistColumnEnvArea,
             bool("envarea" in config.main["peaklistColumns"]),
+        )
+        self.menubar.Check(
+            ID_viewPeaklistColumnEnvInt,
+            bool("envint" in config.main["peaklistColumns"]),
         )
         self.menubar.Check(
             ID_viewPeaklistColumnFwhm, bool("fwhm" in config.main["peaklistColumns"])
@@ -2907,6 +2917,7 @@ class mainFrame(wx.Frame):
             ID_viewPeaklistColumnZ: "z",
             ID_viewPeaklistColumnMass: "mass",
             ID_viewPeaklistColumnEnvArea: "envarea",
+            ID_viewPeaklistColumnEnvInt: "envint",
             ID_viewPeaklistColumnFwhm: "fwhm",
             ID_viewPeaklistColumnResol: "resol",
             ID_viewPeaklistColumnGroup: "group",
@@ -2941,6 +2952,8 @@ class mainFrame(wx.Frame):
                 config.main["peaklistColumns"].append("mass")
             if "envarea" in columns:
                 config.main["peaklistColumns"].append("envarea")
+            if "envint" in columns:
+                config.main["peaklistColumns"].append("envint")
             if "fwhm" in columns:
                 config.main["peaklistColumns"].append("fwhm")
             if "resol" in columns:

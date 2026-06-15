@@ -1437,8 +1437,14 @@ def relabelenvelopes(
         )
         fwhm_val = float(_cluster_fwhm(cluster, defaultFwhm))
 
+        # summed envelope intensity: sum of the measured intensities of all
+        # peaks (isotopes) that make up this envelope; padding dummy peaks have
+        # intensity 0.0 and therefore do not contribute
+        sumint = float(sum(p.intensity for p in cluster))
+
         envelope = {
             "area": areas[c],
+            "sumint": sumint,
             "fwhm": fwhm_val,
             "shape": "gaussian",
             "isotopes": isotopes_data,

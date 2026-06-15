@@ -26,6 +26,7 @@ from .ids import (
     ID_viewPeaklistColumnAi,
     ID_viewPeaklistColumnBase,
     ID_viewPeaklistColumnEnvArea,
+    ID_viewPeaklistColumnEnvInt,
     ID_viewPeaklistColumnFwhm,
     ID_viewPeaklistColumnGroup,
     ID_viewPeaklistColumnInt,
@@ -267,6 +268,10 @@ class panelPeaklist(wx.Panel):
 
             elif column == "envarea":
                 self.peakList.InsertColumn(x, "env. area", wx.LIST_FORMAT_RIGHT)
+                x += 1
+
+            elif column == "envint":
+                self.peakList.InsertColumn(x, "sum. env. int.", wx.LIST_FORMAT_RIGHT)
                 x += 1
 
             elif column == "base":
@@ -615,6 +620,9 @@ class panelPeaklist(wx.Panel):
         menu.Append(ID_viewPeaklistColumnZ, "Charge", "", wx.ITEM_CHECK)
         menu.Append(ID_viewPeaklistColumnMass, "Mass", "", wx.ITEM_CHECK)
         menu.Append(ID_viewPeaklistColumnEnvArea, "Env. Area", "", wx.ITEM_CHECK)
+        menu.Append(
+            ID_viewPeaklistColumnEnvInt, "Summed Env. Intensity", "", wx.ITEM_CHECK
+        )
         menu.Append(ID_viewPeaklistColumnFwhm, "FWHM", "", wx.ITEM_CHECK)
         menu.Append(ID_viewPeaklistColumnResol, "Resolution", "", wx.ITEM_CHECK)
         menu.Append(ID_viewPeaklistColumnGroup, "Group", "", wx.ITEM_CHECK)
@@ -644,6 +652,10 @@ class panelPeaklist(wx.Panel):
         menu.Check(
             ID_viewPeaklistColumnEnvArea,
             bool("envarea" in config.main["peaklistColumns"]),
+        )
+        menu.Check(
+            ID_viewPeaklistColumnEnvInt,
+            bool("envint" in config.main["peaklistColumns"]),
         )
         menu.Check(
             ID_viewPeaklistColumnFwhm, bool("fwhm" in config.main["peaklistColumns"])
@@ -683,6 +695,11 @@ class panelPeaklist(wx.Panel):
             wx.EVT_MENU,
             self.parent.onViewPeaklistColumns,
             id=ID_viewPeaklistColumnEnvArea,
+        )
+        self.Bind(
+            wx.EVT_MENU,
+            self.parent.onViewPeaklistColumns,
+            id=ID_viewPeaklistColumnEnvInt,
         )
         self.Bind(
             wx.EVT_MENU, self.parent.onViewPeaklistColumns, id=ID_viewPeaklistColumnFwhm
@@ -1130,6 +1147,9 @@ class panelPeaklist(wx.Panel):
                 elif column == "envarea":
                     envelope = peak.attributes.get("envelope", {})
                     row.append(envelope.get("area"))
+                elif column == "envint":
+                    envelope = peak.attributes.get("envelope", {})
+                    row.append(envelope.get("sumint"))
                 elif column == "base":
                     row.append(peak.base)
                 elif column == "rel":
@@ -1188,6 +1208,7 @@ class panelPeaklist(wx.Panel):
             "ai": 62,
             "int": 62,
             "envarea": 74,
+            "envint": 92,
             "base": 56,
             "rel": 50,
             "sn": 42,
@@ -1202,6 +1223,7 @@ class panelPeaklist(wx.Panel):
             "ai": 80,
             "int": 80,
             "envarea": 92,
+            "envint": 120,
             "base": 72,
             "rel": 64,
             "sn": 56,
@@ -1278,6 +1300,10 @@ class panelPeaklist(wx.Panel):
                 data = intFormat % (item[x])
 
             elif column == "envarea":
+                if item[x] is not None:
+                    data = intFormat % (item[x])
+
+            elif column == "envint":
                 if item[x] is not None:
                     data = intFormat % (item[x])
 
@@ -1609,6 +1635,12 @@ class panelPeaklist(wx.Panel):
                     if isinstance(envelope, dict) and "area" in envelope:
                         value = str(envelope["area"])
                     line += value + "\t"
+                if "envint" in config.export["peaklistColumns"]:
+                    value = ""
+                    envelope = peak.attributes.get("envelope")
+                    if isinstance(envelope, dict) and "sumint" in envelope:
+                        value = str(envelope["sumint"])
+                    line += value + "\t"
                 if "group" in config.export["peaklistColumns"]:
                     line += str(peak.group) + "\t"
                 buff += "%s\n" % (line.rstrip())
@@ -1822,6 +1854,11 @@ class dlgCopy(wx.Dialog):
             config.export["peaklistColumns"].count("envarea")
         )
 
+        self.peaklistColumnEnvInt_check = wx.CheckBox(self, -1, "Summed Env. Int.")
+        self.peaklistColumnEnvInt_check.SetValue(
+            config.export["peaklistColumns"].count("envint")
+        )
+
         self.peaklistColumnGroup_check = wx.CheckBox(self, -1, "Group")
         self.peaklistColumnGroup_check.SetValue(
             config.export["peaklistColumns"].count("group")
@@ -1845,6 +1882,7 @@ class dlgCopy(wx.Dialog):
         grid.Add(self.peaklistColumnResol_check, (3, 2))
         grid.Add(self.peaklistColumnEnvArea_check, (4, 2))
         grid.Add(self.peaklistColumnGroup_check, (5, 2))
+        grid.Add(self.peaklistColumnEnvInt_check, (6, 0))
 
         staticSizer.Add(grid, 0, wx.ALL, 5)
 
@@ -1892,6 +1930,8 @@ class dlgCopy(wx.Dialog):
             config.export["peaklistColumns"].append("resol")
         if self.peaklistColumnEnvArea_check.IsChecked():
             config.export["peaklistColumns"].append("envarea")
+        if self.peaklistColumnEnvInt_check.IsChecked():
+            config.export["peaklistColumns"].append("envint")
         if self.peaklistColumnGroup_check.IsChecked():
             config.export["peaklistColumns"].append("group")
 
