@@ -1437,30 +1437,20 @@ def relabelenvelopes(
         )
         fwhm_val = float(_cluster_fwhm(cluster, defaultFwhm))
 
-        # summed envelope intensity: sum of the measured intensities of all
-        # peaks (isotopes) that make up this envelope; padding dummy peaks have
-        # intensity 0.0 and therefore do not contribute.
-        #
-        # When envelopes were previously collapsed to a single representative
-        # peak (label "1st"/"monoisotope"/"centroid"), the individual isotope
-        # peaks no longer exist, so re-summing the live peaks would undercount.
-        # In that case (exactly one real peak that already carries an envelope
-        # sum) keep the stored value so re-running "Convert to Envelopes" stays
-        # stable. With full isotope series present we always re-sum the peaks.
-        realPeaks = [p for p in cluster if p.intensity > 0.0]
-        parentEnvelope = (
-            parent.attributes.get("envelope")
-            if hasattr(parent, "attributes")
-            else None
-        )
-        if (
-            len(realPeaks) == 1
-            and isinstance(parentEnvelope, dict)
-            and parentEnvelope.get("sumint")
-        ):
-            sumint = float(parentEnvelope["sumint"])
-        else:
-            sumint = float(sum(p.intensity for p in cluster))
+        # summed envelope intensity: the sum of the intensities (heights) of the
+        # isotope peaks that make up this envelope. It is derived from the same
+        # fitted model as the envelope area so the two always recalculate
+        # together: area is the integrated NNLS amplitude (sum of gaussian
+        # areas), and for gaussian peaks of a given width the height equals
+        # area / (sigma * sqrt(2*pi)). Summing over the modeled isotopes gives
+        #   sumint = area / (sigma * sqrt(2*pi)) * sum(isotope weights)
+        # which stays consistent with the area whenever envelopes are re-fit
+        # (e.g. after nearby peaks change) and does not depend on the live peak
+        # rows, so it is robust to envelopes being collapsed to a single peak.
+        sigma = _fwhm_to_sigma(fwhm_val)
+        norm = sigma * math.sqrt(2.0 * math.pi)
+        weightSum = sum(float(w) for _, w in isotopes_data)
+        sumint = (float(areas[c]) / norm) * weightSum if norm > 0.0 else 0.0
 
         envelope = {
             "area": areas[c],
