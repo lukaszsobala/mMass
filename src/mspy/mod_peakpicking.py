@@ -43,6 +43,11 @@ AVERAGE_AMINO = {"C": 4.9384, "H": 7.7583, "N": 1.3577, "O": 1.4773, "S": 0.0417
 AVERAGE_BASE = {"C": 9.75, "H": 12.25, "N": 3.75, "O": 6, "P": 1}
 ENVELOPE_NON_IDEALITY_DEFAULT = 0.20
 
+# Minimum number of isotopes a deisotoped envelope must span. Applied as a hard
+# floor: the signal/decay guards may only extend the tail beyond this length,
+# never trim below it.
+MIN_ENVELOPE_LENGTH = 3
+
 # Minimum expected signal-to-noise for a theoretical isotope to be worth
 # modeling when extending an envelope's tail. Combined with the base peak's
 # measured S/N this gives an intensity-adaptive cutoff (see relabelenvelopes).
@@ -1476,10 +1481,14 @@ def relabelenvelopes(
 
             target_length = mi + 1
 
-        # keep a small minimum length only when there is no profile to contradict
-        # it; with a profile the signal gate above is authoritative
-        if not useSignal:
-            target_length = max(target_length, min(3, len(ideal_pattern)))
+        # Enforce the minimum envelope length first; the anti-hallucination /
+        # decay guards above act only as an *upper* bound and must never shorten
+        # an envelope below this floor. A genuine deisotoped envelope spans at
+        # least three isotopes, so we keep that minimum even where the third
+        # isotope sits just under the noise. The placeholder is added at the
+        # theoretical isotope position (intensity 0), so it cannot absorb a
+        # neighbouring peak.
+        target_length = max(target_length, min(MIN_ENVELOPE_LENGTH, len(ideal_pattern)))
 
         if len(cluster) < target_length:
             for mi in range(len(cluster), target_length):
