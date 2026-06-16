@@ -53,9 +53,11 @@ MIN_ENVELOPE_LENGTH = 3
 # measured S/N this gives an intensity-adaptive cutoff (see relabelenvelopes).
 ENVELOPE_TAIL_SN_LIMIT = 1.0
 
-# Bounds on the resulting relative tail cutoff (fraction of the base peak), so
-# the estimate stays within a realistic single-envelope dynamic range and never
-# collapses to the base peak alone.
+# Bounds on the relative tail cutoff, expressed as a fraction of the *tallest*
+# theoretical isotope (the envelope apex), NOT of the monoisotopic / first peak.
+# The theoretical pattern is normalised to its apex, so this is correct even for
+# heavy species where the first peak is far from the tallest. Keeps the estimate
+# within a realistic single-envelope dynamic range.
 ENVELOPE_TAIL_CUTOFF_MIN = 0.0002
 ENVELOPE_TAIL_CUTOFF_MAX = 0.02
 
@@ -1160,9 +1162,11 @@ def _merge_adjacent_clusters(clusters, mzTolerance, isotopeShift, relaxed=False)
                 continue
 
             expectedMz = parent.mz + expectedIsotope * difference
+            # scale the matching window by 1/charge, like the isotope spacing
+            chargeTol = mzTolerance / abs(parent.charge)
             dynamicTol = max(
-                _adaptive_mz_tolerance(mzTolerance, left),
-                _adaptive_mz_tolerance(mzTolerance, right),
+                _adaptive_mz_tolerance(chargeTol, left),
+                _adaptive_mz_tolerance(chargeTol, right),
             )
             if abs(rightParent.mz - expectedMz) > dynamicTol:
                 i += 1
@@ -1333,6 +1337,13 @@ def relabelenvelopes(
     used = set()
     clusters = []
 
+    # m/z and charge of every picked peak, used to detect when a tail position
+    # would step onto a peak that belongs to a *different* charge species
+    allPeakMz = numpy.array([p.mz for p in peaklist], dtype=float)
+    allPeakCharge = numpy.array(
+        [p.charge if p.charge is not None else 0 for p in peaklist], dtype=float
+    )
+
     for x, parent in enumerate(peaklist):
 
         CHECK_FORCE_QUIT()
@@ -1349,12 +1360,17 @@ def relabelenvelopes(
         indexes = [x]
         next_isotope = 1
         difference = (ISOTOPE_DISTANCE + isotopeShift) / abs(parent.charge)
+        # Isotope spacing shrinks as 1/charge, so the m/z matching window must
+        # shrink the same way (half for 2+, a third for 3+ ...). Using a fixed
+        # absolute window would, at high charge, be a large fraction of the
+        # spacing and could match a neighbouring isotope or a foreign peak.
+        chargeTol = mzTolerance / abs(parent.charge)
         while True:
             found = None
             found_isotope = None
             best_error = None
             best_pattern_error = None
-            dynamicTol = _adaptive_mz_tolerance(mzTolerance, cluster)
+            dynamicTol = _adaptive_mz_tolerance(chargeTol, cluster)
 
             # Strictly forbid gaps; envelopes must be a continuous series.
             for isotope in [next_isotope]:
@@ -1477,7 +1493,7 @@ def relabelenvelopes(
                 offsetWeight += p.intensity
         if offsetWeight > 0.0:
             gridOffset = max(
-                -mzTolerance, min(mzTolerance, gridOffset / offsetWeight)
+                -chargeTol, min(chargeTol, gridOffset / offsetWeight)
             )
 
         useSignal = signal is not None and len(signal) > 0 and noise > 0.0
@@ -1498,8 +1514,23 @@ def relabelenvelopes(
                 break
 
             if useSignal:
-                # observed signal at this position
                 mzPos = parent.mz + mi * difference + gridOffset
+
+                # Never step onto a peak that belongs to a different-charge
+                # species. The signal there is not this envelope's isotope, and
+                # extending across it would bridge a position where THIS
+                # envelope has no real signal -- i.e. an isotope gap, which does
+                # not occur physically. Stop the tail here.
+                j1 = numpy.searchsorted(allPeakMz, mzPos - sampleWindow, side="left")
+                j2 = numpy.searchsorted(allPeakMz, mzPos + sampleWindow, side="right")
+                if j2 > j1:
+                    nearCharge = allPeakCharge[j1:j2]
+                    if numpy.any(
+                        (nearCharge != 0.0) & (nearCharge != parent.charge)
+                    ):
+                        break
+
+                # observed signal at this position
                 i1 = numpy.searchsorted(sigX, mzPos - sampleWindow, side="left")
                 i2 = numpy.searchsorted(sigX, mzPos + sampleWindow, side="right")
                 obs = float(numpy.max(sigY[i1:i2])) if i1 < i2 else 0.0
