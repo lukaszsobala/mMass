@@ -1337,13 +1337,6 @@ def relabelenvelopes(
     used = set()
     clusters = []
 
-    # m/z and charge of every picked peak, used to detect when a tail position
-    # would step onto a peak that belongs to a *different* charge species
-    allPeakMz = numpy.array([p.mz for p in peaklist], dtype=float)
-    allPeakCharge = numpy.array(
-        [p.charge if p.charge is not None else 0 for p in peaklist], dtype=float
-    )
-
     for x, parent in enumerate(peaklist):
 
         CHECK_FORCE_QUIT()
@@ -1498,7 +1491,15 @@ def relabelenvelopes(
 
         useSignal = signal is not None and len(signal) > 0 and noise > 0.0
         sigX = sigY = numpy.empty(0)
-        sampleWindow = 0.5 * difference  # half the isotope spacing (charge aware)
+        # Sample only the isotope position itself, not the whole half-spacing.
+        # A window scaled to the peak width (with a tolerance floor, capped well
+        # below the spacing) ignores *off-grid* neighbours -- e.g. a different
+        # charge species whose peaks fall between this envelope's isotopes -- so
+        # the tail cannot mistake their signal for its own.
+        clusterFwhm = _cluster_fwhm(cluster, defaultFwhm)
+        sampleWindow = min(
+            0.4 * difference, max(1.5 * clusterFwhm, 2.0 * chargeTol)
+        )
         signalFloor = ENVELOPE_TAIL_SN_LIMIT * noise
         if useSignal:
             sigArr = numpy.asarray(signal, dtype=float)
@@ -1516,21 +1517,7 @@ def relabelenvelopes(
             if useSignal:
                 mzPos = parent.mz + mi * difference + gridOffset
 
-                # Never step onto a peak that belongs to a different-charge
-                # species. The signal there is not this envelope's isotope, and
-                # extending across it would bridge a position where THIS
-                # envelope has no real signal -- i.e. an isotope gap, which does
-                # not occur physically. Stop the tail here.
-                j1 = numpy.searchsorted(allPeakMz, mzPos - sampleWindow, side="left")
-                j2 = numpy.searchsorted(allPeakMz, mzPos + sampleWindow, side="right")
-                if j2 > j1:
-                    nearCharge = allPeakCharge[j1:j2]
-                    if numpy.any(
-                        (nearCharge != 0.0) & (nearCharge != parent.charge)
-                    ):
-                        break
-
-                # observed signal at this position
+                # observed signal at this position (tight, peak-width window)
                 i1 = numpy.searchsorted(sigX, mzPos - sampleWindow, side="left")
                 i2 = numpy.searchsorted(sigX, mzPos + sampleWindow, side="right")
                 obs = float(numpy.max(sigY[i1:i2])) if i1 < i2 else 0.0
