@@ -43,6 +43,23 @@ AVERAGE_AMINO = {"C": 4.9384, "H": 7.7583, "N": 1.3577, "O": 1.4773, "S": 0.0417
 AVERAGE_BASE = {"C": 9.75, "H": 12.25, "N": 3.75, "O": 6, "P": 1}
 ENVELOPE_NON_IDEALITY_DEFAULT = 0.20
 
+# Minimum expected signal-to-noise for a theoretical isotope to be worth
+# modeling when extending an envelope's tail. Combined with the base peak's
+# measured S/N this gives an intensity-adaptive cutoff (see relabelenvelopes).
+ENVELOPE_TAIL_SN_LIMIT = 2.0
+
+# Bounds on the resulting relative tail cutoff (fraction of the base peak), so
+# the estimate stays within a realistic single-envelope dynamic range and never
+# collapses to the base peak alone.
+ENVELOPE_TAIL_CUTOFF_MIN = 0.00025
+ENVELOPE_TAIL_CUTOFF_MAX = 0.02
+
+# A real isotope tail past the apex decays monotonically. When walking the tail
+# outward, allow only this much rise relative to the previous position before
+# concluding the signal belongs to a different species (and stopping). Prevents
+# the tail from marching across neighbouring peaks in crowded regions.
+ENVELOPE_TAIL_RISE_TOLERANCE = 1.5
+
 
 # PEAK PICKING FUNCTIONS
 # ----------------------
@@ -1121,6 +1138,15 @@ def _merge_adjacent_clusters(clusters, mzTolerance, isotopeShift, relaxed=False)
                 i += 1
                 continue
 
+            # Envelopes are strictly continuous: never fuse two clusters that
+            # are separated by missing isotopes. The right cluster's first peak
+            # must fall at or before the isotope position immediately after the
+            # left cluster ends (overlap or direct adjacency); a larger step
+            # means there is a gap between them, so they are distinct envelopes.
+            if expectedIsotope > len(left):
+                i += 1
+                continue
+
             expectedMz = parent.mz + expectedIsotope * difference
             dynamicTol = max(
                 _adaptive_mz_tolerance(mzTolerance, left),
@@ -1372,16 +1398,88 @@ def relabelenvelopes(
             indexes.append(found)
             next_isotope = found_isotope + 1
 
-        # Determine meaningful length from theoretical model; extend envelope to catch the full tail
-        # The user mandates "The envelope must be extended to at least 3".
+        # Decide how far to extend the modeled envelope tail.
+        #
+        # The extent is bounded by the *observed* signal, so we never model
+        # isotope peaks where the spectrum is flat. Starting just past the
+        # detected isotopes we walk outward and keep a position only while
+        #   (a) theory still predicts a non-negligible isotope there, and
+        #   (b) the measured profile there rises above the local noise floor.
+        # The first position that fails stops the tail (isotope envelopes decay
+        # monotonically, so there are no gaps to jump).
+        #
+        # The noise floor is an *absolute* estimate (a peak's intensity / its
+        # S/N gives the local noise level), and the test compares observed
+        # signal against it. It therefore does not depend on which isotope is
+        # the base peak -- it behaves the same whether the monoisotopic peak
+        # dominates (small molecules) or a mid-envelope isotope dominates
+        # (proteins), and it cannot fabricate peaks in empty m/z regions.
         ideal_pattern = _cluster_pattern(parent, 30)
         max_p = max(ideal_pattern) if ideal_pattern else 1.0
+        theoryFloor = max_p * ENVELOPE_TAIL_CUTOFF_MIN
 
-        # Target length encompasses all theoretical peaks > 1% of the base peak (min 3)
-        target_length = 3
-        for i, p in enumerate(ideal_pattern):
-            if p >= max_p * 0.01:  # 1% threshold
-                target_length = max(target_length, i + 1)
+        # index of the theoretical envelope apex. Above ~2 kDa the monoisotopic
+        # peak is no longer the tallest: the envelope climbs to a mid-envelope
+        # apex before it decays. The decay guard below must therefore only apply
+        # *past* this apex; before it, a rising tail is legitimate.
+        apexIndex = int(numpy.argmax(ideal_pattern)) if len(ideal_pattern) else 0
+
+        # absolute noise estimate from the most intense (best-determined) peak
+        basePeak = max(cluster, key=lambda p: p.intensity) if cluster else parent
+        noise = 0.0
+        if (
+            basePeak is not None
+            and basePeak.sn
+            and basePeak.sn > 0.0
+            and basePeak.intensity > 0.0
+        ):
+            noise = basePeak.intensity / float(basePeak.sn)
+
+        useSignal = signal is not None and len(signal) > 0 and noise > 0.0
+        sigX = sigY = numpy.empty(0)
+        sampleWindow = 0.5 * difference  # half the isotope spacing (charge aware)
+        signalFloor = ENVELOPE_TAIL_SN_LIMIT * noise
+        if useSignal:
+            sigArr = numpy.asarray(signal, dtype=float)
+            sigX = sigArr[:, 0]
+            sigY = sigArr[:, 1]
+
+        target_length = len(cluster)
+        prevObs = float(cluster[-1].intensity) if cluster else 0.0
+        for mi in range(len(cluster), len(ideal_pattern)):
+
+            # stop where theory no longer predicts a meaningful isotope
+            if ideal_pattern[mi] < theoryFloor:
+                break
+
+            if useSignal:
+                # require real signal above the noise floor at this position
+                mzPos = parent.mz + mi * difference
+                i1 = numpy.searchsorted(sigX, mzPos - sampleWindow, side="left")
+                i2 = numpy.searchsorted(sigX, mzPos + sampleWindow, side="right")
+                obs = float(numpy.max(sigY[i1:i2])) if i1 < i2 else 0.0
+                # stop where the spectrum is flat (no signal to support an isotope)
+                if obs < signalFloor:
+                    break
+                # only past the apex does a genuine envelope decay; before it a
+                # rise is legitimate (heavy molecules climb to a mid-envelope
+                # apex). Past the apex, a rise means we have stepped onto a
+                # neighbouring species rather than this envelope's tail -> stop.
+                if mi > apexIndex and obs > prevObs * ENVELOPE_TAIL_RISE_TOLERANCE:
+                    break
+                prevObs = obs
+            else:
+                # no profile to verify against: fall back to a conservative
+                # relative cutoff so the tail cannot run away into empty m/z
+                if ideal_pattern[mi] < max_p * ENVELOPE_TAIL_CUTOFF_MAX:
+                    break
+
+            target_length = mi + 1
+
+        # keep a small minimum length only when there is no profile to contradict
+        # it; with a profile the signal gate above is authoritative
+        if not useSignal:
+            target_length = max(target_length, min(3, len(ideal_pattern)))
 
         if len(cluster) < target_length:
             for mi in range(len(cluster), target_length):
