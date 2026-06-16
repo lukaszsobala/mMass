@@ -51,12 +51,12 @@ MIN_ENVELOPE_LENGTH = 3
 # Minimum expected signal-to-noise for a theoretical isotope to be worth
 # modeling when extending an envelope's tail. Combined with the base peak's
 # measured S/N this gives an intensity-adaptive cutoff (see relabelenvelopes).
-ENVELOPE_TAIL_SN_LIMIT = 2.0
+ENVELOPE_TAIL_SN_LIMIT = 1.0
 
 # Bounds on the resulting relative tail cutoff (fraction of the base peak), so
 # the estimate stays within a realistic single-envelope dynamic range and never
 # collapses to the base peak alone.
-ENVELOPE_TAIL_CUTOFF_MIN = 0.00025
+ENVELOPE_TAIL_CUTOFF_MIN = 0.0002
 ENVELOPE_TAIL_CUTOFF_MAX = 0.02
 
 # A real isotope tail past the apex decays monotonically. When walking the tail
@@ -64,6 +64,13 @@ ENVELOPE_TAIL_CUTOFF_MAX = 0.02
 # concluding the signal belongs to a different species (and stopping). Prevents
 # the tail from marching across neighbouring peaks in crowded regions.
 ENVELOPE_TAIL_RISE_TOLERANCE = 1.5
+
+# Past the apex a real isotope tail decays *continuously*. When the observed
+# signal collapses below this fraction of the previous isotope it has dropped to
+# baseline/noise -- the envelope has ended -- so the position is not modelled.
+# This is shape-agnostic (it does not assume an averagine profile) and stops a
+# trailing peak being placed on flat spectrum even at a permissive S/N limit.
+ENVELOPE_TAIL_MIN_DECAY = 0.1
 
 
 # PEAK PICKING FUNCTIONS
@@ -1429,7 +1436,12 @@ def relabelenvelopes(
         # *past* this apex; before it, a rising tail is legitimate.
         apexIndex = int(numpy.argmax(ideal_pattern)) if len(ideal_pattern) else 0
 
-        # absolute noise estimate from the most intense (best-determined) peak
+        # Absolute noise estimate. Prefer the most intense peak's measured S/N;
+        # if that is unavailable, estimate the local noise floor directly from
+        # the profile (median of the surrounding baseline). This guarantees the
+        # signal floor below is always active when a profile exists -- otherwise
+        # the code would fall through to a theory-only cutoff with no signal
+        # check and could place a trailing isotope on flat spectrum.
         basePeak = max(cluster, key=lambda p: p.intensity) if cluster else parent
         noise = 0.0
         if (
@@ -1439,6 +1451,34 @@ def relabelenvelopes(
             and basePeak.intensity > 0.0
         ):
             noise = basePeak.intensity / float(basePeak.sn)
+        elif signal is not None and len(signal) > 0:
+            sigAll = numpy.asarray(signal, dtype=float)
+            lo = parent.mz - 3.0
+            hi = parent.mz + len(ideal_pattern) * difference + 3.0
+            localMask = (sigAll[:, 0] >= lo) & (sigAll[:, 0] <= hi)
+            localY = sigAll[localMask, 1]
+            if len(localY) > 0:
+                noise = float(numpy.median(localY))
+
+        # Best-fit rigid offset of the modelled isotope grid to the detected
+        # peaks. The tail placeholders (and the positions sampled below) then
+        # follow the *measured* isotope progression instead of a grid pinned
+        # rigidly to the parent, so they line up with the real signal. The
+        # offset is intensity-weighted (dominated by the best-measured peaks)
+        # and clamped to the mass tolerance, while the spacing itself is left
+        # unchanged. A constant spacing plus a tolerance-bounded shift means the
+        # isotopes keep their relative distances and can never drift onto -- or
+        # swap with -- a neighbouring envelope's peaks.
+        gridOffset = 0.0
+        offsetWeight = 0.0
+        for k, p in enumerate(cluster):
+            if p.intensity > 0.0:
+                gridOffset += p.intensity * (p.mz - (parent.mz + k * difference))
+                offsetWeight += p.intensity
+        if offsetWeight > 0.0:
+            gridOffset = max(
+                -mzTolerance, min(mzTolerance, gridOffset / offsetWeight)
+            )
 
         useSignal = signal is not None and len(signal) > 0 and noise > 0.0
         sigX = sigY = numpy.empty(0)
@@ -1458,20 +1498,30 @@ def relabelenvelopes(
                 break
 
             if useSignal:
-                # require real signal above the noise floor at this position
-                mzPos = parent.mz + mi * difference
+                # observed signal at this position
+                mzPos = parent.mz + mi * difference + gridOffset
                 i1 = numpy.searchsorted(sigX, mzPos - sampleWindow, side="left")
                 i2 = numpy.searchsorted(sigX, mzPos + sampleWindow, side="right")
                 obs = float(numpy.max(sigY[i1:i2])) if i1 < i2 else 0.0
-                # stop where the spectrum is flat (no signal to support an isotope)
+
+                # stop where the spectrum is flat (no signal above the noise)
                 if obs < signalFloor:
                     break
-                # only past the apex does a genuine envelope decay; before it a
-                # rise is legitimate (heavy molecules climb to a mid-envelope
-                # apex). Past the apex, a rise means we have stepped onto a
-                # neighbouring species rather than this envelope's tail -> stop.
-                if mi > apexIndex and obs > prevObs * ENVELOPE_TAIL_RISE_TOLERANCE:
-                    break
+
+                # Past the apex a genuine envelope decays continuously. Two ways
+                # the observed signal can betray that this position is *not* a
+                # real isotope of this envelope:
+                #   - it rises sharply  -> we have stepped onto a neighbouring
+                #     species (before the apex a rise is legitimate, so this is
+                #     only checked past it);
+                #   - it collapses to a small fraction of the previous isotope
+                #     -> the real envelope has ended and what remains is baseline
+                #     noise, so the trailing peak must not be modelled.
+                if mi > apexIndex:
+                    if obs > prevObs * ENVELOPE_TAIL_RISE_TOLERANCE:
+                        break
+                    if obs < prevObs * ENVELOPE_TAIL_MIN_DECAY:
+                        break
                 prevObs = obs
             else:
                 # no profile to verify against: fall back to a conservative
@@ -1493,7 +1543,7 @@ def relabelenvelopes(
         if len(cluster) < target_length:
             for mi in range(len(cluster), target_length):
                 dummy = copy.deepcopy(parent)
-                dummy.mz = parent.mz + mi * difference
+                dummy.mz = parent.mz + mi * difference + gridOffset
                 dummy.intensity = 0.0
                 dummy.charge = parent.charge
                 dummy.isotope = mi
