@@ -21,6 +21,7 @@ import sys
 import os
 import xml.dom.minidom
 from importlib import resources
+from typing import SupportsIndex
 try:
     from xdgenvpy import XDGPackage  # type: ignore[import-untyped]
 except ImportError:
@@ -191,7 +192,7 @@ class ConfigList(list):
         super(ConfigList, self).insert(i, x)
         if _auto_save_enabled:
             saveConfig()
-    def pop(self, i=-1):
+    def pop(self, i: SupportsIndex = -1):
         res = super(ConfigList, self).pop(i)
         if _auto_save_enabled:
             saveConfig()
@@ -403,8 +404,8 @@ processing = {
     },
     "deisotoping": {
         "maxCharge": 1,
-        "massTolerance": 0.03,
-        "intTolerance": 0.65,
+        "massTolerance": 0.02,
+        "intTolerance": 0.85,
         "isotopeShift": 0.0,
         "removeIsotopes": 1,
         "removeUnknown": 1,

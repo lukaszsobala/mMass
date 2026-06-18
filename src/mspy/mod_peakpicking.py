@@ -58,8 +58,8 @@ ENVELOPE_TAIL_SN_LIMIT = 1.0
 # The theoretical pattern is normalised to its apex, so this is correct even for
 # heavy species where the first peak is far from the tallest. Keeps the estimate
 # within a realistic single-envelope dynamic range.
-ENVELOPE_TAIL_CUTOFF_MIN = 0.0002
-ENVELOPE_TAIL_CUTOFF_MAX = 0.02
+ENVELOPE_TAIL_CUTOFF_MIN = 0.0005
+ENVELOPE_TAIL_CUTOFF_MAX = 0.05
 
 # A real isotope tail past the apex decays monotonically. When walking the tail
 # outward, allow only this much rise relative to the previous position before
@@ -1313,6 +1313,40 @@ def _fit_envelope_areas(clusters, signal, defaultFwhm, nonIdeality=None):
 # ----
 
 
+def _reconstruct_cluster_from_envelope(parent, envelope):
+    """Rebuild a peak's cluster from its stored envelope metadata.
+
+    When envelopes are collapsed to a single representative (the "1st" label)
+    the individual isotope peaks are discarded. Re-running detection would then
+    re-derive the cluster from the theoretical grid and the fitted area would
+    drift slightly, so the peak-picking and "Convert to Envelopes" routes give
+    inconsistent values. Rebuilding the exact isotope positions from the stored
+    envelope makes re-running idempotent. The area is still re-fit against the
+    profile afterwards (jointly over all clusters), so editing peaks and
+    recalculating a neighbourhood keeps working as before.
+    """
+
+    isotopes = envelope.get("isotopes") or []
+    fwhm = envelope.get("fwhm") or parent.fwhm
+
+    cluster = []
+    for i, iso in enumerate(isotopes):
+        peak = copy.deepcopy(parent)
+        peak.setmz(float(iso[0]))
+        # the monoisotopic peak keeps the representative's real intensity; the
+        # remaining positions are placeholders (intensity 0) because the area is
+        # re-fit from the profile, not from these intensities
+        if i != 0:
+            peak.setai(peak.base)
+        if fwhm:
+            peak.setfwhm(fwhm)
+        peak.setcharge(parent.charge)
+        peak.setisotope(i)
+        cluster.append(peak)
+
+    return cluster
+
+
 def relabelenvelopes(
     peaklist,
     label="1st",
@@ -1348,6 +1382,19 @@ def relabelenvelopes(
         if (not relaxed) and x in used:
             continue
 
+        # If this peak already carries a detected envelope (e.g. re-running
+        # detection on already-converted peaks), rebuild its cluster exactly
+        # from the stored isotope positions so the result is idempotent. The
+        # area is re-fit below like every other cluster.
+        storedEnvelope = (
+            parent.attributes.get("envelope")
+            if hasattr(parent, "attributes")
+            else None
+        )
+        if isinstance(storedEnvelope, dict) and storedEnvelope.get("isotopes"):
+            used.add(x)
+            clusters.append(_reconstruct_cluster_from_envelope(parent, storedEnvelope))
+            continue
 
         cluster = [copy.deepcopy(parent)]
         indexes = [x]
