@@ -993,6 +993,49 @@ def _adaptive_mz_tolerance(baseTolerance, cluster):
 # ----
 
 
+def _snap_to_local_apex(sigX, sigY, center, window, floor=0.0):
+    """m/z of the profile maximum nearest `center`, within +/- window.
+
+    Used to lock a modeled tail isotope onto the real peak that sits at the
+    expected isotope spacing instead of the bare grid point. When two close
+    peaks straddle the grid, the candidate *closest to the expected position*
+    wins -- not the tallest -- so the envelope never snaps onto a taller
+    neighbouring species' peak. Only maxima above `floor` qualify; with none
+    (e.g. a forced placeholder on flat noise) the grid `center` is kept. The
+    search is bounded to +/- window (the mass tolerance), so the snap can never
+    move an isotope onto -- or swap it with -- a neighbour.
+    """
+
+    if sigX is None or len(sigX) == 0:
+        return center
+
+    i1 = int(numpy.searchsorted(sigX, center - window, side="left"))
+    i2 = int(numpy.searchsorted(sigX, center + window, side="right"))
+    if i2 - i1 < 1:
+        return center
+
+    best_mz = None
+    best_dist = None
+    for j in range(i1, i2):
+        val = float(sigY[j])
+        if val <= 0.0 or val < floor:
+            continue
+        # local maximum: not lower than its immediate neighbours
+        if j > 0 and sigY[j - 1] > val:
+            continue
+        if j < len(sigY) - 1 and sigY[j + 1] > val:
+            continue
+        dist = abs(float(sigX[j]) - center)
+        if best_dist is None or dist < best_dist:
+            best_dist = dist
+            best_mz = float(sigX[j])
+
+    return best_mz if best_mz is not None else center
+
+
+# ----
+
+
 def _cluster_observed_pattern(parent, cluster, isotopeShift=0.0):
     """Build observed isotope intensities indexed by inferred isotope number."""
 
@@ -1639,8 +1682,22 @@ def relabelenvelopes(
 
         if len(cluster) < target_length:
             for mi in range(len(cluster), target_length):
+                gridMz = parent.mz + mi * difference + gridOffset
+                # Snap the placeholder onto the real peak at the expected
+                # spacing (within the mass tolerance) so a modeled tail isotope
+                # locks onto the genuine peak instead of floating at the bare
+                # grid point between two close peaks. Proximity to the expected
+                # position decides, so it cannot jump to a taller neighbour, and
+                # the tolerance bound stops it drifting onto another envelope. A
+                # forced placeholder on flat noise finds no apex and stays put.
+                if useSignal:
+                    mzPos = _snap_to_local_apex(
+                        sigX, sigY, gridMz, sampleWindow, floor=signalFloor
+                    )
+                else:
+                    mzPos = gridMz
                 dummy = copy.deepcopy(parent)
-                dummy.mz = parent.mz + mi * difference + gridOffset
+                dummy.mz = mzPos
                 dummy.intensity = 0.0
                 dummy.charge = parent.charge
                 dummy.isotope = mi
