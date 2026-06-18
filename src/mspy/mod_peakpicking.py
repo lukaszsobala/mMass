@@ -1272,13 +1272,16 @@ def _fit_envelope_areas(clusters, signal, defaultFwhm, nonIdeality=None):
 
     # fallback when profile is not available
     if signal is None or len(signal) == 0:
+        # Without a profile we cannot run the joint NNLS, so each envelope's
+        # area is estimated independently from its current peak heights. We do
+        # NOT reuse a stored "area" here: that froze the value and meant editing
+        # or adding/removing a neighbouring peak never recalculated nearby
+        # envelopes (e.g. when working on a chromatogram slice or any derived
+        # spectrum that carries no profile). Recomputing from the live peaks is
+        # responsive to edits and still deterministic, so re-running stays
+        # idempotent.
         areas = []
         for cluster in clusters:
-            env = getattr(cluster[0], 'attributes', {}).get("envelope")
-            if env and "area" in env:
-                areas.append(float(env["area"]))
-                continue
-
             fwhm = _cluster_fwhm(cluster, defaultFwhm)
             sigma = _fwhm_to_sigma(fwhm)
             scale = sigma * math.sqrt(2.0 * math.pi)
