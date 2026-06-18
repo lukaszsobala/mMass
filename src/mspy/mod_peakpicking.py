@@ -826,10 +826,12 @@ def _cluster_isotope_model(cluster, signal=None, defaultFwhm=0.1, nonIdeality=No
 
 
 def _soft_isotope_model(isotopes, x, y, fwhm, nonIdeality=None):
-    """Blend averagine isotopes with observed evidence while preserving continuity.
+    """Reshape averagine isotopes toward observed evidence within a bounded band.
 
-    Theoretical averagine remains the hard backbone (no internal gaps), but later
-    isotopes are allowed a small data-driven influence for area fitting.
+    Theoretical averagine is the backbone. Observed evidence may move each
+    isotope weight up or down, but never by more than `nonIdeality` (a relative
+    fraction) from its ideal value, so the modeled envelope always stays a
+    physically plausible isotope pattern.
     """
 
     if not isotopes:
@@ -859,24 +861,50 @@ def _soft_isotope_model(isotopes, x, y, fwhm, nonIdeality=None):
 
     if nonIdeality is None:
         nonIdeality = ENVELOPE_NON_IDEALITY_DEFAULT
-    max_tail_influence = max(0.0, min(float(nonIdeality), 0.50))
+    # `nonIdeality` is the maximum *relative* deviation each isotope weight may
+    # take from its ideal averagine value. The observed evidence reshapes the
+    # envelope, but every weight is clamped to [theory*(1-d), theory*(1+d)].
+    # The bound is relative to theory, so it is correct at every isotope
+    # regardless of its absolute abundance: a tail isotope -- whose ideal share
+    # is tiny -- can never be inflated by neighbouring noise or a partially
+    # overlapping species to rival a much more abundant earlier isotope. Both
+    # `theory` and `obs` are normalised to sum 1, so they are directly
+    # comparable here. The lower bound (>= 0.5*theory for d <= 0.5) also keeps
+    # the support continuous, so no internal gaps can open up.
+    deviation = max(0.0, min(float(nonIdeality), 0.50))
+    upper = (1.0 + deviation) * theory
+    lower = (1.0 - deviation) * theory
 
-    n = len(ordered)
-    if n == 1:
-        blended = theory
+    if obs_total > 0.0:
+        blended = numpy.clip(obs, lower, upper)
     else:
-        tail_axis = numpy.linspace(0.0, 1.0, n)
-        alpha = max_tail_influence * tail_axis
-        blended = ((1.0 - alpha) * theory) + (alpha * obs)
+        blended = theory.copy()
 
-    # Keep continuous support by enforcing a minimum theoretical share.
-    floor_fraction = max(0.35, 0.8 - max_tail_influence)
-    blended = numpy.maximum(blended, floor_fraction * theory)
+    # Renormalise to sum 1 (so the fitted 'area' keeps meaning the total
+    # envelope area and stays consistent across detection routes) *without*
+    # leaving the band. A plain divide would rescale every weight by the same
+    # factor and push the clamped ones straight back outside +/- deviation, so
+    # instead push the residual only into weights that still have headroom
+    # inside their own bounds. theory sums to 1 and the band spans [1-d, 1+d]
+    # around it, so a feasible sum-1 solution always exists and is reached in a
+    # single proportional pass (the loop just absorbs floating-point drift).
+    for _ in range(4):
+        residual = 1.0 - float(numpy.sum(blended))
+        if abs(residual) <= 1e-12:
+            break
+        if residual > 0.0:
+            slack = upper - blended
+        else:
+            slack = blended - lower
+        total_slack = float(numpy.sum(slack))
+        if total_slack <= 1e-12:
+            break
+        blended = blended + residual * (slack / total_slack)
+    blended = numpy.clip(blended, lower, upper)
 
     blended_total = float(numpy.sum(blended))
     if blended_total <= 0.0:
         return ordered
-    blended /= blended_total
 
     return [(ordered[i][0], float(blended[i])) for i in range(len(ordered))]
 
