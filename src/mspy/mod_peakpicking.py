@@ -43,6 +43,37 @@ AVERAGE_AMINO = {"C": 4.9384, "H": 7.7583, "N": 1.3577, "O": 1.4773, "S": 0.0417
 AVERAGE_BASE = {"C": 9.75, "H": 12.25, "N": 3.75, "O": 6, "P": 1}
 ENVELOPE_NON_IDEALITY_DEFAULT = 0.20
 
+# Minimum number of isotopes a deisotoped envelope must span. Applied as a hard
+# floor: the signal/decay guards may only extend the tail beyond this length,
+# never trim below it.
+MIN_ENVELOPE_LENGTH = 3
+
+# Minimum expected signal-to-noise for a theoretical isotope to be worth
+# modeling when extending an envelope's tail. Combined with the base peak's
+# measured S/N this gives an intensity-adaptive cutoff (see relabelenvelopes).
+ENVELOPE_TAIL_SN_LIMIT = 1.0
+
+# Bounds on the relative tail cutoff, expressed as a fraction of the *tallest*
+# theoretical isotope (the envelope apex), NOT of the monoisotopic / first peak.
+# The theoretical pattern is normalised to its apex, so this is correct even for
+# heavy species where the first peak is far from the tallest. Keeps the estimate
+# within a realistic single-envelope dynamic range.
+ENVELOPE_TAIL_CUTOFF_MIN = 0.0005
+ENVELOPE_TAIL_CUTOFF_MAX = 0.05
+
+# A real isotope tail past the apex decays monotonically. When walking the tail
+# outward, allow only this much rise relative to the previous position before
+# concluding the signal belongs to a different species (and stopping). Prevents
+# the tail from marching across neighbouring peaks in crowded regions.
+ENVELOPE_TAIL_RISE_TOLERANCE = 1.5
+
+# Past the apex a real isotope tail decays *continuously*. When the observed
+# signal collapses below this fraction of the previous isotope it has dropped to
+# baseline/noise -- the envelope has ended -- so the position is not modelled.
+# This is shape-agnostic (it does not assume an averagine profile) and stops a
+# trailing peak being placed on flat spectrum even at a permissive S/N limit.
+ENVELOPE_TAIL_MIN_DECAY = 0.1
+
 
 # PEAK PICKING FUNCTIONS
 # ----------------------
@@ -795,10 +826,12 @@ def _cluster_isotope_model(cluster, signal=None, defaultFwhm=0.1, nonIdeality=No
 
 
 def _soft_isotope_model(isotopes, x, y, fwhm, nonIdeality=None):
-    """Blend averagine isotopes with observed evidence while preserving continuity.
+    """Reshape averagine isotopes toward observed evidence within a bounded band.
 
-    Theoretical averagine remains the hard backbone (no internal gaps), but later
-    isotopes are allowed a small data-driven influence for area fitting.
+    Theoretical averagine is the backbone. Observed evidence may move each
+    isotope weight up or down, but never by more than `nonIdeality` (a relative
+    fraction) from its ideal value, so the modeled envelope always stays a
+    physically plausible isotope pattern.
     """
 
     if not isotopes:
@@ -828,24 +861,50 @@ def _soft_isotope_model(isotopes, x, y, fwhm, nonIdeality=None):
 
     if nonIdeality is None:
         nonIdeality = ENVELOPE_NON_IDEALITY_DEFAULT
-    max_tail_influence = max(0.0, min(float(nonIdeality), 0.50))
+    # `nonIdeality` is the maximum *relative* deviation each isotope weight may
+    # take from its ideal averagine value. The observed evidence reshapes the
+    # envelope, but every weight is clamped to [theory*(1-d), theory*(1+d)].
+    # The bound is relative to theory, so it is correct at every isotope
+    # regardless of its absolute abundance: a tail isotope -- whose ideal share
+    # is tiny -- can never be inflated by neighbouring noise or a partially
+    # overlapping species to rival a much more abundant earlier isotope. Both
+    # `theory` and `obs` are normalised to sum 1, so they are directly
+    # comparable here. The lower bound (>= 0.5*theory for d <= 0.5) also keeps
+    # the support continuous, so no internal gaps can open up.
+    deviation = max(0.0, min(float(nonIdeality), 0.50))
+    upper = (1.0 + deviation) * theory
+    lower = (1.0 - deviation) * theory
 
-    n = len(ordered)
-    if n == 1:
-        blended = theory
+    if obs_total > 0.0:
+        blended = numpy.clip(obs, lower, upper)
     else:
-        tail_axis = numpy.linspace(0.0, 1.0, n)
-        alpha = max_tail_influence * tail_axis
-        blended = ((1.0 - alpha) * theory) + (alpha * obs)
+        blended = theory.copy()
 
-    # Keep continuous support by enforcing a minimum theoretical share.
-    floor_fraction = max(0.35, 0.8 - max_tail_influence)
-    blended = numpy.maximum(blended, floor_fraction * theory)
+    # Renormalise to sum 1 (so the fitted 'area' keeps meaning the total
+    # envelope area and stays consistent across detection routes) *without*
+    # leaving the band. A plain divide would rescale every weight by the same
+    # factor and push the clamped ones straight back outside +/- deviation, so
+    # instead push the residual only into weights that still have headroom
+    # inside their own bounds. theory sums to 1 and the band spans [1-d, 1+d]
+    # around it, so a feasible sum-1 solution always exists and is reached in a
+    # single proportional pass (the loop just absorbs floating-point drift).
+    for _ in range(4):
+        residual = 1.0 - float(numpy.sum(blended))
+        if abs(residual) <= 1e-12:
+            break
+        if residual > 0.0:
+            slack = upper - blended
+        else:
+            slack = blended - lower
+        total_slack = float(numpy.sum(slack))
+        if total_slack <= 1e-12:
+            break
+        blended = blended + residual * (slack / total_slack)
+    blended = numpy.clip(blended, lower, upper)
 
     blended_total = float(numpy.sum(blended))
     if blended_total <= 0.0:
         return ordered
-    blended /= blended_total
 
     return [(ordered[i][0], float(blended[i])) for i in range(len(ordered))]
 
@@ -929,6 +988,49 @@ def _adaptive_mz_tolerance(baseTolerance, cluster):
     q = _sn_quality(cluster)
     factor = 0.9 + (1.35 - 0.9) * (1.0 - q)
     return baseTolerance * factor
+
+
+# ----
+
+
+def _snap_to_local_apex(sigX, sigY, center, window, floor=0.0):
+    """m/z of the profile maximum nearest `center`, within +/- window.
+
+    Used to lock a modeled tail isotope onto the real peak that sits at the
+    expected isotope spacing instead of the bare grid point. When two close
+    peaks straddle the grid, the candidate *closest to the expected position*
+    wins -- not the tallest -- so the envelope never snaps onto a taller
+    neighbouring species' peak. Only maxima above `floor` qualify; with none
+    (e.g. a forced placeholder on flat noise) the grid `center` is kept. The
+    search is bounded to +/- window (the mass tolerance), so the snap can never
+    move an isotope onto -- or swap it with -- a neighbour.
+    """
+
+    if sigX is None or len(sigX) == 0:
+        return center
+
+    i1 = int(numpy.searchsorted(sigX, center - window, side="left"))
+    i2 = int(numpy.searchsorted(sigX, center + window, side="right"))
+    if i2 - i1 < 1:
+        return center
+
+    best_mz = None
+    best_dist = None
+    for j in range(i1, i2):
+        val = float(sigY[j])
+        if val <= 0.0 or val < floor:
+            continue
+        # local maximum: not lower than its immediate neighbours
+        if j > 0 and sigY[j - 1] > val:
+            continue
+        if j < len(sigY) - 1 and sigY[j + 1] > val:
+            continue
+        dist = abs(float(sigX[j]) - center)
+        if best_dist is None or dist < best_dist:
+            best_dist = dist
+            best_mz = float(sigX[j])
+
+    return best_mz if best_mz is not None else center
 
 
 # ----
@@ -1121,10 +1223,21 @@ def _merge_adjacent_clusters(clusters, mzTolerance, isotopeShift, relaxed=False)
                 i += 1
                 continue
 
+            # Envelopes are strictly continuous: never fuse two clusters that
+            # are separated by missing isotopes. The right cluster's first peak
+            # must fall at or before the isotope position immediately after the
+            # left cluster ends (overlap or direct adjacency); a larger step
+            # means there is a gap between them, so they are distinct envelopes.
+            if expectedIsotope > len(left):
+                i += 1
+                continue
+
             expectedMz = parent.mz + expectedIsotope * difference
+            # scale the matching window by 1/charge, like the isotope spacing
+            chargeTol = mzTolerance / abs(parent.charge)
             dynamicTol = max(
-                _adaptive_mz_tolerance(mzTolerance, left),
-                _adaptive_mz_tolerance(mzTolerance, right),
+                _adaptive_mz_tolerance(chargeTol, left),
+                _adaptive_mz_tolerance(chargeTol, right),
             )
             if abs(rightParent.mz - expectedMz) > dynamicTol:
                 i += 1
@@ -1271,6 +1384,40 @@ def _fit_envelope_areas(clusters, signal, defaultFwhm, nonIdeality=None):
 # ----
 
 
+def _reconstruct_cluster_from_envelope(parent, envelope):
+    """Rebuild a peak's cluster from its stored envelope metadata.
+
+    When envelopes are collapsed to a single representative (the "1st" label)
+    the individual isotope peaks are discarded. Re-running detection would then
+    re-derive the cluster from the theoretical grid and the fitted area would
+    drift slightly, so the peak-picking and "Convert to Envelopes" routes give
+    inconsistent values. Rebuilding the exact isotope positions from the stored
+    envelope makes re-running idempotent. The area is still re-fit against the
+    profile afterwards (jointly over all clusters), so editing peaks and
+    recalculating a neighbourhood keeps working as before.
+    """
+
+    isotopes = envelope.get("isotopes") or []
+    fwhm = envelope.get("fwhm") or parent.fwhm
+
+    cluster = []
+    for i, iso in enumerate(isotopes):
+        peak = copy.deepcopy(parent)
+        peak.setmz(float(iso[0]))
+        # the monoisotopic peak keeps the representative's real intensity; the
+        # remaining positions are placeholders (intensity 0) because the area is
+        # re-fit from the profile, not from these intensities
+        if i != 0:
+            peak.setai(peak.base)
+        if fwhm:
+            peak.setfwhm(fwhm)
+        peak.setcharge(parent.charge)
+        peak.setisotope(i)
+        cluster.append(peak)
+
+    return cluster
+
+
 def relabelenvelopes(
     peaklist,
     label="1st",
@@ -1306,17 +1453,35 @@ def relabelenvelopes(
         if (not relaxed) and x in used:
             continue
 
+        # If this peak already carries a detected envelope (e.g. re-running
+        # detection on already-converted peaks), rebuild its cluster exactly
+        # from the stored isotope positions so the result is idempotent. The
+        # area is re-fit below like every other cluster.
+        storedEnvelope = (
+            parent.attributes.get("envelope")
+            if hasattr(parent, "attributes")
+            else None
+        )
+        if isinstance(storedEnvelope, dict) and storedEnvelope.get("isotopes"):
+            used.add(x)
+            clusters.append(_reconstruct_cluster_from_envelope(parent, storedEnvelope))
+            continue
 
         cluster = [copy.deepcopy(parent)]
         indexes = [x]
         next_isotope = 1
         difference = (ISOTOPE_DISTANCE + isotopeShift) / abs(parent.charge)
+        # Isotope spacing shrinks as 1/charge, so the m/z matching window must
+        # shrink the same way (half for 2+, a third for 3+ ...). Using a fixed
+        # absolute window would, at high charge, be a large fraction of the
+        # spacing and could match a neighbouring isotope or a foreign peak.
+        chargeTol = mzTolerance / abs(parent.charge)
         while True:
             found = None
             found_isotope = None
             best_error = None
             best_pattern_error = None
-            dynamicTol = _adaptive_mz_tolerance(mzTolerance, cluster)
+            dynamicTol = _adaptive_mz_tolerance(chargeTol, cluster)
 
             # Strictly forbid gaps; envelopes must be a continuous series.
             for isotope in [next_isotope]:
@@ -1372,21 +1537,167 @@ def relabelenvelopes(
             indexes.append(found)
             next_isotope = found_isotope + 1
 
-        # Determine meaningful length from theoretical model; extend envelope to catch the full tail
-        # The user mandates "The envelope must be extended to at least 3".
+        # Decide how far to extend the modeled envelope tail.
+        #
+        # The extent is bounded by the *observed* signal, so we never model
+        # isotope peaks where the spectrum is flat. Starting just past the
+        # detected isotopes we walk outward and keep a position only while
+        #   (a) theory still predicts a non-negligible isotope there, and
+        #   (b) the measured profile there rises above the local noise floor.
+        # The first position that fails stops the tail (isotope envelopes decay
+        # monotonically, so there are no gaps to jump).
+        #
+        # The noise floor is an *absolute* estimate (a peak's intensity / its
+        # S/N gives the local noise level), and the test compares observed
+        # signal against it. It therefore does not depend on which isotope is
+        # the base peak -- it behaves the same whether the monoisotopic peak
+        # dominates (small molecules) or a mid-envelope isotope dominates
+        # (proteins), and it cannot fabricate peaks in empty m/z regions.
         ideal_pattern = _cluster_pattern(parent, 30)
         max_p = max(ideal_pattern) if ideal_pattern else 1.0
+        theoryFloor = max_p * ENVELOPE_TAIL_CUTOFF_MIN
 
-        # Target length encompasses all theoretical peaks > 1% of the base peak (min 3)
-        target_length = 3
-        for i, p in enumerate(ideal_pattern):
-            if p >= max_p * 0.01:  # 1% threshold
-                target_length = max(target_length, i + 1)
+        # index of the theoretical envelope apex. Above ~2 kDa the monoisotopic
+        # peak is no longer the tallest: the envelope climbs to a mid-envelope
+        # apex before it decays. The decay guard below must therefore only apply
+        # *past* this apex; before it, a rising tail is legitimate.
+        apexIndex = int(numpy.argmax(ideal_pattern)) if len(ideal_pattern) else 0
+
+        # Absolute noise estimate. Prefer the most intense peak's measured S/N;
+        # if that is unavailable, estimate the local noise floor directly from
+        # the profile (median of the surrounding baseline). This guarantees the
+        # signal floor below is always active when a profile exists -- otherwise
+        # the code would fall through to a theory-only cutoff with no signal
+        # check and could place a trailing isotope on flat spectrum.
+        basePeak = max(cluster, key=lambda p: p.intensity) if cluster else parent
+        noise = 0.0
+        if (
+            basePeak is not None
+            and basePeak.sn
+            and basePeak.sn > 0.0
+            and basePeak.intensity > 0.0
+        ):
+            noise = basePeak.intensity / float(basePeak.sn)
+        elif signal is not None and len(signal) > 0:
+            sigAll = numpy.asarray(signal, dtype=float)
+            lo = parent.mz - 3.0
+            hi = parent.mz + len(ideal_pattern) * difference + 3.0
+            localMask = (sigAll[:, 0] >= lo) & (sigAll[:, 0] <= hi)
+            localY = sigAll[localMask, 1]
+            if len(localY) > 0:
+                noise = float(numpy.median(localY))
+
+        # Best-fit rigid offset of the modelled isotope grid to the detected
+        # peaks. The tail placeholders (and the positions sampled below) then
+        # follow the *measured* isotope progression instead of a grid pinned
+        # rigidly to the parent, so they line up with the real signal. The
+        # offset is intensity-weighted (dominated by the best-measured peaks)
+        # and clamped to the mass tolerance, while the spacing itself is left
+        # unchanged. A constant spacing plus a tolerance-bounded shift means the
+        # isotopes keep their relative distances and can never drift onto -- or
+        # swap with -- a neighbouring envelope's peaks.
+        gridOffset = 0.0
+        offsetWeight = 0.0
+        for k, p in enumerate(cluster):
+            if p.intensity > 0.0:
+                gridOffset += p.intensity * (p.mz - (parent.mz + k * difference))
+                offsetWeight += p.intensity
+        if offsetWeight > 0.0:
+            gridOffset = max(
+                -chargeTol, min(chargeTol, gridOffset / offsetWeight)
+            )
+
+        useSignal = signal is not None and len(signal) > 0 and noise > 0.0
+        sigX = sigY = numpy.empty(0)
+        # The tail's "is there a real isotope here?" test is gated by the *mass
+        # tolerance*, not the peak width. A genuine continuation isotope of this
+        # envelope has its apex within the (charge-scaled) tolerance of the
+        # predicted grid position; a neighbouring species sits on its own grid
+        # at a consistently offset m/z, so its peaks fall outside this window and
+        # cannot be absorbed -- no matter how intense they are. This is the same
+        # tolerance the detected-isotope matching loop and the cluster merge use,
+        # so the tail honours `mzTolerance` consistently with the rest of the
+        # pipeline. (Previously the window was scaled to the peak width and so
+        # ignored the tolerance entirely: tightening mzTolerance did nothing and
+        # strong off-grid peaks still extended the envelope.)
+        sampleWindow = _adaptive_mz_tolerance(chargeTol, cluster)
+        signalFloor = ENVELOPE_TAIL_SN_LIMIT * noise
+        if useSignal:
+            sigArr = numpy.asarray(signal, dtype=float)
+            sigX = sigArr[:, 0]
+            sigY = sigArr[:, 1]
+
+        target_length = len(cluster)
+        prevObs = float(cluster[-1].intensity) if cluster else 0.0
+        for mi in range(len(cluster), len(ideal_pattern)):
+
+            # stop where theory no longer predicts a meaningful isotope
+            if ideal_pattern[mi] < theoryFloor:
+                break
+
+            if useSignal:
+                mzPos = parent.mz + mi * difference + gridOffset
+
+                # observed signal at this position, sampled only within the
+                # mass tolerance so off-grid foreign peaks are never counted
+                i1 = numpy.searchsorted(sigX, mzPos - sampleWindow, side="left")
+                i2 = numpy.searchsorted(sigX, mzPos + sampleWindow, side="right")
+                obs = float(numpy.max(sigY[i1:i2])) if i1 < i2 else 0.0
+
+                # stop where the spectrum is flat (no signal above the noise)
+                if obs < signalFloor:
+                    break
+
+                # Past the apex a genuine envelope decays continuously. Two ways
+                # the observed signal can betray that this position is *not* a
+                # real isotope of this envelope:
+                #   - it rises sharply  -> we have stepped onto a neighbouring
+                #     species (before the apex a rise is legitimate, so this is
+                #     only checked past it);
+                #   - it collapses to a small fraction of the previous isotope
+                #     -> the real envelope has ended and what remains is baseline
+                #     noise, so the trailing peak must not be modelled.
+                if mi > apexIndex:
+                    if obs > prevObs * ENVELOPE_TAIL_RISE_TOLERANCE:
+                        break
+                    if obs < prevObs * ENVELOPE_TAIL_MIN_DECAY:
+                        break
+                prevObs = obs
+            else:
+                # no profile to verify against: fall back to a conservative
+                # relative cutoff so the tail cannot run away into empty m/z
+                if ideal_pattern[mi] < max_p * ENVELOPE_TAIL_CUTOFF_MAX:
+                    break
+
+            target_length = mi + 1
+
+        # Enforce the minimum envelope length first; the anti-hallucination /
+        # decay guards above act only as an *upper* bound and must never shorten
+        # an envelope below this floor. A genuine deisotoped envelope spans at
+        # least three isotopes, so we keep that minimum even where the third
+        # isotope sits just under the noise. The placeholder is added at the
+        # theoretical isotope position (intensity 0), so it cannot absorb a
+        # neighbouring peak.
+        target_length = max(target_length, min(MIN_ENVELOPE_LENGTH, len(ideal_pattern)))
 
         if len(cluster) < target_length:
             for mi in range(len(cluster), target_length):
+                gridMz = parent.mz + mi * difference + gridOffset
+                # Snap the placeholder onto the real peak at the expected
+                # spacing (within the mass tolerance) so a modeled tail isotope
+                # locks onto the genuine peak instead of floating at the bare
+                # grid point between two close peaks. Proximity to the expected
+                # position decides, so it cannot jump to a taller neighbour, and
+                # the tolerance bound stops it drifting onto another envelope. A
+                # forced placeholder on flat noise finds no apex and stays put.
+                if useSignal:
+                    mzPos = _snap_to_local_apex(
+                        sigX, sigY, gridMz, sampleWindow, floor=signalFloor
+                    )
+                else:
+                    mzPos = gridMz
                 dummy = copy.deepcopy(parent)
-                dummy.mz = parent.mz + mi * difference
+                dummy.mz = mzPos
                 dummy.intensity = 0.0
                 dummy.charge = parent.charge
                 dummy.isotope = mi
@@ -1437,8 +1748,24 @@ def relabelenvelopes(
         )
         fwhm_val = float(_cluster_fwhm(cluster, defaultFwhm))
 
+        # summed envelope intensity: the sum of the intensities (heights) of the
+        # isotope peaks that make up this envelope. It is derived from the same
+        # fitted model as the envelope area so the two always recalculate
+        # together: area is the integrated NNLS amplitude (sum of gaussian
+        # areas), and for gaussian peaks of a given width the height equals
+        # area / (sigma * sqrt(2*pi)). Summing over the modeled isotopes gives
+        #   sumint = area / (sigma * sqrt(2*pi)) * sum(isotope weights)
+        # which stays consistent with the area whenever envelopes are re-fit
+        # (e.g. after nearby peaks change) and does not depend on the live peak
+        # rows, so it is robust to envelopes being collapsed to a single peak.
+        sigma = _fwhm_to_sigma(fwhm_val)
+        norm = sigma * math.sqrt(2.0 * math.pi)
+        weightSum = sum(float(w) for _, w in isotopes_data)
+        sumint = (float(areas[c]) / norm) * weightSum if norm > 0.0 else 0.0
+
         envelope = {
             "area": areas[c],
+            "sumint": sumint,
             "fwhm": fwhm_val,
             "shape": "gaussian",
             "isotopes": isotopes_data,

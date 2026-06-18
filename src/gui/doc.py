@@ -453,6 +453,9 @@ class document:
                     area = envelope.get("area")
                     if area is not None:
                         envAttributes.append('area="%.12g"' % float(area))
+                    sumint = envelope.get("sumint")
+                    if sumint is not None:
+                        envAttributes.append('sumint="%.12g"' % float(sumint))
                     fwhm = envelope.get("fwhm")
                     if fwhm is not None:
                         envAttributes.append('fwhm="%.12g"' % float(fwhm))
@@ -1527,6 +1530,7 @@ class parseMSD:
                     envelopeTag = envelopeTags[0]
                     envelope = {
                         "area": 0.0,
+                        "sumint": 0.0,
                         "fwhm": fwhm if fwhm is not None else 0.1,
                         "shape": "gaussian",
                         "isotopes": [],
@@ -1535,6 +1539,10 @@ class parseMSD:
                     try:
                         if envelopeTag.hasAttribute("area"):
                             envelope["area"] = float(envelopeTag.getAttribute("area"))
+                        if envelopeTag.hasAttribute("sumint"):
+                            envelope["sumint"] = float(
+                                envelopeTag.getAttribute("sumint")
+                            )
                         if envelopeTag.hasAttribute("fwhm"):
                             envelope["fwhm"] = float(envelopeTag.getAttribute("fwhm"))
                     except ValueError:
