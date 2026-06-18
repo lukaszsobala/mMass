@@ -1538,15 +1538,18 @@ def relabelenvelopes(
 
         useSignal = signal is not None and len(signal) > 0 and noise > 0.0
         sigX = sigY = numpy.empty(0)
-        # Sample only the isotope position itself, not the whole half-spacing.
-        # A window scaled to the peak width (with a tolerance floor, capped well
-        # below the spacing) ignores *off-grid* neighbours -- e.g. a different
-        # charge species whose peaks fall between this envelope's isotopes -- so
-        # the tail cannot mistake their signal for its own.
-        clusterFwhm = _cluster_fwhm(cluster, defaultFwhm)
-        sampleWindow = min(
-            0.4 * difference, max(1.5 * clusterFwhm, 2.0 * chargeTol)
-        )
+        # The tail's "is there a real isotope here?" test is gated by the *mass
+        # tolerance*, not the peak width. A genuine continuation isotope of this
+        # envelope has its apex within the (charge-scaled) tolerance of the
+        # predicted grid position; a neighbouring species sits on its own grid
+        # at a consistently offset m/z, so its peaks fall outside this window and
+        # cannot be absorbed -- no matter how intense they are. This is the same
+        # tolerance the detected-isotope matching loop and the cluster merge use,
+        # so the tail honours `mzTolerance` consistently with the rest of the
+        # pipeline. (Previously the window was scaled to the peak width and so
+        # ignored the tolerance entirely: tightening mzTolerance did nothing and
+        # strong off-grid peaks still extended the envelope.)
+        sampleWindow = _adaptive_mz_tolerance(chargeTol, cluster)
         signalFloor = ENVELOPE_TAIL_SN_LIMIT * noise
         if useSignal:
             sigArr = numpy.asarray(signal, dtype=float)
@@ -1564,7 +1567,8 @@ def relabelenvelopes(
             if useSignal:
                 mzPos = parent.mz + mi * difference + gridOffset
 
-                # observed signal at this position (tight, peak-width window)
+                # observed signal at this position, sampled only within the
+                # mass tolerance so off-grid foreign peaks are never counted
                 i1 = numpy.searchsorted(sigX, mzPos - sampleWindow, side="left")
                 i2 = numpy.searchsorted(sigX, mzPos + sampleWindow, side="right")
                 obs = float(numpy.max(sigY[i1:i2])) if i1 < i2 else 0.0
