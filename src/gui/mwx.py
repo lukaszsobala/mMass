@@ -30,6 +30,7 @@ from . import config
 from .mixins import MakeModalMixin
 import mspy
 
+_name = ""
 for _name in dir(_ids):
     if _name.startswith(("HK_", "ID_")):
         globals()[_name] = getattr(_ids, _name)
@@ -1048,31 +1049,31 @@ class sortListCtrl(wx.ListCtrl):
 
     # ----
 
-    def OnGetItemText(self, row, col):
+    def OnGetItemText(self, item, column):
         """Get text for selected cell."""
 
         if self._getItemTextFn is not None:
-            return self._getItemTextFn(row, col)
+            return self._getItemTextFn(item, column)
 
         if self._data is None:
             return ""
 
-        return str(self._data[row][col])
+        return str(self._data[item][column])
 
     # ----
 
-    def OnGetItemAttr(self, row):
+    def OnGetItemAttr(self, item):
         """Get attributes for selected cell."""
 
         # get user defined attr
         attr = None
         if self._getItemAttrFn is not None:
-            attr = self._getItemAttrFn(row)
+            attr = self._getItemAttrFn(item)
 
         # set background colour
         if attr and attr.HasBackgroundColour():
             self._currentAttr.SetBackgroundColour(attr.GetBackgroundColour())
-        elif row % 2:
+        elif item % 2:
             self._currentAttr.SetBackgroundColour(self._defaultColour)
         else:
             self._currentAttr.SetBackgroundColour(self._altColour)
@@ -1089,7 +1090,7 @@ class sortListCtrl(wx.ListCtrl):
 
     # ----
 
-    def OnGetItemImage(self, row):
+    def OnGetItemImage(self, item):
         return -1
 
     # ----

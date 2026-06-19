@@ -2316,7 +2316,8 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             else:
                 self.previewData = self.currentDocument.spectrum.profile
 
-            # get spectrum B
+            # get spectrum B (only used by the combine/overlay/subtract branches)
+            spectrumB = None
             if config.processing["math"]["operation"] in (
                 "combine",
                 "overlay",
@@ -2668,7 +2669,8 @@ class panelProcessing(wx.Frame, MakeModalMixin):
                     wx.Bell()
                     return
 
-                # get spectrum B
+                # get spectrum B (only used by combine/overlay/subtract branches)
+                spectrumB = None
                 if config.processing["math"]["operation"] in (
                     "combine",
                     "overlay",
