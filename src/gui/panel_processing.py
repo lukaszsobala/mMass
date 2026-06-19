@@ -530,16 +530,17 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             (0, 0),
             flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL,
         )
-        grid.Add(self.baselinePrecision_slider, (0, 1))
+        grid.Add(self.baselinePrecision_slider, (0, 1), flag=wx.EXPAND)
         grid.Add(
             baselineOffset_label, (1, 0), flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL
         )
-        grid.Add(self.baselineOffset_slider, (1, 1))
+        grid.Add(self.baselineOffset_slider, (1, 1), flag=wx.EXPAND)
         grid.Add(self.baselineAllowNegative_check, (2, 0), (1, 2))
         grid.Add(self.baselinePreservePeaks_check, (3, 0), (1, 2))
+        grid.AddGrowableCol(1)
 
         mainSizer = wx.BoxSizer(wx.VERTICAL)
-        mainSizer.Add(grid, 0, wx.ALIGN_CENTER | wx.ALL, mwx.PANEL_SPACE_MAIN)
+        mainSizer.Add(grid, 0, wx.EXPAND | wx.ALL, mwx.PANEL_SPACE_MAIN)
 
         # fit layout
         mainSizer.Fit(panel)
@@ -621,11 +622,12 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             (2, 0),
             flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL,
         )
-        grid.Add(self.smoothingCycles_slider, (2, 1), (1, 2))
+        grid.Add(self.smoothingCycles_slider, (2, 1), (1, 2), flag=wx.EXPAND)
         grid.Add(self.smoothingPreservePeaks_check, (3, 1), (1, 2))
+        grid.AddGrowableCol(2)
 
         mainSizer = wx.BoxSizer(wx.VERTICAL)
-        mainSizer.Add(grid, 0, wx.ALIGN_CENTER | wx.ALL, mwx.PANEL_SPACE_MAIN)
+        mainSizer.Add(grid, 0, wx.EXPAND | wx.ALL, mwx.PANEL_SPACE_MAIN)
 
         # fit layout
         mainSizer.Fit(panel)
@@ -777,7 +779,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             (3, 0),
             flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL,
         )
-        grid.Add(self.peakpickingHeight_slider, (3, 1), (1, 2))
+        grid.Add(self.peakpickingHeight_slider, (3, 1), (1, 2), flag=wx.EXPAND)
         grid.Add(
             peakpickingBaseline_label,
             (4, 0),
@@ -808,9 +810,10 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL,
         )
         grid.Add(self.peakpickingAllScans_check, (8, 1), (1, 2))
+        grid.AddGrowableCol(2)
 
         mainSizer = wx.BoxSizer(wx.VERTICAL)
-        mainSizer.Add(grid, 0, wx.ALIGN_CENTER | wx.ALL, mwx.PANEL_SPACE_MAIN)
+        mainSizer.Add(grid, 0, wx.EXPAND | wx.ALL, mwx.PANEL_SPACE_MAIN)
 
         # fit layout
         mainSizer.Fit(panel)
@@ -1152,14 +1155,15 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             'deconvolution': 'Deconvolution',
         }
 
-        self.batchStepsList = wx.CheckListBox(
-            panel, -1,
-            choices=[self._batchStepLabels[k] for k in self._batchStepOrder],
-        )
+        choices = [self._batchStepLabels[k] for k in self._batchStepOrder]
+        # wxMSW's native wxCheckListBox paints its rows light even in dark mode
+        # (the owner-drawn per-item background is unreachable from wxPython), so
+        # there we substitute an owner-drawn dark list with the same API.
+        if images.is_dark_mode() and wx.Platform == "__WXMSW__":
+            self.batchStepsList = mwx.DarkCheckListBox(panel, -1, choices=choices)
+        else:
+            self.batchStepsList = wx.CheckListBox(panel, -1, choices=choices)
         self.batchStepsList.Bind(wx.EVT_CHECKLISTBOX, self.onBatchChanged)
-        if images.is_dark_mode():
-            self.batchStepsList.SetBackgroundColour(wx.Colour(30, 30, 30))
-            self.batchStepsList.SetForegroundColour(wx.Colour(220, 220, 220))
 
         self.batchMoveUp_butt = wx.Button(panel, -1, "Up")
         self.batchMoveDown_butt = wx.Button(panel, -1, "Down")
@@ -1436,7 +1440,16 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
         # make menu
         self.presets_popup = wx.Menu()
+
+        # built-in entry that restores the in-code defaults from config.py
+        item = self.presets_popup.Append(-1, "Default")
+        self.presets_popup.Bind(wx.EVT_MENU, self.onPresetsSelected, item)
+        if presets:
+            self.presets_popup.AppendSeparator()
+
         for name in presets:
+            if name == "Default":
+                continue  # never shadowed by the built-in entry above
             item = self.presets_popup.Append(-1, name)
             self.presets_popup.Bind(wx.EVT_MENU, self.onPresetsSelected, item)
 
@@ -1453,17 +1466,21 @@ class panelProcessing(wx.Frame, MakeModalMixin):
     def onPresetsSelected(self, evt):
         """Load selected presets."""
 
-        # get presets
+        # get presets ("Default" restores the in-code config.py defaults)
         item = self.presets_popup.FindItemById(evt.GetId())
-        presets = libs.presets["processing"][item.GetItemLabel()]
+        label = item.GetItemLabel()
+        if label == "Default":
+            presets = config.processing_defaults
+        else:
+            presets = libs.presets["processing"][label]
 
         # set crop
         self.cropLowMass_value.SetValue(str(presets["crop"]["lowMass"]))
         self.cropHighMass_value.SetValue(str(presets["crop"]["highMass"]))
 
         # set baseline
-        self.baselinePrecision_slider.SetValue(presets["baseline"]["precision"])
-        self.baselineOffset_slider.SetValue(presets["baseline"]["offset"] * 100)
+        self.baselinePrecision_slider.SetValue(int(presets["baseline"]["precision"]))
+        self.baselineOffset_slider.SetValue(int(presets["baseline"]["offset"] * 100))
 
         # set smoothing
         if presets["smoothing"]["method"] == "MA":
@@ -1474,7 +1491,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             self.smoothingMethod_choice.Select(2)
 
         self.smoothingWindow_value.SetValue(str(presets["smoothing"]["windowSize"]))
-        self.smoothingCycles_slider.SetValue(presets["smoothing"]["cycles"])
+        self.smoothingCycles_slider.SetValue(int(presets["smoothing"]["cycles"]))
 
         # set peakpicking
         self.peakpickingSNThreshold_value.SetValue(
@@ -1487,7 +1504,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             str(presets["peakpicking"]["relIntThreshold"] * 100)
         )
         self.peakpickingHeight_slider.SetValue(
-            presets["peakpicking"]["pickingHeight"] * 100
+            int(presets["peakpicking"]["pickingHeight"] * 100)
         )
         self.peakpickingBaseline_check.SetValue(
             bool(presets["peakpicking"]["baseline"])
@@ -2315,7 +2332,8 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             else:
                 self.previewData = self.currentDocument.spectrum.profile
 
-            # get spectrum B
+            # get spectrum B (only used by the combine/overlay/subtract branches)
+            spectrumB = None
             if config.processing["math"]["operation"] in (
                 "combine",
                 "overlay",
@@ -2667,7 +2685,8 @@ class panelProcessing(wx.Frame, MakeModalMixin):
                     wx.Bell()
                     return
 
-                # get spectrum B
+                # get spectrum B (only used by combine/overlay/subtract branches)
+                spectrumB = None
                 if config.processing["math"]["operation"] in (
                     "combine",
                     "overlay",

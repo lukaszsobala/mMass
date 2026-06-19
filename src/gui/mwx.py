@@ -30,6 +30,7 @@ from . import config
 from .mixins import MakeModalMixin
 import mspy
 
+_name = ""
 for _name in dir(_ids):
     if _name.startswith(("HK_", "ID_")):
         globals()[_name] = getattr(_ids, _name)
@@ -694,6 +695,125 @@ def _darkenWindowsListHeader(listctrl):
         pass
 
 
+class DarkCheckListBox(wx.VListBox):
+    """Owner-drawn, dark-mode replacement for wx.CheckListBox.
+
+    A native wxMSW wxCheckListBox paints each row through wxOwnerDrawn, whose
+    per-item background is not exposed by wxPython, so SetBackgroundColour only
+    darkens the empty field while the checked rows stay light.  Painting the
+    rows ourselves gives a consistently dark list.  Only the slice of the
+    wx.CheckListBox API the processing dialog relies on is implemented
+    (Check / IsChecked / Set / GetSelection / SetSelection / GetCount), and a
+    wxEVT_CHECKLISTBOX event is emitted on toggle, so it drops straight in.
+    """
+
+    _BG = _DARK_INPUT_BG
+    _FG = _DARK_FG
+    _SEL = wx.Colour(70, 90, 120)
+    _PAD = 5
+
+    def __init__(self, parent, id=wx.ID_ANY, choices=()):
+        wx.VListBox.__init__(self, parent, id, style=wx.BORDER_SIMPLE)
+        self._labels = list(choices)
+        self._checked = [False] * len(self._labels)
+        self.SetBackgroundColour(self._BG)
+        # Theme the control dark so wx.RendererNative draws the *native* dark
+        # checkbox glyph (matching the real wx.CheckBoxes elsewhere in the app),
+        # and so the scrollbar is dark.  No-op off Windows.
+        _setWindowsControlTheme(self, "DarkMode_Explorer")
+        self.SetItemCount(len(self._labels))
+        self._updateBestSize()
+        self.Bind(wx.EVT_LEFT_DOWN, self._onLeftDown)
+        self.Bind(wx.EVT_KEY_DOWN, self._onKeyDown)
+
+    # -- geometry --
+
+    def _checkBoxSize(self):
+        try:
+            return wx.RendererNative.Get().GetCheckBoxSize(self)
+        except Exception:
+            sz = self.GetCharHeight()
+            return wx.Size(sz, sz)
+
+    def _rowHeight(self):
+        return max(self.GetCharHeight(), self._checkBoxSize().height) + _scale_int(8)
+
+    def _updateBestSize(self):
+        dc = wx.ClientDC(self)
+        dc.SetFont(self.GetFont())
+        widest = max([dc.GetTextExtent(s)[0] for s in self._labels], default=0)
+        box = self._checkBoxSize().width
+        width = self._PAD + box + 6 + widest + self._PAD + _scale_int(6)
+        height = self._rowHeight() * max(1, len(self._labels)) + 4
+        self.SetMinSize(wx.Size(width, height))
+
+    # -- VListBox drawing hooks --
+
+    def OnMeasureItem(self, n):
+        return self._rowHeight()
+
+    def OnDrawBackground(self, dc, rect, n):
+        dc.SetPen(wx.TRANSPARENT_PEN)
+        dc.SetBrush(wx.Brush(self._SEL if self.IsSelected(n) else self._BG))
+        dc.DrawRectangle(rect)
+
+    def OnDrawItem(self, dc, rect, n):
+        cb = self._checkBoxSize()
+        box = wx.Rect(rect.x + self._PAD,
+                      rect.y + (rect.height - cb.height) // 2,
+                      cb.width, cb.height)
+        flags = wx.CONTROL_CHECKED if self._checked[n] else 0
+        wx.RendererNative.Get().DrawCheckBox(self, dc, box, flags)
+        dc.SetTextForeground(self._FG)
+        dc.DrawText(self._labels[n], box.x + box.width + 6,
+                    rect.y + (rect.height - self.GetCharHeight()) // 2)
+
+    # -- interaction --
+
+    def _toggle(self, n):
+        self._checked[n] = not self._checked[n]
+        self.RefreshRow(n)
+        evt = wx.CommandEvent(wx.wxEVT_CHECKLISTBOX, self.GetId())
+        evt.SetInt(n)
+        evt.SetEventObject(self)
+        wx.PostEvent(self, evt)
+
+    def _onLeftDown(self, evt):
+        n = self.VirtualHitTest(evt.GetPosition().y)
+        if n != wx.NOT_FOUND:
+            self.SetSelection(n)
+            self._toggle(n)
+        evt.Skip()
+
+    def _onKeyDown(self, evt):
+        sel = self.GetSelection()
+        if evt.GetKeyCode() == wx.WXK_SPACE and sel != wx.NOT_FOUND:
+            self._toggle(sel)
+        else:
+            evt.Skip()
+
+    # -- wx.CheckListBox-compatible API --
+
+    def Check(self, n, check=True):
+        if 0 <= n < len(self._checked):
+            self._checked[n] = bool(check)
+            self.RefreshRow(n)
+
+    def IsChecked(self, n):
+        return self._checked[n]
+
+    def Set(self, labels):
+        labels = list(labels)
+        self._checked = (self._checked + [False] * len(labels))[:len(labels)]
+        self._labels = labels
+        self.SetItemCount(len(labels))
+        self._updateBestSize()
+        self.Refresh()
+
+    def GetCount(self):
+        return len(self._labels)
+
+
 def applyDarkModeToWindow(window):
     """Recursively apply dark background/foreground colours to *window* and
     all its children.  Call after the window's GUI has been fully constructed.
@@ -712,6 +832,10 @@ def applyDarkModeToWindow(window):
             pass
 
     def _recurse(w):
+        if isinstance(w, DarkCheckListBox):
+            # Fully owner-drawn: it paints its own dark rows, checkboxes and
+            # selection, so the generic panel/listbox colouring must skip it.
+            return
         if isinstance(w, sortListCtrl):
             # Virtual list tables manage their own row/header colours.
             w.applyDarkTheme()
@@ -745,7 +869,11 @@ def applyDarkModeToWindow(window):
             # dropdown); colour setters alone leave the selected item light.
             _setWindowsControlTheme(w, "DarkMode_CFD")
         elif isinstance(w, wx.ListBox):
-            # Covers wx.CheckListBox too (a ListBox subclass).
+            # A plain wxMSW listbox honours these colours for its field and rows.
+            # (A *checkable* listbox does not -- wxCheckListBox paints its rows via
+            # wxOwnerDrawn, whose background is unreachable from wxPython and stays
+            # light; dark mode therefore uses DarkCheckListBox instead, handled
+            # above.)  DarkMode_Explorer gives dark scrollbars / selection.
             _disable_system_theme(w)
             w.SetBackgroundColour(_DARK_INPUT_BG)
             w.SetForegroundColour(_DARK_FG)
@@ -753,6 +881,12 @@ def applyDarkModeToWindow(window):
         elif isinstance(w, (wx.TextCtrl, wx.SpinCtrl)):
             _disable_system_theme(w)
             w.SetBackgroundColour(_DARK_INPUT_BG)
+            w.SetForegroundColour(_DARK_FG)
+        elif isinstance(w, wx.Slider):
+            # SL_LABELS draws native min/max/value numbers next to the slider
+            # that otherwise stay black on the dark panel; the foreground colour
+            # repaints them light.
+            w.SetBackgroundColour(_DARK_BG)
             w.SetForegroundColour(_DARK_FG)
         elif isinstance(w, wx.BitmapButton):
             # Bitmap toolbar buttons should melt into their toolbar, not take the
@@ -921,31 +1055,31 @@ class sortListCtrl(wx.ListCtrl):
 
     # ----
 
-    def OnGetItemText(self, row, col):
+    def OnGetItemText(self, item, column):
         """Get text for selected cell."""
 
         if self._getItemTextFn is not None:
-            return self._getItemTextFn(row, col)
+            return self._getItemTextFn(item, column)
 
         if self._data is None:
             return ""
 
-        return str(self._data[row][col])
+        return str(self._data[item][column])
 
     # ----
 
-    def OnGetItemAttr(self, row):
+    def OnGetItemAttr(self, item):
         """Get attributes for selected cell."""
 
         # get user defined attr
         attr = None
         if self._getItemAttrFn is not None:
-            attr = self._getItemAttrFn(row)
+            attr = self._getItemAttrFn(item)
 
         # set background colour
         if attr and attr.HasBackgroundColour():
             self._currentAttr.SetBackgroundColour(attr.GetBackgroundColour())
-        elif row % 2:
+        elif item % 2:
             self._currentAttr.SetBackgroundColour(self._defaultColour)
         else:
             self._currentAttr.SetBackgroundColour(self._altColour)
@@ -962,7 +1096,7 @@ class sortListCtrl(wx.ListCtrl):
 
     # ----
 
-    def OnGetItemImage(self, row):
+    def OnGetItemImage(self, item):
         return -1
 
     # ----

@@ -654,6 +654,9 @@ class panelSpectrum(wx.Panel):
         if config.spectrum["showTracker"]:
             cursorTracker = "cross"
 
+        # default cursor pair (normal, tracker); overridden per tool below
+        cursor = (wx.Cursor(wx.CURSOR_ARROW), wx.Cursor(wx.CURSOR_ARROW))
+
         # set tool
         if tool == "ruler":
             self.toolsRuler_butt.SetBitmapLabel(images.lib["spectrumRulerOn"])
@@ -1553,7 +1556,7 @@ class dlgCanvasProperties(wx.Dialog):
             parent,
             -1,
             "Canvas Properties",
-            style=wx.DEFAULT_DIALOG_STYLE | wx.STAY_ON_TOP,
+            style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER | wx.STAY_ON_TOP,
         )
         self.onChangeFn = onChangeFn
 
@@ -1565,6 +1568,12 @@ class dlgCanvasProperties(wx.Dialog):
         sizer.Fit(self)
         self.SetSizer(sizer)
         self.SetMinSize(self.GetSize())
+        # start about twice as wide so the sliders have room; the fitted width
+        # above stays the minimum, so the user can still shrink it back
+        width, height = self.GetSize()
+        self.SetSize(wx.Size(width * 2, height))
+        # apply dark mode
+        mwx.applyDarkMode(self)
         self.CentreOnParent()
 
     # ----
@@ -1674,36 +1683,37 @@ class dlgCanvasProperties(wx.Dialog):
         # pack elements
         grid = wx.GridBagSizer(mwx.GRIDBAG_VSPACE, mwx.GRIDBAG_HSPACE)
         grid.Add(mzDigits_label, (0, 0), flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL)
-        grid.Add(self.mzDigits_slider, (0, 1))
+        grid.Add(self.mzDigits_slider, (0, 1), flag=wx.EXPAND)
         grid.Add(
             intDigits_label, (1, 0), flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL
         )
-        grid.Add(self.intDigits_slider, (1, 1))
+        grid.Add(self.intDigits_slider, (1, 1), flag=wx.EXPAND)
         grid.Add(
             posBarSize_label, (2, 0), flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL
         )
-        grid.Add(self.posBarSize_slider, (2, 1))
+        grid.Add(self.posBarSize_slider, (2, 1), flag=wx.EXPAND)
         grid.Add(
             gelHeight_label, (3, 0), flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL
         )
-        grid.Add(self.gelHeight_slider, (3, 1))
+        grid.Add(self.gelHeight_slider, (3, 1), flag=wx.EXPAND)
         grid.Add(
             axisFontSize_label, (4, 0), flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL
         )
-        grid.Add(self.axisFontSize_slider, (4, 1))
+        grid.Add(self.axisFontSize_slider, (4, 1), flag=wx.EXPAND)
         grid.Add(
             labelFontSize_label, (5, 0), flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL
         )
-        grid.Add(self.labelFontSize_slider, (5, 1))
+        grid.Add(self.labelFontSize_slider, (5, 1), flag=wx.EXPAND)
         grid.Add(
             notationMaxLength_label,
             (6, 0),
             flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL,
         )
-        grid.Add(self.notationMaxLength_slider, (6, 1))
+        grid.Add(self.notationMaxLength_slider, (6, 1), flag=wx.EXPAND)
+        grid.AddGrowableCol(1)
 
         mainSizer = wx.BoxSizer(wx.VERTICAL)
-        mainSizer.Add(grid, 0, wx.ALIGN_CENTER | wx.ALL, mwx.PANEL_SPACE_MAIN)
+        mainSizer.Add(grid, 0, wx.EXPAND | wx.ALL, mwx.PANEL_SPACE_MAIN)
 
         return mainSizer
 
@@ -1951,9 +1961,9 @@ class fileDropTarget(wx.FileDropTarget):
 
     # ----
 
-    def OnDropFiles(self, x, y, paths):
+    def OnDropFiles(self, x, y, filenames):
         """Open dropped files."""
-        self.fn(paths=paths)
+        self.fn(paths=filenames)
         return True
 
     # ----
