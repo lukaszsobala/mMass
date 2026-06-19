@@ -530,16 +530,17 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             (0, 0),
             flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL,
         )
-        grid.Add(self.baselinePrecision_slider, (0, 1))
+        grid.Add(self.baselinePrecision_slider, (0, 1), flag=wx.EXPAND)
         grid.Add(
             baselineOffset_label, (1, 0), flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL
         )
-        grid.Add(self.baselineOffset_slider, (1, 1))
+        grid.Add(self.baselineOffset_slider, (1, 1), flag=wx.EXPAND)
         grid.Add(self.baselineAllowNegative_check, (2, 0), (1, 2))
         grid.Add(self.baselinePreservePeaks_check, (3, 0), (1, 2))
+        grid.AddGrowableCol(1)
 
         mainSizer = wx.BoxSizer(wx.VERTICAL)
-        mainSizer.Add(grid, 0, wx.ALIGN_CENTER | wx.ALL, mwx.PANEL_SPACE_MAIN)
+        mainSizer.Add(grid, 0, wx.EXPAND | wx.ALL, mwx.PANEL_SPACE_MAIN)
 
         # fit layout
         mainSizer.Fit(panel)
@@ -621,11 +622,12 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             (2, 0),
             flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL,
         )
-        grid.Add(self.smoothingCycles_slider, (2, 1), (1, 2))
+        grid.Add(self.smoothingCycles_slider, (2, 1), (1, 2), flag=wx.EXPAND)
         grid.Add(self.smoothingPreservePeaks_check, (3, 1), (1, 2))
+        grid.AddGrowableCol(2)
 
         mainSizer = wx.BoxSizer(wx.VERTICAL)
-        mainSizer.Add(grid, 0, wx.ALIGN_CENTER | wx.ALL, mwx.PANEL_SPACE_MAIN)
+        mainSizer.Add(grid, 0, wx.EXPAND | wx.ALL, mwx.PANEL_SPACE_MAIN)
 
         # fit layout
         mainSizer.Fit(panel)
@@ -777,7 +779,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             (3, 0),
             flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL,
         )
-        grid.Add(self.peakpickingHeight_slider, (3, 1), (1, 2))
+        grid.Add(self.peakpickingHeight_slider, (3, 1), (1, 2), flag=wx.EXPAND)
         grid.Add(
             peakpickingBaseline_label,
             (4, 0),
@@ -808,9 +810,10 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL,
         )
         grid.Add(self.peakpickingAllScans_check, (8, 1), (1, 2))
+        grid.AddGrowableCol(2)
 
         mainSizer = wx.BoxSizer(wx.VERTICAL)
-        mainSizer.Add(grid, 0, wx.ALIGN_CENTER | wx.ALL, mwx.PANEL_SPACE_MAIN)
+        mainSizer.Add(grid, 0, wx.EXPAND | wx.ALL, mwx.PANEL_SPACE_MAIN)
 
         # fit layout
         mainSizer.Fit(panel)
