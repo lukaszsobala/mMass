@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 
@@ -47,6 +48,45 @@ def parse_args() -> argparse.Namespace:
         help="DMG filename (default: mMass-<version>-macos-arm64.dmg).",
     )
     return parser.parse_args()
+
+
+def run_hdiutil_create(hdiutil_cmd: list[str], volname: str) -> None:
+    """Run ``hdiutil create`` with retries.
+
+    On CI runners ``hdiutil create`` intermittently fails with
+    "Resource busy" when another process (Spotlight indexing, Disk
+    Arbitration, or file handles lingering from the just-completed
+    PyInstaller signing) touches the staging directory mid-create. The
+    failure is transient, so flush pending writes, clear any stale mount of
+    the same volume name, and retry with backoff.
+    """
+    attempts = 5
+    for attempt in range(1, attempts + 1):
+        # Flush filesystem buffers so freshly written/signed files are settled.
+        subprocess.run(["sync"], check=False)
+
+        # Detach any stale mount left over from a previous (failed) attempt.
+        mount_point = Path("/Volumes") / volname
+        if mount_point.exists():
+            subprocess.run(
+                ["hdiutil", "detach", str(mount_point), "-force"], check=False
+            )
+
+        result = subprocess.run(hdiutil_cmd, capture_output=True, text=True)
+        if result.returncode == 0:
+            return
+
+        sys.stdout.write(result.stdout)
+        sys.stderr.write(result.stderr)
+        if attempt == attempts or "Resource busy" not in (result.stdout + result.stderr):
+            raise subprocess.CalledProcessError(result.returncode, hdiutil_cmd)
+
+        delay = 5 * attempt
+        print(
+            f"hdiutil create failed (Resource busy), retrying in {delay}s "
+            f"(attempt {attempt}/{attempts})..."
+        )
+        time.sleep(delay)
 
 
 def read_project_version(project_root: Path) -> str:
@@ -109,11 +149,12 @@ def main() -> int:
         shutil.copytree(app_bundle, staged_app, symlinks=True)
         (staging / "Applications").symlink_to("/Applications")
 
+        volname = f"mMass {version}"
         hdiutil_cmd = [
             "hdiutil",
             "create",
             "-volname",
-            f"mMass {version}",
+            volname,
             "-srcfolder",
             str(staging),
             "-ov",
@@ -122,7 +163,7 @@ def main() -> int:
             str(output_file),
         ]
         print("Running:", " ".join(hdiutil_cmd))
-        subprocess.run(hdiutil_cmd, check=True)
+        run_hdiutil_create(hdiutil_cmd, volname)
 
     print("macOS installer ready:", output_file)
     return 0
