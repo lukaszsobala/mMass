@@ -1463,8 +1463,8 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         self.cropHighMass_value.SetValue(str(presets["crop"]["highMass"]))
 
         # set baseline
-        self.baselinePrecision_slider.SetValue(presets["baseline"]["precision"])
-        self.baselineOffset_slider.SetValue(presets["baseline"]["offset"] * 100)
+        self.baselinePrecision_slider.SetValue(int(presets["baseline"]["precision"]))
+        self.baselineOffset_slider.SetValue(int(presets["baseline"]["offset"] * 100))
 
         # set smoothing
         if presets["smoothing"]["method"] == "MA":
@@ -1475,7 +1475,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             self.smoothingMethod_choice.Select(2)
 
         self.smoothingWindow_value.SetValue(str(presets["smoothing"]["windowSize"]))
-        self.smoothingCycles_slider.SetValue(presets["smoothing"]["cycles"])
+        self.smoothingCycles_slider.SetValue(int(presets["smoothing"]["cycles"]))
 
         # set peakpicking
         self.peakpickingSNThreshold_value.SetValue(
@@ -1488,7 +1488,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             str(presets["peakpicking"]["relIntThreshold"] * 100)
         )
         self.peakpickingHeight_slider.SetValue(
-            presets["peakpicking"]["pickingHeight"] * 100
+            int(presets["peakpicking"]["pickingHeight"] * 100)
         )
         self.peakpickingBaseline_check.SetValue(
             bool(presets["peakpicking"]["baseline"])
