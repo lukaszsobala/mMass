@@ -1152,14 +1152,15 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             'deconvolution': 'Deconvolution',
         }
 
-        self.batchStepsList = wx.CheckListBox(
-            panel, -1,
-            choices=[self._batchStepLabels[k] for k in self._batchStepOrder],
-        )
+        choices = [self._batchStepLabels[k] for k in self._batchStepOrder]
+        # wxMSW's native wxCheckListBox paints its rows light even in dark mode
+        # (the owner-drawn per-item background is unreachable from wxPython), so
+        # there we substitute an owner-drawn dark list with the same API.
+        if images.is_dark_mode() and wx.Platform == "__WXMSW__":
+            self.batchStepsList = mwx.DarkCheckListBox(panel, -1, choices=choices)
+        else:
+            self.batchStepsList = wx.CheckListBox(panel, -1, choices=choices)
         self.batchStepsList.Bind(wx.EVT_CHECKLISTBOX, self.onBatchChanged)
-        if images.is_dark_mode():
-            self.batchStepsList.SetBackgroundColour(wx.Colour(30, 30, 30))
-            self.batchStepsList.SetForegroundColour(wx.Colour(220, 220, 220))
 
         self.batchMoveUp_butt = wx.Button(panel, -1, "Up")
         self.batchMoveDown_butt = wx.Button(panel, -1, "Down")
