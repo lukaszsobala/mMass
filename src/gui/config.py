@@ -19,6 +19,7 @@
 # load libs
 import sys
 import os
+import copy
 import xml.dom.minidom
 from importlib import resources
 from typing import SupportsIndex
@@ -380,7 +381,7 @@ processing = {
         "highMass": 5000,
     },
     "baseline": {
-        "precision": 15,
+        "precision": 100,
         "offset": 0.25,
         "allowNegative": 0,
         "preservePeaks": 1,
@@ -397,7 +398,7 @@ processing = {
         "relIntThreshold": 0.0,
         "pickingHeight": 1.00,
         "baseline": 1,
-        "smoothing": 1,
+        "smoothing": 0,
         "deisotoping": 1,
         "monoisotopic": 0,
         "removeShoulders": 0,
@@ -433,6 +434,10 @@ processing = {
         "stepOrder": ['swap', 'math', 'crop', 'baseline', 'smoothing', 'peakpicking', 'deisotoping', 'deconvolution'],
     },
 }
+
+# Pristine in-code processing defaults for the dialog's "Default" preset,
+# captured here before a user config.xml is ever loaded over `processing`.
+processing_defaults = copy.deepcopy(processing)
 
 calibration = {
     "fitting": "quadratic",

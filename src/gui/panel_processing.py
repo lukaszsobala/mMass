@@ -1437,7 +1437,16 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
         # make menu
         self.presets_popup = wx.Menu()
+
+        # built-in entry that restores the in-code defaults from config.py
+        item = self.presets_popup.Append(-1, "Default")
+        self.presets_popup.Bind(wx.EVT_MENU, self.onPresetsSelected, item)
+        if presets:
+            self.presets_popup.AppendSeparator()
+
         for name in presets:
+            if name == "Default":
+                continue  # never shadowed by the built-in entry above
             item = self.presets_popup.Append(-1, name)
             self.presets_popup.Bind(wx.EVT_MENU, self.onPresetsSelected, item)
 
@@ -1454,9 +1463,13 @@ class panelProcessing(wx.Frame, MakeModalMixin):
     def onPresetsSelected(self, evt):
         """Load selected presets."""
 
-        # get presets
+        # get presets ("Default" restores the in-code config.py defaults)
         item = self.presets_popup.FindItemById(evt.GetId())
-        presets = libs.presets["processing"][item.GetItemLabel()]
+        label = item.GetItemLabel()
+        if label == "Default":
+            presets = config.processing_defaults
+        else:
+            presets = libs.presets["processing"][label]
 
         # set crop
         self.cropLowMass_value.SetValue(str(presets["crop"]["lowMass"]))
