@@ -882,6 +882,12 @@ def applyDarkModeToWindow(window):
             _disable_system_theme(w)
             w.SetBackgroundColour(_DARK_INPUT_BG)
             w.SetForegroundColour(_DARK_FG)
+        elif isinstance(w, wx.Slider):
+            # SL_LABELS draws native min/max/value numbers next to the slider
+            # that otherwise stay black on the dark panel; the foreground colour
+            # repaints them light.
+            w.SetBackgroundColour(_DARK_BG)
+            w.SetForegroundColour(_DARK_FG)
         elif isinstance(w, wx.BitmapButton):
             # Bitmap toolbar buttons should melt into their toolbar, not take the
             # lighter input-field shade used for ordinary push buttons.
