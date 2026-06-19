@@ -576,9 +576,6 @@ class canvas(wx.Window):
         wx.CallAfter(self.Refresh, False)
 
         # redraw plot
-        self._wheel_interaction_until = (
-            time.perf_counter() + self._wheel_interaction_hold_s
-        )
         self.draw(self.lastDraw[0], (minX, maxX), (minY, maxY), dc)
 
         # remember new zoom
