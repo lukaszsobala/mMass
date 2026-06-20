@@ -239,7 +239,7 @@ main = {
     "layout": "default",
     "documentsWidth": 195,
     "documentsHeight": 195,
-    "peaklistWidth": 195,
+    "peaklistWidth": 300,
     "peaklistHeight": 195,
     "mzDigits": 4,
     "intDigits": 0,

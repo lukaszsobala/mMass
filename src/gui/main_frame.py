@@ -209,6 +209,12 @@ class mainFrame(wx.Frame):
         self.Centre(wx.BOTH)
         self.Show(True)
 
+        # Re-apply the layout once the frame has reached its real (possibly
+        # maximized) size. The first pass runs inside makeGUI while the frame is
+        # still at its tiny construction size, so AUI's dock-size constraint
+        # clamps the side panes; redoing it here restores the saved widths.
+        wx.CallAfter(self.onWindowLayout, layout=config.main["layout"])
+
         # check for available updates
         self.checkVersions()
 
@@ -1356,7 +1362,7 @@ class mainFrame(wx.Frame):
         if not self.onDocumentCloseAll():
             return
 
-        # save panels' sizes
+        # save panels' sizes (physical pixels, restored verbatim next launch)
         (
             config.main["documentsWidth"],
             config.main["documentsHeight"],
@@ -4231,14 +4237,38 @@ class mainFrame(wx.Frame):
                 0
             ).MinSize(_scaledPaneSize(195, 100)).BestSize(_scaledPaneSize(195, 100))
 
-        # set last size
+        # Restore the saved pane sizes (physical pixels). AUI ignores BestSize
+        # for already-docked panes and clamps to whatever dock size it cached on
+        # the first, still small-frame, layout, so we hard-force the docked
+        # dimension via MinSize, lay out, then relax MinSize again so the panes
+        # stay user-resizable.
         if layout:
-            self.AUIManager.GetPane("documents").BestSize(
-                (config.main["documentsWidth"], config.main["documentsHeight"])
+            floorMin = _scaledPaneSize(100, 100)[0]
+            realMin = _scaledPaneSize(195, 100)[0]
+
+            docs = self.AUIManager.GetPane("documents")
+            peak = self.AUIManager.GetPane("peaklist")
+            sizes = (
+                (docs, config.main["documentsWidth"], config.main["documentsHeight"]),
+                (peak, config.main["peaklistWidth"], config.main["peaklistHeight"]),
             )
-            self.AUIManager.GetPane("peaklist").BestSize(
-                (config.main["peaklistWidth"], config.main["peaklistHeight"])
-            )
+
+            horizontal = (wx.aui.AUI_DOCK_LEFT, wx.aui.AUI_DOCK_RIGHT)
+
+            # force the saved size on the dimension that the dock controls
+            for pane, width, height in sizes:
+                if pane.dock_direction in horizontal:
+                    pane.MinSize(width, floorMin).BestSize(width, floorMin)
+                else:
+                    pane.MinSize(floorMin, height).BestSize(floorMin, height)
+            self.AUIManager.Update()
+
+            # relax the minimums so the panes can still be shrunk by the user
+            for pane, _width, _height in sizes:
+                if pane.dock_direction in horizontal:
+                    pane.MinSize(realMin, floorMin)
+                else:
+                    pane.MinSize(floorMin, realMin)
 
         # apply changes
         self.AUIManager.Update()
