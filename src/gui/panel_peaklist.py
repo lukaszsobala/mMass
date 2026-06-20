@@ -1201,83 +1201,42 @@ class panelPeaklist(wx.Panel):
     # ----
 
     def _autosizePeakListColumns(self):
-        """Autosize columns from representative text while preserving limits."""
+        """Autosize every column to fit its content and header.
 
-        if self.peakList.GetColumnCount() == 0:
+        This mirrors the native "double-click the column border" behaviour
+        (wx.LIST_AUTOSIZE) rather than imposing any hardcoded width, so the
+        columns always shrink/grow to exactly fit the data. Users can still
+        drag a column to a custom width; it resets to the fitted width on the
+        next peaklist refresh.
+        """
+
+        columnCount = self.peakList.GetColumnCount()
+        if columnCount == 0:
             return
 
-        # Reference widths are tuned for UI scale 1.0; scale them so the column
-        # min/max limits track the (DPI/UI-scaled) text rendered in the list.
-        scale = display_scale.get_ui_scale()
-        preferredWidths = {
-            "mz": 64,
-            "ai": 62,
-            "int": 62,
-            "envarea": 74,
-            "envint": 92,
-            "base": 56,
-            "rel": 50,
-            "sn": 42,
-            "z": 26,
-            "mass": 64,
-            "fwhm": 58,
-            "resol": 58,
-            "group": 56,
-        }
-        maxWidths = {
-            "mz": 84,
-            "ai": 80,
-            "int": 80,
-            "envarea": 92,
-            "envint": 120,
-            "base": 72,
-            "rel": 64,
-            "sn": 56,
-            "z": 32,
-            "mass": 84,
-            "fwhm": 72,
-            "resol": 72,
-            "group": 96,
-        }
-        preferredWidths = {
-            key: display_scale.scale_metric(value, scale)
-            for key, value in preferredWidths.items()
-        }
-        maxWidths = {
-            key: display_scale.scale_metric(value, scale)
-            for key, value in maxWidths.items()
-        }
+        hasRows = self.peakList.GetItemCount() > 0
 
-        padding = display_scale.scale_metric(8, scale)
-        sample_percentile = 0.7
-        row_count = self.peakList.GetItemCount()
+        if hasRows:
+            # Pure content autosize, identical to double-clicking the column
+            # border. No header floor or padding, otherwise a later double-click
+            # would shrink the column further than this and the two would
+            # disagree.
+            for colIndex in range(columnCount):
+                self.peakList.SetColumnWidth(colIndex, wx.LIST_AUTOSIZE)
+            return
+
+        # No rows: wx.LIST_AUTOSIZE collapses to nothing, so fit the header
+        # text instead. Measure it ourselves rather than via
+        # wx.LIST_AUTOSIZE_USEHEADER, which on wxMSW stretches the *last* column
+        # to fill the remaining list width.
         dc = wx.ScreenDC()
         dc.SetFont(self.peakList.GetFont())
-
-        for colIndex, column in enumerate(config.main["peaklistColumns"]):
-            widths = []
-
-            header = self.peakList.GetColumn(colIndex).GetText()
-            widths.append(dc.GetTextExtent(header)[0])
-
-            for row in range(row_count):
-                text = self.peakList.GetItemText(row, colIndex)
-                if text:
-                    widths.append(dc.GetTextExtent(text)[0])
-
-            defaultPreferred = display_scale.scale_metric(60, scale)
-            defaultMax = display_scale.scale_metric(120, scale)
-
-            widths.sort()
-            if widths:
-                sampleIndex = int((len(widths) - 1) * sample_percentile)
-                width = widths[sampleIndex] + padding
-            else:
-                width = preferredWidths.get(column, defaultPreferred)
-
-            width = max(preferredWidths.get(column, defaultPreferred), width)
-            width = min(maxWidths.get(column, defaultMax), width)
-            self.peakList.SetColumnWidth(colIndex, width)
+        padding = dc.GetTextExtent("MM")[0]
+        for colIndex in range(columnCount):
+            headerText = self.peakList.GetColumn(colIndex).GetText()
+            self.peakList.SetColumnWidth(
+                colIndex, dc.GetTextExtent(headerText)[0] + padding
+            )
 
     # ----
 
@@ -1953,9 +1912,9 @@ class fileDropTarget(wx.FileDropTarget):
 
     # ----
 
-    def OnDropFiles(self, x, y, paths):
+    def OnDropFiles(self, x, y, filenames):
         """Open dropped files."""
-        self.fn(paths=paths)
+        self.fn(paths=filenames)
         return True
 
     # ----
