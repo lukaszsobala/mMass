@@ -5440,9 +5440,11 @@ class mainFrame(wx.Frame):
     def updateControls(self):
         """Update menubar and toolbar items state."""
 
-        # skip for Mac since it doesn't work correctly... why???
-        if wx.Platform == "__WXMAC__":
-            return
+        # NOTE: this used to bail out entirely on Mac ("doesn't work correctly"),
+        # which left the document-dependent toolbar tools never greying out.
+        # Modern wxPython (Cocoa) honours EnableTool/menubar.Enable correctly, so
+        # it now runs on Mac too; the few tools absent from the Mac toolbar are
+        # still guarded individually below.
 
         # document
         if self.currentDocument is None:
