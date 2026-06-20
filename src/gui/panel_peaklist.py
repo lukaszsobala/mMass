@@ -1063,6 +1063,12 @@ class panelPeaklist(wx.Panel):
             document.spectrum.peaklist[self.selectedPeak] = peak
 
             if original_peak.charge != peak.charge:
+                # The stored envelope's isotope positions encode the old
+                # charge's spacing (1/charge). Drop them so the envelope is
+                # re-modeled from the profile at the new charge instead of
+                # being rebuilt verbatim from the stale positions.
+                if hasattr(peak, "attributes"):
+                    peak.attributes.pop("envelope", None)
                 self._recalculateNeighborhoodEnvelopes([original_peak.mz, peak.mz])
 
             self.parent.onDocumentChanged(items=("spectrum"))
