@@ -290,6 +290,70 @@ def _apply_dark_mode_toolbar_masks():
             lib[key] = _flatten_over_background(value, _DARK_PANEL_BG)
 
 
+# Prefixes of the icons that live in the native main toolbar or in
+# wx.BitmapButtons on the control / bottom bars. These widgets honour a
+# bitmap's scale factor, so a HiDPI-tagged bitmap renders at native pixel
+# density without changing its logical (point) size. DC-blitted artwork
+# (periodicTable, bullets, arrows, the about logo) is deliberately excluded:
+# those are drawn at logical size, so a scale-factor tag would shrink them.
+_MAC_RETINA_ICON_PREFIXES = (
+    "tools",
+    "document",
+    "peaklist",
+    "spectrum",
+    "compoundsSearch",
+    "calibration",
+    "mascot",
+    "massCalculator",
+    "processing",
+    "sequence",
+    "profound",
+    "prospector",
+    "match",
+)
+
+
+def _apply_mac_retina_density(scale):
+    """Render 1x icon art at native Retina pixel density on wxOSX.
+
+    macOS reports no UI-scale compensation (see display_scale._detect_macos):
+    Cocoa lays the UI out in points and scales pixel metrics by the display's
+    backing factor. But the embedded icons are 1x art tagged scaleFactor 1.0,
+    so Cocoa upscales each one by the backing factor at draw time -- soft,
+    slightly oversized icons on the toolbar and control bars.
+
+    Replacing each icon with an integer nearest-neighbour upscale tagged with
+    the backing scale keeps the logical (point) size identical -- so layout and
+    button sizes are unchanged -- while handing the widget native-resolution
+    pixels to draw: crisp, blocky edges instead of an interpolated blur. Nearest
+    neighbour (not interpolation) keeps every source pixel an exact NxN block,
+    matching how the art looks on a 1x display.
+    """
+
+    if scale < 2 or int(scale) != scale:
+        return
+    factor = int(scale)
+
+    for key, value in list(lib.items()):
+        if not isinstance(value, wx.Bitmap):
+            continue
+        if not key.startswith(_MAC_RETINA_ICON_PREFIXES):
+            continue
+
+        image = value.ConvertToImage()
+        image = image.Scale(
+            image.GetWidth() * factor,
+            image.GetHeight() * factor,
+            wx.IMAGE_QUALITY_NEAREST,
+        )
+        dense = wx.Bitmap(image)
+        try:
+            dense.SetScaleFactor(float(factor))
+        except Exception:
+            pass
+        lib[key] = dense
+
+
 def _apply_ui_scale_to_small_bitmaps(scale):
     """Scale icon-sized bitmaps while leaving large tiled backgrounds unchanged."""
 
@@ -941,6 +1005,13 @@ def loadImages():
     ui_scale = display_scale.get_ui_scale()
     if ui_scale != 1.0:
         _apply_ui_scale_to_small_bitmaps(ui_scale)
+
+    # On a Retina Mac get_ui_scale() is 1.0 (Cocoa scales the layout itself),
+    # so the icons above stay 1x and Cocoa upscales them blurry. Re-render the
+    # toolbar / button icons at the backing pixel density instead.
+    if wx.Platform == "__WXMAC__":
+        backing = display_scale._macos_backing_scale() or 1.0
+        _apply_mac_retina_density(backing)
 
 
 # ----

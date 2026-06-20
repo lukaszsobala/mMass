@@ -121,6 +121,16 @@ if wx.Platform == "__WXMAC__":
     MAIN_TOOLBAR_TOOLSIZE = (32, 23)
     MAIN_TOOLBAR_STYLE = wx.TB_FLAT | wx.TB_NODIVIDER | wx.TB_HORIZONTAL | wx.TB_TEXT
 
+    # The control/bottom bars are segmented-control sprites sliced into 29x22
+    # cells: each cell carries its divider on its RIGHT edge, so a cell's left
+    # border is supplied by the previous cell's right edge -- they only look
+    # right when the cells abut pixel-perfectly. Pin the buttons to the exact
+    # 29x22 art size (a borderless wx.BitmapButton otherwise pads to 37x30 on
+    # wxOSX, and the 8px of chrome forces gaps that expose every non-first
+    # cell's missing left border) and abut them with BUTTON_SIZE_CORRECTION = 0.
+    TOOLBAR_TOOLSIZE = (29, 22)
+    BOTTOMBAR_TOOLSIZE = (29, 22)
+
     TOOLBAR_HEIGHT = 38
     TOOLBAR_LSPACE = 15
     TOOLBAR_RSPACE = 15
@@ -133,7 +143,9 @@ if wx.Platform == "__WXMAC__":
     SMALL_BUTTON_HEIGHT = -1
     SMALL_TEXTCTRL_HEIGHT = 18
     SMALL_SEARCH_HEIGHT = 22
-    BUTTON_SIZE_CORRECTION = -3
+    # Buttons are pinned to the exact art size above, so adjacent segmented
+    # cells must touch with no extra margin for their baked borders to join.
+    BUTTON_SIZE_CORRECTION = 0
 
     CHOICE_HEIGHT = 22
 
