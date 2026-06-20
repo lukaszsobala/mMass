@@ -304,12 +304,15 @@ class mainFrame(wx.Frame):
             ID_documentPrintSpectrum, "Print Spectrum..." + HK_documentPrintSpectrum, ""
         )
         document.Append(ID_documentReport, "Analysis Report..." + HK_documentReport, "")
-        if wx.Platform == "__WXMAC__":
+        # Settings (wx.ID_PREFERENCES) and Quit (wx.ID_EXIT) are relocated to the
+        # application menu on macOS, so their surrounding separators would be left
+        # dangling in this menu -- only add them on Windows/Linux.
+        if wx.Platform != "__WXMAC__":
             document.AppendSeparator()
         document.Append(ID_documentSettings, "Settings...", "")
         document.Append(ID_documentInfo, "Document Info..." + HK_documentInfo, "")
-        document.AppendSeparator()
-        document.AppendSeparator()
+        if wx.Platform != "__WXMAC__":
+            document.AppendSeparator()
         document.Append(ID_quit, "Quit" + HK_quit, "Quit mMass")
 
         self.Bind(wx.EVT_MENU, self.onDocumentNew, id=ID_documentNew)
@@ -956,7 +959,8 @@ class mainFrame(wx.Frame):
         help.AppendSeparator()
         help.Append(ID_helpCite, "Papers to Cite...", "")
         help.Append(ID_helpDonate, "Make a Donation...", "")
-        help.AppendSeparator()
+        # About (wx.ID_ABOUT) moves to the application menu on macOS; keep the
+        # separator before it only where About stays in this menu.
         if wx.Platform != "__WXMAC__":
             help.AppendSeparator()
         help.Append(ID_helpAbout, "About mMass", "")
