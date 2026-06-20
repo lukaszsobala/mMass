@@ -2382,39 +2382,6 @@ class canvas(wx.Window):
         # UI/DPI scale instead of staying tiny on HiDPI.
         dc.SetFont(_scaleFont(font, self.printerScale["fonts"]))
         dc.DrawText(text, int(x), int(y))
-        return
-
-        # init dc
-        textDC = wx.MemoryDC()
-        textDC.SetFont(font)
-
-        # get size (get from dc - textDC does not work under Mac)
-        dc.SetFont(font)
-        size = dc.GetTextExtent(text)
-
-        # make tmp bitmap
-        tmpBuffer = wx.Bitmap(size[0], size[1])
-        textDC.SelectObject(tmpBuffer)
-
-        # draw under mac
-        if wx.Platform == "__WXMAC__":
-            pass
-            # TODO: fix text inversion on Mac
-            # For now, such text rendering has been disabled
-            # textDC.SetTextBackground(wx.WHITE)
-            # textDC.SetTextForeground(wx.BLACK)
-            # textDC.DrawText(text, 0, 0)
-            # TODO: doesn't invert the colour as before, since
-            # wxPython dropped support for inverting colours
-            # on Mac:
-            # https://docs.wxpython.org/wx.DC.html#wx.DC.SetLogicalFunction
-            # dc.Blit(x, y, size[0], size[1], textDC, 0, 0, wx.COPY)
-
-        # draw under others
-        else:
-            textDC.Clear()
-            textDC.DrawText(text, 0, 0)
-            dc.Blit(x, y, size[0], size[1], textDC, 0, 0, wx.EQUIV)
 
     # ----
 

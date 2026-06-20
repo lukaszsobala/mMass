@@ -2,7 +2,7 @@
 
 This is a fork of the official repository for mMass on Python3. The purpose of this fork is to modernize the mMass codebase and make it maintainable, as well as fix bugs and add user-friendly functions.
 
-This version contains fixes that allow it to launch using modern Python and updated requirements. So far it has been tested on Linux (`amd64` and `arm64`) and on Windows 11 (`x86_64`).
+This version contains fixes that allow it to launch using modern Python and updated requirements. So far it has been tested on Linux (`amd64` and `arm64`), Windows 11 (`x86_64`), and macOS on Apple Silicon (`arm64`).
 
 Many thanks to Martin Strohalm for his hard work on the project over many years!
 
@@ -12,10 +12,10 @@ Thank you also to Dreaming Spires for the initial Python 3 port.
 
 mMass is now a fully pure-Python package (native C extensions were removed and replaced with Numba/SciPy), making it trivial to install via modern package managers like `uv` or `pip`.
 
-### Linux (and Windows – MacOS untested)
+### Linux, Windows and macOS
 We recommend using [uv](https://github.com/astral-sh/uv) or pip to install the package directly into a virtual environment.
 
-On Linux, this involves compiling `wxPython`, which will take at least 5 minutes on a fast computer, and up to 1 hour on slower CPUs. On Windows the compilation is not necessary and it installs instantly.
+On Linux, this involves compiling `wxPython`, which will take at least 5 minutes on a fast computer, and up to 1 hour on slower CPUs. On Windows and macOS the compilation is not necessary — `wxPython` installs from a prebuilt wheel almost instantly.
 
 Depending on your environment, you may need system-level GUI dependencies installed for `wxPython` to build or run seamlessly. For example, on Ubuntu 26.04 or Debian 13 (Trixie):
 ```bash
@@ -53,9 +53,33 @@ You can also run it generically:
 python src/mmass_app/app.py
 ```
 
+### macOS: prefer running from source
+
+On macOS the **recommended way to run mMass is directly from Python** (the `mmass`
+command in your virtual environment, as above). It starts quickly, always reflects
+the current code, and avoids the packaging caveats below.
+
+The packaged `.app` / `.dmg` build also works, but note:
+
+- **The first launch is slow** — the Dock icon may bounce for a minute or more
+  before the window appears. This is a one-time cost: the build is not yet
+  signed/notarized by Apple, so macOS Gatekeeper scans the entire bundle on first
+  run, on top of the cold load of the scientific stack (Numba/LLVM/SciPy) and the
+  first-run Numba cache warmup. **Subsequent launches are fast.** It is not frozen
+  — give it time.
+- **Gatekeeper may block it** on first open (*"can't be opened because Apple cannot
+  check it…"* or *"is damaged"*). Because the build is unsigned, clear it once with
+  any of:
+  - right-click the app → **Open** → **Open**, or
+  - **System Settings → Privacy & Security → Open Anyway**, or
+  - `xattr -dr com.apple.quarantine /Applications/mMass.app`
+- Always **copy the app into `/Applications`** before launching (don't run it from
+  the mounted `.dmg`) — running from the read-only image triggers Gatekeeper *app
+  translocation*, which can prevent the window from appearing.
+
 ### High-DPI scaling
 
-The UI scales itself to your display automatically (Windows, GNOME and KDE on
+The UI scales itself to your display automatically (Windows, MacOS, GNOME and KDE on
 both X11 and Wayland). To override the detected factor, set `MMASS_UI_SCALE`
 (e.g. `MMASS_UI_SCALE=2 mmass` for 200%), or set `MMASS_UI_AUTOSCALE=0` to
 disable autodetection.
@@ -93,6 +117,22 @@ On Windows, runtime user configuration XML files are stored in
 
 During uninstall, user XML config is kept by default. The uninstaller offers an
 optional checkbox to remove `%APPDATA%\\mMass\\*.xml`.
+
+### macOS app and disk image
+
+The repository builds an `arm64` `.app` bundle (PyInstaller) and wraps it into a
+`.dmg`:
+
+```sh
+python packaging/macos/build_macos_dmg.py
+```
+
+The `.app` is written to `build/dist/macos/` and the `.dmg` to
+`build/installer/macos/`. The build is currently **ad-hoc signed and not
+notarized**, so end users hit a one-time Gatekeeper prompt and a slow first launch
+(see the macOS notes under *Running the application*). Signing and notarization
+with an Apple Developer ID — which removes both — is documented in
+[`packaging/macos/SIGNING.md`](packaging/macos/SIGNING.md).
 
 ## Contributing
 
