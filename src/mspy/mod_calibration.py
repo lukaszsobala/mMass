@@ -166,7 +166,7 @@ class _DerivVar:
         nvars = max(len(a), len(b))
         a = a + (nvars - len(a)) * [0.0]
         b = b + (nvars - len(b)) * [0.0]
-        return [func(x, y) for x, y in zip(a, b)]
+        return [func(x, y) for x, y in zip(a, b, strict=True)]
 
     def __getitem__(self, item):
         if item == 0:

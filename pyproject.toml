@@ -47,3 +47,4 @@ ignore = ["E501"]  # line-too-long — not enforced
 [tool.ruff.lint.per-file-ignores]
 "src/gui/*.py" = ["F403", "F405"]  # ids.py star-import is intentional
 "src/mspy/__init__.py" = ["F403", "F401"]  # public API re-export via star imports
+"src/mmass_app/app.py" = ["E402"]  # HiDPI awareness must run before `import wx`

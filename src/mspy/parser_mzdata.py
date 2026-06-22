@@ -223,7 +223,7 @@ class parseMZDATA:
 
         # format
         if scanData["spectrumType"] == "discrete":
-            data = list(map(list, list(zip(mzData, intData))))
+            data = list(map(list, list(zip(mzData, intData, strict=False))))
         else:
             mzData = numpy.array(mzData)
             mzData.shape = (-1, 1)

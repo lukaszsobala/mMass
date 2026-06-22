@@ -217,7 +217,7 @@ class parseMZXML:
 
         # format
         if scanData["spectrumType"] == "discrete":
-            data = list(map(list, list(zip(data[::2], data[1::2]))))
+            data = list(map(list, list(zip(data[::2], data[1::2], strict=False))))
         else:
             data = numpy.array(data)
             data.shape = (-1, 2)
@@ -240,7 +240,7 @@ class parseMZXML:
             scanData["peakPrecision"],
         )
 
-        return list(map(list, list(zip(data[::2], data[1::2]))))
+        return list(map(list, list(zip(data[::2], data[1::2], strict=False))))
 
     # ----
 

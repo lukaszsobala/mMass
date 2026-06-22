@@ -2169,6 +2169,7 @@ def _build_gel_runs(
             run_r.tolist(),
             run_g.tolist(),
             run_b.tolist(),
+            strict=True,
         )
     )
 
@@ -2199,7 +2200,7 @@ def _compress_screen_polyline(points):
     run_ends = numpy.r_[run_starts[1:] - 1, len(pts) - 1]
 
     selected = []
-    for start, end in zip(run_starts, run_ends):
+    for start, end in zip(run_starts, run_ends, strict=True):
         run_len = end - start + 1
         if run_len <= 2:
             for idx in range(start, end + 1):

@@ -104,7 +104,7 @@ def formula_composition(minimum, maximum, masses, loMass, hiMass, limit):
             current[pos] += 1
 
     current = [0] * elcount
-    base_mass = sum(min_val * mass for min_val, mass in zip(minimum, masses))
+    base_mass = sum(min_val * mass for min_val, mass in zip(minimum, masses, strict=True))
     generator(0, current, base_mass)
 
     if len(results) == 0:

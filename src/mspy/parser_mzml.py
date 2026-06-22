@@ -221,7 +221,7 @@ class parseMZML:
 
         # format
         if scanData["spectrumType"] == "discrete":
-            data = list(map(list, list(zip(mzData, intData))))
+            data = list(map(list, list(zip(mzData, intData, strict=False))))
         else:
             mzData = numpy.array(mzData)
             mzData.shape = (-1, 1)
@@ -251,7 +251,7 @@ class parseMZML:
             scanData["peakIntPrecision"],
         )
 
-        return list(map(list, list(zip(mzData, intData))))
+        return list(map(list, list(zip(mzData, intData, strict=False))))
 
     # ----
 

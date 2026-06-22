@@ -792,7 +792,7 @@ def _cluster_isotope_model(cluster, signal=None, defaultFwhm=0.1, nonIdeality=No
 
     fwhm = float(_cluster_fwhm(cluster, defaultFwhm))
     weights = _cluster_weights(cluster)
-    isotopes = [(float(p.mz), float(w)) for p, w in zip(cluster, weights)]
+    isotopes = [(float(p.mz), float(w)) for p, w in zip(cluster, weights, strict=True)]
 
     if signal is None or len(signal) == 0 or fwhm <= 0.0:
         return isotopes
@@ -1334,7 +1334,7 @@ def _fit_envelope_areas(clusters, signal, defaultFwhm, nonIdeality=None):
         fwhm = _cluster_fwhm(cluster, defaultFwhm)
         sigma = _fwhm_to_sigma(fwhm)
         weights = _cluster_weights(cluster)
-        isotopes = [(p.mz, w) for p, w in zip(cluster, weights)]
+        isotopes = [(p.mz, w) for p, w in zip(cluster, weights, strict=True)]
 
         if sigma <= 0.0 or not isotopes:
             models.append(numpy.zeros(len(x), dtype=float))
