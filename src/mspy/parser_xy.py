@@ -87,15 +87,15 @@ class parseXY:
         # read lines
         data = []
         for line in rawData:
-            line = line.strip()
+            # Assuming utf-8 encoding
+            line = line.strip().decode("utf-8")
 
             # discard comment lines
             if not line or line[0] == "#" or line[0:3] == "m/z":
                 continue
 
             # check pattern
-            # Assuming utf-8 encoding
-            parts = pattern.match(line.decode("utf-8"))
+            parts = pattern.match(line)
             if parts:
                 try:
                     mass = float(parts.group(1))

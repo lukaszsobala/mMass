@@ -425,7 +425,7 @@ class scanlistHandler(ContentHandler):
             elif paramName == "Polarity":
                 if paramValue in ("positive", "Positive", "+"):
                     self.data[self.currentID]["polarity"] = 1
-                elif paramValue == ("negative", "Negative", "-"):
+                elif paramValue in ("negative", "Negative", "-"):
                     self.data[self.currentID]["polarity"] = -1
 
         # get parent scan
@@ -570,7 +570,7 @@ class scanHandler(ContentHandler):
             elif paramName == "Polarity":
                 if paramValue in ("positive", "Positive", "+"):
                     self.data["polarity"] = 1
-                elif paramValue == ("negative", "Negative", "-"):
+                elif paramValue in ("negative", "Negative", "-"):
                     self.data["polarity"] = -1
 
         # get parent scan
@@ -764,7 +764,7 @@ class runHandler(ContentHandler):
             elif paramName == "Polarity":
                 if paramValue in ("positive", "Positive", "+"):
                     self.data[self.currentID]["polarity"] = 1
-                elif paramValue == ("negative", "Negative", "-"):
+                elif paramValue in ("negative", "Negative", "-"):
                     self.data[self.currentID]["polarity"] = -1
 
         # get parent scan
