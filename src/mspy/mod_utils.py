@@ -46,6 +46,7 @@ def load(path, scanID=None, dataType="continuous"):
     extension = extension.lower()
 
     # get document type
+    docType = None
     if extension == ".mzdata":
         docType = "mzData"
     elif extension == ".mzxml":
@@ -84,7 +85,7 @@ def load(path, scanID=None, dataType="continuous"):
     elif docType == "MGF":
         parser = parseMGF(path)
         scan = parser.scan(scanID)
-    elif docType == "XY":
+    else:
         parser = parseXY(path)
         scan = parser.scan(dataType)
 

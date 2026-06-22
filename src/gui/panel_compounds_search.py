@@ -944,7 +944,7 @@ class panelCompoundsSearch(wx.Frame, MakeModalMixin):
                                 compound.expression,
                                 adducts[item],
                             )
-                        elif item in ("-H2O"):
+                        else:
                             formula = "%s(%s)" % (compound.expression, adducts[item])
 
                         formula = mspy.compound(formula)
@@ -979,7 +979,7 @@ class panelCompoundsSearch(wx.Frame, MakeModalMixin):
                                             adducts[item1],
                                             adducts[item2],
                                         )
-                                    elif item2 in ("-H2O"):
+                                    else:
                                         adduct = "%s%s" % (item1, item2)
                                         formula = "%s(%s)(%s)(H-1)" % (
                                             compound.expression,

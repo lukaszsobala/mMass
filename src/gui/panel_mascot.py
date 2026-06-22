@@ -1550,7 +1550,6 @@ class panelMascot(wx.Frame, MakeModalMixin):
             path = os.path.join(tempfile.gettempdir(), "mmass_mascot_search.html")
             with open(path, "wb") as f:
                 f.write(htmlData.encode("utf-8"))
-            import wx
             wx.LaunchDefaultBrowser("file://" + path, flags=0)
         except Exception:
             wx.Bell()
@@ -1631,6 +1630,7 @@ class panelMascot(wx.Frame, MakeModalMixin):
             "QUANTITATION": ["None"],
         }
         pattSection = re.compile(r"^\[([a-zA-Z_]*)\]$")
+        section = None
         for line in data.split("\n"):
             line = line.strip()
             if not line:

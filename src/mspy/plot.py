@@ -28,6 +28,7 @@ _plot_canvas_names = getattr(_plot_canvas, "__all__", None)
 if _plot_canvas_names is None:
     _plot_canvas_names = [name for name in dir(_plot_canvas) if not name.startswith("_")]
 
+_name = None
 for _name in _plot_objects_names:
     globals()[_name] = getattr(_plot_objects, _name)
 

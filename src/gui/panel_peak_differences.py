@@ -573,7 +573,7 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
                 elif y < x:
                     i = x
                     j = y + 1
-                elif y > x:
+                else:
                     i = y
                     j = x + 1
 

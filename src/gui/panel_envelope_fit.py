@@ -832,7 +832,7 @@ class panelEnvelopeFit(wx.Frame, MakeModalMixin):
                 )
 
             # fit data to spectrum
-            elif config.envelopeFit["fit"] == "spectrum":
+            else:
 
                 # get baseline window
                 baselineWindow = 1.0

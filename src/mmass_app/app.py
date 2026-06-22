@@ -196,11 +196,11 @@ class mMass(wx.App):
 
     # ----
 
-    def MacOpenFile(self, path):
+    def MacOpenFile(self, fileName):
         """ "Enable drag/drop under Mac."""
 
-        if path != "mmass.py":
-            self.frame.onDocumentOpen(path=path)
+        if fileName != "mmass.py":
+            self.frame.onDocumentOpen(path=fileName)
 
     # ----
 
@@ -228,7 +228,7 @@ class TCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
 
     # ----
 
-    def serve_forever(self):
+    def serve_forever(self, poll_interval=0.5):
         while not self.stopped:
             self.handle_request()
 

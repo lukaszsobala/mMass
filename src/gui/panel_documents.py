@@ -1486,9 +1486,9 @@ class fileDropTarget(wx.FileDropTarget):
 
     # ----
 
-    def OnDropFiles(self, x, y, paths):
+    def OnDropFiles(self, x, y, filenames):
         """Open dropped files."""
-        self.fn(paths=paths)
+        self.fn(paths=filenames)
         return True
 
     # ----

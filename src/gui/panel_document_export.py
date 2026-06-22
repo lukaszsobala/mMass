@@ -737,7 +737,7 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
         elif config.export["imageFormat"] == "JPEG":
             fileName = baseName + ".jpg"
             fileType = "JPEG image file|*.jpg"
-        elif config.export["imageFormat"] == "SVG":
+        else:
             fileName = baseName + ".svg"
             fileType = "SVG image file|*.svg"
 
@@ -781,7 +781,7 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
         if config.export["peaklistFormat"] in ("ASCII" "ASCII with Headers"):
             fileName = baseName + ".txt"
             fileType = "ASCII file|*.txt"
-        elif config.export["peaklistFormat"] == "MGF":
+        else:
             fileName = baseName + ".mgf"
             fileType = "MGF file|*.mgf"
 
@@ -992,7 +992,7 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
             fileFormat = wx.BITMAP_TYPE_PNG
         elif config.export["imageFormat"] == "TIFF":
             fileFormat = wx.BITMAP_TYPE_TIF
-        elif config.export["imageFormat"] == "JPEG":
+        else:
             fileFormat = wx.BITMAP_TYPE_JPEG
 
         # make image
@@ -1096,7 +1096,7 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
                 buff += "%s\n" % (line.replace("None", "").rstrip())
 
         # export to mgf
-        elif config.export["peaklistFormat"] == "MGF":
+        else:
 
             # export data
             buff = "BEGIN IONS\n"
@@ -1124,7 +1124,7 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
         # get spectrum
         if self.spectrumRange_choice.GetStringSelection() == "Full Spectrum":
             spectrum = self.parent.getCurrentSpectrumPoints()
-        elif self.spectrumRange_choice.GetStringSelection() == "Current View":
+        else:
             spectrum = self.parent.getCurrentSpectrumPoints(currentView=True)
 
         # check spectrum

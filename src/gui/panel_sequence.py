@@ -1329,7 +1329,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
         # get presets
         if self.currentTool == "modifications":
             presets = list(libs.presets["modifications"].keys())
-        elif self.currentTool == "fragment":
+        else:
             presets = list(libs.presets["fragments"].keys())
         presets.sort()
 
@@ -1538,7 +1538,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
         if self.sequenceType_choice.GetStringSelection() == "Regular amino acids":
             chainType = "aminoacids"
             before = "Custom"
-        elif self.sequenceType_choice.GetStringSelection() == "Custom":
+        else:
             chainType = "custom"
             before = "Regular amino acids"
 
@@ -1832,7 +1832,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
             mz = self.currentDigest[evt.GetData()][2]
         elif self.currentTool == "fragment":
             mz = self.currentFragments[evt.GetData()][2]
-        elif self.currentTool == "search":
+        else:
             mz = self.currentSearch[evt.GetData()][1]
 
         # show mass
@@ -1850,6 +1850,9 @@ class panelSequence(wx.Frame, MakeModalMixin):
         """Send selected item to Mass Calculator panel."""
 
         # get data
+        selected = []
+        formula = None
+        charge = None
         if self.currentTool == "digest":
             selected = self.digestList.getSelected()
             if selected:
@@ -1887,6 +1890,9 @@ class panelSequence(wx.Frame, MakeModalMixin):
         """Send selected item to envelope fit panel."""
 
         # get data
+        selected = []
+        sequence = None
+        charge = None
         if self.currentTool == "digest":
             selected = self.digestList.getSelected()
             if selected:
@@ -1908,6 +1914,11 @@ class panelSequence(wx.Frame, MakeModalMixin):
                 sequence = self.currentSearch[index][5]
                 charge = self.currentSearch[index][2]
 
+        # check selection
+        if not selected:
+            wx.Bell()
+            return
+
         # send data to envelope fit
         self.parent.onToolsEnvelopeFit(sequence=sequence, charge=charge)
 
@@ -1917,6 +1928,8 @@ class panelSequence(wx.Frame, MakeModalMixin):
         """Copy selected sequence into clipboard."""
 
         # get list
+        selected = []
+        sequence = ""
         if self.currentTool == "digest":
             selected = self.digestList.getSelected()
             if selected:
@@ -1955,6 +1968,8 @@ class panelSequence(wx.Frame, MakeModalMixin):
         """Copy selected sequence formula into clipboard."""
 
         # get list
+        selected = []
+        formula = ""
         if self.currentTool == "digest":
             selected = self.digestList.getSelected()
             if selected:
@@ -4290,15 +4305,15 @@ class monomerDropTarget(wx.TextDropTarget):
 
     # ----
 
-    def OnDropText(self, x, y, text):
+    def OnDropText(self, x, y, data):
         if not self.item.IsEnabled():
             wx.Bell()
-            return wx.DragNone
+            return False
         elif wx.Platform == "__WXGTK__":
             self.item.SetValue("")
-            return
+            return False
         else:
-            self.item.SetValue(text)
-            return wx.DragCopy
+            self.item.SetValue(data)
+            return True
 
     # ----

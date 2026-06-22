@@ -719,7 +719,7 @@ class panelSpectrumGenerator(wx.Frame, MakeModalMixin):
                     )
 
                 # gauss-lorentzian shape
-                elif config.spectrumGenerator["peakShape"] == "gausslorentzian":
+                else:
                     points = mspy.gausslorentzian(
                         x=peak.mz, minY=peak.base, maxY=peak.ai, fwhm=fwhm
                     )

@@ -94,7 +94,7 @@ class parseMGF:
         # check selected scan
         if scanID in self._scans:
             data = self._scans[scanID]
-        elif scanID is None:
+        else:
             data = self._scans[0]
 
         # return scan

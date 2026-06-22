@@ -68,6 +68,7 @@ def digest(sequence, enzyme, miscleavage=0, allowMods=False, strict=True):
     slices = []  # from | to | miscl
     lastIndex = 0
     peptide = ""
+    x = -1  # chain is non-empty (guarded above), so the loop always binds x
     for x, aa in enumerate(sequence):
 
         # check expression

@@ -40,7 +40,7 @@ def calibration(data, model="linear"):
     if model == "linear":
         model = _linearModel
         initials = (0.5, 0)
-    elif model == "quadratic":
+    else:
         model = _quadraticModel
         initials = (1.0, 0, 0)
 

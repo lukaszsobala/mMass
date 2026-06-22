@@ -154,6 +154,9 @@ class sequence:
             elif self.cyclic:
                 seq = parent.chain[start:] + parent.chain[:stop]
                 peptide = sequence(seq, chainType=parent.chainType, cyclic=False)
+            else:
+                # unreachable: guarded above (stop > start when not cyclic)
+                raise ValueError("Invalid slice!")
 
             # add previous history
             peptide.history = parent.history
@@ -673,6 +676,7 @@ class sequence:
             nTerm = enzyme.nTermFormula
             cTerm = enzyme.cTermFormula
         else:
+            expression = None
             semiSpecific = False
             nTerm = "H"
             cTerm = "OH"
@@ -701,6 +705,9 @@ class sequence:
 
                 # check enzyme specifity
                 if semiSpecific and peptide.itemBefore and peptide.itemAfter:
+                    # semiSpecific is only ever True when an enzyme (and thus
+                    # expression) was provided
+                    assert expression is not None
                     if not expression.search(
                         peptide.itemBefore + peptide.chain[0]
                     ) and not expression.search(peptide.chain[-1] + peptide.itemAfter):

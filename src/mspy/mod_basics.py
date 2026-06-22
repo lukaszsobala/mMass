@@ -267,6 +267,7 @@ def frules(
     countS = float(compound.count("S", groupIsotopes=True))
 
     # get carbon ratios
+    ratioHC = ratioNC = ratioOC = ratioPC = ratioSC = 0.0
     if countC:
         ratioHC = countH / countC
         ratioNC = countN / countC
