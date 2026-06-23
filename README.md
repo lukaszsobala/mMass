@@ -2,7 +2,7 @@
 
 This is a fork of the official repository for mMass on Python3. The purpose of this fork is to modernize the mMass codebase and make it maintainable, as well as fix bugs and add user-friendly functions.
 
-This version contains fixes that allow it to launch using modern Python and updated requirements. So far it has been tested on Linux (`amd64` and `arm64`), Windows 11 (`x86_64`), and macOS on Apple Silicon (`arm64`).
+This version contains fixes that allow it to launch using modern Python and updated requirements. So far it has been tested to work on Linux (`amd64`, `arm64` and `riscv64`), Windows 11 (`x86_64`), and macOS on Apple Silicon (`arm64`).
 
 Many thanks to Martin Strohalm for his hard work on the project over many years!
 
