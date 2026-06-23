@@ -865,6 +865,21 @@ class panelPeaklist(wx.Panel):
 
         self.parent.onDocumentChanged(items=("spectrum"))
 
+    def _envelopeParams(self, seedCharge=1):
+        """Build the plain parameter dict for the pure envelope recalc helper."""
+
+        d = config.processing["deisotoping"]
+        return {
+            "massTolerance": d["massTolerance"],
+            "isotopeShift": d["isotopeShift"],
+            "maxCharge": d["maxCharge"],
+            "intTolerance": d["intTolerance"],
+            "labelEnvelope": d["labelEnvelope"],
+            "envelopeIntensity": d["envelopeIntensity"],
+            "envelopeNonIdeality": d["envelopeNonIdeality"],
+            "seedCharge": seedCharge,
+        }
+
     def _recalculateNeighborhoodEnvelopes(self, mzs, document=None):
         """Recalculate NNLS areas for envelopes in the neighborhood of deleted peaks."""
         if not mzs:
@@ -874,63 +889,15 @@ class panelPeaklist(wx.Panel):
         if targetDocument is None:
             return
 
-        import mspy
+        # We assume edited peaks retain their existing charges, so seedCharge = 1
+        # is just a fallback for any peak that has no charge assigned.
         spectrum = targetDocument.spectrum
-        peaklist = spectrum.peaklist
-
-        tolerance = config.processing["deisotoping"]["massTolerance"]
-        isotopeShift = config.processing["deisotoping"]["isotopeShift"]
-        maxCharge = max(1, abs(int(config.processing["deisotoping"]["maxCharge"])))
-        difference = (mspy.ISOTOPE_DISTANCE + isotopeShift) / float(maxCharge)
-
-        margin = max(6.0 * difference, 8.0 * tolerance)
-        minMz = min(mzs) - margin
-        maxMz = max(mzs) + margin
-
-        localPeaks = []
-        outsidePeaks = []
-        for peak in peaklist:
-            # We want to re-run "Convert to envelopes" on all peaks in the neighborhood
-            # so that isotopic peaks can be correctly mapped back into envelopes.
-            if minMz <= peak.mz <= maxMz:
-                localPeaks.append(peak)
-            else:
-                outsidePeaks.append(peak)
-
-
-
-        if not localPeaks:
-            return
-
-        localPeaklist = mspy.peaklist(localPeaks)
-        self._refreshMissingFwhmFromProfile(localPeaklist, spectrum.profile)
-
-        # We assume the peaks retain their existing charges, so seedCharge = 1 is just a fallback
-        localPeaklist.deisotope(
-            maxCharge=config.processing["deisotoping"]["maxCharge"],
-            mzTolerance=tolerance,
-            intTolerance=config.processing["deisotoping"]["intTolerance"],
-            isotopeShift=isotopeShift,
-            respectCharge=True,
-            seedCharge=1,
+        spectrum.peaklist = mspy.recalculate_neighborhood_envelopes(
+            spectrum.peaklist,
+            spectrum.profile,
+            mzs,
+            self._envelopeParams(seedCharge=1),
         )
-
-        defaultFwhm = 0.1
-        if localPeaklist.basepeak and localPeaklist.basepeak.fwhm:
-            defaultFwhm = localPeaklist.basepeak.fwhm
-
-        localPeaklist.labelenvelopes(
-            label=config.processing["deisotoping"]["labelEnvelope"],
-            intensity=config.processing["deisotoping"]["envelopeIntensity"],
-            mzTolerance=tolerance,
-            isotopeShift=isotopeShift,
-            signal=spectrum.profile if spectrum.hasprofile() else None,
-            defaultFwhm=defaultFwhm,
-            nonIdeality=config.processing["deisotoping"]["envelopeNonIdeality"],
-            relaxed=True,
-        )
-
-        spectrum.peaklist = mspy.peaklist(outsidePeaks + list(localPeaklist))
 
     # ----
 
@@ -1455,77 +1422,23 @@ class panelPeaklist(wx.Panel):
         seedCharge = self._getConvertEnvelopeCharge(peaks)
 
         spectrum = self.currentDocument.spectrum
-        peaklist = spectrum.peaklist
-
-        tolerance = config.processing["deisotoping"]["massTolerance"]
-        isotopeShift = config.processing["deisotoping"]["isotopeShift"]
-        maxCharge = max(1, abs(int(config.processing["deisotoping"]["maxCharge"])))
-        difference = (mspy.ISOTOPE_DISTANCE + isotopeShift) / float(maxCharge)
-
         mzs = [peak.mz for peak in peaks]
-        margin = max(6.0 * difference, 8.0 * tolerance)
-        minMz = min(mzs) - margin
-        maxMz = max(mzs) + margin
 
-        localPeaks = []
-        outsidePeaks = []
-        for peak in peaklist:
-            if minMz <= peak.mz <= maxMz:
-                localPeaks.append(peak)
-            else:
-                outsidePeaks.append(peak)
+        result = mspy.recalculate_neighborhood_envelopes(
+            spectrum.peaklist,
+            spectrum.profile,
+            mzs,
+            self._envelopeParams(seedCharge=seedCharge),
+        )
 
-        if not localPeaks:
+        # identity means the helper found no peaks in the neighborhood -> no-op
+        if result is spectrum.peaklist:
             wx.Bell()
             return
 
         self.currentDocument.backup(("spectrum"))
-
-        localPeaklist = mspy.peaklist(localPeaks)
-        self._refreshMissingFwhmFromProfile(localPeaklist, spectrum.profile)
-
-        localPeaklist.deisotope(
-            maxCharge=config.processing["deisotoping"]["maxCharge"],
-            mzTolerance=tolerance,
-            intTolerance=config.processing["deisotoping"]["intTolerance"],
-            isotopeShift=isotopeShift,
-            respectCharge=True,
-            seedCharge=seedCharge,
-        )
-
-        defaultFwhm = 0.1
-        if localPeaklist.basepeak and localPeaklist.basepeak.fwhm:
-            defaultFwhm = localPeaklist.basepeak.fwhm
-
-        localPeaklist.labelenvelopes(
-            label=config.processing["deisotoping"]["labelEnvelope"],
-            intensity=config.processing["deisotoping"]["envelopeIntensity"],
-            mzTolerance=tolerance,
-            isotopeShift=isotopeShift,
-            signal=spectrum.profile if spectrum.hasprofile() else None,
-            defaultFwhm=defaultFwhm,
-            nonIdeality=config.processing["deisotoping"]["envelopeNonIdeality"],
-            relaxed=True,
-        )
-
-        spectrum.peaklist = mspy.peaklist(outsidePeaks + list(localPeaklist))
+        spectrum.peaklist = result
         self.parent.onDocumentChanged(items=("spectrum"))
-
-    # ----
-
-    def _refreshMissingFwhmFromProfile(self, peaklist, profile):
-        """Fill missing FWHM values from profile signal at each peak m/z."""
-
-        if profile is None or len(profile) == 0:
-            return
-
-        for peak in peaklist:
-            if peak.fwhm and peak.fwhm > 0.0:
-                continue
-
-            labeled = mspy.labelpoint(signal=profile, mz=peak.mz)
-            if labeled and labeled.fwhm and labeled.fwhm > 0.0:
-                peak.setfwhm(labeled.fwhm)
 
     # ----
 

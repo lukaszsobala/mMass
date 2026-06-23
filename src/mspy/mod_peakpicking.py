@@ -1937,6 +1937,108 @@ def deisotope(
 # ----
 
 
+def _refresh_missing_fwhm_from_profile(peaklist, profile):
+    """Fill missing FWHM values from profile signal at each peak m/z."""
+
+    if profile is None or len(profile) == 0:
+        return
+
+    for peak in peaklist:
+        if peak.fwhm and peak.fwhm > 0.0:
+            continue
+
+        labeled = labelpoint(signal=profile, mz=peak.mz)
+        if labeled and labeled.fwhm and labeled.fwhm > 0.0:
+            peak.setfwhm(labeled.fwhm)
+
+
+# ----
+
+
+def recalculate_neighborhood_envelopes(peaklist, profile, mzs, params):
+    """Re-run envelope detection on the m/z neighborhood around given peaks.
+
+    Pure helper (no wx / no config dependency) extracted from the peaklist GUI
+    panel so the neighborhood selection + deisotope + envelope-labeling logic
+    can be unit tested directly. Returns a NEW mspy.peaklist: peaks outside the
+    neighborhood are preserved unchanged, peaks inside it are re-deisotoped and
+    re-labeled into envelopes. When there is nothing to do (no mzs, empty
+    peaklist, or no peaks fall inside the neighborhood window) the original
+    peaklist is returned unchanged (the same object), so callers can detect a
+    no-op by identity.
+
+    peaklist (mspy.peaklist) - current peak list
+    profile (numpy array or None) - spectrum profile for area fitting and fwhm
+    mzs (list of float) - m/z values of the edited / selected peaks
+    params (dict) - processing parameters, keys:
+        massTolerance, isotopeShift, maxCharge, intTolerance,
+        labelEnvelope, envelopeIntensity, envelopeNonIdeality,
+        seedCharge (optional, default 1)
+    """
+
+    if not mzs:
+        return peaklist
+    if not isinstance(peaklist, obj_peaklist.peaklist) or not len(peaklist):
+        return peaklist
+
+    tolerance = params["massTolerance"]
+    isotopeShift = params["isotopeShift"]
+    maxCharge = max(1, abs(int(params["maxCharge"])))
+    difference = (ISOTOPE_DISTANCE + isotopeShift) / float(maxCharge)
+
+    # Isotope spacing shrinks as 1/charge, so the neighborhood must be wide
+    # enough to capture a full envelope at the lowest charge (largest spacing).
+    margin = max(6.0 * difference, 8.0 * tolerance)
+    minMz = min(mzs) - margin
+    maxMz = max(mzs) + margin
+
+    localPeaks = []
+    outsidePeaks = []
+    for peak in peaklist:
+        if minMz <= peak.mz <= maxMz:
+            localPeaks.append(peak)
+        else:
+            outsidePeaks.append(peak)
+
+    if not localPeaks:
+        return peaklist
+
+    localPeaklist = obj_peaklist.peaklist(localPeaks)
+    _refresh_missing_fwhm_from_profile(localPeaklist, profile)
+
+    # Existing charges are respected; seedCharge is only a fallback for peaks
+    # that carry no charge assignment yet.
+    localPeaklist.deisotope(
+        maxCharge=params["maxCharge"],
+        mzTolerance=tolerance,
+        intTolerance=params["intTolerance"],
+        isotopeShift=isotopeShift,
+        respectCharge=True,
+        seedCharge=int(params.get("seedCharge", 1)),
+    )
+
+    defaultFwhm = 0.1
+    if localPeaklist.basepeak and localPeaklist.basepeak.fwhm:
+        defaultFwhm = localPeaklist.basepeak.fwhm
+
+    hasProfile = profile is not None and len(profile) > 0
+    localPeaklist.labelenvelopes(
+        label=params["labelEnvelope"],
+        intensity=params["envelopeIntensity"],
+        mzTolerance=tolerance,
+        isotopeShift=isotopeShift,
+        signal=profile if hasProfile else None,
+        defaultFwhm=defaultFwhm,
+        nonIdeality=params["envelopeNonIdeality"],
+        relaxed=True,
+    )
+
+    return obj_peaklist.peaklist(outsidePeaks + list(localPeaklist))
+
+
+# ----
+
+
 def deconvolute(peaklist, massType=0):
     """Recalculate peaklist to singly charged.
     peaklist (mspy.peaklist) - peak list to deconvolute

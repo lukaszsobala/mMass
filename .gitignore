@@ -29,3 +29,12 @@ run_*
 replace_*
 make_*
 spectra/
+
+# The blanket test_*/run_* patterns above would otherwise hide the committed
+# pytest suite under tests/. Keep that directory tracked...
+!tests/
+!tests/**
+# ...but still ignore compiled bytecode the suite generates (the negation above
+# would otherwise re-include it).
+tests/**/__pycache__/
+tests/**/*.pyc
