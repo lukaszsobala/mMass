@@ -741,6 +741,12 @@ class mainFrame(wx.Frame):
             ID_toolsLabelPeak, "Label Peak" + HK_toolsLabelPeak, "", wx.ITEM_RADIO
         )
         tools.Append(
+            ID_toolsMultiLabelPeak,
+            "Multi-label Peak" + HK_toolsMultiLabelPeak,
+            "Label the highest peak within the dragged range in every visible spectrum",
+            wx.ITEM_RADIO,
+        )
+        tools.Append(
             ID_toolsLabelPoint, "Label Point" + HK_toolsLabelPoint, "", wx.ITEM_RADIO
         )
         tools.Append(
@@ -811,6 +817,7 @@ class mainFrame(wx.Frame):
 
         self.Bind(wx.EVT_MENU, self.onToolsSpectrum, id=ID_toolsRuler)
         self.Bind(wx.EVT_MENU, self.onToolsSpectrum, id=ID_toolsLabelPeak)
+        self.Bind(wx.EVT_MENU, self.onToolsSpectrum, id=ID_toolsMultiLabelPeak)
         self.Bind(wx.EVT_MENU, self.onToolsSpectrum, id=ID_toolsLabelPoint)
         self.Bind(wx.EVT_MENU, self.onToolsSpectrum, id=ID_toolsLabelEnvelope)
         self.Bind(wx.EVT_MENU, self.onToolsSpectrum, id=ID_toolsDeleteLabel)
@@ -3067,6 +3074,9 @@ class mainFrame(wx.Frame):
         elif ID == ID_toolsLabelPeak:
             tool = "labelpeak"
             self.menubar.Check(ID_toolsLabelPeak, True)
+        elif ID == ID_toolsMultiLabelPeak:
+            tool = "multilabelpeak"
+            self.menubar.Check(ID_toolsMultiLabelPeak, True)
         elif ID == ID_toolsLabelPoint:
             tool = "labelpoint"
             self.menubar.Check(ID_toolsLabelPoint, True)

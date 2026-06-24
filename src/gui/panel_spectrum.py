@@ -299,6 +299,18 @@ class panelSpectrum(wx.Panel):
         self.toolsLabelPeak_butt.SetToolTip(wx.ToolTip("Label peak"))
         self.toolsLabelPeak_butt.Bind(wx.EVT_BUTTON, self.parent.onToolsSpectrum)
 
+        self.toolsMultiLabelPeak_butt = mwx.makeBitmapButton(
+            panel,
+            ID_toolsMultiLabelPeak,
+            images.lib["spectrumMultiLabelPeakOff"],
+            size=(mwx.BOTTOMBAR_TOOLSIZE),
+            style=wx.BORDER_NONE,
+        )
+        self.toolsMultiLabelPeak_butt.SetToolTip(
+            wx.ToolTip("Multi-label peak (all visible spectra)")
+        )
+        self.toolsMultiLabelPeak_butt.Bind(wx.EVT_BUTTON, self.parent.onToolsSpectrum)
+
         self.toolsLabelPoint_butt = mwx.makeBitmapButton(
             panel,
             ID_toolsLabelPoint,
@@ -352,6 +364,7 @@ class panelSpectrum(wx.Panel):
                 self.normalize_butt,
                 self.toolsRuler_butt,
                 self.toolsLabelPeak_butt,
+                self.toolsMultiLabelPeak_butt,
                 self.toolsLabelPoint_butt,
                 self.toolsLabelEnvelope_butt,
                 self.toolsDeleteLabel_butt,
@@ -433,6 +446,12 @@ class panelSpectrum(wx.Panel):
             mwx.BUTTON_SIZE_CORRECTION,
         )
         sizer.Add(
+            self.toolsMultiLabelPeak_butt,
+            0,
+            wx.ALIGN_CENTER_VERTICAL | wx.LEFT,
+            mwx.BUTTON_SIZE_CORRECTION,
+        )
+        sizer.Add(
             self.toolsLabelPoint_butt,
             0,
             wx.ALIGN_CENTER_VERTICAL | wx.LEFT,
@@ -500,6 +519,10 @@ class panelSpectrum(wx.Panel):
 
         # get cursor positions
         selection = self.spectrumCanvas.getSelectionBox()
+        # keep the raw (canvas-space) selection box: multi-label peak converts the
+        # x range per document using each document's own offset, rather than only
+        # the current document's like the single-document branches below
+        rawSelection = selection
         position = self.spectrumCanvas.getCursorPosition()
         distance = self.spectrumCanvas.getDistance()
         isotopes = self.spectrumCanvas.getIsotopes()
@@ -532,6 +555,10 @@ class panelSpectrum(wx.Panel):
         # label peak
         if self.currentTool == "labelpeak" and selection:
             self.labelPeak(selection)
+
+        # label peak in every visible spectrum
+        elif self.currentTool == "multilabelpeak" and rawSelection:
+            self.labelPeakMulti(rawSelection)
 
         # label point
         elif self.currentTool == "labelpoint" and position:
@@ -642,6 +669,9 @@ class panelSpectrum(wx.Panel):
         # set icons off
         self.toolsRuler_butt.SetBitmapLabel(images.lib["spectrumRulerOff"])
         self.toolsLabelPeak_butt.SetBitmapLabel(images.lib["spectrumLabelPeakOff"])
+        self.toolsMultiLabelPeak_butt.SetBitmapLabel(
+            images.lib["spectrumMultiLabelPeakOff"]
+        )
         self.toolsLabelPoint_butt.SetBitmapLabel(images.lib["spectrumLabelPointOff"])
         self.toolsLabelEnvelope_butt.SetBitmapLabel(
             images.lib["spectrumLabelEnvelopeOff"]
@@ -666,6 +696,14 @@ class panelSpectrum(wx.Panel):
 
         elif tool == "labelpeak":
             self.toolsLabelPeak_butt.SetBitmapLabel(images.lib["spectrumLabelPeakOn"])
+            self.spectrumCanvas.setMFunction(None)
+            self.spectrumCanvas.setLMBFunction("range")
+            cursor = (images.lib["cursorsArrowPeak"], images.lib["cursorsArrowPeak"])
+
+        elif tool == "multilabelpeak":
+            self.toolsMultiLabelPeak_butt.SetBitmapLabel(
+                images.lib["spectrumMultiLabelPeakOn"]
+            )
             self.spectrumCanvas.setMFunction(None)
             self.spectrumCanvas.setLMBFunction("range")
             cursor = (images.lib["cursorsArrowPeak"], images.lib["cursorsArrowPeak"])
@@ -1319,6 +1357,65 @@ class panelSpectrum(wx.Panel):
             self.documents[self.currentDocument].spectrum.peaklist.append(peak)
 
             self.parent.onDocumentChanged(items=("spectrum"))
+
+    # ----
+
+    def labelPeakMulti(self, rawSelection):
+        """Label the highest peak within the selected range in every visible spectrum.
+
+        rawSelection is the selection box in canvas (display) coordinates; the x
+        range is converted back to real m/z per document using that document's own
+        horizontal offset, so the same peak is labelled across overlaid spectra.
+        """
+
+        # baseline window is the same for every document
+        baselineWindow = 1.0
+        if config.processing["peakpicking"]["baseline"]:
+            baselineWindow = 1.0 / config.processing["baseline"]["precision"]
+
+        # label the apex peak in each visible spectrum that has profile data
+        changed = []
+        for docIndex, docData in enumerate(self.documents):
+            if not docData.visible or not docData.spectrum.hasprofile():
+                continue
+
+            # convert the canvas x range to this document's real m/z (offsets are
+            # ignored while normalized, matching the single-document conversion)
+            if config.spectrum["normalize"]:
+                minX, maxX = rawSelection[0], rawSelection[2]
+            else:
+                minX = rawSelection[0] - docData.offset[0]
+                maxX = rawSelection[2] - docData.offset[0]
+
+            baseline = docData.spectrum.baseline(
+                window=baselineWindow, offset=config.processing["baseline"]["offset"]
+            )
+
+            peak = mspy.labelpeak(
+                signal=docData.spectrum.profile,
+                minX=minX,
+                maxX=maxX,
+                pickingHeight=config.processing["peakpicking"]["pickingHeight"],
+                baseline=baseline,
+            )
+            if not peak:
+                continue
+
+            # set as monoisotopic
+            if config.processing["deisotoping"]["setAsMonoisotopic"]:
+                peak.setisotope(0)
+
+            # update document
+            docData.backup(("spectrum"))
+            docData.spectrum.peaklist.append(peak)
+            changed.append(docIndex)
+
+        # update gui
+        if changed:
+            self.parent.onDocumentChangedMulti(indexes=changed, items=("spectrum",))
+            self.refresh()
+        else:
+            wx.Bell()
 
     # ----
 
