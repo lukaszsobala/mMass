@@ -121,6 +121,32 @@ def _invert_bitmap(bitmap):
     return wx.Bitmap(image)
 
 
+def _badge_multi(bitmap):
+    """Return a copy of a tool bitmap badged with a small stacked-lines glyph.
+
+    Used to derive the "multi-label peak" tool icon from the single "label peak"
+    icon so the two toolbar buttons read as distinct. The badge is drawn in
+    monochrome (opaque black) in the top-right corner; dark mode inverts it along
+    with the rest of the glyph, exactly like every other monochrome icon.
+    """
+
+    image = bitmap.ConvertToImage()
+    if not image.HasAlpha():
+        image.InitAlpha()
+    w, h = image.GetWidth(), image.GetHeight()
+    rgb = np.frombuffer(image.GetDataBuffer(), dtype=np.uint8).reshape((h, w, 3))
+    alpha = np.frombuffer(image.GetAlphaBuffer(), dtype=np.uint8).reshape((h, w))
+
+    # three short horizontal bars in the top-right corner -> "multiple spectra"
+    x0, x1 = max(0, w - 7), w - 1
+    for y in (1, 3, 5):
+        if 0 <= y < h:
+            rgb[y, x0:x1] = 0
+            alpha[y, x0:x1] = 255
+
+    return wx.Bitmap(image)
+
+
 def _is_colored_image(image, sat_threshold=50, frac_threshold=0.12):
     """True if a meaningful fraction of opaque pixels are saturated (coloured).
 
@@ -563,6 +589,8 @@ def loadImages():
     lib["spectrumRulerOff"] = bottombarsOff.GetSubBitmap(wx.Rect(0, 66, 29, 22))
     lib["spectrumLabelPeakOn"] = bottombarsOn.GetSubBitmap(wx.Rect(29, 66, 29, 22))
     lib["spectrumLabelPeakOff"] = bottombarsOff.GetSubBitmap(wx.Rect(29, 66, 29, 22))
+    lib["spectrumMultiLabelPeakOn"] = _badge_multi(lib["spectrumLabelPeakOn"])
+    lib["spectrumMultiLabelPeakOff"] = _badge_multi(lib["spectrumLabelPeakOff"])
     lib["spectrumLabelPointOn"] = bottombarsOn.GetSubBitmap(wx.Rect(58, 66, 29, 22))
     lib["spectrumLabelPointOff"] = bottombarsOff.GetSubBitmap(wx.Rect(58, 66, 29, 22))
     lib["spectrumLabelEnvelopeOn"] = bottombarsOn.GetSubBitmap(wx.Rect(87, 66, 29, 22))
