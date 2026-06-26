@@ -19,6 +19,7 @@
 
 # load libs
 import functools
+import os.path
 import time
 import wx
 from . import display_scale
@@ -284,6 +285,27 @@ def cmp(a, b):
                 return (a > b) - (a < b)
             except TypeError:
                 return (str(a) > str(b)) - (str(a) < str(b))
+
+
+def saveDialogDir(documentPath="", fallbackDir=""):
+    """Pick the initial directory for a save/export file dialog.
+
+    Prefer the folder the document itself lives in, so that "Save As" and
+    exports default next to the source file rather than re-using one shared
+    last-used directory for every document. Fall back to the last-used
+    directory, and finally to "" so the dialog opens at its own default.
+    """
+
+    candidates = []
+    if documentPath:
+        candidates.append(os.path.dirname(documentPath))
+    candidates.append(fallbackDir)
+
+    for candidate in candidates:
+        if candidate and os.path.isdir(candidate):
+            return candidate
+
+    return ""
 
 
 # RUN AFTER APP INIT
