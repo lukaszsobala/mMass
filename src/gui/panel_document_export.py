@@ -741,11 +741,15 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
             fileName = baseName + ".svg"
             fileType = "SVG image file|*.svg"
 
-        # raise export dialog
+        # raise export dialog (default next to the source document)
+        document = self.parent.getCurrentDocument()
+        exportDir = mwx.saveDialogDir(
+            getattr(document, "path", ""), config.main["lastDir"]
+        )
         dlg = wx.FileDialog(
             self,
             "Export Spectrum Image",
-            config.main["lastDir"],
+            exportDir,
             fileName,
             fileType,
             wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT,
@@ -785,11 +789,15 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
             fileName = baseName + ".mgf"
             fileType = "MGF file|*.mgf"
 
-        # raise export dialog
+        # raise export dialog (default next to the source document)
+        document = self.parent.getCurrentDocument()
+        exportDir = mwx.saveDialogDir(
+            getattr(document, "path", ""), config.main["lastDir"]
+        )
         dlg = wx.FileDialog(
             self,
             "Export Peak List",
-            config.main["lastDir"],
+            exportDir,
             fileName,
             fileType,
             wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT,
@@ -837,11 +845,15 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
             fileName = baseName + ".txt"
             fileType = "ASCII file|*.txt"
 
-        # raise export dialog
+        # raise export dialog (default next to the source document)
+        document = self.parent.getCurrentDocument()
+        exportDir = mwx.saveDialogDir(
+            getattr(document, "path", ""), config.main["lastDir"]
+        )
         dlg = wx.FileDialog(
             self,
             "Export Spectrum Data",
-            config.main["lastDir"],
+            exportDir,
             fileName,
             fileType,
             wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT,

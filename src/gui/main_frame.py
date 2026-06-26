@@ -2152,12 +2152,14 @@ class mainFrame(wx.Frame):
                     self.onDocumentEnable(docIndex)
                 self.documentsPanel.selectDocument(docIndex)
 
-            # ask for name
+            # ask for name (default to the document's own folder, not a
+            # globally shared last-used directory)
             fileName = document.title + ".msd"
+            saveDir = mwx.saveDialogDir(document.path, config.main["lastDir"])
             dlg = wx.FileDialog(
                 self,
                 "Save",
-                config.main["lastDir"],
+                saveDir,
                 fileName,
                 "mMass Spectrum Document|*.msd",
                 wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT,
