@@ -1267,8 +1267,235 @@ def _merge_adjacent_clusters(clusters, mzTolerance, isotopeShift, relaxed=False)
 # ----
 
 
-def _fit_envelope_areas(clusters, signal, defaultFwhm, nonIdeality=None):
-    """Fit envelope areas jointly against spectrum profile, intelligently seeded by monoisotopic peaks."""
+def _envelope_gaussian_column(x, isotopes, sigma):
+    """Build one envelope basis column: a sum of unit-area Gaussians.
+
+    Each isotope contributes a Gaussian whose integral equals its weight, so
+    the column integrates to sum(weights). With weights normalised to 1 the
+    fitted coefficient is therefore the total envelope area.
+    """
+
+    norm = sigma * math.sqrt(2.0 * math.pi)
+    column = numpy.zeros(len(x), dtype=float)
+    if norm <= 0.0:
+        return column
+    for mz, weight in isotopes:
+        column += (float(weight) / norm) * numpy.exp(
+            -0.5 * ((x - float(mz)) / sigma) ** 2
+        )
+    return column
+
+
+# ----
+
+
+def _nnls_multiplicative(M, y, coeff, mTy=None, iterations=120):
+    """Non-negative least squares by multiplicative updates (in place on coeff)."""
+
+    if mTy is None:
+        mTy = numpy.dot(M.transpose(), y)
+    for _ in range(iterations):
+        estimate = numpy.dot(M, coeff)
+        denom = numpy.dot(M.transpose(), estimate) + 1e-12
+        coeff *= mTy / denom
+    return coeff
+
+
+# ----
+
+
+def _overlap_groups(intervals):
+    """Partition cluster indices into connected overlap groups.
+
+    `intervals` is a list of (lo, hi) m/z spans (one per cluster). Two clusters
+    interact in the joint fit only if their spans overlap, and overlap is
+    transitive, so the clusters split into independent connected components.
+    Fitting each component on its own keeps every NNLS matrix small (important
+    when the whole spectrum is fit at once) while giving exactly the same result
+    as one big joint fit, because non-overlapping envelopes never share signal.
+    """
+
+    order = sorted(range(len(intervals)), key=lambda i: intervals[i][0])
+    groups = []
+    current = []
+    currentHi = float("-inf")
+    for i in order:
+        lo, hi = intervals[i]
+        if current and lo <= currentHi:
+            current.append(i)
+            currentHi = max(currentHi, hi)
+        else:
+            if current:
+                groups.append(current)
+            current = [i]
+            currentHi = hi
+    if current:
+        groups.append(current)
+    return groups
+
+
+# ----
+
+
+def _overlap_flex(columns, nonIdeality):
+    """Per-envelope shape flex, shrunk where an envelope overlaps its neighbours.
+
+    The soft isotope shaping lets each envelope's pattern bend away from
+    averagine toward the data, which improves the area of an *isolated*
+    non-averagine envelope. But where envelopes overlap, that same freedom is
+    what lets the joint fit shuffle shared signal between them, biasing area
+    toward the lower-m/z species. So the flex is scaled by 1 - (overlap
+    fraction): the fraction of this envelope's modeled profile that sits under
+    its neighbours. A separated envelope keeps the full configured flex; a
+    heavily overlapped one is pulled toward rigid averagine, where the joint
+    NNLS apportions the shared signal correctly and unambiguously. This is the
+    crowded-region accuracy the recalculation is meant to deliver.
+    """
+
+    K = len(columns)
+    flex = [nonIdeality] * K
+    if K < 2:
+        return flex
+
+    for k in range(K):
+        ck = columns[k]
+        selfMass = float(ck.sum())
+        if selfMass <= 0.0:
+            flex[k] = 0.0
+            continue
+        others = numpy.zeros(len(ck), dtype=float)
+        for j in range(K):
+            if j != k:
+                others += columns[j]
+        overlap = float(numpy.minimum(ck, others).sum()) / selfMass
+        overlap = min(1.0, max(0.0, overlap))
+        flex[k] = nonIdeality * (1.0 - overlap)
+    return flex
+
+
+# ----
+
+
+def _fit_group_areas(metas, x, y, nonIdeality, outer=6, inner=30, final=60):
+    """Jointly fit areas of overlapping envelopes with overlap-aware shaping.
+
+    `metas` holds (fwhm, sigma, theoryIsotopes) for each envelope in the group.
+    The area fit itself is a joint non-negative least squares -- the observed
+    signal where envelopes overlap is shared between them, never assigned
+    greedily to the lower-m/z one.
+
+    Two mechanisms keep the apportionment honest:
+
+    * The per-envelope isotope *shape* may bend from averagine toward the data,
+      but the bending is driven by the *residual* attributed to each envelope
+      (observed minus the other envelopes' current models), not the raw observed
+      signal. The raw signal double-counts a shared peak into every overlapping
+      envelope and inflates the lower-m/z tails; the residual gives each
+      envelope only the part the others do not already explain.
+
+    * The amount of allowed bending is itself shrunk where envelopes overlap
+      (see `_overlap_flex`), so a shared peak cannot be claimed by flexing one
+      envelope's tail upward.
+
+    For an isolated envelope the residual equals the raw observed signal and the
+    flex is the full configured value, so the behaviour is unchanged.
+
+    Returns (areas, shapes): the fitted area per envelope and the per-isotope
+    (mz, weight) model actually used to build each envelope's basis column
+    (weights summing to 1). Returning the shapes lets the caller store and draw
+    exactly the envelope the area was fitted to, instead of re-deriving a
+    different one from the raw signal.
+    """
+
+    K = len(metas)
+    if nonIdeality is None:
+        nonIdeality = ENVELOPE_NON_IDEALITY_DEFAULT
+
+    norm_ok = [sigma > 0.0 and bool(isotopes) for _fwhm, sigma, isotopes in metas]
+
+    # the theoretical pattern is the fallback shape for degenerate columns
+    shapes = [list(isotopes) for _fwhm, _sigma, isotopes in metas]
+
+    # rigid (theoretical) columns first, only to measure overlap between envelopes
+    theoryColumns = []
+    for ok, (_fwhm, sigma, isotopes) in zip(norm_ok, metas, strict=True):
+        if ok:
+            theoryColumns.append(_envelope_gaussian_column(x, isotopes, sigma))
+        else:
+            theoryColumns.append(numpy.zeros(len(x), dtype=float))
+    flex = _overlap_flex(theoryColumns, nonIdeality)
+
+    columns = []
+    seeds = []
+    for k, (fwhm, sigma, isotopes) in enumerate(metas):
+        if not norm_ok[k]:
+            columns.append(numpy.zeros(len(x), dtype=float))
+            seeds.append(0.0)
+            continue
+
+        shaped = _soft_isotope_model(isotopes, x, y, fwhm, nonIdeality=flex[k])
+        shapes[k] = shaped
+        columns.append(_envelope_gaussian_column(x, shaped, sigma))
+
+        # seed from the monoisotopic peak height (greedy but corrected by the fit)
+        mz0, w0 = shaped[0]
+        w0 = float(w0) if float(w0) > 0 else 1.0
+        norm = sigma * math.sqrt(2.0 * math.pi)
+        idx_lo = numpy.searchsorted(x, mz0 - fwhm, side="left")
+        idx_hi = numpy.searchsorted(x, mz0 + fwhm, side="right")
+        obs0 = float(numpy.max(y[idx_lo:idx_hi])) if idx_lo < idx_hi else 0.0
+        seeds.append(max(0.0, obs0 / w0) * norm)
+
+    M = numpy.column_stack(columns)
+    if M.size == 0:
+        return [0.0] * K, shapes
+
+    coeff = numpy.array(seeds, dtype=float)
+    coeff[coeff < 1e-6] = 1e-6  # prevent stuck-at-zero
+
+    if K == 1:
+        # no overlap: a single joint fit is already exact, skip the reshaping loop
+        _nnls_multiplicative(M, y, coeff, iterations=120)
+        return list(coeff), shapes
+
+    for _ in range(outer):
+        _nnls_multiplicative(M, y, coeff, iterations=inner)
+
+        # reshape every column against the signal the *other* columns leave behind
+        full = numpy.dot(M, coeff)
+        for k in range(K):
+            if not norm_ok[k]:
+                continue
+            fwhm, sigma, isotopes = metas[k]
+            residual = y - (full - coeff[k] * M[:, k])
+            numpy.clip(residual, 0.0, None, out=residual)
+            # shape the *theoretical* pattern toward this residual, so the
+            # +/-flex band always stays anchored on averagine
+            shaped = _soft_isotope_model(
+                isotopes, x, residual, fwhm, nonIdeality=flex[k]
+            )
+            shapes[k] = shaped
+            M[:, k] = _envelope_gaussian_column(x, shaped, sigma)
+
+    _nnls_multiplicative(M, y, coeff, iterations=final)
+
+    return list(coeff), shapes
+
+
+# ----
+
+
+def _fit_envelope_areas_shaped(clusters, signal, defaultFwhm, nonIdeality=None):
+    """Joint envelope area fit, also returning the isotope shape used per cluster.
+
+    Overlapping envelopes are fit together (globally apportioning the shared
+    signal); non-overlapping ones are fit independently for speed. Without a
+    profile each area is estimated from the envelope's own peak heights.
+
+    Returns (areas, shapes) where shapes[k] is the per-isotope (mz, weight)
+    model the fit used for cluster k (weights summing to 1), so callers can
+    store and draw exactly the envelope the area was fitted to.
+    """
 
     # fallback when profile is not available
     if signal is None or len(signal) == 0:
@@ -1281,6 +1508,7 @@ def _fit_envelope_areas(clusters, signal, defaultFwhm, nonIdeality=None):
         # responsive to edits and still deterministic, so re-running stays
         # idempotent.
         areas = []
+        shapes = []
         for cluster in clusters:
             fwhm = _cluster_fwhm(cluster, defaultFwhm)
             sigma = _fwhm_to_sigma(fwhm)
@@ -1297,91 +1525,60 @@ def _fit_envelope_areas(clusters, signal, defaultFwhm, nonIdeality=None):
             weights = _cluster_weights(cluster)
             w = weights[best_idx] if best_idx < len(weights) and weights[best_idx] > 0 else 1.0
             areas.append(max(0.0, best_int / w) * scale)
-        return areas
+            # no profile to reshape against: the shape is the theoretical pattern
+            shapes.append([(p.mz, wt) for p, wt in zip(cluster, weights, strict=True)])
+        return areas, shapes
 
-    x = signal[:, 0].astype(float)
-    y = signal[:, 1].astype(float)
-    if len(x) == 0:
-        return [0.0] * len(clusters)
+    xFull = signal[:, 0].astype(float)
+    yFull = signal[:, 1].astype(float)
+    if len(xFull) == 0:
+        return [0.0] * len(clusters), [[] for _ in clusters]
 
-    # keep only local region around all clusters
-    all_fwhms = []
-    all_mzs = []
-    for c in clusters:
-        all_mzs.extend([p.mz for p in c])
-        all_fwhms.append(_cluster_fwhm(c, defaultFwhm))
-
-    minMz = min(all_mzs)
-    maxMz = max(all_mzs)
-    maxFwhm = max(all_fwhms)
-
-    lo = minMz - 6.0 * maxFwhm
-    hi = maxMz + 6.0 * maxFwhm
-    mask = (x >= lo) & (x <= hi)
-    x = x[mask]
-    # copy y to avoid modifying original spectrum
-    y = y[mask].copy()
-    if len(x) == 0:
-        return [0.0] * len(clusters)
-
-    # Floor at zero, but don't subtract min(y) as it causes jumpy area shrinking.
-    y[y < 0.0] = 0.0
-
-    # build envelope basis matrix (N points x K envelopes)
-    models = []
-    initial_guesses = []
+    # per-cluster geometry and m/z span (padded for the Gaussian wings)
+    metas = []
+    intervals = []
     for cluster in clusters:
         fwhm = _cluster_fwhm(cluster, defaultFwhm)
         sigma = _fwhm_to_sigma(fwhm)
         weights = _cluster_weights(cluster)
         isotopes = [(p.mz, w) for p, w in zip(cluster, weights, strict=True)]
+        metas.append((fwhm, sigma, isotopes))
 
-        if sigma <= 0.0 or not isotopes:
-            models.append(numpy.zeros(len(x), dtype=float))
-            initial_guesses.append(0.0)
+        mzs = [p.mz for p in cluster]
+        pad = 6.0 * max(fwhm, defaultFwhm)
+        intervals.append((min(mzs) - pad, max(mzs) + pad))
+
+    areas = [0.0] * len(clusters)
+    shapes = [list(meta[2]) for meta in metas]
+
+    # fit each connected overlap group on its own local signal window
+    for group in _overlap_groups(intervals):
+        lo = min(intervals[i][0] for i in group)
+        hi = max(intervals[i][1] for i in group)
+        mask = (xFull >= lo) & (xFull <= hi)
+        x = xFull[mask]
+        if len(x) == 0:
             continue
+        # copy so the zero-floor never mutates the caller's spectrum
+        y = yFull[mask].copy()
+        y[y < 0.0] = 0.0
 
-        isotopes = _soft_isotope_model(
-            isotopes,
-            x,
-            y,
-            fwhm,
-            nonIdeality=nonIdeality,
-        )
+        groupMetas = [metas[i] for i in group]
+        groupAreas, groupShapes = _fit_group_areas(groupMetas, x, y, nonIdeality)
+        for idx, area, shape in zip(group, groupAreas, groupShapes, strict=True):
+            areas[idx] = area
+            shapes[idx] = shape
 
-        norm = sigma * math.sqrt(2.0 * math.pi)
-        model = numpy.zeros(len(x), dtype=float)
-        for mz, weight in isotopes:
-            model += (float(weight) / norm) * numpy.exp(-0.5 * ((x - float(mz)) / sigma) ** 2)
-        models.append(model)
+    return areas, shapes
 
-        # Smart greedy initialization based strictly on the monoisotopic peak
-        mz0, w0 = isotopes[0]
-        w0 = float(w0) if float(w0) > 0 else 1.0
 
-        idx_lo = numpy.searchsorted(x, mz0 - fwhm, side='left')
-        idx_hi = numpy.searchsorted(x, mz0 + fwhm, side='right')
-        current_obs_int = numpy.max(y[idx_lo:idx_hi]) if idx_lo < idx_hi else 0.0
+def _fit_envelope_areas(clusters, signal, defaultFwhm, nonIdeality=None):
+    """Joint envelope area fit. See `_fit_envelope_areas_shaped` for details."""
 
-        area_guess = max(0.0, current_obs_int / w0) * norm
-        initial_guesses.append(area_guess)
-
-    M = numpy.column_stack(models)
-    if M.size == 0:
-        return [0.0] * len(clusters)
-
-    # Multiplicative updates for joint non-negative least squares,
-    # seeded correctly using monoisotopic peaks to avoid getting lost!
-    coeff = numpy.array(initial_guesses, dtype=float)
-    coeff[coeff < 1e-6] = 1e-6 # prevent stuck-at-zero
-
-    mTy = numpy.dot(M.transpose(), y)
-    for _ in range(120):
-        estimate = numpy.dot(M, coeff)
-        denom = numpy.dot(M.transpose(), estimate) + 1e-12
-        coeff *= mTy / denom
-
-    return list(coeff)
+    areas, _shapes = _fit_envelope_areas_shaped(
+        clusters, signal, defaultFwhm, nonIdeality=nonIdeality
+    )
+    return areas
 
 
 # ----
@@ -1722,7 +1919,7 @@ def relabelenvelopes(
     if not clusters:
         return copy.deepcopy(peaklist)
 
-    areas = _fit_envelope_areas(
+    areas, shapes = _fit_envelope_areas_shaped(
         clusters,
         signal,
         defaultFwhm,
@@ -1733,21 +1930,32 @@ def relabelenvelopes(
     max_area = max([a for a in areas]) if areas else 0.0
     pruned_clusters = []
     pruned_areas = []
+    pruned_shapes = []
     for c, cluster in enumerate(clusters):
         a = float(max(0.0, areas[c])) if c < len(areas) else 0.0
         if a > max_area * 1e-6 or len(clusters) == 1:
             pruned_clusters.append(cluster)
             pruned_areas.append(a)
+            pruned_shapes.append(shapes[c] if c < len(shapes) else [])
     clusters = pruned_clusters
     areas = pruned_areas
+    shapes = pruned_shapes
 
     for c, cluster in enumerate(clusters):
         parent = cluster[0]
-        isotopes_data = _cluster_isotope_model(
-            cluster,
-            signal=signal,
-            defaultFwhm=defaultFwhm,
-            nonIdeality=nonIdeality,
+        # Use the exact isotope shape the area fit used, so the stored/drawn
+        # envelope matches the fitted area (in crowded regions the overlap-aware
+        # fit deliberately keeps the shape tighter than a raw re-derivation would
+        # -- re-deriving here from the raw signal would draw a different envelope
+        # than the one whose area we report). Fall back to the theoretical model
+        # only if the fit produced nothing usable.
+        isotopes_data = shapes[c] if c < len(shapes) and shapes[c] else (
+            _cluster_isotope_model(
+                cluster,
+                signal=signal,
+                defaultFwhm=defaultFwhm,
+                nonIdeality=nonIdeality,
+            )
         )
         fwhm_val = float(_cluster_fwhm(cluster, defaultFwhm))
 

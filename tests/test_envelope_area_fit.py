@@ -74,6 +74,48 @@ def test_overlap_areas_track_swapped_intensities():
     assert areas[1] > areas[0]
 
 
+def _averagine_cluster(mono, charge, area, fwhm=0.05, n=6):
+    """Cluster whose isotope heights follow averagine, so basis == data shape."""
+    weights = mpp._cluster_weights(
+        [mspy.peak(mz=mono + i * mspy.ISOTOPE_DISTANCE / charge,
+                   charge=charge, isotope=i, fwhm=fwhm)
+         for i in range(n)]
+    )
+    diff = mspy.ISOTOPE_DISTANCE / charge
+    return [
+        mspy.peak(mz=mono + i * diff, ai=w * area, charge=charge, isotope=i, fwhm=fwhm)
+        for i, w in enumerate(weights)
+    ]
+
+
+def test_equal_overlapping_envelopes_are_apportioned_globally():
+    """Three equal envelopes one Da apart recover near-equal areas.
+
+    This is the crowded-region regression: the +1/+2 isotopes of the lower-m/z
+    species land exactly on the monoisotopic peaks of the higher-m/z ones. A
+    greedy fit that lets the lower-m/z envelope claim the shared signal first
+    over-estimated the low end and robbed the high end (historically ~108/103/83
+    for equal inputs). The joint, overlap-aware fit must split it evenly.
+    """
+    clusters = [_averagine_cluster(m, 1, 100.0) for m in (1000.0, 1001.0, 1002.0)]
+    profile = _profile(*clusters)
+    areas = mpp._fit_envelope_areas(clusters, profile, 0.05, 0.2)
+
+    assert all(a > 0.0 for a in areas)
+    # every envelope within 10% of the others -- no lower-m/z precedence
+    assert max(areas) / min(areas) == pytest.approx(1.0, abs=0.12)
+    # in particular the highest-m/z envelope is not robbed
+    assert areas[2] / areas[0] == pytest.approx(1.0, abs=0.1)
+
+
+def test_unequal_overlapping_envelopes_recover_true_ratio():
+    """Overlapping envelopes with a 1:2 area ratio recover that ratio closely."""
+    a = _averagine_cluster(1000.0, 1, 100.0)
+    b = _averagine_cluster(1001.0, 1, 200.0)
+    areas = mpp._fit_envelope_areas([a, b], _profile(a, b), 0.05, 0.2)
+    assert areas[1] / areas[0] == pytest.approx(2.0, rel=0.1)
+
+
 # ---------------------------------------------------------------------------
 # Robustness
 # ---------------------------------------------------------------------------
