@@ -49,6 +49,28 @@ def test_area_scales_linearly_with_height():
     assert area_hi / area_lo == pytest.approx(2.0, rel=0.05)
 
 
+def test_non_ideality_changes_area_of_non_averagine_envelope():
+    """nonIdeality must actually move the area of an isolated non-averagine peak.
+
+    The area is the amplitude of the fitted isotope model, not a raw integral of
+    the data, so a shape allowed to bend toward a non-averagine profile (here the
+    +1 isotope is far taller than averagine predicts) captures more of the peak
+    and yields a larger area. With no flex the rigid averagine model under-fits
+    the inflated isotope and reports a smaller area. If the two were equal the
+    parameter would be inert -- which is the bug this guards against.
+    """
+
+    # +1 isotope deliberately inflated well above the averagine expectation
+    cluster = _cluster_at(1000.0, 1, 1000.0, weights=[1.0, 0.95, 0.30, 0.05])
+    profile = _profile(cluster)
+
+    rigid = mpp._fit_envelope_areas([cluster], profile, 0.05, nonIdeality=0.0)[0]
+    flexible = mpp._fit_envelope_areas([cluster], profile, 0.05, nonIdeality=0.5)[0]
+
+    assert rigid > 0.0
+    assert flexible > rigid * 1.05  # at least a few % larger -- the knob works
+
+
 # ---------------------------------------------------------------------------
 # Overlapping envelopes (core failure mode)
 # ---------------------------------------------------------------------------
@@ -108,12 +130,71 @@ def test_equal_overlapping_envelopes_are_apportioned_globally():
     assert areas[2] / areas[0] == pytest.approx(1.0, abs=0.1)
 
 
-def test_unequal_overlapping_envelopes_recover_true_ratio():
-    """Overlapping envelopes with a 1:2 area ratio recover that ratio closely."""
+def test_unequal_overlapping_envelopes_keep_their_order():
+    """A more abundant envelope still gets the larger area (ordering preserved).
+
+    The apportionment weighs each envelope's monoisotopic peak equally with a
+    neighbour's overlapping isotope (independent of absolute abundance), so the
+    1:2 ratio is deliberately compressed toward equal rather than recovered
+    exactly -- that is the "treat them equally" behaviour. What must still hold is
+    that the genuinely larger species gets the larger area, and neither is robbed.
+    """
     a = _averagine_cluster(1000.0, 1, 100.0)
     b = _averagine_cluster(1001.0, 1, 200.0)
     areas = mpp._fit_envelope_areas([a, b], _profile(a, b), 0.05, 0.2)
-    assert areas[1] / areas[0] == pytest.approx(2.0, rel=0.1)
+    assert areas[0] > 0.0
+    assert areas[1] > areas[0]  # the 2x species keeps the larger area
+
+
+def test_small_envelope_under_large_neighbour_keeps_fair_share():
+    """A small species nested under a large neighbour's isotope keeps a fair share.
+
+    The user can add a peak whose monoisotopic m/z lands on the +1 isotope of a
+    much larger lower-m/z envelope (e.g. a +1 charge species one Da apart). A
+    least-squares or abundance-weighted fit lets the big envelope's averagine tail
+    claim all of the shared signal and drives the smaller envelope's area to zero
+    -- silently discarding a peak the user labelled. The area-independent
+    apportionment instead splits the shared peak by pattern shape alone, so the
+    labelled envelope keeps a substantial, clearly non-zero share no matter how
+    tall its neighbour is.
+    """
+
+    big = _averagine_cluster(1000.0, 1, 1000.0)
+    small = _averagine_cluster(1001.0, 1, 80.0)  # real, independent, much smaller
+    profile = _profile(big, small)
+
+    areas = mpp._fit_envelope_areas([big, small], profile, 0.05, 0.2)
+
+    assert areas[0] > 0.0
+    # not robbed: the labelled envelope keeps a meaningful fraction of the big one
+    assert areas[1] / areas[0] > 0.2
+
+
+def test_overlapping_model_never_exceeds_observed_curve():
+    """The summed envelope model stays within the observed profile (mass conserving).
+
+    Apportionment must divide the available signal, never invent extra: the sum of
+    all fitted envelopes, reconstructed on the profile grid, may not rise above the
+    observed curve. This is what guarantees every envelope area "fits within the
+    available area".
+    """
+
+    clusters = [_averagine_cluster(m, 1, 100.0) for m in (1000.0, 1001.0, 1002.0)]
+    profile = _profile(*clusters)
+    areas = mpp._fit_envelope_areas(clusters, profile, 0.05, 0.2)
+
+    x = profile[:, 0]
+    model = numpy.zeros_like(x)
+    for cluster, area in zip(clusters, areas):
+        weights = mpp._cluster_weights(cluster)
+        sigma = mpp._fwhm_to_sigma(0.05)
+        for p, w in zip(cluster, weights):
+            model += (area * w / (sigma * numpy.sqrt(2 * numpy.pi))) * numpy.exp(
+                -0.5 * ((x - p.mz) / sigma) ** 2
+            )
+
+    # allow a small numerical tolerance relative to the peak height
+    assert numpy.max(model - profile[:, 1]) <= 0.02 * numpy.max(profile[:, 1])
 
 
 # ---------------------------------------------------------------------------

@@ -1289,16 +1289,55 @@ def _envelope_gaussian_column(x, isotopes, sigma):
 # ----
 
 
-def _nnls_multiplicative(M, y, coeff, mTy=None, iterations=120):
-    """Non-negative least squares by multiplicative updates (in place on coeff)."""
+def _apportion_group_areas(areaColumns, monoColumns, x, y):
+    """Split the observed signal among overlapping envelopes, then fit each area.
 
-    if mTy is None:
-        mTy = numpy.dot(M.transpose(), y)
-    for _ in range(iterations):
-        estimate = numpy.dot(M, coeff)
-        denom = numpy.dot(M.transpose(), estimate) + 1e-12
-        coeff *= mTy / denom
-    return coeff
+    Two column sets are supplied per envelope:
+
+    * `monoColumns[k]` -- the isotope pattern rendered as gaussians and normalised
+      so its *monoisotopic* apex equals 1. These decide how the signal is *shared*
+      at each point: ``share_k(x) = mono_k(x) / sum_j mono_j(x)``. Because the
+      shapes are normalised to each envelope's own monoisotopic peak, the split
+      does NOT depend on absolute abundance, so a tall lower-m/z species' isotope
+      tail cannot swamp and rob a shorter higher-m/z neighbour. The shares sum to
+      one wherever any envelope is present, so the apportioned signals add back up
+      to the observed curve and never exceed it.
+
+    * `areaColumns[k]` -- the same pattern but normalised to unit *area* (a unit
+      coefficient integrates to one). Each envelope's area is the least-squares
+      amplitude of this column fitted to that envelope's apportioned share of the
+      signal, ``g_k = y * share_k``. Fitting the model (rather than just
+      integrating ``g_k``) is what lets the isotope *shape* matter: for an
+      isolated, non-averagine envelope a shape allowed to bend toward the data
+      (larger nonIdeality) captures more of the peak and yields a different area,
+      so the nonIdeality parameter actually moves the number. For overlapping
+      envelopes the shape is rigid averagine, so the area follows the fair share.
+    """
+
+    K = len(areaColumns)
+    if K == 0 or len(x) == 0:
+        return [0.0] * K
+
+    yy = numpy.clip(y, 0.0, None)
+    total = numpy.zeros(len(x), dtype=float)
+    for col in monoColumns:
+        total = total + col
+
+    # only apportion where some envelope actually predicts signal; elsewhere the
+    # share is undefined (0/0) and there is nothing to attribute -- this also
+    # keeps baseline noise between/outside the isotope peaks out of the fit
+    threshold = 1e-6 * float(total.max()) if total.size else 0.0
+    active = total > threshold
+    safeTotal = numpy.where(active, total, 1.0)
+
+    areas = []
+    for areaCol, monoCol in zip(areaColumns, monoColumns, strict=True):
+        share = numpy.where(active, monoCol / safeTotal, 0.0)
+        g = yy * share
+        denom = float(numpy.dot(areaCol, areaCol))
+        amp = float(numpy.dot(areaCol, g)) / denom if denom > 0.0 else 0.0
+        areas.append(max(0.0, amp))
+    return areas
 
 
 # ----
@@ -1337,74 +1376,31 @@ def _overlap_groups(intervals):
 # ----
 
 
-def _overlap_flex(columns, nonIdeality):
-    """Per-envelope shape flex, shrunk where an envelope overlaps its neighbours.
-
-    The soft isotope shaping lets each envelope's pattern bend away from
-    averagine toward the data, which improves the area of an *isolated*
-    non-averagine envelope. But where envelopes overlap, that same freedom is
-    what lets the joint fit shuffle shared signal between them, biasing area
-    toward the lower-m/z species. So the flex is scaled by 1 - (overlap
-    fraction): the fraction of this envelope's modeled profile that sits under
-    its neighbours. A separated envelope keeps the full configured flex; a
-    heavily overlapped one is pulled toward rigid averagine, where the joint
-    NNLS apportions the shared signal correctly and unambiguously. This is the
-    crowded-region accuracy the recalculation is meant to deliver.
-    """
-
-    K = len(columns)
-    flex = [nonIdeality] * K
-    if K < 2:
-        return flex
-
-    for k in range(K):
-        ck = columns[k]
-        selfMass = float(ck.sum())
-        if selfMass <= 0.0:
-            flex[k] = 0.0
-            continue
-        others = numpy.zeros(len(ck), dtype=float)
-        for j in range(K):
-            if j != k:
-                others += columns[j]
-        overlap = float(numpy.minimum(ck, others).sum()) / selfMass
-        overlap = min(1.0, max(0.0, overlap))
-        flex[k] = nonIdeality * (1.0 - overlap)
-    return flex
-
-
-# ----
-
-
-def _fit_group_areas(metas, x, y, nonIdeality, outer=6, inner=30, final=60):
-    """Jointly fit areas of overlapping envelopes with overlap-aware shaping.
+def _fit_group_areas(metas, x, y, nonIdeality):
+    """Apportion the observed signal among a group of (overlapping) envelopes.
 
     `metas` holds (fwhm, sigma, theoryIsotopes) for each envelope in the group.
-    The area fit itself is a joint non-negative least squares -- the observed
-    signal where envelopes overlap is shared between them, never assigned
-    greedily to the lower-m/z one.
+    Areas come from `_apportion_group_areas`: the observed signal at every point
+    is split among the envelopes in proportion to their isotope patterns
+    (normalised to each envelope's own monoisotopic peak), so a tall lower-m/z
+    species cannot rob a shorter higher-m/z neighbour, and the summed model stays
+    within the observed curve.
 
-    Two mechanisms keep the apportionment honest:
+    Isotope *shape* is handled differently depending on overlap:
 
-    * The per-envelope isotope *shape* may bend from averagine toward the data,
-      but the bending is driven by the *residual* attributed to each envelope
-      (observed minus the other envelopes' current models), not the raw observed
-      signal. The raw signal double-counts a shared peak into every overlapping
-      envelope and inflates the lower-m/z tails; the residual gives each
-      envelope only the part the others do not already explain.
+    * An isolated envelope (the only one in its group) may bend its isotope
+      pattern from averagine toward the data -- real, especially high-mass,
+      envelopes are not perfectly averagine, and with nothing overlapping it the
+      bend cannot steal a neighbour's signal. This keeps single-envelope areas
+      accurate.
 
-    * The amount of allowed bending is itself shrunk where envelopes overlap
-      (see `_overlap_flex`), so a shared peak cannot be claimed by flexing one
-      envelope's tail upward.
-
-    For an isolated envelope the residual equals the raw observed signal and the
-    flex is the full configured value, so the behaviour is unchanged.
+    * Overlapping envelopes keep the rigid averagine pattern, so the isotope
+      contributions are scaled by theory alone and the apportionment is clean and
+      symmetric.
 
     Returns (areas, shapes): the fitted area per envelope and the per-isotope
-    (mz, weight) model actually used to build each envelope's basis column
-    (weights summing to 1). Returning the shapes lets the caller store and draw
-    exactly the envelope the area was fitted to, instead of re-deriving a
-    different one from the raw signal.
+    (mz, weight) model used for each envelope (weights summing to 1), so the
+    caller can store and draw exactly the envelope the area was fitted to.
     """
 
     K = len(metas)
@@ -1413,73 +1409,37 @@ def _fit_group_areas(metas, x, y, nonIdeality, outer=6, inner=30, final=60):
 
     norm_ok = [sigma > 0.0 and bool(isotopes) for _fwhm, sigma, isotopes in metas]
 
-    # the theoretical pattern is the fallback shape for degenerate columns
+    # the theoretical (averagine) pattern is the default shape
     shapes = [list(isotopes) for _fwhm, _sigma, isotopes in metas]
 
-    # rigid (theoretical) columns first, only to measure overlap between envelopes
-    theoryColumns = []
-    for ok, (_fwhm, sigma, isotopes) in zip(norm_ok, metas, strict=True):
-        if ok:
-            theoryColumns.append(_envelope_gaussian_column(x, isotopes, sigma))
-        else:
-            theoryColumns.append(numpy.zeros(len(x), dtype=float))
-    flex = _overlap_flex(theoryColumns, nonIdeality)
-
-    columns = []
-    seeds = []
+    areaColumns = []
+    monoColumns = []
     for k, (fwhm, sigma, isotopes) in enumerate(metas):
         if not norm_ok[k]:
-            columns.append(numpy.zeros(len(x), dtype=float))
-            seeds.append(0.0)
+            areaColumns.append(numpy.zeros(len(x), dtype=float))
+            monoColumns.append(numpy.zeros(len(x), dtype=float))
             continue
 
-        shaped = _soft_isotope_model(isotopes, x, y, fwhm, nonIdeality=flex[k])
-        shapes[k] = shaped
-        columns.append(_envelope_gaussian_column(x, shaped, sigma))
-
-        # seed from the monoisotopic peak height (greedy but corrected by the fit)
-        mz0, w0 = shaped[0]
-        w0 = float(w0) if float(w0) > 0 else 1.0
-        norm = sigma * math.sqrt(2.0 * math.pi)
-        idx_lo = numpy.searchsorted(x, mz0 - fwhm, side="left")
-        idx_hi = numpy.searchsorted(x, mz0 + fwhm, side="right")
-        obs0 = float(numpy.max(y[idx_lo:idx_hi])) if idx_lo < idx_hi else 0.0
-        seeds.append(max(0.0, obs0 / w0) * norm)
-
-    M = numpy.column_stack(columns)
-    if M.size == 0:
-        return [0.0] * K, shapes
-
-    coeff = numpy.array(seeds, dtype=float)
-    coeff[coeff < 1e-6] = 1e-6  # prevent stuck-at-zero
-
-    if K == 1:
-        # no overlap: a single joint fit is already exact, skip the reshaping loop
-        _nnls_multiplicative(M, y, coeff, iterations=120)
-        return list(coeff), shapes
-
-    for _ in range(outer):
-        _nnls_multiplicative(M, y, coeff, iterations=inner)
-
-        # reshape every column against the signal the *other* columns leave behind
-        full = numpy.dot(M, coeff)
-        for k in range(K):
-            if not norm_ok[k]:
-                continue
-            fwhm, sigma, isotopes = metas[k]
-            residual = y - (full - coeff[k] * M[:, k])
-            numpy.clip(residual, 0.0, None, out=residual)
-            # shape the *theoretical* pattern toward this residual, so the
-            # +/-flex band always stays anchored on averagine
-            shaped = _soft_isotope_model(
-                isotopes, x, residual, fwhm, nonIdeality=flex[k]
-            )
+        # bend the pattern toward the data only when this envelope stands alone;
+        # in an overlap group the rigid averagine pattern keeps the apportionment
+        # honest (a flexing tail must not be able to claim a neighbour's peak)
+        if K == 1:
+            shaped = _soft_isotope_model(isotopes, x, y, fwhm, nonIdeality=nonIdeality)
             shapes[k] = shaped
-            M[:, k] = _envelope_gaussian_column(x, shaped, sigma)
+        else:
+            shaped = isotopes
 
-    _nnls_multiplicative(M, y, coeff, iterations=final)
+        # area-normalised column (unit coefficient integrates to one) for the
+        # per-envelope amplitude fit, and the same column scaled so its
+        # monoisotopic apex is 1 for the abundance-independent signal split
+        areaColumn = _envelope_gaussian_column(x, shaped, sigma)
+        w0 = float(shaped[0][1]) if float(shaped[0][1]) > 0.0 else 1.0
+        norm = sigma * math.sqrt(2.0 * math.pi)
+        areaColumns.append(areaColumn)
+        monoColumns.append(areaColumn * (norm / w0))
 
-    return list(coeff), shapes
+    areas = _apportion_group_areas(areaColumns, monoColumns, x, y)
+    return areas, shapes
 
 
 # ----
