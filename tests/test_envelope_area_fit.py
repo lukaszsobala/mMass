@@ -185,10 +185,10 @@ def test_overlapping_model_never_exceeds_observed_curve():
 
     x = profile[:, 0]
     model = numpy.zeros_like(x)
-    for cluster, area in zip(clusters, areas):
+    for cluster, area in zip(clusters, areas, strict=True):
         weights = mpp._cluster_weights(cluster)
         sigma = mpp._fwhm_to_sigma(0.05)
-        for p, w in zip(cluster, weights):
+        for p, w in zip(cluster, weights, strict=True):
             model += (area * w / (sigma * numpy.sqrt(2 * numpy.pi))) * numpy.exp(
                 -0.5 * ((x - p.mz) / sigma) ** 2
             )
