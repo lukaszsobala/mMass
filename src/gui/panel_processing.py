@@ -940,6 +940,22 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         deisotopingEnvelopeNonIdealityUnits_label = wx.StaticText(panel, -1, "%")
         self.deisotopingEnvelopeNonIdeality_value.Bind(wx.EVT_TEXT, self.getParams)
 
+        deisotopingAveragineType_label = wx.StaticText(panel, -1, "Averagine model:")
+        self.deisotopingAveragineType_choice = wx.Choice(
+            panel,
+            -1,
+            choices=["Protein", "Carbohydrate", "Lipid"],
+            size=wx.Size(160, mwx.CHOICE_HEIGHT),
+        )
+        mwx.fitChoice(self.deisotopingAveragineType_choice)
+        self.deisotopingAveragineType_choice.Select(0)
+        choices = ["protein", "carbohydrate", "lipid"]
+        if config.processing["deisotoping"]["averagineType"] in choices:
+            self.deisotopingAveragineType_choice.Select(
+                choices.index(config.processing["deisotoping"]["averagineType"])
+            )
+        self.deisotopingAveragineType_choice.Bind(wx.EVT_CHOICE, self.getParams)
+
         deisotopingSetAsMonoisotopic_label = wx.StaticText(
             panel, -1, "Set labels as monoisotopes:"
         )
@@ -1029,17 +1045,23 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             flag=wx.ALIGN_CENTER_VERTICAL,
         )
         grid.Add(
-            deisotopingSetAsMonoisotopic_label,
+            deisotopingAveragineType_label,
             (10, 0),
             flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL,
         )
-        grid.Add(self.deisotopingSetAsMonoisotopic_check, (10, 1))
+        grid.Add(self.deisotopingAveragineType_choice, (10, 1), (1, 2))
         grid.Add(
-            deisotopingConvertToEnvelopes_label,
+            deisotopingSetAsMonoisotopic_label,
             (11, 0),
             flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL,
         )
-        grid.Add(self.deisotopingConvertToEnvelopes_check, (11, 1))
+        grid.Add(self.deisotopingSetAsMonoisotopic_check, (11, 1))
+        grid.Add(
+            deisotopingConvertToEnvelopes_label,
+            (12, 0),
+            flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL,
+        )
+        grid.Add(self.deisotopingConvertToEnvelopes_check, (12, 1))
 
         mainSizer = wx.BoxSizer(wx.VERTICAL)
         mainSizer.Add(grid, 0, wx.ALIGN_CENTER | wx.ALL, mwx.PANEL_SPACE_MAIN)
@@ -1547,6 +1569,14 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         self.deisotopingEnvelopeNonIdeality_value.SetValue(
             str(presets["deisotoping"]["envelopeNonIdeality"] * 100)
         )
+
+        choices = ["protein", "carbohydrate", "lipid"]
+        if presets["deisotoping"].get("averagineType") in choices:
+            self.deisotopingAveragineType_choice.Select(
+                choices.index(presets["deisotoping"]["averagineType"])
+            )
+        else:
+            self.deisotopingAveragineType_choice.Select(0)
 
         choices = ["1st", "monoisotope", "centroid", "isotopes"]
         if presets["deisotoping"]["labelEnvelope"] in choices:
@@ -2193,6 +2223,14 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             config.processing["deisotoping"]["envelopeNonIdeality"] = min(
                 max(nonIdeality, 0.0), 0.5
             )
+
+            averagineType = self.deisotopingAveragineType_choice.GetStringSelection()
+            if averagineType == "Carbohydrate":
+                config.processing["deisotoping"]["averagineType"] = "carbohydrate"
+            elif averagineType == "Lipid":
+                config.processing["deisotoping"]["averagineType"] = "lipid"
+            else:
+                config.processing["deisotoping"]["averagineType"] = "protein"
 
             if config.processing["deisotoping"]["labelEnvelope"] == "isotopes":
                 self.deisotopingEnvelopeIntensity_choice.Disable()
@@ -2905,6 +2943,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
                 mzTolerance=config.processing["deisotoping"]["massTolerance"],
                 intTolerance=config.processing["deisotoping"]["intTolerance"],
                 isotopeShift=config.processing["deisotoping"]["isotopeShift"],
+                averagineType=config.processing["deisotoping"]["averagineType"],
             )
 
             if config.processing["deisotoping"].get("convertToEnvelopes"):
@@ -2916,6 +2955,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
                     nonIdeality=config.processing["deisotoping"].get(
                         "envelopeNonIdeality"
                     ),
+                    averagineType=config.processing["deisotoping"]["averagineType"],
                 )
 
             # remove isotopes
@@ -2998,6 +3038,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
                 mzTolerance=config.processing["deisotoping"]["massTolerance"],
                 intTolerance=config.processing["deisotoping"]["intTolerance"],
                 isotopeShift=config.processing["deisotoping"]["isotopeShift"],
+                averagineType=config.processing["deisotoping"]["averagineType"],
             )
 
             if config.processing["deisotoping"].get("convertToEnvelopes"):
@@ -3009,6 +3050,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
                     nonIdeality=config.processing["deisotoping"].get(
                         "envelopeNonIdeality"
                     ),
+                    averagineType=config.processing["deisotoping"]["averagineType"],
                 )
 
             # remove isotopes

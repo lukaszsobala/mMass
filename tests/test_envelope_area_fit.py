@@ -72,6 +72,54 @@ def test_non_ideality_changes_area_of_non_averagine_envelope():
 
 
 # ---------------------------------------------------------------------------
+# Averagine model selection
+# ---------------------------------------------------------------------------
+
+
+def test_averagine_models_registered():
+    """The three selectable averagine models exist with distinct lambda factors."""
+    assert set(mpp.AVERAGINE_MODELS) == {"protein", "carbohydrate", "lipid"}
+    assert mpp.DEFAULT_AVERAGINE == "protein"
+    # carbon density drives the +1 isotope rate: lipid > protein > carbohydrate
+    assert (
+        mpp._averagine_lambda("carbohydrate")
+        < mpp._averagine_lambda("protein")
+        < mpp._averagine_lambda("lipid")
+    )
+
+
+def test_averagine_type_changes_isotope_weights():
+    """A heavy cluster's modeled isotope weights depend on the averagine model.
+
+    The carbon-rich lipid model predicts a heavier (later-peaking) envelope than
+    protein, while the oxygen-rich carbohydrate model predicts a lighter one, so
+    the +1/mono ratio orders carbohydrate < protein < lipid. If the type were
+    ignored the three would be identical -- the bug this guards against.
+    """
+    cluster = _cluster_at(2500.0, 1, 1000.0, weights=[1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
+    ratio = {}
+    for averagine in ("protein", "carbohydrate", "lipid"):
+        w = mpp._cluster_weights(cluster, averagineType=averagine)
+        ratio[averagine] = w[1] / w[0]
+    assert ratio["carbohydrate"] < ratio["protein"] < ratio["lipid"]
+
+
+def test_averagine_type_moves_fitted_area():
+    """The fitted envelope area responds to the selected averagine model."""
+    cluster = _cluster_at(1500.0, 1, 1000.0)
+    profile = _profile(cluster)
+    areas = {
+        averagine: mpp._fit_envelope_areas(
+            [cluster], profile, 0.05, nonIdeality=0.2, averagineType=averagine
+        )[0]
+        for averagine in ("protein", "carbohydrate", "lipid")
+    }
+    assert all(a > 0.0 for a in areas.values())
+    # the carbon-rich lipid model captures a different area than protein
+    assert areas["lipid"] != pytest.approx(areas["protein"], rel=0.01)
+
+
+# ---------------------------------------------------------------------------
 # Overlapping envelopes (core failure mode)
 # ---------------------------------------------------------------------------
 

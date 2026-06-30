@@ -43,6 +43,53 @@ AVERAGE_AMINO = {"C": 4.9384, "H": 7.7583, "N": 1.3577, "O": 1.4773, "S": 0.0417
 AVERAGE_BASE = {"C": 9.75, "H": 12.25, "N": 3.75, "O": 6, "P": 1}
 ENVELOPE_NON_IDEALITY_DEFAULT = 0.20
 
+# Averagine models selectable for isotope-envelope modeling. Each maps a short
+# key to (a) the average building-block elemental composition used to build a
+# real isotope pattern, and (b) the Poisson "lambda factor": the expected number
+# of +1 isotopes per dalton, which the fast isotope approximation multiplies by
+# the neutral mass. The +1 spacing is dominated by 13C (1.07% natural
+# abundance), so the factor is ~ (carbons per block / block mass) * 0.0107. The
+# protein factor reproduces the historical 0.000475 constant; the others follow
+# from their carbon density (more carbon per Da -> larger factor):
+#   carbohydrate  C6H10O5 (anhydrohexose):  6 / 162.14 * 0.0107 = 0.000396
+#   lipid         C16H32O2 (fatty acyl):   16 / 256.43 * 0.0107 = 0.000668
+AVERAGINE_MODELS = {
+    "protein": {
+        "label": "Protein (amino acid)",
+        "composition": AVERAGE_AMINO,
+        "lambdaFactor": 0.000475,
+    },
+    "carbohydrate": {
+        "label": "Carbohydrate (hexose)",
+        "composition": {"C": 6, "H": 10, "O": 5},
+        "lambdaFactor": 0.000396,
+    },
+    "lipid": {
+        "label": "Lipid (fatty acyl)",
+        "composition": {"C": 16, "H": 32, "O": 2},
+        "lambdaFactor": 0.000668,
+    },
+}
+DEFAULT_AVERAGINE = "protein"
+
+
+def _averagine_model(averagineType):
+    """Resolve an averagine type key to its model dict (falls back to protein)."""
+
+    return AVERAGINE_MODELS.get(averagineType, AVERAGINE_MODELS[DEFAULT_AVERAGINE])
+
+
+def _averagine_lambda(averagineType):
+    """Poisson lambda factor (expected +1 isotopes per Da) for an averagine type."""
+
+    return _averagine_model(averagineType)["lambdaFactor"]
+
+
+def _averagine_composition(averagineType):
+    """Average building-block composition for an averagine type."""
+
+    return _averagine_model(averagineType)["composition"]
+
 # Minimum number of isotopes a deisotoped envelope must span. Applied as a hard
 # floor: the signal/decay guards may only extend the tail beyond this length,
 # never trim below it.
@@ -523,11 +570,12 @@ def envcentroid(isotopes, pickingHeight=0.5, intensity="maximum"):
 # ----
 
 
-def envmono(isotopes, charge, intensity="maximum"):
+def envmono(isotopes, charge, intensity="maximum", composition=AVERAGE_AMINO):
     """Calculate envelope centroid for given isotopes.
     isotopes (mspy.peaklist or list of mspy.peak) - envelope isotopes
     charge (int) - peak charge
     intensity (maximum | sum | average) - envelope intensity type
+    composition (dict) - averagine building-block composition
     """
 
     # check isotopes
@@ -543,7 +591,7 @@ def envmono(isotopes, charge, intensity="maximum"):
         return None
 
     # calc averagine
-    avFormula = averagine(basepeak.mz, charge=charge, composition=AVERAGE_AMINO)
+    avFormula = averagine(basepeak.mz, charge=charge, composition=composition)
     avPattern = avFormula.pattern(fwhm=0.1, threshold=0.001, charge=charge)
     avPattern = obj_peaklist.peaklist(avPattern)
     avBasepeak = avPattern.basepeak
@@ -595,7 +643,10 @@ def envmono(isotopes, charge, intensity="maximum"):
 # ----
 
 
-def labelenvelope(isotopes, charge=None, label="1st", intensity="maximum"):
+def labelenvelope(
+    isotopes, charge=None, label="1st", intensity="maximum",
+    averagineType=DEFAULT_AVERAGINE,
+):
     """Convert isotope peaks to requested envelope labels."""
 
     # check isotopes
@@ -611,7 +662,10 @@ def labelenvelope(isotopes, charge=None, label="1st", intensity="maximum"):
 
     # label monoisotopic peak
     if label == "monoisotope":
-        peak = envmono(isotopes, charge=charge, intensity=intensity)
+        peak = envmono(
+            isotopes, charge=charge, intensity=intensity,
+            composition=_averagine_composition(averagineType),
+        )
         return [peak] if peak else []
 
     # label envelope centroid
@@ -714,7 +768,7 @@ def _fwhm_to_sigma(fwhm):
 # ----
 
 
-def _cluster_weights(cluster):
+def _cluster_weights(cluster, averagineType=DEFAULT_AVERAGINE):
     """Get normalized isotope weights from theoretical pattern."""
 
     if not cluster:
@@ -734,7 +788,7 @@ def _cluster_weights(cluster):
             mod_basics.mz(mono_mz, charge=0, currentCharge=parent.charge, massType=1),
             massType=1,
         )
-        lam = max(0.0, neutralMass * 0.000475)
+        lam = max(0.0, neutralMass * _averagine_lambda(averagineType))
 
         # Find maximum required isotope index
         max_iso = 30
@@ -787,11 +841,14 @@ def _cluster_fwhm(cluster, defaultFwhm):
 # ----
 
 
-def _cluster_isotope_model(cluster, signal=None, defaultFwhm=0.1, nonIdeality=None):
+def _cluster_isotope_model(
+    cluster, signal=None, defaultFwhm=0.1, nonIdeality=None,
+    averagineType=DEFAULT_AVERAGINE,
+):
     """Get isotope weights for a cluster, optionally softened by profile evidence."""
 
     fwhm = float(_cluster_fwhm(cluster, defaultFwhm))
-    weights = _cluster_weights(cluster)
+    weights = _cluster_weights(cluster, averagineType=averagineType)
     isotopes = [(float(p.mz), float(w)) for p, w in zip(cluster, weights, strict=True)]
 
     if signal is None or len(signal) == 0 or fwhm <= 0.0:
@@ -912,7 +969,7 @@ def _soft_isotope_model(isotopes, x, y, fwhm, nonIdeality=None):
 # ----
 
 
-def _cluster_pattern(parent, size):
+def _cluster_pattern(parent, size, averagineType=DEFAULT_AVERAGINE):
     """Get expected isotope pattern slice for parent peak using Poisson Averagine approximation."""
     if size <= 0:
         return []
@@ -922,9 +979,10 @@ def _cluster_pattern(parent, size):
         massType=1,
     )
 
-    # Averagine Poisson approximation: expected number of 13C atoms
-    # ~0.0444 carbons per Da, ~1.07% 13C naturally.
-    lam = neutralMass * 0.000475
+    # Averagine Poisson approximation: expected number of +1 isotopes per Da,
+    # dominated by 13C. The factor depends on the selected averagine type's
+    # carbon density (see AVERAGINE_MODELS); protein ~ 0.000475.
+    lam = neutralMass * _averagine_lambda(averagineType)
 
     pattern = []
     p = math.exp(-lam) if lam < 700 else 0.0
@@ -1070,7 +1128,10 @@ def _cluster_observed_pattern(parent, cluster, isotopeShift=0.0):
 # ----
 
 
-def _cluster_pattern_error(parent, cluster, isotopeShift=0.0, relaxed=False):
+def _cluster_pattern_error(
+    parent, cluster, isotopeShift=0.0, relaxed=False,
+    averagineType=DEFAULT_AVERAGINE,
+):
     """Return fit error for expected isotope pattern; None means invalid."""
 
     if len(cluster) < 2:
@@ -1082,7 +1143,7 @@ def _cluster_pattern_error(parent, cluster, isotopeShift=0.0, relaxed=False):
     if maxMzError is None:
         return None
 
-    pattern = _cluster_pattern(parent, len(observed))
+    pattern = _cluster_pattern(parent, len(observed), averagineType=averagineType)
     if len(pattern) < len(observed):
         return None
 
@@ -1167,7 +1228,10 @@ def _cluster_pattern_error(parent, cluster, isotopeShift=0.0, relaxed=False):
 # ----
 
 
-def _is_plausible_cluster(parent, cluster, isotopeShift=0.0, relaxed=False):
+def _is_plausible_cluster(
+    parent, cluster, isotopeShift=0.0, relaxed=False,
+    averagineType=DEFAULT_AVERAGINE,
+):
     """Reject clusters that do not fit expected isotopic pattern."""
 
     return (
@@ -1176,6 +1240,7 @@ def _is_plausible_cluster(parent, cluster, isotopeShift=0.0, relaxed=False):
             cluster,
             isotopeShift,
             relaxed=relaxed,
+            averagineType=averagineType,
         )
         is not None
     )
@@ -1184,7 +1249,10 @@ def _is_plausible_cluster(parent, cluster, isotopeShift=0.0, relaxed=False):
 # ----
 
 
-def _merge_adjacent_clusters(clusters, mzTolerance, isotopeShift, relaxed=False):
+def _merge_adjacent_clusters(
+    clusters, mzTolerance, isotopeShift, relaxed=False,
+    averagineType=DEFAULT_AVERAGINE,
+):
     """Merge neighboring clusters when they are consistent with one envelope."""
 
     if len(clusters) < 2:
@@ -1251,6 +1319,7 @@ def _merge_adjacent_clusters(clusters, mzTolerance, isotopeShift, relaxed=False)
                 trial,
                 isotopeShift,
                 relaxed=False,
+                averagineType=averagineType,
             ):
                 i += 1
                 continue
@@ -1445,7 +1514,10 @@ def _fit_group_areas(metas, x, y, nonIdeality):
 # ----
 
 
-def _fit_envelope_areas_shaped(clusters, signal, defaultFwhm, nonIdeality=None):
+def _fit_envelope_areas_shaped(
+    clusters, signal, defaultFwhm, nonIdeality=None,
+    averagineType=DEFAULT_AVERAGINE,
+):
     """Joint envelope area fit, also returning the isotope shape used per cluster.
 
     Overlapping envelopes are fit together (globally apportioning the shared
@@ -1482,7 +1554,7 @@ def _fit_envelope_areas_shaped(clusters, signal, defaultFwhm, nonIdeality=None):
                     best_int = p.intensity
                     best_idx = i
 
-            weights = _cluster_weights(cluster)
+            weights = _cluster_weights(cluster, averagineType=averagineType)
             w = weights[best_idx] if best_idx < len(weights) and weights[best_idx] > 0 else 1.0
             areas.append(max(0.0, best_int / w) * scale)
             # no profile to reshape against: the shape is the theoretical pattern
@@ -1500,7 +1572,7 @@ def _fit_envelope_areas_shaped(clusters, signal, defaultFwhm, nonIdeality=None):
     for cluster in clusters:
         fwhm = _cluster_fwhm(cluster, defaultFwhm)
         sigma = _fwhm_to_sigma(fwhm)
-        weights = _cluster_weights(cluster)
+        weights = _cluster_weights(cluster, averagineType=averagineType)
         isotopes = [(p.mz, w) for p, w in zip(cluster, weights, strict=True)]
         metas.append((fwhm, sigma, isotopes))
 
@@ -1532,11 +1604,15 @@ def _fit_envelope_areas_shaped(clusters, signal, defaultFwhm, nonIdeality=None):
     return areas, shapes
 
 
-def _fit_envelope_areas(clusters, signal, defaultFwhm, nonIdeality=None):
+def _fit_envelope_areas(
+    clusters, signal, defaultFwhm, nonIdeality=None,
+    averagineType=DEFAULT_AVERAGINE,
+):
     """Joint envelope area fit. See `_fit_envelope_areas_shaped` for details."""
 
     areas, _shapes = _fit_envelope_areas_shaped(
-        clusters, signal, defaultFwhm, nonIdeality=nonIdeality
+        clusters, signal, defaultFwhm, nonIdeality=nonIdeality,
+        averagineType=averagineType,
     )
     return areas
 
@@ -1588,6 +1664,7 @@ def relabelenvelopes(
     defaultFwhm=0.1,
     nonIdeality=None,
     relaxed=False,
+    averagineType=DEFAULT_AVERAGINE,
 ):
     """Convert deisotoped peak clusters to envelope labels."""
 
@@ -1668,6 +1745,7 @@ def relabelenvelopes(
                         trial_cluster,
                         isotopeShift,
                         relaxed=relaxed,
+                        averagineType=averagineType,
                     )
                     if pattern_error is None:
                         if relaxed:
@@ -1713,7 +1791,7 @@ def relabelenvelopes(
         # the base peak -- it behaves the same whether the monoisotopic peak
         # dominates (small molecules) or a mid-envelope isotope dominates
         # (proteins), and it cannot fabricate peaks in empty m/z regions.
-        ideal_pattern = _cluster_pattern(parent, 30)
+        ideal_pattern = _cluster_pattern(parent, 30, averagineType=averagineType)
         max_p = max(ideal_pattern) if ideal_pattern else 1.0
         theoryFloor = max_p * ENVELOPE_TAIL_CUTOFF_MIN
 
@@ -1874,6 +1952,7 @@ def relabelenvelopes(
         mzTolerance,
         isotopeShift,
         relaxed=relaxed,
+        averagineType=averagineType,
     )
 
     if not clusters:
@@ -1884,6 +1963,7 @@ def relabelenvelopes(
         signal,
         defaultFwhm,
         nonIdeality=nonIdeality,
+        averagineType=averagineType,
     )
 
     # Re-calculate NNLS areas as fallbacks if needed, but mainly prune zero ones
@@ -1915,6 +1995,7 @@ def relabelenvelopes(
                 signal=signal,
                 defaultFwhm=defaultFwhm,
                 nonIdeality=nonIdeality,
+                averagineType=averagineType,
             )
         )
         fwhm_val = float(_cluster_fwhm(cluster, defaultFwhm))
@@ -1947,6 +2028,7 @@ def relabelenvelopes(
             charge=parent.charge,
             label=label,
             intensity=intensity,
+            averagineType=averagineType,
         )
 
         groupname = result.groupname()
@@ -1980,6 +2062,38 @@ def relabelenvelopes(
 # ----
 
 
+def _isotope_pattern_at_mass(neutralMass, averagineType=DEFAULT_AVERAGINE, size=12):
+    """Apex-normalized isotope pattern for a neutral mass and averagine type.
+
+    Protein uses the precomputed real-averagine lookup table (unchanged); the
+    other types use the Poisson +1 approximation scaled by their carbon density
+    (see AVERAGINE_MODELS). Only ratios between adjacent isotopes are used by the
+    caller, so the apex normalization here matches the lookup table convention.
+    """
+
+    if averagineType == DEFAULT_AVERAGINE:
+        idx = int(min(15000, int(max(0.0, neutralMass))) / 200)
+        return patternLookupTable[idx]
+
+    lam = max(0.0, neutralMass * _averagine_lambda(averagineType))
+    pattern = []
+    p = math.exp(-lam) if lam < 700 else 0.0
+    for i in range(size):
+        if i == 0:
+            pattern.append(p)
+        else:
+            p = p * (lam / i)
+            pattern.append(p)
+
+    apex = max(pattern) if pattern else 0.0
+    if apex <= 0.0:
+        return [1.0] + [0.0] * (size - 1)
+    return [x / apex for x in pattern]
+
+
+# ----
+
+
 def deisotope(
     peaklist,
     maxCharge=1,
@@ -1988,6 +2102,7 @@ def deisotope(
     isotopeShift=0.0,
     respectCharge=False,
     seedCharge=1,
+    averagineType=DEFAULT_AVERAGINE,
 ):
     """Isotopes determination and calculation of peaks charge.
     peaklist (mspy.peaklist) - peaklist to process
@@ -1995,6 +2110,7 @@ def deisotope(
     mzTolerance (float) - absolute m/z tolerance for isotopes distance
     intTolerance (float) - relative intensity tolerance for isotopes and model (in %/100)
     isotopeShift (float) - isotope distance correction (neutral mass) (for HDX etc.)
+    averagineType (str) - averagine model key (protein | carbohydrate | lipid)
     """
 
     # check peaklist
@@ -2053,8 +2169,7 @@ def deisotope(
 
             # get theoretical isotopic pattern
             neutralMass = _mass_scalar(mod_basics.mz(parent.mz, 0, z))
-            mass = int(min(15000, int(neutralMass)) / 200)
-            pattern = patternLookupTable[mass]
+            pattern = _isotope_pattern_at_mass(neutralMass, averagineType)
 
             # check minimal number of isotopes in the cluster
             limit = 0
@@ -2141,7 +2256,8 @@ def recalculate_neighborhood_envelopes(peaklist, profile, mzs, params):
     params (dict) - processing parameters, keys:
         massTolerance, isotopeShift, maxCharge, intTolerance,
         labelEnvelope, envelopeIntensity, envelopeNonIdeality,
-        seedCharge (optional, default 1)
+        seedCharge (optional, default 1),
+        averagineType (optional, default "protein")
     """
 
     if not mzs:
@@ -2176,6 +2292,7 @@ def recalculate_neighborhood_envelopes(peaklist, profile, mzs, params):
 
     # Existing charges are respected; seedCharge is only a fallback for peaks
     # that carry no charge assignment yet.
+    averagineType = params.get("averagineType", DEFAULT_AVERAGINE)
     localPeaklist.deisotope(
         maxCharge=params["maxCharge"],
         mzTolerance=tolerance,
@@ -2183,6 +2300,7 @@ def recalculate_neighborhood_envelopes(peaklist, profile, mzs, params):
         isotopeShift=isotopeShift,
         respectCharge=True,
         seedCharge=int(params.get("seedCharge", 1)),
+        averagineType=averagineType,
     )
 
     defaultFwhm = 0.1
@@ -2199,6 +2317,7 @@ def recalculate_neighborhood_envelopes(peaklist, profile, mzs, params):
         defaultFwhm=defaultFwhm,
         nonIdeality=params["envelopeNonIdeality"],
         relaxed=True,
+        averagineType=averagineType,
     )
 
     return obj_peaklist.peaklist(outsidePeaks + list(localPeaklist))

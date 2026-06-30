@@ -893,6 +893,7 @@ class panelPeaklist(wx.Panel):
             "labelEnvelope": d["labelEnvelope"],
             "envelopeIntensity": d["envelopeIntensity"],
             "envelopeNonIdeality": d["envelopeNonIdeality"],
+            "averagineType": d.get("averagineType", "protein"),
             "seedCharge": seedCharge,
         }
 

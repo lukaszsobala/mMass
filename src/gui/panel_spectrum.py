@@ -1518,11 +1518,13 @@ class panelSpectrum(wx.Panel):
             peak.charge = charge * polarity
             peak.isotope = x
 
+        averagineType = config.processing["deisotoping"].get("averagineType", "protein")
         areas, shapes = mspy.mod_peakpicking._fit_envelope_areas_shaped(
             [cluster],
             spectrum.profile,
             defaultFwhm,
             nonIdeality=config.processing["deisotoping"]["envelopeNonIdeality"],
+            averagineType=averagineType,
         )
         area_val = max(0.0, float(areas[0])) if areas else 0.0
 
@@ -1540,6 +1542,7 @@ class panelSpectrum(wx.Panel):
             charge=charge * polarity,
             label=config.processing["deisotoping"]["labelEnvelope"],
             intensity=config.processing["deisotoping"]["envelopeIntensity"],
+            averagineType=averagineType,
         )
 
         for peak in labeled_peaks:
