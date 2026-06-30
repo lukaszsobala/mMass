@@ -413,6 +413,7 @@ processing = {
         "labelEnvelope": "1st",
         "envelopeIntensity": "maximum",
         "envelopeNonIdeality": 0.40,
+        "averagineType": "protein",
         "setAsMonoisotopic": 0,
         "convertToEnvelopes": 1,
     },
@@ -928,6 +929,12 @@ def loadConfig(path=os.path.join(confdir, "config.xml")):  # noqa: B008
             processing["deisotoping"]["envelopeNonIdeality"] = min(
                 max(processing["deisotoping"]["envelopeNonIdeality"], 0.0), 0.5
             )
+            if processing["deisotoping"]["averagineType"] not in (
+                "protein",
+                "carbohydrate",
+                "lipid",
+            ):
+                processing["deisotoping"]["averagineType"] = "protein"
 
         deconvolutionTags = processingTags[0].getElementsByTagName("deconvolution")
         if deconvolutionTags:
@@ -1442,6 +1449,9 @@ def saveConfig(path=os.path.join(confdir, "config.xml")):  # noqa: B008
     )
     buff += '      <param name="envelopeNonIdeality" value="%f" type="float" />\n' % (
         processing["deisotoping"]["envelopeNonIdeality"]
+    )
+    buff += '      <param name="averagineType" value="%s" type="str" />\n' % (
+        processing["deisotoping"]["averagineType"]
     )
     buff += '      <param name="setAsMonoisotopic" value="%d" type="int" />\n' % (
         bool(processing["deisotoping"]["setAsMonoisotopic"])

@@ -702,13 +702,15 @@ class scan:
     # ----
 
     def deisotope(
-        self, maxCharge=1, mzTolerance=0.15, intTolerance=0.5, isotopeShift=0.0
+        self, maxCharge=1, mzTolerance=0.15, intTolerance=0.5, isotopeShift=0.0,
+        averagineType=mod_peakpicking.DEFAULT_AVERAGINE,
     ):
         """Calculate peak charges and find isotopes.
         maxCharge (float) - max charge to be searched
         zTolerance (float) - absolute m/z tolerance for isotopes distance
         intTolerance (float) - relative intensity tolerance for isotopes and model (in %/100)
         isotopeShift (float) - isotope distance correction (neutral mass) (for HDX etc.)
+        averagineType (str) - averagine model key (protein | carbohydrate | lipid)
         """
 
         # find istopes
@@ -717,6 +719,7 @@ class scan:
             mzTolerance=mzTolerance,
             intTolerance=intTolerance,
             isotopeShift=isotopeShift,
+            averagineType=averagineType,
         )
 
     # ----
@@ -728,6 +731,7 @@ class scan:
         mzTolerance=0.15,
         isotopeShift=0.0,
         nonIdeality=None,
+        averagineType=mod_peakpicking.DEFAULT_AVERAGINE,
     ):
         """Convert deisotoped peak clusters to envelope labels."""
 
@@ -753,6 +757,7 @@ class scan:
             signal=self.profile,
             defaultFwhm=defaultFwhm,
             nonIdeality=nonIdeality,
+            averagineType=averagineType,
         )
 
     # ----

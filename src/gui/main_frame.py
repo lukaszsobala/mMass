@@ -3042,6 +3042,10 @@ class mainFrame(wx.Frame):
         # update gui
         self.onDocumentChanged(items=items)
 
+        # bring back the peak selection (and its envelope) the undo restored
+        if "spectrum" in items:
+            self.peaklistPanel.restoreEnvelopeSelection()
+
     # ----
 
     def onToolsRedo(self, evt):
@@ -3060,6 +3064,10 @@ class mainFrame(wx.Frame):
 
         # update gui
         self.onDocumentChanged(items=items)
+
+        # bring back the peak selection (and its envelope) the redo restored
+        if "spectrum" in items:
+            self.peaklistPanel.restoreEnvelopeSelection()
 
     # ----
 

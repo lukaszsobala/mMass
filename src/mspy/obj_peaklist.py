@@ -354,12 +354,14 @@ class peaklist:
         isotopeShift=0.0,
         respectCharge=False,
         seedCharge=1,
+        averagineType=mod_peakpicking.DEFAULT_AVERAGINE,
     ):
         """Calculate peak charges and find isotopes.
         maxCharge (float) - max charge to be searched
         mzTolerance (float) - absolute m/z tolerance for isotopes distance
         intTolerance (float) - relative intensity tolerance for isotopes and model (in %/100)
         isotopeShift (float) - isotope distance correction (neutral mass) (for HDX etc.)
+        averagineType (str) - averagine model key (protein | carbohydrate | lipid)
         """
 
         # check peaklist
@@ -375,6 +377,7 @@ class peaklist:
             isotopeShift=isotopeShift,
             respectCharge=respectCharge,
             seedCharge=seedCharge,
+            averagineType=averagineType,
         )
 
     # ----
@@ -389,6 +392,7 @@ class peaklist:
         defaultFwhm=0.1,
         nonIdeality=None,
         relaxed=False,
+        averagineType=mod_peakpicking.DEFAULT_AVERAGINE,
     ):
         """Convert deisotoped peak clusters to envelope labels."""
 
@@ -406,6 +410,7 @@ class peaklist:
             defaultFwhm=defaultFwhm,
             nonIdeality=nonIdeality,
             relaxed=relaxed,
+            averagineType=averagineType,
         )
 
         # store data

@@ -68,6 +68,11 @@ class panelPeaklist(wx.Panel):
         self.currentDocument = None
         self.peakListMap = None
         self.selectedPeak = None
+        # m/z of the currently selected peak, tracked independently of the row
+        # index so the selection (and its drawn envelope) can be restored after
+        # the list is rebuilt -- e.g. on undo/redo or any recalculation, where
+        # the peaklist is replaced and the old index no longer points anywhere.
+        self._selectedMz = None
         self._ignore_selection_events = False
 
         # make GUI
@@ -499,28 +504,39 @@ class panelPeaklist(wx.Panel):
         # highlight point in the spectrum
         selected = self.peakList.getSelected()
         if len(selected) == 1:
-            envelope = self._getEnvelopeData(peak)
-            if envelope:
-                profile = mspy.envelopeprofile(envelope, points=40)
-                if len(profile):
-                    self.parent.updateTmpSpectrum(
-                        profile,
-                        fillUnder=True,
-                        fillUnderAlpha=115,
-                        showOutline=False,
-                    )
-                    self.parent.updateMassPoints([x[0] for x in envelope["isotopes"]])
-                else:
-                    self.parent.updateTmpSpectrum(None)
-                    self.parent.updateMassPoints([peak.mz])
-            else:
-                self.parent.updateTmpSpectrum(None)
-                self.parent.updateMassPoints([peak.mz])
+            self._selectedMz = peak.mz
+            self._renderEnvelope(peak)
         else:
+            self._selectedMz = None
             self.parent.updateTmpSpectrum(None)
 
         # show current peak in editing panel
         self.updatePeakEditor(peak)
+
+    # ----
+
+    def _renderEnvelope(self, peak):
+        """Draw the envelope profile overlay (or just the mass point) for a peak.
+
+        Always replaces whatever overlay was shown before, so a stale envelope
+        from a previous selection or a pre-recalculation state can never linger.
+        """
+
+        envelope = self._getEnvelopeData(peak)
+        if envelope:
+            profile = mspy.envelopeprofile(envelope, points=40)
+            if len(profile):
+                self.parent.updateTmpSpectrum(
+                    profile,
+                    fillUnder=True,
+                    fillUnderAlpha=115,
+                    showOutline=False,
+                )
+                self.parent.updateMassPoints([x[0] for x in envelope["isotopes"]])
+                return
+
+        self.parent.updateTmpSpectrum(None)
+        self.parent.updateMassPoints([peak.mz])
 
     # ----
 
@@ -877,6 +893,7 @@ class panelPeaklist(wx.Panel):
             "labelEnvelope": d["labelEnvelope"],
             "envelopeIntensity": d["envelopeIntensity"],
             "envelopeNonIdeality": d["envelopeNonIdeality"],
+            "averagineType": d.get("averagineType", "protein"),
             "seedCharge": seedCharge,
         }
 
@@ -1061,6 +1078,11 @@ class panelPeaklist(wx.Panel):
     def setData(self, document):
         """Set new document."""
 
+        # switching documents: drop the remembered selection so it is not
+        # carried over (by m/z) onto an unrelated peak in the new document
+        if document is not self.currentDocument:
+            self._selectedMz = None
+
         # set new data
         self.currentDocument = document
 
@@ -1090,12 +1112,20 @@ class panelPeaklist(wx.Panel):
         self.selectedPeak = None
         self.updatePeakEditor(None)
 
+        # Drop any drawn envelope: the rebuilt list has no selection, so a
+        # profile left over from before the rebuild (a now-recalculated or
+        # deleted envelope) must not stay on screen. We do NOT re-select here --
+        # that would yank the user back to the old envelope whenever they edit
+        # or label a peak elsewhere. Undo/redo restores the selection explicitly
+        # (see restoreEnvelopeSelection), which is the only place it is wanted.
+        self.parent.updateTmpSpectrum(None)
+
         # check data
         if not self.currentDocument:
             self.peaksCount.SetLabel("")
             self.peakListMap = None
             self.peakList.setDataMap(None)
-            self.parent.updateTmpSpectrum(None)
+            self._selectedMz = None
             self._ignore_selection_events = False
             return
 
@@ -1164,6 +1194,56 @@ class panelPeaklist(wx.Panel):
                 self.peakList.EnsureVisible(0)
 
         wx.CallAfter(lambda: setattr(self, '_ignore_selection_events', False))
+
+    # ----
+
+    def restoreEnvelopeSelection(self):
+        """Re-select the previously selected peak and redraw its envelope.
+
+        Called after undo/redo, where the spectrum is replaced and the list is
+        rebuilt with no selection. We deliberately restore the selection (and
+        bring it into view) only here -- an undo/redo is an explicit action on
+        that peak -- and never on ordinary edits, so labeling or editing a peak
+        elsewhere does not yank the user back to the old envelope.
+
+        Matching is by m/z, since row indices are not stable across a rebuild.
+        If the peak no longer exists (removed or merged) the overlay is left
+        cleared.
+        """
+
+        if self.currentDocument is None or self._selectedMz is None:
+            return
+
+        peaklist = self.currentDocument.spectrum.peaklist
+        if not len(peaklist):
+            return
+
+        # nearest peak by m/z; reject if it is not essentially the same peak
+        targetMz = self._selectedMz
+        bestIndex = min(
+            range(len(peaklist)), key=lambda i: abs(peaklist[i].mz - targetMz)
+        )
+        if abs(peaklist[bestIndex].mz - targetMz) > 0.1:
+            return
+
+        # map the peaklist index back to its (sorted) display row
+        row = -1
+        for r in range(self.peakList.GetItemCount()):
+            if self.peakList.GetItemData(r) == bestIndex:
+                row = r
+                break
+        if row == -1:
+            return
+
+        peak = peaklist[bestIndex]
+        self.selectedPeak = bestIndex
+        self._selectedMz = peak.mz
+        # selection events may be suppressed during the rebuild, so draw directly
+        self.peakList.Select(row)
+        self.peakList.Focus(row)
+        self.peakList.EnsureVisible(row)
+        self._renderEnvelope(peak)
+        self.updatePeakEditor(peak)
 
     # ----
 
