@@ -927,7 +927,7 @@ def loadConfig(path=os.path.join(confdir, "config.xml")):  # noqa: B008
         if deisotopingTags:
             _getParams(deisotopingTags[0], processing["deisotoping"])
             processing["deisotoping"]["envelopeNonIdeality"] = min(
-                max(processing["deisotoping"]["envelopeNonIdeality"], 0.0), 0.5
+                max(processing["deisotoping"]["envelopeNonIdeality"], 0.0), 1.0
             )
             if processing["deisotoping"]["averagineType"] not in (
                 "protein",

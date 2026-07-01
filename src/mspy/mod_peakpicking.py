@@ -882,6 +882,71 @@ def _cluster_isotope_model(
 # ----
 
 
+def _isotonic_nondecreasing(values):
+    """Least-squares non-decreasing fit via pool-adjacent-violators (PAVA).
+
+    Returns the closest (in squared error) non-decreasing sequence to `values`.
+    PAVA only ever replaces a run of points by their mean, so the sum of the
+    output equals the sum of the input exactly -- which is what lets the
+    unimodal projection below preserve the total envelope area.
+    """
+
+    stack = []  # each entry is a [sum, count] pool, left to right
+    for value in values:
+        pool_sum = float(value)
+        pool_count = 1
+        # merge while the previous pool's mean exceeds this one's (a violation)
+        while stack and stack[-1][0] / stack[-1][1] > pool_sum / pool_count:
+            prev_sum, prev_count = stack.pop()
+            pool_sum += prev_sum
+            pool_count += prev_count
+        stack.append([pool_sum, pool_count])
+
+    out = numpy.empty(len(values), dtype=float)
+    i = 0
+    for pool_sum, pool_count in stack:
+        out[i:i + pool_count] = pool_sum / pool_count
+        i += pool_count
+    return out
+
+
+def _project_unimodal(weights):
+    """Closest (least-squares) unimodal sequence to `weights`, area-preserving.
+
+    A single-species isotope envelope is unimodal: its weights rise (weakly) to a
+    peak isotope and fall thereafter -- they never dip in the middle and rise
+    again. When a wide non-ideality band lets observed noise or an overlapping
+    species push an interior isotope down (a notch) or to zero (a gap), the
+    blended weights can stop being unimodal. This projects them back onto the
+    nearest unimodal shape.
+
+    Every candidate peak position splits the weights into a non-decreasing prefix
+    and a non-increasing suffix, each fitted by PAVA; the concatenation of a
+    non-decreasing run followed by a non-increasing run is unimodal for any split,
+    and PAVA preserves each part's sum, so the total (the envelope area) is
+    conserved. The split with the smallest squared error is kept.
+    """
+
+    w = numpy.asarray(weights, dtype=float)
+    n = len(w)
+    if n <= 2:
+        # any sequence of length <= 2 is already unimodal
+        return w.copy()
+
+    best_fit = w.copy()
+    best_err = numpy.inf
+    for split in range(n + 1):
+        left = _isotonic_nondecreasing(w[:split])
+        # a non-increasing fit is a non-decreasing fit of the reversed data
+        right = _isotonic_nondecreasing(w[split:][::-1])[::-1]
+        fit = numpy.concatenate([left, right])
+        err = float(numpy.sum((fit - w) ** 2))
+        if err < best_err:
+            best_err = err
+            best_fit = fit
+    return best_fit
+
+
 def _soft_isotope_model(isotopes, x, y, fwhm, nonIdeality=None):
     """Reshape averagine isotopes toward observed evidence within a bounded band.
 
@@ -926,9 +991,11 @@ def _soft_isotope_model(isotopes, x, y, fwhm, nonIdeality=None):
     # is tiny -- can never be inflated by neighbouring noise or a partially
     # overlapping species to rival a much more abundant earlier isotope. Both
     # `theory` and `obs` are normalised to sum 1, so they are directly
-    # comparable here. The lower bound (>= 0.5*theory for d <= 0.5) also keeps
-    # the support continuous, so no internal gaps can open up.
-    deviation = max(0.0, min(float(nonIdeality), 0.50))
+    # comparable here. At the upper limit (deviation == 1.0) the lower bound
+    # reaches 0, so an interior isotope could be driven to zero; the unimodality
+    # guard applied after the band clip below repairs any resulting notch/gap,
+    # so the envelope always stays a plausible single-species isotope pattern.
+    deviation = max(0.0, min(float(nonIdeality), 1.0))
     upper = (1.0 + deviation) * theory
     lower = (1.0 - deviation) * theory
 
@@ -945,19 +1012,40 @@ def _soft_isotope_model(isotopes, x, y, fwhm, nonIdeality=None):
     # inside their own bounds. theory sums to 1 and the band spans [1-d, 1+d]
     # around it, so a feasible sum-1 solution always exists and is reached in a
     # single proportional pass (the loop just absorbs floating-point drift).
-    for _ in range(4):
-        residual = 1.0 - float(numpy.sum(blended))
-        if abs(residual) <= 1e-12:
-            break
-        if residual > 0.0:
-            slack = upper - blended
-        else:
-            slack = blended - lower
-        total_slack = float(numpy.sum(slack))
-        if total_slack <= 1e-12:
-            break
-        blended = blended + residual * (slack / total_slack)
-    blended = numpy.clip(blended, lower, upper)
+    def _renorm_in_band(vec):
+        for _ in range(4):
+            residual = 1.0 - float(numpy.sum(vec))
+            if abs(residual) <= 1e-12:
+                break
+            slack = (upper - vec) if residual > 0.0 else (vec - lower)
+            total_slack = float(numpy.sum(slack))
+            if total_slack <= 1e-12:
+                break
+            vec = vec + residual * (slack / total_slack)
+        return numpy.clip(vec, lower, upper)
+
+    blended = _renorm_in_band(blended)
+
+    # Unimodality guard. With a wide non-ideality band the per-isotope clip alone
+    # no longer keeps the envelope shaped like a real isotope pattern: observed
+    # noise or an overlapping species can push an interior weight down (a notch)
+    # or, at deviation == 1.0, to zero (a gap). Project back onto the nearest
+    # unimodal shape, re-apply the band, and restore the sum. The band edges are
+    # scaled copies of the unimodal `theory`, so clipping a unimodal vector to
+    # them keeps it unimodal once the projected peak aligns with theory's; a few
+    # alternating passes converge (theory itself is a feasible fixed point:
+    # unimodal, inside the band, summing to 1). Skipped when there is no observed
+    # evidence, since `theory` is already unimodal.
+    if obs_total > 0.0:
+        for _ in range(6):
+            shaped = _renorm_in_band(numpy.clip(_project_unimodal(blended), lower, upper))
+            if numpy.max(numpy.abs(shaped - blended)) <= 1e-9:
+                blended = shaped
+                break
+            blended = shaped
+        # Final projection guarantees an exactly unimodal, area-preserving result
+        # (PAVA conserves the sum, which is ~1 after the loop above).
+        blended = _project_unimodal(blended)
 
     blended_total = float(numpy.sum(blended))
     if blended_total <= 0.0:

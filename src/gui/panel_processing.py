@@ -2221,7 +2221,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
                 float(self.deisotopingEnvelopeNonIdeality_value.GetValue()) / 100.0
             )
             config.processing["deisotoping"]["envelopeNonIdeality"] = min(
-                max(nonIdeality, 0.0), 0.5
+                max(nonIdeality, 0.0), 1.0
             )
 
             averagineType = self.deisotopingAveragineType_choice.GetStringSelection()

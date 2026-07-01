@@ -120,6 +120,59 @@ def test_averagine_type_moves_fitted_area():
 
 
 # ---------------------------------------------------------------------------
+# Unimodality guard (wide non-ideality band)
+# ---------------------------------------------------------------------------
+
+
+def _is_unimodal(weights, tol=1e-9):
+    """True if weights rise (weakly) to a peak then fall -- no interior notch."""
+    peak = int(numpy.argmax(weights))
+    rising = all(weights[i] <= weights[i + 1] + tol for i in range(peak))
+    falling = all(weights[i] >= weights[i + 1] - tol for i in range(peak, len(weights) - 1))
+    return rising and falling
+
+
+def test_project_unimodal_removes_notch_and_conserves_area():
+    """A notched sequence is projected to a unimodal one with the same sum."""
+    notched = numpy.array([1.0, 0.2, 0.7, 0.3, 0.05])  # dip at index 1
+    fitted = mpp._project_unimodal(notched)
+    assert _is_unimodal(fitted)
+    assert float(numpy.sum(fitted)) == pytest.approx(float(numpy.sum(notched)))
+
+
+def test_project_unimodal_leaves_monotone_input_untouched():
+    """An already-unimodal envelope must pass through unchanged."""
+    good = numpy.array([1.0, 0.6, 0.3, 0.1])
+    fitted = mpp._project_unimodal(good)
+    assert fitted == pytest.approx(good)
+
+
+def test_soft_model_stays_unimodal_at_full_non_ideality():
+    """At nonIdeality=1.0 a mid-envelope notch in the data is repaired.
+
+    The observed profile dips hard at the +1 isotope (noise or an interfering
+    species), which a wide non-ideality band would otherwise carve straight into
+    the modeled envelope. The unimodality guard must keep the fitted weights a
+    plausible single-species pattern -- monotone down from the monoisotope here --
+    while conserving the total (sum 1) so the area stays meaningful.
+    """
+
+    theory = [(1000.0, 1.0), (1001.0, 0.6), (1002.0, 0.3), (1003.0, 0.1)]
+    x = numpy.linspace(999.5, 1003.5, 400)
+    sigma = mpp._fwhm_to_sigma(0.05)
+    heights = [1.0, 0.05, 0.35, 0.09]  # deep notch at +1
+    y = numpy.zeros_like(x)
+    for (mz, _), h in zip(theory, heights, strict=True):
+        y += h * numpy.exp(-0.5 * ((x - mz) / sigma) ** 2)
+
+    fitted = mpp._soft_isotope_model(theory, x, y, 0.05, nonIdeality=1.0)
+    weights = numpy.array([w for _, w in fitted])
+
+    assert _is_unimodal(weights)
+    assert float(numpy.sum(weights)) == pytest.approx(1.0, abs=1e-6)
+
+
+# ---------------------------------------------------------------------------
 # Overlapping envelopes (core failure mode)
 # ---------------------------------------------------------------------------
 
