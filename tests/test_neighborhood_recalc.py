@@ -118,9 +118,12 @@ def test_recalc_is_idempotent(envelope_params):
 
     env1 = next(p.attributes["envelope"] for p in first if p.attributes.get("envelope"))
     env2 = next(p.attributes["envelope"] for p in again if p.attributes.get("envelope"))
+    # the isotope grid is rebuilt exactly from stored metadata
     assert [round(mz, 6) for mz, _ in env1["isotopes"]] == \
         [round(mz, 6) for mz, _ in env2["isotopes"]]
-    assert env2["area"] == pytest.approx(env1["area"], rel=1e-6)
+    # FWHM is always re-measured, so the re-fit area may vary by a negligible
+    # amount (sub-0.1%); it must stay essentially the same, not drift materially
+    assert env2["area"] == pytest.approx(env1["area"], rel=1e-3)
 
 
 def test_missing_fwhm_filled_from_profile(envelope_params):
@@ -150,3 +153,58 @@ def test_refresh_missing_fwhm_helper(envelope_params):
     preset = mspy.peaklist([mspy.peak(mz=1000.0, ai=100.0, fwhm=0.123)])
     mpp._refresh_missing_fwhm_from_profile(preset, profile)
     assert preset[0].fwhm == pytest.approx(0.123)
+
+
+def test_refresh_recompute_overwrites_stale_fwhm(envelope_params):
+    """recompute=True re-measures every width, overwriting stale values."""
+    pl = build_envelope_peaklist(charge=1, height=1000.0, fwhm=0.05)
+    profile = mspy.profile(pl, fwhm=0.05, points=20)
+
+    # peaks carry a too-wide width from a superseded algorithm
+    stale = mspy.peaklist([mspy.peak(mz=p.mz, ai=p.ai, fwhm=0.5) for p in pl])
+    mpp._refresh_missing_fwhm_from_profile(stale, profile, recompute=True)
+    # re-measured from the 0.05-wide profile, not left at the stale 0.5
+    assert all(p.fwhm and p.fwhm < 0.2 for p in stale)
+
+
+def test_convert_recomputes_fwhm_for_old_peaks(envelope_params):
+    """Converting peaks that carry a stale FWHM re-measures it from the profile."""
+    pl = build_envelope_peaklist(charge=1, height=1000.0, fwhm=0.05)
+    profile = mspy.profile(pl, fwhm=0.05, points=20)
+
+    stale = mspy.peaklist(
+        [mspy.peak(mz=p.mz, ai=p.ai, charge=1, fwhm=0.5) for p in pl]
+    )
+    target = min(p.mz for p in stale)
+
+    result = mpp.recalculate_neighborhood_envelopes(stale, profile, [target], envelope_params)
+    labeled = [p for p in result if p.attributes.get("envelope")]
+    assert labeled
+    # the envelope width reflects a fresh measurement, not the stale 0.5
+    assert labeled[0].attributes["envelope"]["fwhm"] < 0.2
+
+
+def test_convert_recomputes_stored_envelope_fwhm(envelope_params):
+    """Re-converting an already-converted envelope re-measures its FWHM.
+
+    Converting envelopes must recompute FWHM in every case, including peaks that
+    already carry envelope metadata -- the stored width is refreshed from the
+    profile so a value baked in by a superseded algorithm is replaced.
+    """
+    pl = build_envelope_peaklist(charge=1, height=1000.0, fwhm=0.05)
+    profile = mspy.profile(pl, fwhm=0.05, points=20)
+    target = min(p.mz for p in pl)
+
+    first = mpp.recalculate_neighborhood_envelopes(pl, profile, [target], envelope_params)
+    env_peak = next(p for p in first if p.attributes.get("envelope"))
+
+    # simulate a width that a previous algorithm baked into the stored envelope
+    env_peak.setfwhm(0.5)
+    env_peak.attributes["envelope"]["fwhm"] = 0.5
+
+    again = mpp.recalculate_neighborhood_envelopes(
+        first, profile, [env_peak.mz], envelope_params
+    )
+    labeled = next(p for p in again if p.attributes.get("envelope"))
+    # re-measured from the 0.05-wide profile, not left at the stale 0.5
+    assert labeled.attributes["envelope"]["fwhm"] < 0.2

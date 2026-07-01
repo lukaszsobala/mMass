@@ -163,35 +163,128 @@ def signal_centroid(array, x, height):
 
 
 @njit
+def _median1d(a):
+    """Median of a 1-D array (Numba-friendly, avoids np.median dependency)."""
+    b = np.sort(a)
+    k = len(b)
+    if k == 0:
+        return 0.0
+    if k % 2 == 1:
+        return b[k // 2]
+    return 0.5 * (b[k // 2 - 1] + b[k // 2])
+
+
+@njit
+def _flank_halfwidth(array, apex, apex_x, apex_h, level, direction):
+    """Interpolated apex-to-`level` distance along one flank.
+
+    Walks outward from `apex` in `direction` (+1 right, -1 left) to the first
+    sample at or below `level`, then linearly interpolates the exact crossing.
+    Returns 0.0 (an invalid sentinel) when the flank is obscured -- it climbs a
+    higher-than-apex neighbour, or runs off the end of the array, before it
+    crosses -- so an overlapping/merged side is dropped from the estimate.
+    """
+    n = len(array)
+    prev_x = apex_x
+    prev_y = apex_h
+    i = apex + direction
+    while 0 <= i < n:
+        y = array[i, 1]
+        x = array[i, 0]
+        if y > apex_h * 1.01:
+            return 0.0
+        if y <= level:
+            if prev_y == y:
+                cross_x = x
+            else:
+                t = (prev_y - level) / (prev_y - y)
+                cross_x = prev_x + t * (x - prev_x)
+            d = cross_x - apex_x
+            return d if d >= 0.0 else -d
+        prev_x = x
+        prev_y = y
+        i += direction
+    return 0.0
+
+
+@njit
 def signal_width(array, x, height):
+    """Robust FWHM of the peak nearest `x`.
+
+    Reading the width at the single half-maximum crossing is fragile: one noisy
+    sample, the sampling grid, or a neighbour merging into one flank throws it
+    off. Instead probe BOTH flanks at several relative heights and, assuming a
+    locally Gaussian peak, convert each half-width into an implied sigma
+    (half-width d at fraction f of the peak satisfies d = sigma*sqrt(-2 ln f)).
+    The MEDIAN of all valid probes is returned as FWHM, so an overlapping
+    neighbour -- which only inflates the low-level widths on the affected flank
+    -- is rejected as an outlier instead of blowing up the width. `height` is the
+    half-maximum the caller measured, which pins the baseline via
+    height = base + 0.5*(apex - base).
+    """
+    n = len(array)
     idx = np.searchsorted(array[:, 0], x)
-    if idx == 0 or idx >= len(array):
+    if idx <= 0 or idx >= n:
         return 0.0
 
-    # Make sure we use the closest actual peak apex
-    if idx > 0 and abs(array[idx - 1, 0] - x) < abs(array[idx, 0] - x):
+    # snap to the nearer of the two bracketing samples -> apex
+    if abs(array[idx - 1, 0] - x) < abs(array[idx, 0] - x):
         idx = idx - 1
+    apex_x = array[idx, 0]
+    apex_h = array[idx, 1]
 
-    apex_height = array[idx, 1]
-
-    ileft = idx - 1
-    while ileft > 0 and array[ileft, 1] > height:
-        # If we climb up another peak that is higher than this peak's apex, stop.
-        # This prevents shoulder peaks from claiming the width of the giant main peak.
-        # Allow a tiny 1% noise tolerance.
-        if array[ileft, 1] > apex_height * 1.01:
-            break
-        ileft -= 1
-
-    iright = idx + 1
-    while iright < len(array) and array[iright, 1] > height:
-        if array[iright, 1] > apex_height * 1.01:
-            break
-        iright += 1
-
-    if ileft >= iright:
+    # recover the baseline implied by the caller's half-max height
+    base = 2.0 * height - apex_h
+    if base < 0.0:
+        base = 0.0
+    span = apex_h - base
+    if span <= 0.0:
         return 0.0
-    return array[iright, 0] - array[ileft, 0]
+
+    # relative heights to probe, kept away from the apex and the baseline where
+    # the Gaussian half-width -> sigma mapping is ill-conditioned
+    fracs = (0.75, 0.65, 0.55, 0.45, 0.35, 0.25)
+    nf = len(fracs)
+    lest = np.empty(nf, dtype=np.float64)
+    rest = np.empty(nf, dtype=np.float64)
+    lm = 0
+    rm = 0
+    for fi in range(nf):
+        f = fracs[fi]
+        level = base + f * span
+        denom = np.sqrt(-2.0 * np.log(f))  # d = sigma * sqrt(-2 ln f)
+        dl = _flank_halfwidth(array, idx, apex_x, apex_h, level, -1)
+        if dl > 0.0:
+            lest[lm] = dl / denom
+            lm += 1
+        dr = _flank_halfwidth(array, idx, apex_x, apex_h, level, 1)
+        if dr > 0.0:
+            rest[rm] = dr / denom
+            rm += 1
+
+    if lm == 0 and rm == 0:
+        return 0.0
+
+    # Aggregate each flank separately (median over levels rejects per-flank
+    # noise), then combine. When the two flanks disagree strongly one of them is
+    # merged with a neighbour, so trust the narrower (clean) flank; otherwise the
+    # peak is roughly symmetric and both flanks are averaged for a steadier value.
+    if lm > 0 and rm > 0:
+        sl = _median1d(lest[:lm])
+        sr = _median1d(rest[:rm])
+        lo = sl if sl < sr else sr
+        hi = sr if sl < sr else sl
+        # instrument peaks are near-symmetric at half-max, so >20% flank
+        # disagreement means one side is merged with a neighbour -> trust the
+        # narrower (clean) flank; otherwise average the two for a steadier value
+        sigma = lo if hi > 1.2 * lo else 0.5 * (sl + sr)
+    elif lm > 0:
+        sigma = _median1d(lest[:lm])
+    else:
+        sigma = _median1d(rest[:rm])
+
+    # FWHM = 2 * sqrt(2 ln 2) * sigma
+    return 2.3548200450309493 * sigma
 
 
 def signal_area(array):

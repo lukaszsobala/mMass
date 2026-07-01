@@ -50,6 +50,37 @@ def test_width_matches_fwhm():
     assert mod_signal.width(prof, 1000.0, 500.0) == pytest.approx(0.1, abs=0.02)
 
 
+def _gauss(x, mu, h, fwhm):
+    sigma = fwhm / (2.0 * numpy.sqrt(2.0 * numpy.log(2.0)))
+    return h * numpy.exp(-0.5 * ((x - mu) / sigma) ** 2)
+
+
+def test_width_is_robust_to_merged_neighbour():
+    """A broad neighbour merging one flank must not blow up the measured FWHM.
+
+    This is the crowded-spectrum failure mode: a small peak sitting on the flank
+    of a broad, lower neighbour. Reading the width at the lone half-max crossing
+    let the merged flank run far out and grossly overestimated the width (and
+    hence the area). The multi-level, per-flank estimate must reject the merged
+    side and stay close to the peak's true FWHM.
+    """
+    x = numpy.linspace(1441.0, 1449.0, 1600).astype(numpy.float64)
+    y = _gauss(x, 1443.737, 6.13, 0.12) + _gauss(x, 1444.35, 5.2, 0.9)
+    signal = numpy.column_stack((x, y)).astype(numpy.float64)
+
+    fwhm = mod_signal.width(signal, 1443.737, 6.13 / 2.0)
+    # true width is 0.12; must stay well under the old single-crossing blow-up
+    assert fwhm == pytest.approx(0.12, abs=0.03)
+
+
+def test_width_clean_peak_unaffected_by_probing():
+    """An isolated symmetric peak is measured accurately (no bias from probing)."""
+    x = numpy.linspace(998.0, 1002.0, 1200).astype(numpy.float64)
+    y = _gauss(x, 1000.0, 1000.0, 0.1)
+    signal = numpy.column_stack((x, y)).astype(numpy.float64)
+    assert mod_signal.width(signal, 1000.0, 500.0) == pytest.approx(0.1, abs=0.005)
+
+
 def test_maxima_finds_single_peak():
     prof = _gaussian_profile()
     assert len(mod_signal.maxima(prof)) == 1

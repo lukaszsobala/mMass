@@ -2308,19 +2308,34 @@ def deisotope(
 # ----
 
 
-def _refresh_missing_fwhm_from_profile(peaklist, profile):
-    """Fill missing FWHM values from profile signal at each peak m/z."""
+def _refresh_missing_fwhm_from_profile(peaklist, profile, recompute=False):
+    """Refresh FWHM values from the profile signal at each peak m/z.
+
+    By default only peaks with a missing/zero FWHM are filled in. With
+    ``recompute=True`` EVERY peak's FWHM is re-measured from the profile,
+    overwriting any stale value -- needed when the FWHM algorithm has changed and
+    the caller wants freshly measured widths (e.g. "Convert to Envelopes"). Peaks
+    that carry stored envelope metadata (rebuilt via
+    _reconstruct_cluster_from_envelope, which prefers the stored FWHM) also get
+    that stored value refreshed, so the freshly measured width is the one
+    actually used. An existing value is only replaced by a valid new measurement,
+    so a failed re-measurement never wipes a usable FWHM.
+    """
 
     if profile is None or len(profile) == 0:
         return
 
     for peak in peaklist:
-        if peak.fwhm and peak.fwhm > 0.0:
+        if not recompute and peak.fwhm and peak.fwhm > 0.0:
             continue
 
         labeled = labelpoint(signal=profile, mz=peak.mz)
         if labeled and labeled.fwhm and labeled.fwhm > 0.0:
             peak.setfwhm(labeled.fwhm)
+            if recompute and hasattr(peak, "attributes"):
+                stored = peak.attributes.get("envelope")
+                if isinstance(stored, dict) and stored.get("fwhm"):
+                    stored["fwhm"] = labeled.fwhm
 
 
 # ----
@@ -2376,7 +2391,10 @@ def recalculate_neighborhood_envelopes(peaklist, profile, mzs, params):
         return peaklist
 
     localPeaklist = obj_peaklist.peaklist(localPeaks)
-    _refresh_missing_fwhm_from_profile(localPeaklist, profile)
+    # Re-measure FWHM for every local peak (not just missing ones): peaks carried
+    # over from an earlier run may hold FWHM values from a superseded algorithm,
+    # and "convert to envelopes" must reflect the current measurement.
+    _refresh_missing_fwhm_from_profile(localPeaklist, profile, recompute=True)
 
     # Existing charges are respected; seedCharge is only a fallback for peaks
     # that carry no charge assignment yet.
