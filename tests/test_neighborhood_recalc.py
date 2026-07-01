@@ -25,6 +25,41 @@ def _spectrum(formula="C50H80N14O18", charge=1, height=1000.0, fwhm=0.05, extra=
     return combined, profile
 
 
+def _find_peaks_envelopes(formulas_heights, params, fwhm=0.05):
+    """Emulate the find-peaks pipeline: pick from a profile, deisotope, label.
+
+    Peaks are picked from the synthetic profile with labelpeak (so their FWHM is
+    measured from the signal exactly as the real picker does), then deisotoped and
+    labelled into envelopes. Returns (peaklist, profile) ready for a subsequent
+    "select all -> convert to envelopes".
+    """
+    peaks = []
+    for formula, height in formulas_heights:
+        peaks += list(build_envelope_peaklist(formula=formula, charge=1, height=height, fwhm=fwhm))
+    profile = mspy.profile(mspy.peaklist(peaks), fwhm=fwhm, points=20)
+    picked = [pk for pk in (mpp.labelpeak(signal=profile, mz=p.mz) for p in peaks) if pk]
+    fp = mspy.peaklist(picked)
+    avg = params.get("averagineType", "protein")
+    fp.deisotope(
+        maxCharge=params["maxCharge"],
+        mzTolerance=params["massTolerance"],
+        intTolerance=params["intTolerance"],
+        respectCharge=False,
+        averagineType=avg,
+    )
+    fp.labelenvelopes(
+        label=params["labelEnvelope"],
+        intensity=params["envelopeIntensity"],
+        mzTolerance=params["massTolerance"],
+        signal=profile,
+        defaultFwhm=fwhm,
+        nonIdeality=params["envelopeNonIdeality"],
+        relaxed=True,
+        averagineType=avg,
+    )
+    return fp, profile
+
+
 # ---------------------------------------------------------------------------
 # No-op detection (returns the same object by identity)
 # ---------------------------------------------------------------------------
@@ -342,3 +377,92 @@ def test_convert_recomputes_stored_envelope_fwhm(envelope_params):
     labeled = next(p for p in again if p.attributes.get("envelope"))
     # re-measured from the 0.05-wide profile, not left at the stale 0.5
     assert labeled.attributes["envelope"]["fwhm"] < 0.2
+
+
+def test_convert_reproduces_find_peaks_envelopes(envelope_params):
+    """'Find peaks' then 'select all -> convert to envelopes' must not diverge.
+
+    Converting the output of peak-picking has to reproduce the SAME envelopes it
+    started from: identical isotope shape (count) and matching area. This is the
+    idempotency contract between the two routes.
+
+    Regression for the reported divergence: converting a selection re-fit each
+    envelope from a bare monoisotopic seed (re-deriving its shape from the profile
+    via tail-extension) instead of rebuilding it from the stored envelope
+    metadata. That silently changed the isotope count (e.g. 5 -> 4, 6 -> 5) and
+    drifted the area, so areas/etc no longer matched what find-peaks reported.
+    Rebuilding from the stored isotope grid keeps the two routes consistent.
+    """
+    fp, profile = _find_peaks_envelopes(
+        [("C50H80N14O18", 1000.0), ("C70H110N18O22", 800.0), ("C90H140N24O28", 600.0)],
+        envelope_params,
+    )
+    fp_env = {
+        round(p.mz, 3): p.attributes["envelope"]
+        for p in fp
+        if p.attributes.get("envelope")
+    }
+    assert len(fp_env) >= 3, "expected find-peaks to yield several envelopes"
+
+    mzs = list(fp_env)
+    conv = mpp.recalculate_neighborhood_envelopes(
+        fp, profile, mzs, envelope_params, selectedOnly=True
+    )
+    cv_env = {
+        round(p.mz, 3): p.attributes["envelope"]
+        for p in conv
+        if p.attributes.get("envelope")
+    }
+
+    # same envelopes -- none added, lost or shifted
+    assert set(cv_env) == set(fp_env)
+    for mz, env in fp_env.items():
+        # the isotope shape is REBUILT from stored metadata, not re-derived: the
+        # count is the sharpest signal that the shape was reproduced faithfully
+        # (the bug dropped the last isotope of each envelope).
+        assert len(cv_env[mz]["isotopes"]) == len(env["isotopes"])
+        # and the area stays put rather than drifting from the picked value
+        assert cv_env[mz]["area"] == pytest.approx(env["area"], rel=0.01)
+
+
+def test_convert_reproduces_find_peaks_overlapping_areas(envelope_params):
+    """Overlapping envelopes: 'find peaks' and 'convert' must report the same area.
+
+    Regression for the overlapping-envelope divergence. find-peaks fuses two
+    overlapping envelopes into one bloated cluster whose theoretical weights sum
+    to ~N (duplicate isotope indices from the merge) instead of ~1, which deflated
+    the reported area ~N-fold; the converted route normalised to one envelope and
+    so disagreed. Normalising every shape to a single-envelope distribution in the
+    shared fit fixes the picked area AND makes the two routes agree. The whole
+    point of the joint pipeline is to reconstruct overlapping envelopes
+    consistently, so this must not regress.
+    """
+    fp, profile = _find_peaks_envelopes(
+        [
+            ("C42H66N12O15", 1000.0),
+            ("C42H68N12O15", 850.0),
+            ("C42H70N12O15", 700.0),
+            ("C42H72N12O15", 600.0),
+        ],
+        envelope_params,
+        fwhm=0.11,
+    )
+    envs = [p for p in fp if p.attributes.get("envelope")]
+    # this really is a crowded, merged region (not a set of clean 5-isotope runs)
+    assert any(len(p.attributes["envelope"]["isotopes"]) > 5 for p in envs)
+
+    # Select ALL envelope peaks at full-precision m/z, exactly as the GUI does on
+    # "select all" (crowded regions can carry several envelopes at the same m/z,
+    # so compare multisets of areas rather than a dict keyed on m/z).
+    fp_areas = sorted(p.attributes["envelope"]["area"] for p in envs)
+    all_mzs = [p.mz for p in envs]
+    conv = mpp.recalculate_neighborhood_envelopes(
+        fp, profile, all_mzs, envelope_params, selectedOnly=True
+    )
+    cv_areas = sorted(
+        p.attributes["envelope"]["area"] for p in conv if p.attributes.get("envelope")
+    )
+
+    assert len(cv_areas) == len(fp_areas)
+    for picked, converted in zip(fp_areas, cv_areas, strict=True):
+        assert converted == pytest.approx(picked, rel=0.02)

@@ -1564,27 +1564,44 @@ def _fit_group_areas(metas, x, y, nonIdeality):
     if nonIdeality is None:
         nonIdeality = ENVELOPE_NON_IDEALITY_DEFAULT
 
-    norm_ok = [sigma > 0.0 and bool(isotopes) for _fwhm, sigma, isotopes in metas]
+    norm_ok = [sigma > 0.0 and bool(isotopes) for _fwhm, sigma, isotopes, _stored in metas]
 
     # the theoretical (averagine) pattern is the default shape
-    shapes = [list(isotopes) for _fwhm, _sigma, isotopes in metas]
+    shapes = [list(isotopes) for _fwhm, _sigma, isotopes, _stored in metas]
 
     areaColumns = []
     monoColumns = []
-    for k, (fwhm, sigma, isotopes) in enumerate(metas):
+    for k, (fwhm, sigma, isotopes, storedShape) in enumerate(metas):
         if not norm_ok[k]:
             areaColumns.append(numpy.zeros(len(x), dtype=float))
             monoColumns.append(numpy.zeros(len(x), dtype=float))
             continue
 
-        # bend the pattern toward the data only when this envelope stands alone;
-        # in an overlap group the rigid averagine pattern keeps the apportionment
-        # honest (a flexing tail must not be able to claim a neighbour's peak)
-        if K == 1:
+        # Overlap group with a stored shape: reuse it verbatim so re-fitting an
+        # already-picked envelope reproduces its area (merged/irregular grids
+        # cannot be reconstructed from positions alone). Otherwise bend the
+        # pattern toward the data only when this envelope stands alone; in an
+        # overlap group the rigid averagine pattern keeps the apportionment honest
+        # (a flexing tail must not be able to claim a neighbour's peak).
+        if K > 1 and storedShape is not None:
+            shaped = storedShape
+        elif K == 1:
             shaped = _soft_isotope_model(isotopes, x, y, fwhm, nonIdeality=nonIdeality)
-            shapes[k] = shaped
         else:
             shaped = isotopes
+
+        # Normalise every shape to a single-envelope distribution (weights sum to
+        # 1) so the fitted area is on the same scale for all clusters and both
+        # routes agree. `_cluster_weights` returns pattern[idx]/pattern_total, so a
+        # clean cluster already sums to ~1, but a bloated MERGED cluster (duplicate
+        # isotope indices from find-peaks fusing two overlapping envelopes) sums to
+        # ~N and would otherwise have its area deflated ~N-fold -- the picked vs
+        # converted divergence. The share (monoColumn) is invariant to this scaling
+        # (areaColumn and w0 scale together), so apportionment is unaffected.
+        sShaped = math.fsum(w for _, w in shaped)
+        if sShaped > 0.0:
+            shaped = [(mz, w / sShaped) for mz, w in shaped]
+        shapes[k] = shaped
 
         # area-normalised column (unit coefficient integrates to one) for the
         # per-envelope amplitude fit, and the same column scaled so its
@@ -1662,7 +1679,21 @@ def _fit_envelope_areas_shaped(
         sigma = _fwhm_to_sigma(fwhm)
         weights = _cluster_weights(cluster, averagineType=averagineType)
         isotopes = [(p.mz, w) for p, w in zip(cluster, weights, strict=True)]
-        metas.append((fwhm, sigma, isotopes))
+
+        # the exact fitted shape carried over from a stored envelope (only when
+        # every peak has one, i.e. this cluster was rebuilt from an envelope). It
+        # lets an overlap fit reproduce the picked area instead of re-deriving a
+        # shape that differs for merged/irregular isotope grids.
+        storedW = [p.attributes.get("_envweight") for p in cluster]
+        storedShape = None
+        if all(w is not None for w in storedW):
+            tot = sum(max(0.0, float(w)) for w in storedW)
+            if tot > 0.0:
+                storedShape = [
+                    (p.mz, max(0.0, float(w)) / tot)
+                    for p, w in zip(cluster, storedW, strict=True)
+                ]
+        metas.append((fwhm, sigma, isotopes, storedShape))
 
         mzs = [p.mz for p in cluster]
         pad = 6.0 * max(fwhm, defaultFwhm)
@@ -1724,6 +1755,14 @@ def _reconstruct_cluster_from_envelope(parent, envelope):
     isotopes = envelope.get("isotopes") or []
     fwhm = envelope.get("fwhm") or parent.fwhm
 
+    # true isotope spacing, so the isotope index of each stored position reflects
+    # its m/z (not its list order). A stored shape can hold irregular or repeated
+    # positions -- e.g. one merged from two overlapping envelopes -- for which the
+    # list index would be wrong; the m/z-derived index keeps `_cluster_weights`
+    # consistent with what peak-picking used.
+    monoMz = float(isotopes[0][0]) if isotopes else parent.mz
+    spacing = ISOTOPE_DISTANCE / abs(parent.charge) if parent.charge else ISOTOPE_DISTANCE
+
     cluster = []
     for i, iso in enumerate(isotopes):
         peak = copy.deepcopy(parent)
@@ -1736,7 +1775,16 @@ def _reconstruct_cluster_from_envelope(parent, envelope):
         if fwhm:
             peak.setfwhm(fwhm)
         peak.setcharge(parent.charge)
-        peak.setisotope(i)
+        if spacing > 0.0:
+            peak.setisotope(int(round((float(iso[0]) - monoMz) / spacing)))
+        else:
+            peak.setisotope(i)
+        # remember the exact fitted weight. For OVERLAPPING (K>1) clusters the fit
+        # reuses it so re-fitting reproduces the stored shape (and area) that
+        # peak-picking produced -- irregular/merged shapes cannot be re-derived
+        # from positions alone. Isolated (K==1) envelopes ignore it and re-soften
+        # from the theoretical pattern, so a changed algorithm still re-derives.
+        peak.attributes["_envweight"] = float(iso[1])
         cluster.append(peak)
 
     return cluster
@@ -1789,22 +1837,20 @@ def relabelenvelopes(
             continue
 
         # If this peak already carries a detected envelope (e.g. re-running
-        # detection on already-converted peaks), rebuild its cluster exactly
-        # from the stored isotope positions so the result is idempotent. The
-        # area is re-fit below like every other cluster. In preserveSeeds mode
-        # each selected peak must stay a distinct envelope, so we ignore the
-        # stored multi-isotope span (which would re-absorb neighbouring seeds)
-        # and re-seed it from the single peak instead.
+        # detection on already-converted peaks, or converting the output of
+        # find-peaks), rebuild its cluster exactly from the stored isotope
+        # positions so the result is idempotent -- this is what keeps the
+        # peak-picking and "Convert to Envelopes" routes giving the same areas.
+        # The rebuild only deep-copies the parent onto the stored grid; it never
+        # consumes another peaklist peak, so it is safe under preserveSeeds (each
+        # selected peak still rebuilds its OWN envelope and none is absorbed).
+        # The area is re-fit below like every other cluster.
         storedEnvelope = (
             parent.attributes.get("envelope")
             if hasattr(parent, "attributes")
             else None
         )
-        if (
-            not preserveSeeds
-            and isinstance(storedEnvelope, dict)
-            and storedEnvelope.get("isotopes")
-        ):
+        if isinstance(storedEnvelope, dict) and storedEnvelope.get("isotopes"):
             used.add(x)
             clusters.append(_reconstruct_cluster_from_envelope(parent, storedEnvelope))
             continue
