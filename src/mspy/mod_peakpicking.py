@@ -1753,8 +1753,18 @@ def relabelenvelopes(
     nonIdeality=None,
     relaxed=False,
     averagineType=DEFAULT_AVERAGINE,
+    preserveSeeds=False,
 ):
-    """Convert deisotoped peak clusters to envelope labels."""
+    """Convert deisotoped peak clusters to envelope labels.
+
+    preserveSeeds (bool) - when True every input peak is kept as its own envelope
+        seed: peaks are never absorbed into one another, adjacent clusters are not
+        merged, and zero-area clusters are not pruned. Each seed's area is still
+        obtained from the single joint overlap-aware fit, so overlapping seeds
+        share the observed signal correctly ("many isotopes under one curve")
+        while none of the explicitly chosen peaks can vanish. Used by the
+        "convert to envelopes" action on an explicit selection.
+    """
 
     # check peaklist
     if not isinstance(peaklist, obj_peaklist.peaklist):
@@ -1781,13 +1791,20 @@ def relabelenvelopes(
         # If this peak already carries a detected envelope (e.g. re-running
         # detection on already-converted peaks), rebuild its cluster exactly
         # from the stored isotope positions so the result is idempotent. The
-        # area is re-fit below like every other cluster.
+        # area is re-fit below like every other cluster. In preserveSeeds mode
+        # each selected peak must stay a distinct envelope, so we ignore the
+        # stored multi-isotope span (which would re-absorb neighbouring seeds)
+        # and re-seed it from the single peak instead.
         storedEnvelope = (
             parent.attributes.get("envelope")
             if hasattr(parent, "attributes")
             else None
         )
-        if isinstance(storedEnvelope, dict) and storedEnvelope.get("isotopes"):
+        if (
+            not preserveSeeds
+            and isinstance(storedEnvelope, dict)
+            and storedEnvelope.get("isotopes")
+        ):
             used.add(x)
             clusters.append(_reconstruct_cluster_from_envelope(parent, storedEnvelope))
             continue
@@ -1801,7 +1818,11 @@ def relabelenvelopes(
         # absolute window would, at high charge, be a large fraction of the
         # spacing and could match a neighbouring isotope or a foreign peak.
         chargeTol = mzTolerance / abs(parent.charge)
-        while True:
+        # In preserveSeeds mode we never absorb the following peaks: each selected
+        # seed stays on its own so no chosen peak is swallowed by a neighbour. The
+        # envelope tail below is still grown from the profile, and the joint fit
+        # apportions the shared signal between overlapping seeds.
+        while not preserveSeeds:
             found = None
             found_isotope = None
             best_error = None
@@ -2035,13 +2056,17 @@ def relabelenvelopes(
     if not clusters:
         return copy.deepcopy(peaklist)
 
-    clusters = _merge_adjacent_clusters(
-        clusters,
-        mzTolerance,
-        isotopeShift,
-        relaxed=relaxed,
-        averagineType=averagineType,
-    )
+    # preserveSeeds keeps every selected seed as its own envelope: adjacent
+    # clusters are not fused together (that would make a chosen peak disappear
+    # into a neighbour).
+    if not preserveSeeds:
+        clusters = _merge_adjacent_clusters(
+            clusters,
+            mzTolerance,
+            isotopeShift,
+            relaxed=relaxed,
+            averagineType=averagineType,
+        )
 
     if not clusters:
         return copy.deepcopy(peaklist)
@@ -2054,14 +2079,17 @@ def relabelenvelopes(
         averagineType=averagineType,
     )
 
-    # Re-calculate NNLS areas as fallbacks if needed, but mainly prune zero ones
+    # Re-calculate NNLS areas as fallbacks if needed, but mainly prune zero ones.
+    # preserveSeeds keeps all clusters even at (near) zero area: the joint fit may
+    # apportion little signal to an overlapped seed, but the user selected it, so
+    # it must survive as its own envelope rather than being pruned away.
     max_area = max([a for a in areas]) if areas else 0.0
     pruned_clusters = []
     pruned_areas = []
     pruned_shapes = []
     for c, cluster in enumerate(clusters):
         a = float(max(0.0, areas[c])) if c < len(areas) else 0.0
-        if a > max_area * 1e-6 or len(clusters) == 1:
+        if preserveSeeds or a > max_area * 1e-6 or len(clusters) == 1:
             pruned_clusters.append(cluster)
             pruned_areas.append(a)
             pruned_shapes.append(shapes[c] if c < len(shapes) else [])
@@ -2341,7 +2369,7 @@ def _refresh_missing_fwhm_from_profile(peaklist, profile, recompute=False):
 # ----
 
 
-def recalculate_neighborhood_envelopes(peaklist, profile, mzs, params):
+def recalculate_neighborhood_envelopes(peaklist, profile, mzs, params, selectedOnly=False):
     """Re-run envelope detection on the m/z neighborhood around given peaks.
 
     Pure helper (no wx / no config dependency) extracted from the peaklist GUI
@@ -2361,6 +2389,13 @@ def recalculate_neighborhood_envelopes(peaklist, profile, mzs, params):
         labelEnvelope, envelopeIntensity, envelopeNonIdeality,
         seedCharge (optional, default 1),
         averagineType (optional, default "protein")
+    selectedOnly (bool) - when True, operate strictly on the peaks matching the
+        given m/z values (the explicit "convert to envelopes" action): no margin
+        window is added and neighbouring peaks are neither re-deisotoped nor
+        absorbed. The envelope tail is still reconstructed from the profile, so a
+        single monoisotopic seed yields a full envelope while its neighbours stay
+        in the list untouched. When False (default, the auto-recalc after a
+        delete / charge edit), the surrounding neighbourhood is re-fit as a whole.
     """
 
     if not mzs:
@@ -2373,60 +2408,101 @@ def recalculate_neighborhood_envelopes(peaklist, profile, mzs, params):
     maxCharge = max(1, abs(int(params["maxCharge"])))
     difference = (ISOTOPE_DISTANCE + isotopeShift) / float(maxCharge)
 
-    # Isotope spacing shrinks as 1/charge, so the neighborhood must be wide
-    # enough to capture a full envelope at the lowest charge (largest spacing).
-    margin = max(6.0 * difference, 8.0 * tolerance)
-    minMz = min(mzs) - margin
-    maxMz = max(mzs) + margin
-
     localPeaks = []
     outsidePeaks = []
-    for peak in peaklist:
-        if minMz <= peak.mz <= maxMz:
-            localPeaks.append(peak)
-        else:
-            outsidePeaks.append(peak)
+    if selectedOnly:
+        # Convert-to-envelopes: match each selected m/z to its own peak (nearest
+        # within tolerance) and touch nothing else. Neighbours -- including the
+        # selected peak's own isotope peaks if the user labelled them separately
+        # -- are preserved as-is, so an explicit selection is never widened and
+        # nothing silently vanishes from the list.
+        localIdx = set()
+        for target in mzs:
+            best = None
+            bestErr = tolerance
+            for i, peak in enumerate(peaklist):
+                if i in localIdx:
+                    continue
+                err = abs(peak.mz - target)
+                if err <= bestErr:
+                    best = i
+                    bestErr = err
+            if best is not None:
+                localIdx.add(best)
+        for i, peak in enumerate(peaklist):
+            (localPeaks if i in localIdx else outsidePeaks).append(peak)
+    else:
+        # Isotope spacing shrinks as 1/charge, so the neighborhood must be wide
+        # enough to capture a full envelope at the lowest charge (largest spacing).
+        margin = max(6.0 * difference, 8.0 * tolerance)
+        minMz = min(mzs) - margin
+        maxMz = max(mzs) + margin
+        for peak in peaklist:
+            if minMz <= peak.mz <= maxMz:
+                localPeaks.append(peak)
+            else:
+                outsidePeaks.append(peak)
 
     if not localPeaks:
         return peaklist
 
-    localPeaklist = obj_peaklist.peaklist(localPeaks)
-    # Re-measure FWHM for every local peak (not just missing ones): peaks carried
-    # over from an earlier run may hold FWHM values from a superseded algorithm,
-    # and "convert to envelopes" must reflect the current measurement.
-    _refresh_missing_fwhm_from_profile(localPeaklist, profile, recompute=True)
-
-    # Existing charges are respected; seedCharge is only a fallback for peaks
-    # that carry no charge assignment yet.
     averagineType = params.get("averagineType", DEFAULT_AVERAGINE)
-    localPeaklist.deisotope(
-        maxCharge=params["maxCharge"],
-        mzTolerance=tolerance,
-        intTolerance=params["intTolerance"],
-        isotopeShift=isotopeShift,
-        respectCharge=True,
-        seedCharge=int(params.get("seedCharge", 1)),
-        averagineType=averagineType,
-    )
-
-    defaultFwhm = 0.1
-    if localPeaklist.basepeak and localPeaklist.basepeak.fwhm:
-        defaultFwhm = localPeaklist.basepeak.fwhm
-
     hasProfile = profile is not None and len(profile) > 0
-    localPeaklist.labelenvelopes(
-        label=params["labelEnvelope"],
-        intensity=params["envelopeIntensity"],
-        mzTolerance=tolerance,
-        isotopeShift=isotopeShift,
-        signal=profile if hasProfile else None,
-        defaultFwhm=defaultFwhm,
-        nonIdeality=params["envelopeNonIdeality"],
-        relaxed=True,
-        averagineType=averagineType,
-    )
 
-    return obj_peaklist.peaklist(outsidePeaks + list(localPeaklist))
+    def _label_local(group, preserveSeeds=False):
+        """Deisotope + envelope-label one group of peaks, returning the result.
+
+        With preserveSeeds every peak in the group becomes its own envelope seed
+        (nothing is merged, absorbed or pruned away); their areas still come from
+        the single joint overlap-aware fit.
+        """
+        gpl = obj_peaklist.peaklist(group)
+        # Re-measure FWHM for every peak (not just missing ones): peaks carried
+        # over from an earlier run may hold FWHM values from a superseded
+        # algorithm, and "convert to envelopes" must reflect the current
+        # measurement.
+        _refresh_missing_fwhm_from_profile(gpl, profile, recompute=True)
+
+        # Existing charges are respected; seedCharge is only a fallback for peaks
+        # that carry no charge assignment yet.
+        gpl.deisotope(
+            maxCharge=params["maxCharge"],
+            mzTolerance=tolerance,
+            intTolerance=params["intTolerance"],
+            isotopeShift=isotopeShift,
+            respectCharge=True,
+            seedCharge=int(params.get("seedCharge", 1)),
+            averagineType=averagineType,
+        )
+
+        if preserveSeeds:
+            # Deisotoping chains contiguous peaks (isotope 1, 2, ...); reset every
+            # peak to a monoisotopic seed so each selected peak is labelled as its
+            # own envelope instead of being folded into a neighbour.
+            for p in gpl:
+                p.setisotope(0)
+
+        defaultFwhm = 0.1
+        if gpl.basepeak and gpl.basepeak.fwhm:
+            defaultFwhm = gpl.basepeak.fwhm
+
+        gpl.labelenvelopes(
+            label=params["labelEnvelope"],
+            intensity=params["envelopeIntensity"],
+            mzTolerance=tolerance,
+            isotopeShift=isotopeShift,
+            signal=profile if hasProfile else None,
+            defaultFwhm=defaultFwhm,
+            nonIdeality=params["envelopeNonIdeality"],
+            relaxed=True,
+            averagineType=averagineType,
+            preserveSeeds=preserveSeeds,
+        )
+        return list(gpl)
+
+    labeled = _label_local(localPeaks, preserveSeeds=selectedOnly)
+
+    return obj_peaklist.peaklist(outsidePeaks + labeled)
 
 
 # ----

@@ -1509,6 +1509,7 @@ class panelPeaklist(wx.Panel):
             spectrum.profile,
             mzs,
             self._envelopeParams(seedCharge=seedCharge),
+            selectedOnly=True,
         )
 
         # identity means the helper found no peaks in the neighborhood -> no-op

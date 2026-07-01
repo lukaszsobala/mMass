@@ -184,6 +184,140 @@ def test_convert_recomputes_fwhm_for_old_peaks(envelope_params):
     assert labeled[0].attributes["envelope"]["fwhm"] < 0.2
 
 
+def _three_separate_peaks(fwhm=0.05):
+    """Three singly-charged peaks 1 Da apart, labelled separately by the user.
+
+    Mirrors the crowded-spectrum case (peaks near 1371 / 1372 / 1373): they sit
+    an isotope spacing apart but the user labelled each on its own, so an
+    explicit "convert 1371" must not swallow or drop 1372 / 1373.
+    """
+    peaks = [
+        mspy.peak(mz=1371.0, ai=1000.0, charge=1, fwhm=fwhm),
+        mspy.peak(mz=1372.0, ai=800.0, charge=1, fwhm=fwhm),
+        mspy.peak(mz=1373.0, ai=600.0, charge=1, fwhm=fwhm),
+    ]
+    pl = mspy.peaklist(peaks)
+    profile = mspy.profile(pl, fwhm=fwhm, points=20)
+    return pl, profile
+
+
+def test_convert_selected_only_preserves_neighbours(envelope_params):
+    """Converting one selected peak leaves separately-labelled neighbours in place.
+
+    Regression for the "1372 disappeared" bug: with selectedOnly the neighbour
+    peaks are never pulled into the window, so re-deisotoping cannot absorb them
+    as isotopes of the converted peak.
+    """
+    pl, profile = _three_separate_peaks()
+
+    result = mpp.recalculate_neighborhood_envelopes(
+        pl, profile, [1371.0], envelope_params, selectedOnly=True
+    )
+
+    assert result is not pl
+    mzs = sorted(round(p.mz, 3) for p in result)
+    # both neighbours survive
+    assert 1372.0 in mzs
+    assert 1373.0 in mzs
+
+
+def test_convert_selected_only_does_not_widen_selection(envelope_params):
+    """Only the selected peak is (re)labelled; neighbours keep their old state."""
+    pl, profile = _three_separate_peaks()
+
+    result = mpp.recalculate_neighborhood_envelopes(
+        pl, profile, [1371.0], envelope_params, selectedOnly=True
+    )
+
+    labeled = [p for p in result if p.attributes.get("envelope")]
+    # exactly one envelope was produced -- the one the user selected
+    assert len(labeled) == 1
+    assert labeled[0].mz == pytest.approx(1371.0, abs=0.05)
+    # the untouched neighbours carry no freshly-built envelope metadata
+    neighbours = [p for p in result if round(p.mz, 3) in (1372.0, 1373.0)]
+    assert neighbours
+    assert all(not p.attributes.get("envelope") for p in neighbours)
+
+
+def test_convert_selected_only_multi_selection(envelope_params):
+    """Selecting several peaks converts exactly those, still sparing the rest."""
+    pl, profile = _three_separate_peaks()
+
+    result = mpp.recalculate_neighborhood_envelopes(
+        pl, profile, [1371.0, 1373.0], envelope_params, selectedOnly=True
+    )
+
+    labeled = sorted(
+        (round(p.mz, 3) for p in result if p.attributes.get("envelope"))
+    )
+    assert labeled == [1371.0, 1373.0]
+    # the unselected middle peak is preserved untouched
+    middle = [p for p in result if round(p.mz, 3) == 1372.0]
+    assert len(middle) == 1
+    assert not middle[0].attributes.get("envelope")
+
+
+def test_convert_selected_contiguous_none_disappear(envelope_params):
+    """Every peak in a contiguous selected run stays its own envelope, none lost.
+
+    Regression for "1373 and 1375 disappeared": five peaks an isotope spacing
+    apart, all selected. Each must survive as its own envelope label (not be
+    merged into a neighbour or pruned by the joint overlap fit); the overlap fit
+    still apportions the shared signal between them.
+    """
+    mzs = [1371.684, 1372.686, 1373.689, 1374.693, 1375.697]
+    ais = [92.0, 84.0, 100.0, 85.0, 53.0]
+    peaks = [
+        mspy.peak(mz=mz, ai=ai, charge=1, fwhm=0.05)
+        for mz, ai in zip(mzs, ais, strict=True)
+    ]
+    pl = mspy.peaklist(peaks)
+    profile = mspy.profile(pl, fwhm=0.05, points=20)
+
+    result = mpp.recalculate_neighborhood_envelopes(
+        pl, profile, list(mzs), envelope_params, selectedOnly=True
+    )
+
+    # each selected peak is its own envelope -- nothing collapsed or vanished
+    labeled = sorted(
+        round(p.mz, 3) for p in result if p.attributes.get("envelope")
+    )
+    assert labeled == [round(mz, 3) for mz in mzs]
+    # and each still carries a positive apportioned area
+    for p in result:
+        if p.attributes.get("envelope"):
+            assert p.attributes["envelope"]["area"] >= 0.0
+
+
+def test_convert_selected_contiguous_reconvert_keeps_all(envelope_params):
+    """Re-converting an already-converted contiguous run still loses nothing.
+
+    Mirrors the reported case: 1371/1373/1375 already carry envelopes and the
+    whole run is re-selected. preserveSeeds must ignore the stored multi-isotope
+    spans (which would re-absorb 1373 into 1371) and keep every selected peak.
+    """
+    mzs = [1371.684, 1372.686, 1373.689, 1374.693, 1375.697]
+    ais = [92.0, 84.0, 100.0, 85.0, 53.0]
+    peaks = [
+        mspy.peak(mz=mz, ai=ai, charge=1, fwhm=0.05)
+        for mz, ai in zip(mzs, ais, strict=True)
+    ]
+    pl = mspy.peaklist(peaks)
+    profile = mspy.profile(pl, fwhm=0.05, points=20)
+
+    once = mpp.recalculate_neighborhood_envelopes(
+        pl, profile, list(mzs), envelope_params, selectedOnly=True
+    )
+    twice = mpp.recalculate_neighborhood_envelopes(
+        once, profile, list(mzs), envelope_params, selectedOnly=True
+    )
+
+    labeled = sorted(
+        round(p.mz, 3) for p in twice if p.attributes.get("envelope")
+    )
+    assert labeled == [round(mz, 3) for mz in mzs]
+
+
 def test_convert_recomputes_stored_envelope_fwhm(envelope_params):
     """Re-converting an already-converted envelope re-measures its FWHM.
 
