@@ -1832,7 +1832,7 @@ def _fit_envelope_areas(
 # ----
 
 
-def _reconstruct_cluster_from_envelope(parent, envelope):
+def _reconstruct_cluster_from_envelope(parent, envelope, averagineType=DEFAULT_AVERAGINE):
     """Rebuild a peak's cluster from its stored envelope metadata.
 
     When envelopes are collapsed to a single representative (the "1st" label)
@@ -1843,10 +1843,21 @@ def _reconstruct_cluster_from_envelope(parent, envelope):
     envelope makes re-running idempotent. The area is still re-fit against the
     profile afterwards (jointly over all clusters), so editing peaks and
     recalculating a neighbourhood keeps working as before.
+
+    `averagineType` is the model the current run is using. When it matches the
+    model the stored envelope was fit under, the exact fitted weights are carried
+    over (`_envweight`) so re-converting reproduces the picked shape and area.
+    When the user has switched models the stored weights are dropped instead:
+    only the isotope POSITIONS (charge/spacing grid) are kept and the fit
+    re-derives the intensity pattern from the new averagine, so a different model
+    yields the different area it should. A legacy envelope carrying no model tag
+    is treated as the default so the common protein case stays idempotent.
     """
 
     isotopes = envelope.get("isotopes") or []
     fwhm = envelope.get("fwhm") or parent.fwhm
+    storedAveragine = envelope.get("averagineType", DEFAULT_AVERAGINE)
+    reuseWeights = storedAveragine == averagineType
 
     # true isotope spacing, so the isotope index of each stored position reflects
     # its m/z (not its list order). A stored shape can hold irregular or repeated
@@ -1877,7 +1888,10 @@ def _reconstruct_cluster_from_envelope(parent, envelope):
         # peak-picking produced -- irregular/merged shapes cannot be re-derived
         # from positions alone. Isolated (K==1) envelopes ignore it and re-soften
         # from the theoretical pattern, so a changed algorithm still re-derives.
-        peak.attributes["_envweight"] = float(iso[1])
+        # Dropped entirely when the averagine model has changed, so the fit
+        # rebuilds the pattern (and area) from the newly selected model.
+        if reuseWeights:
+            peak.attributes["_envweight"] = float(iso[1])
         cluster.append(peak)
 
     return cluster
@@ -1945,7 +1959,11 @@ def relabelenvelopes(
         )
         if isinstance(storedEnvelope, dict) and storedEnvelope.get("isotopes"):
             used.add(x)
-            clusters.append(_reconstruct_cluster_from_envelope(parent, storedEnvelope))
+            clusters.append(
+                _reconstruct_cluster_from_envelope(
+                    parent, storedEnvelope, averagineType=averagineType
+                )
+            )
             continue
 
         cluster = [copy.deepcopy(parent)]
@@ -2292,6 +2310,11 @@ def relabelenvelopes(
             "fwhm": fwhm_val,
             "shape": "gaussian",
             "isotopes": isotopes_data,
+            # the averagine model the shape/area were fit under, so re-converting
+            # can tell whether the stored shape may be reused verbatim (same model
+            # -> idempotent) or must be re-derived (user switched models -> the
+            # isotope pattern, and hence the apportioned area, genuinely changes).
+            "averagineType": averagineType,
         }
 
         peaks = labelenvelope(

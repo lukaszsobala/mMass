@@ -353,6 +353,55 @@ def test_convert_selected_contiguous_reconvert_keeps_all(envelope_params):
     assert labeled == [round(mz, 3) for mz in mzs]
 
 
+def test_convert_respects_changed_averagine_model(envelope_params):
+    """Re-converting under a different averagine model must re-fit the areas.
+
+    The stored envelope shape/area is fit under one averagine model. Converting
+    the same envelopes after switching models (protein -> carbohydrate/lipid)
+    must re-derive the isotope pattern from the new model so the reported areas
+    change -- different models encode different isotope patterns. Re-converting
+    under the ORIGINAL model must still reproduce the picked areas exactly
+    (idempotency for the unchanged case).
+
+    Regression: the stored per-isotope weights were reused verbatim regardless of
+    the selected model, so switching models silently left every area unchanged.
+    """
+    mzs = [1371.684, 1372.686, 1373.689, 1374.693, 1375.697]
+    ais = [92.0, 84.0, 100.0, 85.0, 53.0]
+    peaks = [
+        mspy.peak(mz=mz, ai=ai, charge=1, fwhm=0.05)
+        for mz, ai in zip(mzs, ais, strict=True)
+    ]
+    pl = mspy.peaklist(peaks)
+    profile = mspy.profile(pl, fwhm=0.05, points=20)
+
+    def convert(source, avg):
+        params = dict(envelope_params, averagineType=avg)
+        result = mpp.recalculate_neighborhood_envelopes(
+            source, profile, list(mzs), params, selectedOnly=True
+        )
+        return {
+            round(p.mz, 3): p.attributes["envelope"]["area"]
+            for p in result
+            if p.attributes.get("envelope")
+        }, result
+
+    protein_areas, protein_res = convert(pl, "protein")
+    assert len(protein_areas) == len(mzs)
+
+    for avg in ("carbohydrate", "lipid"):
+        other_areas, _ = convert(protein_res, avg)
+        # a different model genuinely changes the apportioned areas
+        assert any(
+            abs(other_areas[mz] - protein_areas[mz]) > 1e-6 for mz in protein_areas
+        ), f"{avg} produced identical areas to protein"
+
+    # re-converting under the original model reproduces the picked areas
+    reprotein_areas, _ = convert(protein_res, "protein")
+    for mz in protein_areas:
+        assert reprotein_areas[mz] == pytest.approx(protein_areas[mz], rel=1e-9)
+
+
 def test_convert_recomputes_stored_envelope_fwhm(envelope_params):
     """Re-converting an already-converted envelope re-measures its FWHM.
 
