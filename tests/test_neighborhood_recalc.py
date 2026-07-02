@@ -453,16 +453,113 @@ def test_convert_reproduces_find_peaks_overlapping_areas(envelope_params):
 
     # Select ALL envelope peaks at full-precision m/z, exactly as the GUI does on
     # "select all" (crowded regions can carry several envelopes at the same m/z,
-    # so compare multisets of areas rather than a dict keyed on m/z).
-    fp_areas = sorted(p.attributes["envelope"]["area"] for p in envs)
+    # so compare multisets rather than a dict keyed on m/z). Both the area AND the
+    # summed intensity must match: the reported symptom was area and sumint drifting
+    # in OPPOSITE directions (one route stored a shape summing to <1, the other to 1).
+    fp_env = sorted(
+        (p.attributes["envelope"]["area"], p.attributes["envelope"]["sumint"])
+        for p in envs
+    )
     all_mzs = [p.mz for p in envs]
     conv = mpp.recalculate_neighborhood_envelopes(
         fp, profile, all_mzs, envelope_params, selectedOnly=True
     )
-    cv_areas = sorted(
+    cv_env = sorted(
+        (p.attributes["envelope"]["area"], p.attributes["envelope"]["sumint"])
+        for p in conv
+        if p.attributes.get("envelope")
+    )
+
+    assert len(cv_env) == len(fp_env)
+    for (pa, ps), (ca, cs) in zip(fp_env, cv_env, strict=True):
+        assert ca == pytest.approx(pa, rel=0.02)
+        assert cs == pytest.approx(ps, rel=0.02)
+        # the stored shape sums to 1 (single-envelope distribution) on both routes
+    for p in list(envs) + [q for q in conv if q.attributes.get("envelope")]:
+        wsum = sum(w for _, w in p.attributes["envelope"]["isotopes"])
+        assert wsum == pytest.approx(1.0, abs=1e-6)
+
+
+def test_convert_reproduces_merged_pair_area_and_sumint(envelope_params):
+    """Two envelopes 3 Da apart fuse into one merged cluster; both routes agree.
+
+    Mirrors the reported 933/936 case: a single merged envelope (K==1 group with a
+    long, duplicated isotope grid). Converting it must reproduce find-peaks' area
+    AND summed intensity -- the fix reuses the stored shape verbatim for K==1 too
+    (instead of re-soft-modelling) and normalises the shape at one shared point.
+    """
+    fp, profile = _find_peaks_envelopes(
+        [("C40H63N11O13", 1000.0), ("C40H66N11O13", 700.0)],
+        envelope_params,
+        fwhm=0.109,
+    )
+    envs = [p for p in fp if p.attributes.get("envelope")]
+    assert envs
+    fp_env = sorted(
+        (p.attributes["envelope"]["area"], p.attributes["envelope"]["sumint"]) for p in envs
+    )
+    conv = mpp.recalculate_neighborhood_envelopes(
+        fp, profile, [p.mz for p in envs], envelope_params, selectedOnly=True
+    )
+    cv_env = sorted(
+        (p.attributes["envelope"]["area"], p.attributes["envelope"]["sumint"])
+        for p in conv
+        if p.attributes.get("envelope")
+    )
+    assert len(cv_env) == len(fp_env)
+    for (pa, ps), (ca, cs) in zip(fp_env, cv_env, strict=True):
+        assert ca == pytest.approx(pa, rel=0.02)
+        assert cs == pytest.approx(ps, rel=0.02)
+
+
+def test_find_peaks_and_convert_areas_do_not_exceed_curve(envelope_params):
+    """Sum of envelope areas stays within the area under the curve (mass conserving).
+
+    End-to-end guard for the reported "sum of envelope areas above the area under
+    the curve" bug, through the FULL pipeline (find-peaks and convert), including
+    the storage-time shape normalisation -- not just the bare ``_fit_envelope_areas``
+    unit tested in test_envelope_area_fit.py. For overlapping envelopes a
+    least-squares amplitude of rigid averagine columns overshoots the integral
+    (~5%), double-counting the shared signal; the apportioned-integral fit makes
+    the totals conserve. Both routes must obey it and agree.
+    """
+    import numpy
+
+    fp, profile = _find_peaks_envelopes(
+        [
+            ("C42H66N12O15", 1000.0),
+            ("C42H68N12O15", 850.0),
+            ("C42H70N12O15", 700.0),
+            ("C42H72N12O15", 600.0),
+        ],
+        envelope_params,
+        fwhm=0.11,
+    )
+    envs = [p for p in fp if p.attributes.get("envelope")]
+    assert any(len(p.attributes["envelope"]["isotopes"]) > 5 for p in envs)  # crowded
+
+    x = profile[:, 0]
+    y = numpy.clip(profile[:, 1], 0.0, None)
+    curve = numpy.trapezoid(y, x)
+
+    find_total = sum(p.attributes["envelope"]["area"] for p in envs)
+    conv = mpp.recalculate_neighborhood_envelopes(
+        fp, profile, [p.mz for p in envs], envelope_params, selectedOnly=True
+    )
+    conv_total = sum(
         p.attributes["envelope"]["area"] for p in conv if p.attributes.get("envelope")
     )
 
-    assert len(cv_areas) == len(fp_areas)
-    for picked, converted in zip(fp_areas, cv_areas, strict=True):
-        assert converted == pytest.approx(picked, rel=0.02)
+    # never invent mass: the summed areas must not exceed the observed integral
+    assert find_total <= curve * 1.01
+    assert conv_total <= curve * 1.01
+    # capture the bulk of it, but not all: to keep the decomposition fair the
+    # share cap declines to attribute signal an envelope's own isotope pattern
+    # cannot support at its shared isotopes (rather than let it over-claim), so a
+    # crowded run -- especially one with the redundant/duplicate envelopes
+    # find-peaks emits in dense regions -- sits under the full integral.
+    # Under-capture is safe; over-capture (inflated areas above the curve) is the
+    # bug being guarded against.
+    assert find_total >= curve * 0.72
+    # both routes agree on the total
+    assert conv_total == pytest.approx(find_total, rel=0.02)

@@ -71,6 +71,28 @@ def test_non_ideality_changes_area_of_non_averagine_envelope():
     assert flexible > rigid * 1.05  # at least a few % larger -- the knob works
 
 
+def test_non_ideality_is_inert_for_overlapping_envelopes():
+    """nonIdeality must NOT move overlapping areas -- crowds use theoretical ratios.
+
+    The complement of the test above: a flexing isotope shape in a crowd could
+    bend a tail onto a neighbour's peak and claim its signal, so overlapping
+    (K>1) envelopes are held to the rigid averagine pattern and nonIdeality is
+    deliberately inert. Only isolated (K==1) envelopes soft-shape. This guards the
+    K==1/K>1 boundary in `_fit_group_areas` (if soft-shaping ever leaked into the
+    overlap branch these areas would drift with the knob).
+    """
+    a = _averagine_cluster(1000.0, 1, 100.0)
+    b = _averagine_cluster(1001.0, 1, 100.0)
+    profile = _profile(a, b)
+
+    rigid = mpp._fit_envelope_areas([a, b], profile, 0.05, nonIdeality=0.0)
+    flexed = mpp._fit_envelope_areas([a, b], profile, 0.05, nonIdeality=1.0)
+
+    assert all(r > 0.0 for r in rigid)
+    for r, f in zip(rigid, flexed, strict=True):
+        assert f == pytest.approx(r, abs=1e-9)
+
+
 # ---------------------------------------------------------------------------
 # Averagine model selection
 # ---------------------------------------------------------------------------
@@ -231,6 +253,78 @@ def test_equal_overlapping_envelopes_are_apportioned_globally():
     assert areas[2] / areas[0] == pytest.approx(1.0, abs=0.1)
 
 
+def test_shared_peak_is_split_not_stolen_by_lower_mz():
+    """A peak shared by a lower species' isotope and a higher species' mono is
+    fairly split, and the lower species does not over-claim it.
+
+    Three overlapping charge-1 envelopes two Da apart (the example_env.msd layout):
+    each species' +2 isotope lands on the next species' monoisotopic peak. The
+    fair, abundance-independent split must (a) NOT let the lower-m/z envelope take
+    the whole shared peak -- which would push its area up and rob the higher-m/z
+    ones ("the earlier peaks steal from the later ones") -- and (b) keep the summed
+    decomposition within the observed profile at that shared peak, so the parts add
+    up to the whole rather than exceeding it.
+    """
+    clusters = [_averagine_cluster(m, 1, 100.0, fwhm=0.11) for m in (1000.0, 1002.0, 1004.0)]
+    profile = _profile(*clusters, fwhm=0.11)
+    areas, shapes = mpp._fit_envelope_areas_shaped(clusters, profile, 0.11, 0.2)
+
+    # equal inputs -> near-equal areas; the lowest-m/z envelope is NOT the biggest
+    assert max(areas) / min(areas) < 1.15
+    assert areas[0] <= max(areas) * 1.02  # the lower-m/z one has not over-claimed
+
+    # at the shared peak (envelope 1's mono == envelope 0's +2 position) the summed
+    # reconstructed model must not exceed the observed profile: the two contributors
+    # split it, they do not each take it whole
+    x = profile[:, 0]
+    y = profile[:, 1]
+    sigma = mpp._fwhm_to_sigma(0.11)
+    norm = sigma * numpy.sqrt(2 * numpy.pi)
+    model = numpy.zeros_like(x)
+    for area, shape in zip(areas, shapes, strict=True):
+        for mz, w in shape:
+            model += (area * w / norm) * numpy.exp(-0.5 * ((x - mz) / sigma) ** 2)
+    shared_mz = 1002.0
+    i = int(numpy.argmin(numpy.abs(x - shared_mz)))
+    # within a small tolerance of the observed peak, never well above it
+    assert model[i] <= y[i] * 1.03
+
+
+def test_edge_envelope_does_not_claim_untracked_neighbour_forest():
+    """The highest-m/z envelope must not inflate by claiming an untracked forest.
+
+    Real crowded spectra continue past the selected envelopes: to the right of the
+    highest fitted envelope sit further species whose peaks are NOT among the
+    clusters being fit. The abundance-independent apportionment alone hands that
+    clear right-hand signal wholesale to the highest envelope (nothing competes
+    for it there), inflating its area several-fold over its equal-height
+    neighbours. The per-envelope apex cap -- a modelled envelope may not rise above
+    the observed signal at its own isotope peaks -- holds it to a fair share.
+
+    This is the example_env.msd regression: three similar-height overlapping lipid
+    envelopes where the highest read ~2.4x its siblings. The earlier "equal
+    overlapping" test missed it because its profile contained ONLY the fitted
+    clusters, leaving the highest envelope's right side empty; here the forest is
+    built with every isotope of every species (the latter isotopes are exactly
+    what the edge envelope over-claims, so they must not be skipped).
+    """
+    # six equal envelopes two Da apart (charge 1): every even isotope of a lower
+    # species lands on a higher species' monoisotopic peak -- a dense forest
+    forest = [_averagine_cluster(1000.0 + 2.0 * k, 1, 100.0, fwhm=0.11) for k in range(6)]
+    profile = _profile(*forest, fwhm=0.11)
+
+    # fit only the first three; the remaining three are the untracked forest to
+    # the right of the highest fitted envelope
+    fitted = forest[:3]
+    areas = mpp._fit_envelope_areas(fitted, profile, 0.11, 0.2)
+
+    assert all(a > 0.0 for a in areas)
+    # equal inputs -> near-equal areas; the highest-m/z envelope must NOT be
+    # inflated by the forest on its right (pre-fix it read ~2.9x the lowest)
+    assert areas[2] / areas[0] < 1.25
+    assert max(areas) / min(areas) < 1.25
+
+
 def test_unequal_overlapping_envelopes_keep_their_order():
     """A more abundant envelope still gets the larger area (ordering preserved).
 
@@ -296,6 +390,78 @@ def test_overlapping_model_never_exceeds_observed_curve():
 
     # allow a small numerical tolerance relative to the peak height
     assert numpy.max(model - profile[:, 1]) <= 0.02 * numpy.max(profile[:, 1])
+
+
+def test_overlapping_areas_sum_to_curve_integral():
+    """Overlapping envelope areas sum to the area under the curve, not above it.
+
+    Stronger than the pointwise check above: the *total* fitted area (which is
+    what the peaklist reports and sums) must equal the integral under the observed
+    profile over the envelope region -- never exceed it. A least-squares amplitude
+    of rigid averagine columns overshoots the integral (~5% for a crowded run)
+    even while staying within the curve at every single point, silently
+    double-counting the shared signal. For overlapping envelopes the area is the
+    apportioned share of the observed integral, so the sum is conserved.
+    """
+    clusters = [_averagine_cluster(m, 1, 100.0) for m in (1000.0, 1001.0, 1002.0)]
+    profile = _profile(*clusters)
+    areas = mpp._fit_envelope_areas(clusters, profile, 0.05, 0.2)
+
+    x = profile[:, 0]
+    y = numpy.clip(profile[:, 1], 0.0, None)
+    lo = min(p.mz for c in clusters for p in c) - 1.0
+    hi = max(p.mz for c in clusters for p in c) + 1.0
+    mask = (x >= lo) & (x <= hi)
+    curve_integral = numpy.trapezoid(y[mask], x[mask])
+
+    total_area = sum(areas)
+    # the summed area matches the curve integral (mass conserving) and, crucially,
+    # does not exceed it
+    assert total_area == pytest.approx(curve_integral, rel=0.03)
+    assert total_area <= curve_integral * 1.01
+
+
+@pytest.mark.parametrize("nonIdeality", [0.0, 0.2, 0.4])
+def test_isolated_envelope_area_capped_by_observed_curve(nonIdeality):
+    """An isolated envelope's area can never exceed the area under its own curve.
+
+    In a crowded region a tall peak from a *different* species can land on one of
+    an isolated envelope's isotope positions (e.g. mis-absorbed as its +1 isotope
+    during deisotoping). A plain least-squares amplitude then inflates to explain
+    that peak, and the reported area shoots far above the signal actually present
+    -- the rendered envelope pokes high above the profile and the summed areas run
+    above the area under the curve (the user-reported regression). The apex cap
+    must hold the fitted amplitude under the observed curve.
+
+    Tested over the usual nonIdeality range. At the *maximum* setting the isolated
+    soft-model is deliberately allowed to bend all the way onto the data (an
+    isolated envelope is trusted to be whatever the profile shows, since nothing
+    overlaps it to steal from), so it treats the tall +1 as a genuine isotope and
+    the cap no longer fights it -- that is intended shape freedom, exercised
+    elsewhere, not a mass-conservation guard.
+    """
+
+    diff = mspy.ISOTOPE_DISTANCE  # charge 1
+    mono = 1068.459
+    # mono is a modest peak; the +1 position carries a tall contaminant (3.5x mono)
+    heights = [17.0, 60.0, 8.0, 3.0]
+    cluster = [
+        mspy.peak(mz=mono + i * diff, ai=h, charge=1, isotope=i, fwhm=0.136)
+        for i, h in enumerate(heights)
+    ]
+    profile = mspy.profile(mspy.peaklist(cluster), fwhm=0.136, points=20)
+    curve_integral = numpy.trapezoid(numpy.clip(profile[:, 1], 0.0, None), profile[:, 0])
+
+    area = mpp._fit_envelope_areas([cluster], profile, 0.136, nonIdeality)[0]
+
+    # the hard invariant: never invent mass beyond what the curve holds
+    assert area <= curve_integral * 1.01
+    # and it must be anchored near the honest mono-implied area (~4), not the
+    # ~9-13 a raw least-squares fit reports when it swallows the contaminant
+    weights = mpp._cluster_weights(cluster)
+    sigma = mpp._fwhm_to_sigma(0.136)
+    mono_area = 17.0 / weights[0] * sigma * numpy.sqrt(2 * numpy.pi)
+    assert area <= mono_area * 2.5
 
 
 # ---------------------------------------------------------------------------

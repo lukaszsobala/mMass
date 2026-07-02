@@ -1446,7 +1446,75 @@ def _envelope_gaussian_column(x, isotopes, sigma):
 # ----
 
 
-def _apportion_group_areas(areaColumns, monoColumns, x, y):
+def _envelope_amp_cap(areaColumn, x, capSignal, shaped, fwhm):
+    """Largest amplitude whose modelled envelope stays under ``capSignal``.
+
+    ``capSignal`` here is the envelope's own *apportioned share* ``g_k`` of the
+    observed profile (see `_apportion_group_areas`), NOT the raw observed curve.
+    For a unit-area column the amplitude is bounded by
+    ``min_i g_k(apex_i) / column(apex_i)`` over this envelope's isotope apexes,
+    where ``g_k`` and ``column`` are each the local maximum in a small window
+    around the isotope (window maxima, so a slight grid/position offset or an
+    inter-isotope valley cannot distort the ratio -- sampling the raw column
+    everywhere over-clamped to zero at the valleys).
+
+    Capping against the *share* rather than the observed total is what makes the
+    decomposition add up: because the shares sum to the observed curve
+    (``sum_k g_k = y``), holding every envelope's model under its own share means
+    the summed model can never exceed the observed peak. So two envelopes that
+    overlap at one m/z (a lower species' isotope and a higher species' mono) split
+    that peak fairly and their contributions sum to it -- neither takes it whole.
+    It also stops the highest-m/z envelope of a selection from inflating on the
+    untracked peak-forest to its right: there its share is ~1 but its column has
+    only a tiny tail weight, so the abundant-isotope apexes (near the mono) set a
+    far tighter bound and hold the area to a fair value. The cap is anchored on the
+    abundant isotopes, so it scales with the envelope's peak height and keeps
+    similar-height overlapping envelopes comparable.
+    """
+
+    if not shaped or areaColumn.size == 0:
+        return None
+
+    weights = [max(0.0, float(w)) for _mz, w in shaped]
+    wMax = max(weights) if weights else 0.0
+    if wMax <= 0.0:
+        return None
+
+    # window half-width: wide enough to catch the real apex (which may sit a
+    # fraction of the peak width off the model grid) yet far inside the isotope
+    # spacing so it never samples a neighbouring isotope
+    halfWin = max(0.6 * float(fwhm), 1e-3)
+
+    cap = None
+    for (mz, w) in shaped:
+        # anchor the cap on the SIGNIFICANT isotopes (weight within ~5x of the
+        # apex). This must include the moderate isotopes (e.g. a light species' +2)
+        # that genuinely overlap a neighbour's monoisotopic peak, so an envelope is
+        # held to its fair share there and cannot over-claim a shared peak (the
+        # lower-m/z species would otherwise take a little more than its equal-weight
+        # split, nudging its area up and the neighbour's down). But it must EXCLUDE
+        # the near-zero tail isotopes: when one of those overlaps a much larger
+        # neighbour it is handed a vanishingly small equal-weight share, and
+        # anchoring on it would drag the whole envelope's amplitude down to that
+        # suppressed value and wrongly flatten a genuine abundance difference
+        # between overlapping species. The 0.1 cut keeps the moderate isotopes and
+        # drops only the faint tail.
+        if float(w) < 0.1 * wMax:
+            continue
+        i1 = int(numpy.searchsorted(x, mz - halfWin, side="left"))
+        i2 = int(numpy.searchsorted(x, mz + halfWin, side="right"))
+        if i2 <= i1:
+            continue
+        colPeak = float(areaColumn[i1:i2].max())
+        if colPeak <= 0.0:
+            continue
+        sigPeak = float(capSignal[i1:i2].max())
+        ratio = sigPeak / colPeak
+        cap = ratio if cap is None else min(cap, ratio)
+    return cap
+
+
+def _apportion_group_areas(areaColumns, monoColumns, x, y, capInfo=None):
     """Split the observed signal among overlapping envelopes, then fit each area.
 
     Two column sets are supplied per envelope:
@@ -1458,7 +1526,10 @@ def _apportion_group_areas(areaColumns, monoColumns, x, y):
       does NOT depend on absolute abundance, so a tall lower-m/z species' isotope
       tail cannot swamp and rob a shorter higher-m/z neighbour. The shares sum to
       one wherever any envelope is present, so the apportioned signals add back up
-      to the observed curve and never exceed it.
+      to the observed curve and never exceed it. This is the fair decomposition:
+      a peak shared by a lower species' isotope and a higher species' monoisotope
+      is split between them (weighted equally, independent of abundance), not
+      handed whole to either.
 
     * `areaColumns[k]` -- the same pattern but normalised to unit *area* (a unit
       coefficient integrates to one). Each envelope's area is the least-squares
@@ -1469,6 +1540,16 @@ def _apportion_group_areas(areaColumns, monoColumns, x, y):
       (larger nonIdeality) captures more of the peak and yields a different area,
       so the nonIdeality parameter actually moves the number. For overlapping
       envelopes the shape is rigid averagine, so the area follows the fair share.
+
+    Least squares alone can still over-claim where an envelope's isotope tail runs
+    into signal from *untracked* species (its share there is ~1 because nothing
+    competes), pulling the amplitude up until its modelled peak pokes above the
+    observed curve. `capInfo[k] = (shaped, fwhm)` lets each amplitude be capped so
+    the model stays under that envelope's OWN apportioned share ``g_k`` at its
+    isotope apexes (see `_envelope_amp_cap`). Since the shares sum to the observed
+    curve, capping every model under its share guarantees the summed decomposition
+    never exceeds the observed peak, and similar-height overlapping envelopes stay
+    fairly balanced. It only lowers amplitudes, never raises them.
     """
 
     K = len(areaColumns)
@@ -1488,11 +1569,26 @@ def _apportion_group_areas(areaColumns, monoColumns, x, y):
     safeTotal = numpy.where(active, total, 1.0)
 
     areas = []
-    for areaCol, monoCol in zip(areaColumns, monoColumns, strict=True):
+    for k, (areaCol, monoCol) in enumerate(zip(areaColumns, monoColumns, strict=True)):
         share = numpy.where(active, monoCol / safeTotal, 0.0)
         g = yy * share
+
+        # least-squares amplitude of this envelope's (possibly soft) shape fitted
+        # to its apportioned share of the signal. Shared for every K: the shape is
+        # what carries the decomposition, and for an isolated envelope nonIdeality
+        # can still bend that shape toward the data and move the area.
         denom = float(numpy.dot(areaCol, areaCol))
         amp = float(numpy.dot(areaCol, g)) / denom if denom > 0.0 else 0.0
+
+        # cap so the modelled envelope stays under its own apportioned share at
+        # its isotope apexes: keeps the summed decomposition within the observed
+        # curve and stops an edge envelope inflating on untracked neighbours.
+        if capInfo is not None:
+            shaped, fwhm = capInfo[k]
+            cap = _envelope_amp_cap(areaCol, x, g, shaped, fwhm)
+            if cap is not None:
+                amp = min(amp, cap)
+
         areas.append(max(0.0, amp))
     return areas
 
@@ -1571,37 +1667,31 @@ def _fit_group_areas(metas, x, y, nonIdeality):
 
     areaColumns = []
     monoColumns = []
+    capInfo = []
     for k, (fwhm, sigma, isotopes, storedShape) in enumerate(metas):
         if not norm_ok[k]:
             areaColumns.append(numpy.zeros(len(x), dtype=float))
             monoColumns.append(numpy.zeros(len(x), dtype=float))
+            capInfo.append(([], 0.0))
             continue
 
-        # Overlap group with a stored shape: reuse it verbatim so re-fitting an
-        # already-picked envelope reproduces its area (merged/irregular grids
-        # cannot be reconstructed from positions alone). Otherwise bend the
-        # pattern toward the data only when this envelope stands alone; in an
-        # overlap group the rigid averagine pattern keeps the apportionment honest
-        # (a flexing tail must not be able to claim a neighbour's peak).
-        if K > 1 and storedShape is not None:
+        # A stored shape (re-fitting an already-picked envelope) is reused
+        # verbatim -- REGARDLESS of overlap -- so the converted route reproduces
+        # exactly the shape peak-picking fitted. This must include the isolated
+        # (K==1) case: otherwise convert would re-soft-model the seed and drift
+        # from the picked value (and, for a merged grid, re-derive a different
+        # shape from the positions). With no stored shape we derive one: bend the
+        # pattern toward the data only when the envelope stands alone; in an
+        # overlap group keep the rigid averagine pattern so the apportionment
+        # stays honest (a flexing tail must not claim a neighbour's peak).
+        if storedShape is not None:
             shaped = storedShape
+            shapes[k] = shaped
         elif K == 1:
             shaped = _soft_isotope_model(isotopes, x, y, fwhm, nonIdeality=nonIdeality)
+            shapes[k] = shaped
         else:
             shaped = isotopes
-
-        # Normalise every shape to a single-envelope distribution (weights sum to
-        # 1) so the fitted area is on the same scale for all clusters and both
-        # routes agree. `_cluster_weights` returns pattern[idx]/pattern_total, so a
-        # clean cluster already sums to ~1, but a bloated MERGED cluster (duplicate
-        # isotope indices from find-peaks fusing two overlapping envelopes) sums to
-        # ~N and would otherwise have its area deflated ~N-fold -- the picked vs
-        # converted divergence. The share (monoColumn) is invariant to this scaling
-        # (areaColumn and w0 scale together), so apportionment is unaffected.
-        sShaped = math.fsum(w for _, w in shaped)
-        if sShaped > 0.0:
-            shaped = [(mz, w / sShaped) for mz, w in shaped]
-        shapes[k] = shaped
 
         # area-normalised column (unit coefficient integrates to one) for the
         # per-envelope amplitude fit, and the same column scaled so its
@@ -1611,8 +1701,11 @@ def _fit_group_areas(metas, x, y, nonIdeality):
         norm = sigma * math.sqrt(2.0 * math.pi)
         areaColumns.append(areaColumn)
         monoColumns.append(areaColumn * (norm / w0))
+        # the fitted shape + width, so the apportionment can cap each amplitude
+        # against this envelope's own apportioned share at its isotope apexes
+        capInfo.append((shaped, fwhm))
 
-    areas = _apportion_group_areas(areaColumns, monoColumns, x, y)
+    areas = _apportion_group_areas(areaColumns, monoColumns, x, y, capInfo=capInfo)
     return areas, shapes
 
 
@@ -2162,6 +2255,22 @@ def relabelenvelopes(
         )
         fwhm_val = float(_cluster_fwhm(cluster, defaultFwhm))
 
+        # Normalise the isotope shape to a single-envelope distribution (weights
+        # sum to 1) and rescale the area by that same sum. This is the ONE place
+        # every fit path passes through, so it makes the reported area consistent
+        # regardless of which path produced the shape: `_cluster_weights` returns
+        # pattern[idx]/pattern_total (a clean 5-isotope run sums to ~0.86-0.99, a
+        # merged/duplicated grid to ~N), and the various fallbacks (no-profile,
+        # theoretical) don't renormalise. Without this, "find peaks" and "convert
+        # to envelopes" could report different areas for the same envelope. The
+        # rescale keeps area*weight (the drawn envelope) and sumint invariant, so
+        # only the bare `area` number is put on a common scale.
+        area_val = float(areas[c])
+        shapeSum = math.fsum(float(w) for _, w in isotopes_data)
+        if shapeSum > 0.0:
+            isotopes_data = [(mz, float(w) / shapeSum) for mz, w in isotopes_data]
+            area_val *= shapeSum
+
         # summed envelope intensity: the sum of the intensities (heights) of the
         # isotope peaks that make up this envelope. It is derived from the same
         # fitted model as the envelope area so the two always recalculate
@@ -2175,10 +2284,10 @@ def relabelenvelopes(
         sigma = _fwhm_to_sigma(fwhm_val)
         norm = sigma * math.sqrt(2.0 * math.pi)
         weightSum = sum(float(w) for _, w in isotopes_data)
-        sumint = (float(areas[c]) / norm) * weightSum if norm > 0.0 else 0.0
+        sumint = (area_val / norm) * weightSum if norm > 0.0 else 0.0
 
         envelope = {
-            "area": areas[c],
+            "area": area_val,
             "sumint": sumint,
             "fwhm": fwhm_val,
             "shape": "gaussian",

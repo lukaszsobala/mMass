@@ -162,6 +162,41 @@ def test_reconstruct_cluster_from_envelope_roundtrip():
     assert [round(p.mz, 6) for p in cluster] == [round(mz, 6) for mz, _ in envelope["isotopes"]]
 
 
+def test_reconstruct_cluster_indexes_isotopes_by_mz_not_list_order():
+    """A merged/irregular stored grid is indexed by m/z position, not list order.
+
+    find-peaks' `_merge_adjacent_clusters` can fuse two overlapping envelopes into
+    one stored shape with repeated m/z positions (e.g. [0,1,1,2,2,3] worth of
+    peaks). If the rebuild numbered isotopes by list order ([0,1,2,3,4,5]) then
+    `_cluster_weights` would look up the wrong theoretical weight per peak and the
+    converted area would diverge from the picked one. The index must follow m/z.
+    Also checks the exact fitted weight is carried on each peak (`_envweight`) so
+    the overlap fit can reproduce the stored shape.
+    """
+    charge = 1
+    diff = mspy.ISOTOPE_DISTANCE / charge
+    mono = 981.5
+    # two 3-isotope envelopes merged: positions repeat at isotope indices 0..3
+    isotopes = [
+        (mono, 1.0),
+        (mono + diff, 0.7),
+        (mono + diff, 0.6),
+        (mono + 2 * diff, 0.4),
+        (mono + 2 * diff, 0.3),
+        (mono + 3 * diff, 0.1),
+    ]
+    parent = mspy.peak(mz=mono, ai=1000.0, charge=charge, isotope=0, fwhm=0.05)
+    envelope = {"area": 50.0, "sumint": 100.0, "fwhm": 0.05,
+                "shape": "gaussian", "isotopes": isotopes}
+
+    cluster = mpp._reconstruct_cluster_from_envelope(parent, envelope)
+
+    # indices track m/z (duplicate positions share an index), NOT 0..5 list order
+    assert [p.isotope for p in cluster] == [0, 1, 1, 2, 2, 3]
+    # the exact fitted weight is preserved per peak for the overlap fit
+    assert [p.attributes["_envweight"] for p in cluster] == [w for _, w in isotopes]
+
+
 # ---------------------------------------------------------------------------
 # Tail length floor
 # ---------------------------------------------------------------------------
