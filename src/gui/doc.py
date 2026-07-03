@@ -442,6 +442,8 @@ class document:
                     attributes += ' fwhm="%.6f"' % peak.fwhm
                 if peak.group:
                     attributes += ' group="%s"' % self._escape(peak.group)
+                if hasattr(peak, "attributes") and peak.attributes.get("_fwhmLocked"):
+                    attributes += ' fwhmLocked="1"'
                 envelope = None
                 if hasattr(peak, "attributes"):
                     envelope = peak.attributes.get("envelope")
@@ -1523,6 +1525,11 @@ class parseMSD:
                     fwhm=fwhm,
                     group=group,
                 )
+
+                # Restore a user FWHM lock so a manually pinned width survives a
+                # save/reload (see panel_peaklist's FWHM lock checkbox).
+                if peakTag.getAttribute("fwhmLocked") in ("1", "true", "True"):
+                    peak.attributes["_fwhmLocked"] = True
 
                 # Restore optional envelope metadata saved in mSD.
                 envelopeTags = peakTag.getElementsByTagName("envelope")

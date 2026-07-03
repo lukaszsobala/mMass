@@ -443,6 +443,116 @@ def test_convert_selected_leaves_non_overlapping_envelope_untouched(envelope_par
     assert kept.attributes["envelope"]["area"] == pytest.approx(far_area)
 
 
+def test_locked_fwhm_changes_area_and_survives_reconvert(envelope_params):
+    """A locked FWHM re-fits the envelope's area and is not re-measured away.
+
+    Editing an envelope's FWHM must change its area (area scales with peak width).
+    Locking it keeps the manual width through later re-fits (convert / auto-recalc),
+    so a subsequent recompute does not silently revert it to the profile-measured
+    width -- but the lock stays clearable (see the companion test).
+    """
+    params = _convert_params(envelope_params, envelopeNonIdeality=0.0)
+    fwhm = 0.11
+    big = _avg_cluster_peaks(1802.0, 1, 1000.0, fwhm)
+    profile = mspy.profile(mspy.peaklist(big), fwhm=fwhm, points=20)
+
+    r1 = mpp.recalculate_neighborhood_envelopes(
+        mspy.peaklist([big[0]]), profile, [1802.0], params, selectedOnly=True
+    )
+    peak = next(p for p in r1 if p.attributes.get("envelope"))
+    measured_fwhm = peak.attributes["envelope"]["fwhm"]
+    measured_area = peak.attributes["envelope"]["area"]
+
+    # the user widens and LOCKS the FWHM, then recomputes
+    peak.setfwhm(measured_fwhm * 1.5)
+    peak.attributes["_fwhmLocked"] = True
+    r2 = mpp.recalculate_neighborhood_envelopes(
+        mspy.peaklist([peak]), profile, [1802.0], params, selectedOnly=True
+    )
+    locked = next(p for p in r2 if p.attributes.get("envelope"))
+    # the manual width is honoured and the area grew with the wider peak
+    assert locked.attributes["envelope"]["fwhm"] == pytest.approx(measured_fwhm * 1.5, rel=1e-3)
+    assert locked.attributes["envelope"]["area"] > measured_area * 1.1
+    # the lock rode along on the rebuilt representative peak
+    assert locked.attributes.get("_fwhmLocked")
+
+    # a later convert (which re-measures FWHM) must NOT revert the locked width
+    r3 = mpp.recalculate_neighborhood_envelopes(
+        mspy.peaklist([locked]), profile, [1802.0], params, selectedOnly=True
+    )
+    still = next(p for p in r3 if p.attributes.get("envelope"))
+    assert still.attributes["envelope"]["fwhm"] == pytest.approx(measured_fwhm * 1.5, rel=1e-3)
+
+
+def test_unlocked_fwhm_is_remeasured_not_stuck(envelope_params):
+    """Clearing the FWHM lock lets the width be re-measured again (not stuck)."""
+    params = _convert_params(envelope_params, envelopeNonIdeality=0.0)
+    fwhm = 0.11
+    big = _avg_cluster_peaks(1802.0, 1, 1000.0, fwhm)
+    profile = mspy.profile(mspy.peaklist(big), fwhm=fwhm, points=20)
+
+    r1 = mpp.recalculate_neighborhood_envelopes(
+        mspy.peaklist([big[0]]), profile, [1802.0], params, selectedOnly=True
+    )
+    peak = next(p for p in r1 if p.attributes.get("envelope"))
+    measured_fwhm = peak.attributes["envelope"]["fwhm"]
+
+    peak.setfwhm(measured_fwhm * 1.5)
+    peak.attributes["_fwhmLocked"] = True
+    r2 = mpp.recalculate_neighborhood_envelopes(
+        mspy.peaklist([peak]), profile, [1802.0], params, selectedOnly=True
+    )
+    locked = next(p for p in r2 if p.attributes.get("envelope"))
+
+    # unlock and recompute: the width is re-measured back to the profile value
+    locked.attributes["_fwhmLocked"] = False
+    r3 = mpp.recalculate_neighborhood_envelopes(
+        mspy.peaklist([locked]), profile, [1802.0], params, selectedOnly=True
+    )
+    unlocked = next(p for p in r3 if p.attributes.get("envelope"))
+    assert unlocked.attributes["envelope"]["fwhm"] == pytest.approx(measured_fwhm, rel=0.05)
+    assert not unlocked.attributes.get("_fwhmLocked")
+
+
+def test_unlocked_fwhm_edit_applies_then_reverts_on_recalc(envelope_params):
+    """An unlocked FWHM edit takes effect now, but a later auto-recalc reverts it.
+
+    ``respectFwhm=True`` is the pass that directly applies a typed width, so editing
+    the FWHM updates the area immediately even when unlocked. A subsequent auto
+    recalc triggered by another peak (``respectFwhm=False``) re-measures the
+    unlocked width back to the profile value -- the documented "not locked -> not
+    protected against later recalcs" behaviour.
+    """
+    params = _convert_params(envelope_params, envelopeNonIdeality=0.0)
+    fwhm = 0.11
+    big = _avg_cluster_peaks(1802.0, 1, 1000.0, fwhm)
+    profile = mspy.profile(mspy.peaklist(big), fwhm=fwhm, points=20)
+
+    r1 = mpp.recalculate_neighborhood_envelopes(
+        mspy.peaklist([big[0]]), profile, [1802.0], params, selectedOnly=True
+    )
+    peak = next(p for p in r1 if p.attributes.get("envelope"))
+    measured = peak.attributes["envelope"]["fwhm"]
+    base_area = peak.attributes["envelope"]["area"]
+
+    # direct edit, UNLOCKED: the typed width applies this pass and moves the area
+    peak.setfwhm(measured * 1.5)
+    r2 = mpp.recalculate_neighborhood_envelopes(
+        mspy.peaklist([peak]), profile, [1802.0], params, selectedOnly=True, respectFwhm=True
+    )
+    edited = next(p for p in r2 if p.attributes.get("envelope"))
+    assert edited.attributes["envelope"]["fwhm"] == pytest.approx(measured * 1.5, rel=1e-3)
+    assert edited.attributes["envelope"]["area"] > base_area * 1.1
+    assert not edited.attributes.get("_fwhmLocked")
+
+    # a later auto-recalc (respectFwhm=False, still unlocked) reverts the width
+    r3 = mpp.recalculate_neighborhood_envelopes(
+        mspy.peaklist([edited]), profile, [1802.0], params, selectedOnly=True
+    )
+    reverted = next(p for p in r3 if p.attributes.get("envelope"))
+    assert reverted.attributes["envelope"]["fwhm"] == pytest.approx(measured, rel=0.05)
+
+
 def test_convert_respects_changed_averagine_model(envelope_params):
     """Re-converting under a different averagine model must re-fit the areas.
 

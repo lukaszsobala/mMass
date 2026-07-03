@@ -2394,6 +2394,10 @@ def relabelenvelopes(
             averagineType=averagineType,
         )
 
+        # carry a user FWHM lock onto the (freshly built) representative peak, so
+        # the manual width survives the re-fit and is not re-measured next time
+        fwhmLocked = bool(getattr(parent, "attributes", {}).get("_fwhmLocked"))
+
         groupname = result.groupname()
         if label == "isotopes":
             for isotope, peak in enumerate(peaks):
@@ -2402,6 +2406,8 @@ def relabelenvelopes(
                 peak.setfwhm(fwhm_val)
                 peak.setgroup(groupname)
                 peak.attributes["envelope"] = envelope
+                if fwhmLocked:
+                    peak.attributes["_fwhmLocked"] = True
                 result.append(peak)
         else:
             for peak in peaks:
@@ -2410,6 +2416,8 @@ def relabelenvelopes(
                 peak.setfwhm(fwhm_val)
                 peak.setgroup(groupname)
                 peak.attributes["envelope"] = envelope
+                if fwhmLocked:
+                    peak.attributes["_fwhmLocked"] = True
                 result.append(peak)
 
     for x, peak in enumerate(peaklist):
@@ -2583,7 +2591,36 @@ def deisotope(
 # ----
 
 
-def _refresh_missing_fwhm_from_profile(peaklist, profile, recompute=False):
+def _fwhm_is_locked(peak):
+    """True if the user has pinned this peak's FWHM in the editor.
+
+    A locked FWHM (``attributes["_fwhmLocked"]``) is a deliberate manual override:
+    it must survive re-measurement (so a subsequent "Convert to Envelopes" or auto
+    recalc does not silently revert it to the value measured from the profile), yet
+    stay editable -- clearing the lock lets the width be re-measured again.
+    """
+
+    if not hasattr(peak, "attributes"):
+        return False
+    return bool(peak.attributes.get("_fwhmLocked")) and bool(peak.fwhm) and peak.fwhm > 0.0
+
+
+def _sync_stored_envelope_fwhm(peak):
+    """Make a peak's stored envelope width follow the peak's own FWHM.
+
+    The refit rebuilds the envelope from the stored ``envelope["fwhm"]``, so when a
+    width must be respected (a locked peak, or the peak the user is directly
+    editing) its stored envelope width is synced to the live FWHM first.
+    """
+
+    if not hasattr(peak, "attributes"):
+        return
+    stored = peak.attributes.get("envelope")
+    if isinstance(stored, dict) and stored.get("fwhm") and peak.fwhm and peak.fwhm > 0.0:
+        stored["fwhm"] = peak.fwhm
+
+
+def _refresh_missing_fwhm_from_profile(peaklist, profile, recompute=False, respectAll=False):
     """Refresh FWHM values from the profile signal at each peak m/z.
 
     By default only peaks with a missing/zero FWHM are filled in. With
@@ -2595,12 +2632,29 @@ def _refresh_missing_fwhm_from_profile(peaklist, profile, recompute=False):
     that stored value refreshed, so the freshly measured width is the one
     actually used. An existing value is only replaced by a valid new measurement,
     so a failed re-measurement never wipes a usable FWHM.
+
+    A FWHM the user has LOCKED in the editor is never re-measured; instead its
+    stored envelope width is synced to the locked value, so the area refit uses the
+    manual width. ``respectAll=True`` extends that to EVERY peak with a usable
+    FWHM (regardless of lock) -- used for the pass that directly applies a manual
+    FWHM edit, where the typed width must take effect this time even if the peak is
+    not locked. Unlocking (and a normal ``respectAll=False`` recompute) restores
+    re-measurement.
     """
 
     if profile is None or len(profile) == 0:
         return
 
     for peak in peaklist:
+        respect = _fwhm_is_locked(peak) or (
+            respectAll and bool(peak.fwhm) and peak.fwhm > 0.0
+        )
+        if respect:
+            # keep this width and make the stored envelope follow it, so the refit
+            # (which rebuilds from the stored FWHM) uses the respected value
+            _sync_stored_envelope_fwhm(peak)
+            continue
+
         if not recompute and peak.fwhm and peak.fwhm > 0.0:
             continue
 
@@ -2696,7 +2750,9 @@ def _selection_overlap_indices(peaklist, seedIdx, isotopeShift, averagineType, p
     return result
 
 
-def recalculate_neighborhood_envelopes(peaklist, profile, mzs, params, selectedOnly=False):
+def recalculate_neighborhood_envelopes(
+    peaklist, profile, mzs, params, selectedOnly=False, respectFwhm=False,
+):
     """Re-run envelope detection on the m/z neighborhood around given peaks.
 
     Pure helper (no wx / no config dependency) extracted from the peaklist GUI
@@ -2723,6 +2779,11 @@ def recalculate_neighborhood_envelopes(peaklist, profile, mzs, params, selectedO
         single monoisotopic seed yields a full envelope while its neighbours stay
         in the list untouched. When False (default, the auto-recalc after a
         delete / charge edit), the surrounding neighbourhood is re-fit as a whole.
+    respectFwhm (bool) - when True, no peak's FWHM is re-measured from the profile
+        (every usable width is kept as-is); used for the pass that directly applies
+        a manual FWHM edit, so the typed width takes effect this time even for an
+        unlocked peak. When False (default) unlocked peaks are re-measured; locked
+        peaks are always kept.
     """
 
     if not mzs:
@@ -2794,8 +2855,12 @@ def recalculate_neighborhood_envelopes(peaklist, profile, mzs, params, selectedO
         # Re-measure FWHM for every peak (not just missing ones): peaks carried
         # over from an earlier run may hold FWHM values from a superseded
         # algorithm, and "convert to envelopes" must reflect the current
-        # measurement.
-        _refresh_missing_fwhm_from_profile(gpl, profile, recompute=True)
+        # measurement. `respectFwhm` (the pass that directly applies a manual FWHM
+        # edit) keeps every usable width as-is instead, so the typed value takes
+        # effect; a locked width is always kept regardless.
+        _refresh_missing_fwhm_from_profile(
+            gpl, profile, recompute=True, respectAll=respectFwhm
+        )
 
         # Existing charges are respected; seedCharge is only a fallback for peaks
         # that carry no charge assignment yet.

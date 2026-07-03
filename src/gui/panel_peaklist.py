@@ -393,6 +393,14 @@ class panelPeaklist(wx.Panel):
         peakFwhm_label.SetFont(wx.SMALL_FONT)
         self.peakFwhm_value.SetFont(wx.SMALL_FONT)
 
+        self.peakFwhmLock_check = wx.CheckBox(panel, -1, "lock")
+        self.peakFwhmLock_check.SetFont(wx.SMALL_FONT)
+        self.peakFwhmLock_check.SetToolTip(wx.ToolTip(
+            "Lock this FWHM: keep the manual width when envelope areas are "
+            "recalculated instead of re-measuring it from the profile. "
+            "Unlock to let the width be measured again."
+        ))
+
         peakGroup_label = wx.StaticText(panel, -1, "group:")
         self.peakGroup_value = wx.TextCtrl(
             panel,
@@ -435,6 +443,9 @@ class panelPeaklist(wx.Panel):
         grid.Add(self.peakCharge_value, (4, 1), flag=wx.EXPAND)
         grid.Add(peakFwhm_label, (5, 0), flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL)
         grid.Add(self.peakFwhm_value, (5, 1), flag=wx.EXPAND)
+        grid.Add(
+            self.peakFwhmLock_check, (5, 2), flag=wx.ALIGN_LEFT | wx.ALIGN_CENTER_VERTICAL
+        )
         grid.Add(
             peakGroup_label, (6, 0), flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL
         )
@@ -897,8 +908,19 @@ class panelPeaklist(wx.Panel):
             "seedCharge": seedCharge,
         }
 
-    def _recalculateNeighborhoodEnvelopes(self, mzs, document=None):
-        """Recalculate NNLS areas for envelopes in the neighborhood of deleted peaks."""
+    def _recalculateNeighborhoodEnvelopes(
+        self, mzs, document=None, selectedOnly=False, respectFwhm=False,
+    ):
+        """Recalculate NNLS areas for envelopes in the neighborhood of edited peaks.
+
+        selectedOnly (bool) - when True, only the given peaks and the existing
+            envelopes they overlap are re-fit (used for a FWHM edit / lock toggle,
+            which must not re-deisotope the surrounding neighbourhood). When False
+            (the auto-recalc after a delete / charge change) the margin-window
+            neighbourhood is re-fit as a whole.
+        respectFwhm (bool) - when True the current FWHM of every peak in the fit is
+            kept as-is (not re-measured), so a directly typed width takes effect.
+        """
         if not mzs:
             return
 
@@ -914,6 +936,8 @@ class panelPeaklist(wx.Panel):
             spectrum.profile,
             mzs,
             self._envelopeParams(seedCharge=1),
+            selectedOnly=selectedOnly,
+            respectFwhm=respectFwhm,
         )
 
     # ----
@@ -1044,7 +1068,26 @@ class panelPeaklist(wx.Panel):
         peak = self.getPeakEditorData(original_peak=original_peak)
         if peak:
             document.backup(("spectrum"))
+
+            # apply the FWHM lock state from the editor before storing the peak
+            lock = self.peakFwhmLock_check.GetValue()
+            if hasattr(peak, "attributes"):
+                if lock:
+                    peak.attributes["_fwhmLocked"] = True
+                else:
+                    peak.attributes.pop("_fwhmLocked", None)
+
             document.spectrum.peaklist[self.selectedPeak] = peak
+
+            wasLocked = bool(getattr(original_peak, "attributes", {}).get("_fwhmLocked"))
+            fwhmChanged = original_peak.fwhm != peak.fwhm
+            lockChanged = wasLocked != bool(lock)
+            isEnvelope = bool(getattr(peak, "attributes", {}).get("envelope"))
+
+            # keep the edited peak selected after the list is rebuilt (an Update is
+            # an explicit action on it, so it should not deselect)
+            keepMz = peak.mz
+            recomputed = False
 
             if original_peak.charge != peak.charge:
                 # The stored envelope's isotope positions encode the old
@@ -1054,8 +1097,25 @@ class panelPeaklist(wx.Panel):
                 if hasattr(peak, "attributes"):
                     peak.attributes.pop("envelope", None)
                 self._recalculateNeighborhoodEnvelopes([original_peak.mz, peak.mz])
+                recomputed = True
+            elif isEnvelope and (fwhmChanged or lockChanged):
+                # A FWHM edit (or lock toggle) changes the envelope area (area
+                # scales with peak width). Re-fit this envelope and any it overlaps,
+                # applying the typed width THIS time (respectFwhm) regardless of the
+                # lock. The lock only governs later auto-recalcs triggered by other
+                # peaks: locked keeps this width, unlocked lets it be re-measured.
+                self._recalculateNeighborhoodEnvelopes(
+                    [peak.mz], selectedOnly=True, respectFwhm=True
+                )
+                recomputed = True
 
             self.parent.onDocumentChanged(items=("spectrum"))
+
+            # the recompute replaces the peaklist and the rebuild clears the
+            # selection; restore it (by m/z) so the edited peak stays selected
+            if recomputed:
+                self._selectedMz = keepMz
+                self.restoreEnvelopeSelection()
 
     # ----
 
@@ -1373,6 +1433,7 @@ class panelPeaklist(wx.Panel):
         self.peakSN_value.SetValue("")
         self.peakCharge_value.SetValue("")
         self.peakFwhm_value.SetValue("")
+        self.peakFwhmLock_check.SetValue(False)
         self.peakGroup_value.SetValue("")
         self.peakMonoisotopic_check.SetValue(True)
         self.peakReplace_butt.Enable(False)
@@ -1388,6 +1449,9 @@ class panelPeaklist(wx.Panel):
                 self.peakCharge_value.SetValue(str(peak.charge))
             if peak.fwhm:
                 self.peakFwhm_value.SetValue(str(round(peak.fwhm, 6)))
+            self.peakFwhmLock_check.SetValue(
+                bool(getattr(peak, "attributes", {}).get("_fwhmLocked"))
+            )
             if peak.group:
                 self.peakGroup_value.SetValue(str(peak.group))
             if peak.isotope == 0:
