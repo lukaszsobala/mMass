@@ -1520,16 +1520,13 @@ def _apportion_group_areas(areaColumns, monoColumns, x, y, capInfo=None):
     Two column sets are supplied per envelope:
 
     * `monoColumns[k]` -- the isotope pattern rendered as gaussians and normalised
-      so its *monoisotopic* apex equals 1. These decide how the signal is *shared*
-      at each point: ``share_k(x) = mono_k(x) / sum_j mono_j(x)``. Because the
-      shapes are normalised to each envelope's own monoisotopic peak, the split
-      does NOT depend on absolute abundance, so a tall lower-m/z species' isotope
-      tail cannot swamp and rob a shorter higher-m/z neighbour. The shares sum to
-      one wherever any envelope is present, so the apportioned signals add back up
-      to the observed curve and never exceed it. This is the fair decomposition:
-      a peak shared by a lower species' isotope and a higher species' monoisotope
-      is split between them (weighted equally, independent of abundance), not
-      handed whole to either.
+      so its *monoisotopic* apex equals 1. These drive the *base* split: at each
+      point ``share_k(x) = mono_k(x) / sum_j mono_j(x)``. Because every envelope is
+      normalised to its own monoisotopic peak, this base split does NOT depend on
+      absolute abundance -- so a tall lower-m/z species' isotope tail cannot swamp
+      and rob a shorter higher-m/z neighbour, and a small labelled envelope whose
+      every peak is buried under a much taller neighbour still keeps a meaningful
+      share instead of collapsing to zero.
 
     * `areaColumns[k]` -- the same pattern but normalised to unit *area* (a unit
       coefficient integrates to one). Each envelope's area is the least-squares
@@ -1538,18 +1535,39 @@ def _apportion_group_areas(areaColumns, monoColumns, x, y, capInfo=None):
       integrating ``g_k``) is what lets the isotope *shape* matter: for an
       isolated, non-averagine envelope a shape allowed to bend toward the data
       (larger nonIdeality) captures more of the peak and yields a different area,
-      so the nonIdeality parameter actually moves the number. For overlapping
-      envelopes the shape is rigid averagine, so the area follows the fair share.
+      so the nonIdeality parameter actually moves the number.
 
-    Least squares alone can still over-claim where an envelope's isotope tail runs
-    into signal from *untracked* species (its share there is ~1 because nothing
+    The base (equal-weight) split alone is unfair in the *opposite* direction: it
+    ignores abundance entirely, so a tiny envelope whose faint isotope happens to
+    coincide with a much larger neighbour's *monoisotopic* peak is handed a share
+    of that big peak far beyond anything its own small pattern could account for
+    (e.g. a 1% contributor claiming ~30% of the peak), and the big envelope's area
+    drops accordingly. The physical statement the user wants is that the observed
+    peak equals the *sum of what each envelope actually contributes there* -- a
+    neighbour's +2 isotope plus the mono, adding up to the whole -- and that split
+    must be consistent with each envelope's own amplitude.
+
+    So one **refinement pass** follows the base split: the share is re-weighted by
+    each envelope's fitted model ``amp_k * areaCol_k`` (its actual predicted
+    intensity), then areas are re-fit. An envelope with independent evidence of
+    being small -- a clean, unshared anchor peak that pins its amplitude low --
+    then claims only its small physical share of a shared peak, and the dominant
+    envelope recovers the rest. This is one mass-conserving Gauss-Seidel step of a
+    non-negative deconvolution seeded from the fair base split. It is deliberately
+    a *single* damped step, NOT run to convergence: full convergence is the plain
+    least-squares/NNLS solution, which drives a fully buried labelled envelope's
+    area to (near) zero -- the regression the base mono-normalised split exists to
+    prevent. One step removes the gross over-crediting without erasing a buried
+    label. (For an isolated envelope, ``K == 1``, the share is identically one both
+    passes, so the refinement is a no-op and the fit is unchanged.)
+
+    Least squares can still over-claim where an envelope's isotope tail runs into
+    signal from *untracked* species (its share there is ~1 because nothing
     competes), pulling the amplitude up until its modelled peak pokes above the
     observed curve. `capInfo[k] = (shaped, fwhm)` lets each amplitude be capped so
     the model stays under that envelope's OWN apportioned share ``g_k`` at its
-    isotope apexes (see `_envelope_amp_cap`). Since the shares sum to the observed
-    curve, capping every model under its share guarantees the summed decomposition
-    never exceeds the observed peak, and similar-height overlapping envelopes stay
-    fairly balanced. It only lowers amplitudes, never raises them.
+    isotope apexes (see `_envelope_amp_cap`). The cap is applied on the refinement
+    pass; it only lowers amplitudes, never raises them.
     """
 
     K = len(areaColumns)
@@ -1557,40 +1575,47 @@ def _apportion_group_areas(areaColumns, monoColumns, x, y, capInfo=None):
         return [0.0] * K
 
     yy = numpy.clip(y, 0.0, None)
-    total = numpy.zeros(len(x), dtype=float)
-    for col in monoColumns:
-        total = total + col
 
-    # only apportion where some envelope actually predicts signal; elsewhere the
-    # share is undefined (0/0) and there is nothing to attribute -- this also
-    # keeps baseline noise between/outside the isotope peaks out of the fit
-    threshold = 1e-6 * float(total.max()) if total.size else 0.0
-    active = total > threshold
-    safeTotal = numpy.where(active, total, 1.0)
+    def _pass(weightColumns, useCap):
+        """One apportionment pass over `weightColumns` (the per-envelope columns
+        that drive the split). Returns the least-squares amplitude per envelope,
+        optionally capped. The active region -- where some envelope predicts signal
+        -- keeps baseline noise between/outside the isotope peaks out of the fit;
+        where nothing predicts signal the share is undefined (0/0) and there is
+        nothing to attribute."""
+        total = numpy.zeros(len(x), dtype=float)
+        for col in weightColumns:
+            total = total + col
+        peak = float(total.max()) if total.size else 0.0
+        threshold = 1e-6 * peak if peak > 0.0 else 0.0
+        active = total > threshold
+        safeTotal = numpy.where(active, total, 1.0)
 
-    areas = []
-    for k, (areaCol, monoCol) in enumerate(zip(areaColumns, monoColumns, strict=True)):
-        share = numpy.where(active, monoCol / safeTotal, 0.0)
-        g = yy * share
+        amps = []
+        for k, (areaCol, wcol) in enumerate(zip(areaColumns, weightColumns, strict=True)):
+            share = numpy.where(active, wcol / safeTotal, 0.0)
+            g = yy * share
+            denom = float(numpy.dot(areaCol, areaCol))
+            amp = float(numpy.dot(areaCol, g)) / denom if denom > 0.0 else 0.0
+            if useCap and capInfo is not None:
+                shaped, fwhm = capInfo[k]
+                cap = _envelope_amp_cap(areaCol, x, g, shaped, fwhm)
+                if cap is not None:
+                    amp = min(amp, cap)
+            amps.append(max(0.0, amp))
+        return amps
 
-        # least-squares amplitude of this envelope's (possibly soft) shape fitted
-        # to its apportioned share of the signal. Shared for every K: the shape is
-        # what carries the decomposition, and for an isolated envelope nonIdeality
-        # can still bend that shape toward the data and move the area.
-        denom = float(numpy.dot(areaCol, areaCol))
-        amp = float(numpy.dot(areaCol, g)) / denom if denom > 0.0 else 0.0
+    # base split: equal-weight, abundance-independent (mono-normalised columns)
+    baseAmps = _pass(monoColumns, useCap=False)
 
-        # cap so the modelled envelope stays under its own apportioned share at
-        # its isotope apexes: keeps the summed decomposition within the observed
-        # curve and stops an edge envelope inflating on untracked neighbours.
-        if capInfo is not None:
-            shaped, fwhm = capInfo[k]
-            cap = _envelope_amp_cap(areaCol, x, g, shaped, fwhm)
-            if cap is not None:
-                amp = min(amp, cap)
-
-        areas.append(max(0.0, amp))
-    return areas
+    # one refinement step: re-weight the split by each envelope's fitted model
+    # amp_k * areaCol_k (its actual predicted intensity), then re-fit and cap. A
+    # single step -- not convergence -- so gross over-crediting of a shared peak is
+    # removed while a fully buried labelled envelope is not driven to zero.
+    refineColumns = [
+        max(0.0, baseAmps[k]) * areaColumns[k] for k in range(K)
+    ]
+    return _pass(refineColumns, useCap=True)
 
 
 # ----

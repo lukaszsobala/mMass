@@ -365,6 +365,59 @@ def test_small_envelope_under_large_neighbour_keeps_fair_share():
     assert areas[1] / areas[0] > 0.2
 
 
+def test_small_neighbour_isotope_does_not_rob_large_envelope_mono():
+    """A tiny envelope's isotope must not steal a large envelope's monoisotopic peak.
+
+    The mirror of the test above, and the ``spectra/example_env2.msd`` regression:
+    the user adds a small peak two Da *below* a much larger envelope (charge 1), so
+    the small species' +2 isotope lands exactly on the large species' monoisotopic
+    peak. Under a purely abundance-independent (equal-weight) split the tiny
+    envelope is handed an equal share of that big peak -- far more than its own
+    small pattern could account for (a ~1-3% contributor claiming ~25-30% of the
+    peak) -- and the large envelope's area collapses (in the file it dropped from
+    ~44 to ~31). The observed peak must instead equal the *sum* of what each
+    envelope actually contributes there: the small species' +2 (a few percent) plus
+    the large species' mono (the rest). So the large envelope keeps essentially all
+    of its area, the small one keeps only its small fair share, and the two add up
+    to the peak without exceeding it.
+    """
+
+    # small two Da below big (charge 1): small's +2 == big's mono at 1802.0. A
+    # moderate mass gives the small a non-trivial +2, so equal-weight over-crediting
+    # is severe (big robbed to ~0.74 of its isolated area pre-fix).
+    small = _averagine_cluster(1800.0, 1, 30.0, fwhm=0.11)
+    big = _averagine_cluster(1802.0, 1, 1000.0, fwhm=0.11)
+    profile = _profile(small, big, fwhm=0.11)
+
+    big_alone = mpp._fit_envelope_areas([big], profile, 0.11, 0.2)[0]
+    areas, shapes = mpp._fit_envelope_areas_shaped([small, big], profile, 0.11, 0.2)
+
+    # the big envelope is NOT robbed by its tiny neighbour: it keeps essentially all
+    # of the area it has when fitted alone (pre-fix it dropped to ~0.74)
+    assert areas[1] >= big_alone * 0.90
+    # the small envelope is kept (not discarded) but only claims its small fair
+    # share -- consistent with its own ~3% pattern, not an equal split of the peak
+    assert areas[0] > 0.0
+    assert areas[0] < areas[1] * 0.08
+
+    # totals check out at the shared peak (big's mono == small's +2): the summed
+    # reconstruction equals the observed peak -- the parts add up to the whole and
+    # never exceed it
+    x = profile[:, 0]
+    y = profile[:, 1]
+    sigma = mpp._fwhm_to_sigma(0.11)
+    norm = sigma * numpy.sqrt(2 * numpy.pi)
+    model = numpy.zeros_like(x)
+    for area, shape in zip(areas, shapes, strict=True):
+        for mz, w in shape:
+            model += (area * w / norm) * numpy.exp(-0.5 * ((x - mz) / sigma) ** 2)
+    i = int(numpy.argmin(numpy.abs(x - 1802.0)))
+    assert model[i] <= y[i] * 1.03          # never invents signal above the peak
+    assert model[i] >= y[i] * 0.90          # the parts genuinely add up to the whole
+    # and nowhere in the region does the summed model exceed the observed curve
+    assert numpy.max(model - y) <= 0.03 * numpy.max(y)
+
+
 def test_overlapping_model_never_exceeds_observed_curve():
     """The summed envelope model stays within the observed profile (mass conserving).
 

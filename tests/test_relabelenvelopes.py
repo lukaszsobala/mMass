@@ -92,7 +92,7 @@ def test_envelope_metadata_shape():
     pl.labelenvelopes(label="1st", signal=profile, defaultFwhm=0.05, nonIdeality=0.4)
     env = pl[0].attributes["envelope"]
 
-    assert set(env.keys()) == {"area", "sumint", "fwhm", "shape", "isotopes"}
+    assert set(env.keys()) == {"area", "sumint", "fwhm", "shape", "isotopes", "averagineType"}
     assert env["shape"] == "gaussian"
     assert env["area"] > 0.0
     assert env["sumint"] > 0.0
