@@ -882,6 +882,71 @@ def _cluster_isotope_model(
 # ----
 
 
+def _isotonic_nondecreasing(values):
+    """Least-squares non-decreasing fit via pool-adjacent-violators (PAVA).
+
+    Returns the closest (in squared error) non-decreasing sequence to `values`.
+    PAVA only ever replaces a run of points by their mean, so the sum of the
+    output equals the sum of the input exactly -- which is what lets the
+    unimodal projection below preserve the total envelope area.
+    """
+
+    stack = []  # each entry is a [sum, count] pool, left to right
+    for value in values:
+        pool_sum = float(value)
+        pool_count = 1
+        # merge while the previous pool's mean exceeds this one's (a violation)
+        while stack and stack[-1][0] / stack[-1][1] > pool_sum / pool_count:
+            prev_sum, prev_count = stack.pop()
+            pool_sum += prev_sum
+            pool_count += prev_count
+        stack.append([pool_sum, pool_count])
+
+    out = numpy.empty(len(values), dtype=float)
+    i = 0
+    for pool_sum, pool_count in stack:
+        out[i:i + pool_count] = pool_sum / pool_count
+        i += pool_count
+    return out
+
+
+def _project_unimodal(weights):
+    """Closest (least-squares) unimodal sequence to `weights`, area-preserving.
+
+    A single-species isotope envelope is unimodal: its weights rise (weakly) to a
+    peak isotope and fall thereafter -- they never dip in the middle and rise
+    again. When a wide non-ideality band lets observed noise or an overlapping
+    species push an interior isotope down (a notch) or to zero (a gap), the
+    blended weights can stop being unimodal. This projects them back onto the
+    nearest unimodal shape.
+
+    Every candidate peak position splits the weights into a non-decreasing prefix
+    and a non-increasing suffix, each fitted by PAVA; the concatenation of a
+    non-decreasing run followed by a non-increasing run is unimodal for any split,
+    and PAVA preserves each part's sum, so the total (the envelope area) is
+    conserved. The split with the smallest squared error is kept.
+    """
+
+    w = numpy.asarray(weights, dtype=float)
+    n = len(w)
+    if n <= 2:
+        # any sequence of length <= 2 is already unimodal
+        return w.copy()
+
+    best_fit = w.copy()
+    best_err = numpy.inf
+    for split in range(n + 1):
+        left = _isotonic_nondecreasing(w[:split])
+        # a non-increasing fit is a non-decreasing fit of the reversed data
+        right = _isotonic_nondecreasing(w[split:][::-1])[::-1]
+        fit = numpy.concatenate([left, right])
+        err = float(numpy.sum((fit - w) ** 2))
+        if err < best_err:
+            best_err = err
+            best_fit = fit
+    return best_fit
+
+
 def _soft_isotope_model(isotopes, x, y, fwhm, nonIdeality=None):
     """Reshape averagine isotopes toward observed evidence within a bounded band.
 
@@ -926,9 +991,11 @@ def _soft_isotope_model(isotopes, x, y, fwhm, nonIdeality=None):
     # is tiny -- can never be inflated by neighbouring noise or a partially
     # overlapping species to rival a much more abundant earlier isotope. Both
     # `theory` and `obs` are normalised to sum 1, so they are directly
-    # comparable here. The lower bound (>= 0.5*theory for d <= 0.5) also keeps
-    # the support continuous, so no internal gaps can open up.
-    deviation = max(0.0, min(float(nonIdeality), 0.50))
+    # comparable here. At the upper limit (deviation == 1.0) the lower bound
+    # reaches 0, so an interior isotope could be driven to zero; the unimodality
+    # guard applied after the band clip below repairs any resulting notch/gap,
+    # so the envelope always stays a plausible single-species isotope pattern.
+    deviation = max(0.0, min(float(nonIdeality), 1.0))
     upper = (1.0 + deviation) * theory
     lower = (1.0 - deviation) * theory
 
@@ -945,19 +1012,40 @@ def _soft_isotope_model(isotopes, x, y, fwhm, nonIdeality=None):
     # inside their own bounds. theory sums to 1 and the band spans [1-d, 1+d]
     # around it, so a feasible sum-1 solution always exists and is reached in a
     # single proportional pass (the loop just absorbs floating-point drift).
-    for _ in range(4):
-        residual = 1.0 - float(numpy.sum(blended))
-        if abs(residual) <= 1e-12:
-            break
-        if residual > 0.0:
-            slack = upper - blended
-        else:
-            slack = blended - lower
-        total_slack = float(numpy.sum(slack))
-        if total_slack <= 1e-12:
-            break
-        blended = blended + residual * (slack / total_slack)
-    blended = numpy.clip(blended, lower, upper)
+    def _renorm_in_band(vec):
+        for _ in range(4):
+            residual = 1.0 - float(numpy.sum(vec))
+            if abs(residual) <= 1e-12:
+                break
+            slack = (upper - vec) if residual > 0.0 else (vec - lower)
+            total_slack = float(numpy.sum(slack))
+            if total_slack <= 1e-12:
+                break
+            vec = vec + residual * (slack / total_slack)
+        return numpy.clip(vec, lower, upper)
+
+    blended = _renorm_in_band(blended)
+
+    # Unimodality guard. With a wide non-ideality band the per-isotope clip alone
+    # no longer keeps the envelope shaped like a real isotope pattern: observed
+    # noise or an overlapping species can push an interior weight down (a notch)
+    # or, at deviation == 1.0, to zero (a gap). Project back onto the nearest
+    # unimodal shape, re-apply the band, and restore the sum. The band edges are
+    # scaled copies of the unimodal `theory`, so clipping a unimodal vector to
+    # them keeps it unimodal once the projected peak aligns with theory's; a few
+    # alternating passes converge (theory itself is a feasible fixed point:
+    # unimodal, inside the band, summing to 1). Skipped when there is no observed
+    # evidence, since `theory` is already unimodal.
+    if obs_total > 0.0:
+        for _ in range(6):
+            shaped = _renorm_in_band(numpy.clip(_project_unimodal(blended), lower, upper))
+            if numpy.max(numpy.abs(shaped - blended)) <= 1e-9:
+                blended = shaped
+                break
+            blended = shaped
+        # Final projection guarantees an exactly unimodal, area-preserving result
+        # (PAVA conserves the sum, which is ~1 after the loop above).
+        blended = _project_unimodal(blended)
 
     blended_total = float(numpy.sum(blended))
     if blended_total <= 0.0:
@@ -1358,19 +1446,87 @@ def _envelope_gaussian_column(x, isotopes, sigma):
 # ----
 
 
-def _apportion_group_areas(areaColumns, monoColumns, x, y):
+def _envelope_amp_cap(areaColumn, x, capSignal, shaped, fwhm):
+    """Largest amplitude whose modelled envelope stays under ``capSignal``.
+
+    ``capSignal`` here is the envelope's own *apportioned share* ``g_k`` of the
+    observed profile (see `_apportion_group_areas`), NOT the raw observed curve.
+    For a unit-area column the amplitude is bounded by
+    ``min_i g_k(apex_i) / column(apex_i)`` over this envelope's isotope apexes,
+    where ``g_k`` and ``column`` are each the local maximum in a small window
+    around the isotope (window maxima, so a slight grid/position offset or an
+    inter-isotope valley cannot distort the ratio -- sampling the raw column
+    everywhere over-clamped to zero at the valleys).
+
+    Capping against the *share* rather than the observed total is what makes the
+    decomposition add up: because the shares sum to the observed curve
+    (``sum_k g_k = y``), holding every envelope's model under its own share means
+    the summed model can never exceed the observed peak. So two envelopes that
+    overlap at one m/z (a lower species' isotope and a higher species' mono) split
+    that peak fairly and their contributions sum to it -- neither takes it whole.
+    It also stops the highest-m/z envelope of a selection from inflating on the
+    untracked peak-forest to its right: there its share is ~1 but its column has
+    only a tiny tail weight, so the abundant-isotope apexes (near the mono) set a
+    far tighter bound and hold the area to a fair value. The cap is anchored on the
+    abundant isotopes, so it scales with the envelope's peak height and keeps
+    similar-height overlapping envelopes comparable.
+    """
+
+    if not shaped or areaColumn.size == 0:
+        return None
+
+    weights = [max(0.0, float(w)) for _mz, w in shaped]
+    wMax = max(weights) if weights else 0.0
+    if wMax <= 0.0:
+        return None
+
+    # window half-width: wide enough to catch the real apex (which may sit a
+    # fraction of the peak width off the model grid) yet far inside the isotope
+    # spacing so it never samples a neighbouring isotope
+    halfWin = max(0.6 * float(fwhm), 1e-3)
+
+    cap = None
+    for (mz, w) in shaped:
+        # anchor the cap on the SIGNIFICANT isotopes (weight within ~5x of the
+        # apex). This must include the moderate isotopes (e.g. a light species' +2)
+        # that genuinely overlap a neighbour's monoisotopic peak, so an envelope is
+        # held to its fair share there and cannot over-claim a shared peak (the
+        # lower-m/z species would otherwise take a little more than its equal-weight
+        # split, nudging its area up and the neighbour's down). But it must EXCLUDE
+        # the near-zero tail isotopes: when one of those overlaps a much larger
+        # neighbour it is handed a vanishingly small equal-weight share, and
+        # anchoring on it would drag the whole envelope's amplitude down to that
+        # suppressed value and wrongly flatten a genuine abundance difference
+        # between overlapping species. The 0.1 cut keeps the moderate isotopes and
+        # drops only the faint tail.
+        if float(w) < 0.1 * wMax:
+            continue
+        i1 = int(numpy.searchsorted(x, mz - halfWin, side="left"))
+        i2 = int(numpy.searchsorted(x, mz + halfWin, side="right"))
+        if i2 <= i1:
+            continue
+        colPeak = float(areaColumn[i1:i2].max())
+        if colPeak <= 0.0:
+            continue
+        sigPeak = float(capSignal[i1:i2].max())
+        ratio = sigPeak / colPeak
+        cap = ratio if cap is None else min(cap, ratio)
+    return cap
+
+
+def _apportion_group_areas(areaColumns, monoColumns, x, y, capInfo=None):
     """Split the observed signal among overlapping envelopes, then fit each area.
 
     Two column sets are supplied per envelope:
 
     * `monoColumns[k]` -- the isotope pattern rendered as gaussians and normalised
-      so its *monoisotopic* apex equals 1. These decide how the signal is *shared*
-      at each point: ``share_k(x) = mono_k(x) / sum_j mono_j(x)``. Because the
-      shapes are normalised to each envelope's own monoisotopic peak, the split
-      does NOT depend on absolute abundance, so a tall lower-m/z species' isotope
-      tail cannot swamp and rob a shorter higher-m/z neighbour. The shares sum to
-      one wherever any envelope is present, so the apportioned signals add back up
-      to the observed curve and never exceed it.
+      so its *monoisotopic* apex equals 1. These drive the *base* split: at each
+      point ``share_k(x) = mono_k(x) / sum_j mono_j(x)``. Because every envelope is
+      normalised to its own monoisotopic peak, this base split does NOT depend on
+      absolute abundance -- so a tall lower-m/z species' isotope tail cannot swamp
+      and rob a shorter higher-m/z neighbour, and a small labelled envelope whose
+      every peak is buried under a much taller neighbour still keeps a meaningful
+      share instead of collapsing to zero.
 
     * `areaColumns[k]` -- the same pattern but normalised to unit *area* (a unit
       coefficient integrates to one). Each envelope's area is the least-squares
@@ -1379,8 +1535,39 @@ def _apportion_group_areas(areaColumns, monoColumns, x, y):
       integrating ``g_k``) is what lets the isotope *shape* matter: for an
       isolated, non-averagine envelope a shape allowed to bend toward the data
       (larger nonIdeality) captures more of the peak and yields a different area,
-      so the nonIdeality parameter actually moves the number. For overlapping
-      envelopes the shape is rigid averagine, so the area follows the fair share.
+      so the nonIdeality parameter actually moves the number.
+
+    The base (equal-weight) split alone is unfair in the *opposite* direction: it
+    ignores abundance entirely, so a tiny envelope whose faint isotope happens to
+    coincide with a much larger neighbour's *monoisotopic* peak is handed a share
+    of that big peak far beyond anything its own small pattern could account for
+    (e.g. a 1% contributor claiming ~30% of the peak), and the big envelope's area
+    drops accordingly. The physical statement the user wants is that the observed
+    peak equals the *sum of what each envelope actually contributes there* -- a
+    neighbour's +2 isotope plus the mono, adding up to the whole -- and that split
+    must be consistent with each envelope's own amplitude.
+
+    So one **refinement pass** follows the base split: the share is re-weighted by
+    each envelope's fitted model ``amp_k * areaCol_k`` (its actual predicted
+    intensity), then areas are re-fit. An envelope with independent evidence of
+    being small -- a clean, unshared anchor peak that pins its amplitude low --
+    then claims only its small physical share of a shared peak, and the dominant
+    envelope recovers the rest. This is one mass-conserving Gauss-Seidel step of a
+    non-negative deconvolution seeded from the fair base split. It is deliberately
+    a *single* damped step, NOT run to convergence: full convergence is the plain
+    least-squares/NNLS solution, which drives a fully buried labelled envelope's
+    area to (near) zero -- the regression the base mono-normalised split exists to
+    prevent. One step removes the gross over-crediting without erasing a buried
+    label. (For an isolated envelope, ``K == 1``, the share is identically one both
+    passes, so the refinement is a no-op and the fit is unchanged.)
+
+    Least squares can still over-claim where an envelope's isotope tail runs into
+    signal from *untracked* species (its share there is ~1 because nothing
+    competes), pulling the amplitude up until its modelled peak pokes above the
+    observed curve. `capInfo[k] = (shaped, fwhm)` lets each amplitude be capped so
+    the model stays under that envelope's OWN apportioned share ``g_k`` at its
+    isotope apexes (see `_envelope_amp_cap`). The cap is applied on the refinement
+    pass; it only lowers amplitudes, never raises them.
     """
 
     K = len(areaColumns)
@@ -1388,25 +1575,47 @@ def _apportion_group_areas(areaColumns, monoColumns, x, y):
         return [0.0] * K
 
     yy = numpy.clip(y, 0.0, None)
-    total = numpy.zeros(len(x), dtype=float)
-    for col in monoColumns:
-        total = total + col
 
-    # only apportion where some envelope actually predicts signal; elsewhere the
-    # share is undefined (0/0) and there is nothing to attribute -- this also
-    # keeps baseline noise between/outside the isotope peaks out of the fit
-    threshold = 1e-6 * float(total.max()) if total.size else 0.0
-    active = total > threshold
-    safeTotal = numpy.where(active, total, 1.0)
+    def _pass(weightColumns, useCap):
+        """One apportionment pass over `weightColumns` (the per-envelope columns
+        that drive the split). Returns the least-squares amplitude per envelope,
+        optionally capped. The active region -- where some envelope predicts signal
+        -- keeps baseline noise between/outside the isotope peaks out of the fit;
+        where nothing predicts signal the share is undefined (0/0) and there is
+        nothing to attribute."""
+        total = numpy.zeros(len(x), dtype=float)
+        for col in weightColumns:
+            total = total + col
+        peak = float(total.max()) if total.size else 0.0
+        threshold = 1e-6 * peak if peak > 0.0 else 0.0
+        active = total > threshold
+        safeTotal = numpy.where(active, total, 1.0)
 
-    areas = []
-    for areaCol, monoCol in zip(areaColumns, monoColumns, strict=True):
-        share = numpy.where(active, monoCol / safeTotal, 0.0)
-        g = yy * share
-        denom = float(numpy.dot(areaCol, areaCol))
-        amp = float(numpy.dot(areaCol, g)) / denom if denom > 0.0 else 0.0
-        areas.append(max(0.0, amp))
-    return areas
+        amps = []
+        for k, (areaCol, wcol) in enumerate(zip(areaColumns, weightColumns, strict=True)):
+            share = numpy.where(active, wcol / safeTotal, 0.0)
+            g = yy * share
+            denom = float(numpy.dot(areaCol, areaCol))
+            amp = float(numpy.dot(areaCol, g)) / denom if denom > 0.0 else 0.0
+            if useCap and capInfo is not None:
+                shaped, fwhm = capInfo[k]
+                cap = _envelope_amp_cap(areaCol, x, g, shaped, fwhm)
+                if cap is not None:
+                    amp = min(amp, cap)
+            amps.append(max(0.0, amp))
+        return amps
+
+    # base split: equal-weight, abundance-independent (mono-normalised columns)
+    baseAmps = _pass(monoColumns, useCap=False)
+
+    # one refinement step: re-weight the split by each envelope's fitted model
+    # amp_k * areaCol_k (its actual predicted intensity), then re-fit and cap. A
+    # single step -- not convergence -- so gross over-crediting of a shared peak is
+    # removed while a fully buried labelled envelope is not driven to zero.
+    refineColumns = [
+        max(0.0, baseAmps[k]) * areaColumns[k] for k in range(K)
+    ]
+    return _pass(refineColumns, useCap=True)
 
 
 # ----
@@ -1445,6 +1654,38 @@ def _overlap_groups(intervals):
 # ----
 
 
+def _is_regular_isotope_grid(shaped):
+    """True if `shaped` is a clean single-species isotope grid.
+
+    `shaped` is a list of (mz, weight). A genuine single envelope has strictly
+    increasing positions spaced by roughly one isotope step, so every gap is close
+    to the typical gap. A *merged* representative -- several overlapping envelopes
+    collapsed onto one peak (the "1st" label) -- instead carries duplicated or
+    irregular positions (two species' isotopes interleave, some coincide), which
+    cannot be re-derived from an averagine grid.
+
+    This is what lets an isolated envelope re-soft-model against the current
+    non-ideality (a regular grid) while a merged one keeps its stored shape (an
+    irregular grid): once the user deletes a neighbour, the survivor is a regular
+    grid again and is correctly treated as isolated. A gap much smaller than the
+    typical spacing means two positions are effectively the same isotope -- a
+    duplicate that only a merged/collapsed shape produces.
+    """
+
+    positions = sorted(float(mz) for mz, _w in shaped)
+    if len(positions) < 2:
+        return True
+    gaps = [positions[i + 1] - positions[i] for i in range(len(positions) - 1)]
+    minGap = min(gaps)
+    if minGap <= 0.0:
+        return False
+    medGap = sorted(gaps)[len(gaps) // 2]
+    if medGap <= 0.0:
+        return False
+    # any gap under half the typical isotope spacing is a duplicated position
+    return minGap >= 0.5 * medGap
+
+
 def _fit_group_areas(metas, x, y, nonIdeality):
     """Apportion the observed signal among a group of (overlapping) envelopes.
 
@@ -1476,24 +1717,47 @@ def _fit_group_areas(metas, x, y, nonIdeality):
     if nonIdeality is None:
         nonIdeality = ENVELOPE_NON_IDEALITY_DEFAULT
 
-    norm_ok = [sigma > 0.0 and bool(isotopes) for _fwhm, sigma, isotopes in metas]
+    norm_ok = [sigma > 0.0 and bool(isotopes) for _fwhm, sigma, isotopes, _stored in metas]
 
     # the theoretical (averagine) pattern is the default shape
-    shapes = [list(isotopes) for _fwhm, _sigma, isotopes in metas]
+    shapes = [list(isotopes) for _fwhm, _sigma, isotopes, _stored in metas]
 
     areaColumns = []
     monoColumns = []
-    for k, (fwhm, sigma, isotopes) in enumerate(metas):
+    capInfo = []
+    for k, (fwhm, sigma, isotopes, storedShape) in enumerate(metas):
         if not norm_ok[k]:
             areaColumns.append(numpy.zeros(len(x), dtype=float))
             monoColumns.append(numpy.zeros(len(x), dtype=float))
+            capInfo.append(([], 0.0))
             continue
 
-        # bend the pattern toward the data only when this envelope stands alone;
-        # in an overlap group the rigid averagine pattern keeps the apportionment
-        # honest (a flexing tail must not be able to claim a neighbour's peak)
-        if K == 1:
+        # Shape selection:
+        #
+        # * Isolated envelope (the only one in its group) with a regular,
+        #   single-species isotope grid: always soft-model at the CURRENT
+        #   non-ideality, so the user's preference takes effect -- including on the
+        #   "Convert to Envelopes" route, where the envelope carries a stored shape.
+        #   A stored shape is deliberately NOT reused here: reusing it froze the
+        #   shape and made non-ideality a no-op after a neighbour was deleted and
+        #   the survivor became isolated. Re-softening is idempotent at a fixed
+        #   non-ideality (same theoretical pattern + data), so an unchanged setting
+        #   still reproduces the picked value. (Spec: non-ideality is effective for
+        #   non-overlapping envelopes, inert for overlapping ones.)
+        #
+        # * A stored shape on a MERGED/irregular grid -- several overlapping species
+        #   collapsed onto one representative -- is reused verbatim: that shape
+        #   cannot be re-derived from the positions (they are duplicated), and even
+        #   though it forms a K==1 group it is not a single species, so non-ideality
+        #   does not apply.
+        #
+        # * Overlapping envelope with no stored shape keeps the rigid averagine
+        #   pattern, so a flexing tail cannot claim a neighbour's peak.
+        if K == 1 and (storedShape is None or _is_regular_isotope_grid(storedShape)):
             shaped = _soft_isotope_model(isotopes, x, y, fwhm, nonIdeality=nonIdeality)
+            shapes[k] = shaped
+        elif storedShape is not None:
+            shaped = storedShape
             shapes[k] = shaped
         else:
             shaped = isotopes
@@ -1506,8 +1770,11 @@ def _fit_group_areas(metas, x, y, nonIdeality):
         norm = sigma * math.sqrt(2.0 * math.pi)
         areaColumns.append(areaColumn)
         monoColumns.append(areaColumn * (norm / w0))
+        # the fitted shape + width, so the apportionment can cap each amplitude
+        # against this envelope's own apportioned share at its isotope apexes
+        capInfo.append((shaped, fwhm))
 
-    areas = _apportion_group_areas(areaColumns, monoColumns, x, y)
+    areas = _apportion_group_areas(areaColumns, monoColumns, x, y, capInfo=capInfo)
     return areas, shapes
 
 
@@ -1574,7 +1841,21 @@ def _fit_envelope_areas_shaped(
         sigma = _fwhm_to_sigma(fwhm)
         weights = _cluster_weights(cluster, averagineType=averagineType)
         isotopes = [(p.mz, w) for p, w in zip(cluster, weights, strict=True)]
-        metas.append((fwhm, sigma, isotopes))
+
+        # the exact fitted shape carried over from a stored envelope (only when
+        # every peak has one, i.e. this cluster was rebuilt from an envelope). It
+        # lets an overlap fit reproduce the picked area instead of re-deriving a
+        # shape that differs for merged/irregular isotope grids.
+        storedW = [p.attributes.get("_envweight") for p in cluster]
+        storedShape = None
+        if all(w is not None for w in storedW):
+            tot = sum(max(0.0, float(w)) for w in storedW)
+            if tot > 0.0:
+                storedShape = [
+                    (p.mz, max(0.0, float(w)) / tot)
+                    for p, w in zip(cluster, storedW, strict=True)
+                ]
+        metas.append((fwhm, sigma, isotopes, storedShape))
 
         mzs = [p.mz for p in cluster]
         pad = 6.0 * max(fwhm, defaultFwhm)
@@ -1620,7 +1901,7 @@ def _fit_envelope_areas(
 # ----
 
 
-def _reconstruct_cluster_from_envelope(parent, envelope):
+def _reconstruct_cluster_from_envelope(parent, envelope, averagineType=DEFAULT_AVERAGINE):
     """Rebuild a peak's cluster from its stored envelope metadata.
 
     When envelopes are collapsed to a single representative (the "1st" label)
@@ -1631,10 +1912,29 @@ def _reconstruct_cluster_from_envelope(parent, envelope):
     envelope makes re-running idempotent. The area is still re-fit against the
     profile afterwards (jointly over all clusters), so editing peaks and
     recalculating a neighbourhood keeps working as before.
+
+    `averagineType` is the model the current run is using. When it matches the
+    model the stored envelope was fit under, the exact fitted weights are carried
+    over (`_envweight`) so re-converting reproduces the picked shape and area.
+    When the user has switched models the stored weights are dropped instead:
+    only the isotope POSITIONS (charge/spacing grid) are kept and the fit
+    re-derives the intensity pattern from the new averagine, so a different model
+    yields the different area it should. A legacy envelope carrying no model tag
+    is treated as the default so the common protein case stays idempotent.
     """
 
     isotopes = envelope.get("isotopes") or []
     fwhm = envelope.get("fwhm") or parent.fwhm
+    storedAveragine = envelope.get("averagineType", DEFAULT_AVERAGINE)
+    reuseWeights = storedAveragine == averagineType
+
+    # true isotope spacing, so the isotope index of each stored position reflects
+    # its m/z (not its list order). A stored shape can hold irregular or repeated
+    # positions -- e.g. one merged from two overlapping envelopes -- for which the
+    # list index would be wrong; the m/z-derived index keeps `_cluster_weights`
+    # consistent with what peak-picking used.
+    monoMz = float(isotopes[0][0]) if isotopes else parent.mz
+    spacing = ISOTOPE_DISTANCE / abs(parent.charge) if parent.charge else ISOTOPE_DISTANCE
 
     cluster = []
     for i, iso in enumerate(isotopes):
@@ -1648,7 +1948,19 @@ def _reconstruct_cluster_from_envelope(parent, envelope):
         if fwhm:
             peak.setfwhm(fwhm)
         peak.setcharge(parent.charge)
-        peak.setisotope(i)
+        if spacing > 0.0:
+            peak.setisotope(int(round((float(iso[0]) - monoMz) / spacing)))
+        else:
+            peak.setisotope(i)
+        # remember the exact fitted weight. For OVERLAPPING (K>1) clusters the fit
+        # reuses it so re-fitting reproduces the stored shape (and area) that
+        # peak-picking produced -- irregular/merged shapes cannot be re-derived
+        # from positions alone. Isolated (K==1) envelopes ignore it and re-soften
+        # from the theoretical pattern, so a changed algorithm still re-derives.
+        # Dropped entirely when the averagine model has changed, so the fit
+        # rebuilds the pattern (and area) from the newly selected model.
+        if reuseWeights:
+            peak.attributes["_envweight"] = float(iso[1])
         cluster.append(peak)
 
     return cluster
@@ -1665,8 +1977,18 @@ def relabelenvelopes(
     nonIdeality=None,
     relaxed=False,
     averagineType=DEFAULT_AVERAGINE,
+    preserveSeeds=False,
 ):
-    """Convert deisotoped peak clusters to envelope labels."""
+    """Convert deisotoped peak clusters to envelope labels.
+
+    preserveSeeds (bool) - when True every input peak is kept as its own envelope
+        seed: peaks are never absorbed into one another, adjacent clusters are not
+        merged, and zero-area clusters are not pruned. Each seed's area is still
+        obtained from the single joint overlap-aware fit, so overlapping seeds
+        share the observed signal correctly ("many isotopes under one curve")
+        while none of the explicitly chosen peaks can vanish. Used by the
+        "convert to envelopes" action on an explicit selection.
+    """
 
     # check peaklist
     if not isinstance(peaklist, obj_peaklist.peaklist):
@@ -1691,9 +2013,14 @@ def relabelenvelopes(
             continue
 
         # If this peak already carries a detected envelope (e.g. re-running
-        # detection on already-converted peaks), rebuild its cluster exactly
-        # from the stored isotope positions so the result is idempotent. The
-        # area is re-fit below like every other cluster.
+        # detection on already-converted peaks, or converting the output of
+        # find-peaks), rebuild its cluster exactly from the stored isotope
+        # positions so the result is idempotent -- this is what keeps the
+        # peak-picking and "Convert to Envelopes" routes giving the same areas.
+        # The rebuild only deep-copies the parent onto the stored grid; it never
+        # consumes another peaklist peak, so it is safe under preserveSeeds (each
+        # selected peak still rebuilds its OWN envelope and none is absorbed).
+        # The area is re-fit below like every other cluster.
         storedEnvelope = (
             parent.attributes.get("envelope")
             if hasattr(parent, "attributes")
@@ -1701,7 +2028,11 @@ def relabelenvelopes(
         )
         if isinstance(storedEnvelope, dict) and storedEnvelope.get("isotopes"):
             used.add(x)
-            clusters.append(_reconstruct_cluster_from_envelope(parent, storedEnvelope))
+            clusters.append(
+                _reconstruct_cluster_from_envelope(
+                    parent, storedEnvelope, averagineType=averagineType
+                )
+            )
             continue
 
         cluster = [copy.deepcopy(parent)]
@@ -1713,7 +2044,11 @@ def relabelenvelopes(
         # absolute window would, at high charge, be a large fraction of the
         # spacing and could match a neighbouring isotope or a foreign peak.
         chargeTol = mzTolerance / abs(parent.charge)
-        while True:
+        # In preserveSeeds mode we never absorb the following peaks: each selected
+        # seed stays on its own so no chosen peak is swallowed by a neighbour. The
+        # envelope tail below is still grown from the profile, and the joint fit
+        # apportions the shared signal between overlapping seeds.
+        while not preserveSeeds:
             found = None
             found_isotope = None
             best_error = None
@@ -1947,13 +2282,17 @@ def relabelenvelopes(
     if not clusters:
         return copy.deepcopy(peaklist)
 
-    clusters = _merge_adjacent_clusters(
-        clusters,
-        mzTolerance,
-        isotopeShift,
-        relaxed=relaxed,
-        averagineType=averagineType,
-    )
+    # preserveSeeds keeps every selected seed as its own envelope: adjacent
+    # clusters are not fused together (that would make a chosen peak disappear
+    # into a neighbour).
+    if not preserveSeeds:
+        clusters = _merge_adjacent_clusters(
+            clusters,
+            mzTolerance,
+            isotopeShift,
+            relaxed=relaxed,
+            averagineType=averagineType,
+        )
 
     if not clusters:
         return copy.deepcopy(peaklist)
@@ -1966,14 +2305,17 @@ def relabelenvelopes(
         averagineType=averagineType,
     )
 
-    # Re-calculate NNLS areas as fallbacks if needed, but mainly prune zero ones
+    # Re-calculate NNLS areas as fallbacks if needed, but mainly prune zero ones.
+    # preserveSeeds keeps all clusters even at (near) zero area: the joint fit may
+    # apportion little signal to an overlapped seed, but the user selected it, so
+    # it must survive as its own envelope rather than being pruned away.
     max_area = max([a for a in areas]) if areas else 0.0
     pruned_clusters = []
     pruned_areas = []
     pruned_shapes = []
     for c, cluster in enumerate(clusters):
         a = float(max(0.0, areas[c])) if c < len(areas) else 0.0
-        if a > max_area * 1e-6 or len(clusters) == 1:
+        if preserveSeeds or a > max_area * 1e-6 or len(clusters) == 1:
             pruned_clusters.append(cluster)
             pruned_areas.append(a)
             pruned_shapes.append(shapes[c] if c < len(shapes) else [])
@@ -2000,6 +2342,22 @@ def relabelenvelopes(
         )
         fwhm_val = float(_cluster_fwhm(cluster, defaultFwhm))
 
+        # Normalise the isotope shape to a single-envelope distribution (weights
+        # sum to 1) and rescale the area by that same sum. This is the ONE place
+        # every fit path passes through, so it makes the reported area consistent
+        # regardless of which path produced the shape: `_cluster_weights` returns
+        # pattern[idx]/pattern_total (a clean 5-isotope run sums to ~0.86-0.99, a
+        # merged/duplicated grid to ~N), and the various fallbacks (no-profile,
+        # theoretical) don't renormalise. Without this, "find peaks" and "convert
+        # to envelopes" could report different areas for the same envelope. The
+        # rescale keeps area*weight (the drawn envelope) and sumint invariant, so
+        # only the bare `area` number is put on a common scale.
+        area_val = float(areas[c])
+        shapeSum = math.fsum(float(w) for _, w in isotopes_data)
+        if shapeSum > 0.0:
+            isotopes_data = [(mz, float(w) / shapeSum) for mz, w in isotopes_data]
+            area_val *= shapeSum
+
         # summed envelope intensity: the sum of the intensities (heights) of the
         # isotope peaks that make up this envelope. It is derived from the same
         # fitted model as the envelope area so the two always recalculate
@@ -2013,14 +2371,19 @@ def relabelenvelopes(
         sigma = _fwhm_to_sigma(fwhm_val)
         norm = sigma * math.sqrt(2.0 * math.pi)
         weightSum = sum(float(w) for _, w in isotopes_data)
-        sumint = (float(areas[c]) / norm) * weightSum if norm > 0.0 else 0.0
+        sumint = (area_val / norm) * weightSum if norm > 0.0 else 0.0
 
         envelope = {
-            "area": areas[c],
+            "area": area_val,
             "sumint": sumint,
             "fwhm": fwhm_val,
             "shape": "gaussian",
             "isotopes": isotopes_data,
+            # the averagine model the shape/area were fit under, so re-converting
+            # can tell whether the stored shape may be reused verbatim (same model
+            # -> idempotent) or must be re-derived (user switched models -> the
+            # isotope pattern, and hence the apportioned area, genuinely changes).
+            "averagineType": averagineType,
         }
 
         peaks = labelenvelope(
@@ -2031,6 +2394,10 @@ def relabelenvelopes(
             averagineType=averagineType,
         )
 
+        # carry a user FWHM lock onto the (freshly built) representative peak, so
+        # the manual width survives the re-fit and is not re-measured next time
+        fwhmLocked = bool(getattr(parent, "attributes", {}).get("_fwhmLocked"))
+
         groupname = result.groupname()
         if label == "isotopes":
             for isotope, peak in enumerate(peaks):
@@ -2039,6 +2406,8 @@ def relabelenvelopes(
                 peak.setfwhm(fwhm_val)
                 peak.setgroup(groupname)
                 peak.attributes["envelope"] = envelope
+                if fwhmLocked:
+                    peak.attributes["_fwhmLocked"] = True
                 result.append(peak)
         else:
             for peak in peaks:
@@ -2047,6 +2416,8 @@ def relabelenvelopes(
                 peak.setfwhm(fwhm_val)
                 peak.setgroup(groupname)
                 peak.attributes["envelope"] = envelope
+                if fwhmLocked:
+                    peak.attributes["_fwhmLocked"] = True
                 result.append(peak)
 
     for x, peak in enumerate(peaklist):
@@ -2220,25 +2591,168 @@ def deisotope(
 # ----
 
 
-def _refresh_missing_fwhm_from_profile(peaklist, profile):
-    """Fill missing FWHM values from profile signal at each peak m/z."""
+def _fwhm_is_locked(peak):
+    """True if the user has pinned this peak's FWHM in the editor.
+
+    A locked FWHM (``attributes["_fwhmLocked"]``) is a deliberate manual override:
+    it must survive re-measurement (so a subsequent "Convert to Envelopes" or auto
+    recalc does not silently revert it to the value measured from the profile), yet
+    stay editable -- clearing the lock lets the width be re-measured again.
+    """
+
+    if not hasattr(peak, "attributes"):
+        return False
+    return bool(peak.attributes.get("_fwhmLocked")) and bool(peak.fwhm) and peak.fwhm > 0.0
+
+
+def _sync_stored_envelope_fwhm(peak):
+    """Make a peak's stored envelope width follow the peak's own FWHM.
+
+    The refit rebuilds the envelope from the stored ``envelope["fwhm"]``, so when a
+    width must be respected (a locked peak, or the peak the user is directly
+    editing) its stored envelope width is synced to the live FWHM first.
+    """
+
+    if not hasattr(peak, "attributes"):
+        return
+    stored = peak.attributes.get("envelope")
+    if isinstance(stored, dict) and stored.get("fwhm") and peak.fwhm and peak.fwhm > 0.0:
+        stored["fwhm"] = peak.fwhm
+
+
+def _refresh_missing_fwhm_from_profile(peaklist, profile, recompute=False, respectAll=False):
+    """Refresh FWHM values from the profile signal at each peak m/z.
+
+    By default only peaks with a missing/zero FWHM are filled in. With
+    ``recompute=True`` EVERY peak's FWHM is re-measured from the profile,
+    overwriting any stale value -- needed when the FWHM algorithm has changed and
+    the caller wants freshly measured widths (e.g. "Convert to Envelopes"). Peaks
+    that carry stored envelope metadata (rebuilt via
+    _reconstruct_cluster_from_envelope, which prefers the stored FWHM) also get
+    that stored value refreshed, so the freshly measured width is the one
+    actually used. An existing value is only replaced by a valid new measurement,
+    so a failed re-measurement never wipes a usable FWHM.
+
+    A FWHM the user has LOCKED in the editor is never re-measured; instead its
+    stored envelope width is synced to the locked value, so the area refit uses the
+    manual width. ``respectAll=True`` extends that to EVERY peak with a usable
+    FWHM (regardless of lock) -- used for the pass that directly applies a manual
+    FWHM edit, where the typed width must take effect this time even if the peak is
+    not locked. Unlocking (and a normal ``respectAll=False`` recompute) restores
+    re-measurement.
+    """
 
     if profile is None or len(profile) == 0:
         return
 
     for peak in peaklist:
-        if peak.fwhm and peak.fwhm > 0.0:
+        respect = _fwhm_is_locked(peak) or (
+            respectAll and bool(peak.fwhm) and peak.fwhm > 0.0
+        )
+        if respect:
+            # keep this width and make the stored envelope follow it, so the refit
+            # (which rebuilds from the stored FWHM) uses the respected value
+            _sync_stored_envelope_fwhm(peak)
+            continue
+
+        if not recompute and peak.fwhm and peak.fwhm > 0.0:
             continue
 
         labeled = labelpoint(signal=profile, mz=peak.mz)
         if labeled and labeled.fwhm and labeled.fwhm > 0.0:
             peak.setfwhm(labeled.fwhm)
+            if recompute and hasattr(peak, "attributes"):
+                stored = peak.attributes.get("envelope")
+                if isinstance(stored, dict) and stored.get("fwhm"):
+                    stored["fwhm"] = labeled.fwhm
 
 
 # ----
 
 
-def recalculate_neighborhood_envelopes(peaklist, profile, mzs, params):
+def _envelope_overlap_span(peak, isotopeShift, averagineType, pad):
+    """(lo, hi) m/z span an envelope seeded at `peak` occupies, padded by `pad`.
+
+    Uses the stored isotope positions when the peak already carries an envelope;
+    otherwise estimates the reach of the averagine envelope a monoisotopic seed
+    would grow (isotopes extend upward in m/z), so overlap with a neighbour can be
+    judged before the envelope is actually built.
+    """
+
+    env = peak.attributes.get("envelope") if hasattr(peak, "attributes") else None
+    isos = env.get("isotopes") if isinstance(env, dict) else None
+    if isos:
+        mzs = [float(mz) for mz, _w in isos]
+        lo, hi = min(mzs), max(mzs)
+    else:
+        z = abs(int(peak.charge)) if peak.charge else 1
+        spacing = (ISOTOPE_DISTANCE + isotopeShift) / z
+        neutralMass = _mass_scalar(mod_basics.mz(peak.mz, 0, z))
+        pattern = _isotope_pattern_at_mass(neutralMass, averagineType)
+        # count isotopes carrying non-negligible signal, so the reach covers the
+        # whole envelope tail that could overlap a neighbour
+        n = sum(1 for p in pattern if p >= 0.02) or 1
+        lo = peak.mz
+        hi = peak.mz + (n - 1) * spacing
+    return (lo - pad, hi + pad)
+
+
+def _selection_overlap_indices(peaklist, seedIdx, isotopeShift, averagineType, pad):
+    """Expand selected peak indices to their connected envelope-overlap component.
+
+    Spec: overlapping envelopes are always refined together. When the user
+    converts (or reconverts) a selection, any EXISTING envelope that overlaps it
+    -- transitively -- must be refit jointly, so a neighbour switches to the rigid
+    overlap treatment and the shared signal is re-apportioned (otherwise it keeps a
+    stale isolated area/shape from when it was fit alone). Only peaks that already
+    carry an envelope are pulled in; plain neighbours are never added, so the
+    selection is never widened into new envelope labels.
+
+    Returns the expanded index set (always a superset of `seedIdx`).
+    """
+
+    seedIdx = set(seedIdx)
+    # candidate nodes: the selected peaks plus every already-labelled envelope
+    nodes = list(seedIdx)
+    for i, peak in enumerate(peaklist):
+        if i in seedIdx:
+            continue
+        env = peak.attributes.get("envelope") if hasattr(peak, "attributes") else None
+        if isinstance(env, dict):
+            nodes.append(i)
+
+    if len(nodes) == len(seedIdx):
+        return seedIdx  # no other envelopes anywhere -- nothing to pull in
+
+    spans = {
+        i: _envelope_overlap_span(peaklist[i], isotopeShift, averagineType, pad)
+        for i in nodes
+    }
+    order = sorted(nodes, key=lambda i: spans[i][0])
+
+    # sweep the node spans into connected overlap components (transitive), then
+    # keep every component that contains at least one selected peak
+    result = set(seedIdx)
+    current = []
+    currentHi = None
+    for i in order:
+        lo, hi = spans[i]
+        if current and currentHi is not None and lo <= currentHi:
+            current.append(i)
+            currentHi = max(currentHi, hi)
+        else:
+            if current and any(j in seedIdx for j in current):
+                result.update(current)
+            current = [i]
+            currentHi = hi
+    if current and any(j in seedIdx for j in current):
+        result.update(current)
+    return result
+
+
+def recalculate_neighborhood_envelopes(
+    peaklist, profile, mzs, params, selectedOnly=False, respectFwhm=False,
+):
     """Re-run envelope detection on the m/z neighborhood around given peaks.
 
     Pure helper (no wx / no config dependency) extracted from the peaklist GUI
@@ -2258,6 +2772,18 @@ def recalculate_neighborhood_envelopes(peaklist, profile, mzs, params):
         labelEnvelope, envelopeIntensity, envelopeNonIdeality,
         seedCharge (optional, default 1),
         averagineType (optional, default "protein")
+    selectedOnly (bool) - when True, operate strictly on the peaks matching the
+        given m/z values (the explicit "convert to envelopes" action): no margin
+        window is added and neighbouring peaks are neither re-deisotoped nor
+        absorbed. The envelope tail is still reconstructed from the profile, so a
+        single monoisotopic seed yields a full envelope while its neighbours stay
+        in the list untouched. When False (default, the auto-recalc after a
+        delete / charge edit), the surrounding neighbourhood is re-fit as a whole.
+    respectFwhm (bool) - when True, no peak's FWHM is re-measured from the profile
+        (every usable width is kept as-is); used for the pass that directly applies
+        a manual FWHM edit, so the typed width takes effect this time even for an
+        unlocked peak. When False (default) unlocked peaks are re-measured; locked
+        peaks are always kept.
     """
 
     if not mzs:
@@ -2269,58 +2795,113 @@ def recalculate_neighborhood_envelopes(peaklist, profile, mzs, params):
     isotopeShift = params["isotopeShift"]
     maxCharge = max(1, abs(int(params["maxCharge"])))
     difference = (ISOTOPE_DISTANCE + isotopeShift) / float(maxCharge)
-
-    # Isotope spacing shrinks as 1/charge, so the neighborhood must be wide
-    # enough to capture a full envelope at the lowest charge (largest spacing).
-    margin = max(6.0 * difference, 8.0 * tolerance)
-    minMz = min(mzs) - margin
-    maxMz = max(mzs) + margin
+    averagineType = params.get("averagineType", DEFAULT_AVERAGINE)
 
     localPeaks = []
     outsidePeaks = []
-    for peak in peaklist:
-        if minMz <= peak.mz <= maxMz:
-            localPeaks.append(peak)
-        else:
-            outsidePeaks.append(peak)
+    if selectedOnly:
+        # Convert-to-envelopes: match each selected m/z to its own peak (nearest
+        # within tolerance). Plain (non-envelope) neighbours are never touched, so
+        # an explicit selection is never widened into new labels and nothing
+        # silently vanishes from the list.
+        localIdx = set()
+        for target in mzs:
+            best = None
+            bestErr = tolerance
+            for i, peak in enumerate(peaklist):
+                if i in localIdx:
+                    continue
+                err = abs(peak.mz - target)
+                if err <= bestErr:
+                    best = i
+                    bestErr = err
+            if best is not None:
+                localIdx.add(best)
+        # ...but existing envelopes that OVERLAP the selection are pulled into the
+        # joint fit (spec: overlapping envelopes are always refined together), so a
+        # neighbour is re-apportioned and switches to the rigid overlap treatment
+        # instead of keeping the isolated area/shape it was fit with when alone.
+        localIdx = _selection_overlap_indices(
+            peaklist, localIdx, isotopeShift, averagineType,
+            pad=max(2.0 * tolerance, 0.5 * difference),
+        )
+        for i, peak in enumerate(peaklist):
+            (localPeaks if i in localIdx else outsidePeaks).append(peak)
+    else:
+        # Isotope spacing shrinks as 1/charge, so the neighborhood must be wide
+        # enough to capture a full envelope at the lowest charge (largest spacing).
+        margin = max(6.0 * difference, 8.0 * tolerance)
+        minMz = min(mzs) - margin
+        maxMz = max(mzs) + margin
+        for peak in peaklist:
+            if minMz <= peak.mz <= maxMz:
+                localPeaks.append(peak)
+            else:
+                outsidePeaks.append(peak)
 
     if not localPeaks:
         return peaklist
 
-    localPeaklist = obj_peaklist.peaklist(localPeaks)
-    _refresh_missing_fwhm_from_profile(localPeaklist, profile)
-
-    # Existing charges are respected; seedCharge is only a fallback for peaks
-    # that carry no charge assignment yet.
-    averagineType = params.get("averagineType", DEFAULT_AVERAGINE)
-    localPeaklist.deisotope(
-        maxCharge=params["maxCharge"],
-        mzTolerance=tolerance,
-        intTolerance=params["intTolerance"],
-        isotopeShift=isotopeShift,
-        respectCharge=True,
-        seedCharge=int(params.get("seedCharge", 1)),
-        averagineType=averagineType,
-    )
-
-    defaultFwhm = 0.1
-    if localPeaklist.basepeak and localPeaklist.basepeak.fwhm:
-        defaultFwhm = localPeaklist.basepeak.fwhm
-
     hasProfile = profile is not None and len(profile) > 0
-    localPeaklist.labelenvelopes(
-        label=params["labelEnvelope"],
-        intensity=params["envelopeIntensity"],
-        mzTolerance=tolerance,
-        isotopeShift=isotopeShift,
-        signal=profile if hasProfile else None,
-        defaultFwhm=defaultFwhm,
-        nonIdeality=params["envelopeNonIdeality"],
-        relaxed=True,
-        averagineType=averagineType,
-    )
 
-    return obj_peaklist.peaklist(outsidePeaks + list(localPeaklist))
+    def _label_local(group, preserveSeeds=False):
+        """Deisotope + envelope-label one group of peaks, returning the result.
+
+        With preserveSeeds every peak in the group becomes its own envelope seed
+        (nothing is merged, absorbed or pruned away); their areas still come from
+        the single joint overlap-aware fit.
+        """
+        gpl = obj_peaklist.peaklist(group)
+        # Re-measure FWHM for every peak (not just missing ones): peaks carried
+        # over from an earlier run may hold FWHM values from a superseded
+        # algorithm, and "convert to envelopes" must reflect the current
+        # measurement. `respectFwhm` (the pass that directly applies a manual FWHM
+        # edit) keeps every usable width as-is instead, so the typed value takes
+        # effect; a locked width is always kept regardless.
+        _refresh_missing_fwhm_from_profile(
+            gpl, profile, recompute=True, respectAll=respectFwhm
+        )
+
+        # Existing charges are respected; seedCharge is only a fallback for peaks
+        # that carry no charge assignment yet.
+        gpl.deisotope(
+            maxCharge=params["maxCharge"],
+            mzTolerance=tolerance,
+            intTolerance=params["intTolerance"],
+            isotopeShift=isotopeShift,
+            respectCharge=True,
+            seedCharge=int(params.get("seedCharge", 1)),
+            averagineType=averagineType,
+        )
+
+        if preserveSeeds:
+            # Deisotoping chains contiguous peaks (isotope 1, 2, ...); reset every
+            # peak to a monoisotopic seed so each selected peak is labelled as its
+            # own envelope instead of being folded into a neighbour.
+            for p in gpl:
+                p.setisotope(0)
+
+        defaultFwhm = 0.1
+        if gpl.basepeak and gpl.basepeak.fwhm:
+            defaultFwhm = gpl.basepeak.fwhm
+
+        gpl.labelenvelopes(
+            label=params["labelEnvelope"],
+            intensity=params["envelopeIntensity"],
+            mzTolerance=tolerance,
+            isotopeShift=isotopeShift,
+            signal=profile if hasProfile else None,
+            defaultFwhm=defaultFwhm,
+            nonIdeality=params["envelopeNonIdeality"],
+            relaxed=True,
+            averagineType=averagineType,
+            preserveSeeds=preserveSeeds,
+        )
+        return list(gpl)
+
+    labeled = _label_local(localPeaks, preserveSeeds=selectedOnly)
+
+    return obj_peaklist.peaklist(outsidePeaks + labeled)
 
 
 # ----

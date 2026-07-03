@@ -393,6 +393,7 @@ class peaklist:
         nonIdeality=None,
         relaxed=False,
         averagineType=mod_peakpicking.DEFAULT_AVERAGINE,
+        preserveSeeds=False,
     ):
         """Convert deisotoped peak clusters to envelope labels."""
 
@@ -411,6 +412,7 @@ class peaklist:
             nonIdeality=nonIdeality,
             relaxed=relaxed,
             averagineType=averagineType,
+            preserveSeeds=preserveSeeds,
         )
 
         # store data
