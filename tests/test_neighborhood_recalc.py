@@ -353,6 +353,96 @@ def test_convert_selected_contiguous_reconvert_keeps_all(envelope_params):
     assert labeled == [round(mz, 3) for mz in mzs]
 
 
+def _avg_cluster_peaks(mono, charge, area, fwhm, n=8):
+    """Peaks of one averagine-consistent envelope (heights follow the pattern)."""
+    weights = mpp._cluster_weights([
+        mspy.peak(mz=mono + i * mspy.ISOTOPE_DISTANCE / charge, charge=charge, isotope=i, fwhm=fwhm)
+        for i in range(n)
+    ])
+    diff = mspy.ISOTOPE_DISTANCE / charge
+    return [
+        mspy.peak(mz=mono + i * diff, ai=w * area, charge=charge, isotope=i, fwhm=fwhm)
+        for i, w in enumerate(weights)
+    ]
+
+
+def _convert_params(envelope_params, **overrides):
+    params = dict(envelope_params)
+    params.update(massTolerance=0.15, maxCharge=1, envelopeNonIdeality=0.4)
+    params.update(overrides)
+    return params
+
+
+def test_convert_selected_refits_overlapping_existing_envelope(envelope_params):
+    """Converting a peak that overlaps an existing envelope refits that neighbour.
+
+    The reported workflow: label a peak alone and convert it (an isolated
+    envelope), then add a peak two Da below it and convert only that new peak.
+    The new peak's +2 isotope lands on the existing envelope's monoisotopic peak,
+    so they now overlap -- and the spec is that overlapping envelopes are always
+    refined together. The existing envelope must therefore be pulled into the joint
+    fit and re-apportioned (and switch to the rigid overlap treatment), NOT left
+    holding the isolated area/shape it was fit with when it stood alone.
+    """
+    params = _convert_params(envelope_params)
+    fwhm = 0.11
+    small = _avg_cluster_peaks(1800.0, 1, 30.0, fwhm)     # tiny
+    big = _avg_cluster_peaks(1802.0, 1, 1000.0, fwhm)     # big; small's +2 == big mono
+    profile = mspy.profile(mspy.peaklist(small + big), fwhm=fwhm, points=20)
+
+    # the big peak is already an isolated envelope (labelled alone earlier)
+    r1 = mpp.recalculate_neighborhood_envelopes(
+        mspy.peaklist([big[0]]), profile, [1802.0], params, selectedOnly=True
+    )
+    big_peak = next(p for p in r1 if p.attributes.get("envelope"))
+    big_isolated_area = big_peak.attributes["envelope"]["area"]
+
+    # now the user adds the small peak (plain) and converts ONLY it
+    result = mpp.recalculate_neighborhood_envelopes(
+        mspy.peaklist([small[0], big_peak]), profile, [1800.0], params, selectedOnly=True
+    )
+    envs = {round(p.mz): p.attributes.get("envelope") for p in result}
+
+    # nothing vanished; the newly selected peak is an envelope and so is the neighbour
+    assert envs[1800] is not None
+    assert envs[1802] is not None
+    # the existing envelope was re-fit jointly: it gave a small share to the new
+    # neighbour instead of keeping its stale isolated area (pre-fix it was untouched)
+    assert envs[1802]["area"] < big_isolated_area * 0.99
+    assert envs[1802]["area"] > big_isolated_area * 0.85   # still essentially its size
+    # the tiny new envelope only claims its small fair share of the shared peak
+    assert 0.0 < envs[1800]["area"] < envs[1802]["area"] * 0.1
+
+
+def test_convert_selected_leaves_non_overlapping_envelope_untouched(envelope_params):
+    """A distant, non-overlapping existing envelope is NOT pulled into the refit.
+
+    The overlap expansion must be tight: converting a peak may only refit envelopes
+    it actually overlaps. An envelope far away keeps its exact area and its very
+    object identity -- it is neither re-fit nor re-shaped.
+    """
+    params = _convert_params(envelope_params)
+    fwhm = 0.11
+    near = _avg_cluster_peaks(1800.0, 1, 500.0, fwhm)
+    far = _avg_cluster_peaks(1860.0, 1, 1000.0, fwhm)     # 60 Da away: no overlap
+    profile = mspy.profile(mspy.peaklist(near + far), fwhm=fwhm, points=20)
+
+    r1 = mpp.recalculate_neighborhood_envelopes(
+        mspy.peaklist([far[0]]), profile, [1860.0], params, selectedOnly=True
+    )
+    far_peak = next(p for p in r1 if p.attributes.get("envelope"))
+    far_area = far_peak.attributes["envelope"]["area"]
+
+    result = mpp.recalculate_neighborhood_envelopes(
+        mspy.peaklist([near[0], far_peak]), profile, [1800.0], params, selectedOnly=True
+    )
+
+    # the distant envelope is carried through as the very same object, unchanged
+    assert any(p is far_peak for p in result)
+    kept = next(p for p in result if round(p.mz) == 1860)
+    assert kept.attributes["envelope"]["area"] == pytest.approx(far_area)
+
+
 def test_convert_respects_changed_averagine_model(envelope_params):
     """Re-converting under a different averagine model must re-fit the areas.
 

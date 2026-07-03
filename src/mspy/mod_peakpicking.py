@@ -1654,6 +1654,38 @@ def _overlap_groups(intervals):
 # ----
 
 
+def _is_regular_isotope_grid(shaped):
+    """True if `shaped` is a clean single-species isotope grid.
+
+    `shaped` is a list of (mz, weight). A genuine single envelope has strictly
+    increasing positions spaced by roughly one isotope step, so every gap is close
+    to the typical gap. A *merged* representative -- several overlapping envelopes
+    collapsed onto one peak (the "1st" label) -- instead carries duplicated or
+    irregular positions (two species' isotopes interleave, some coincide), which
+    cannot be re-derived from an averagine grid.
+
+    This is what lets an isolated envelope re-soft-model against the current
+    non-ideality (a regular grid) while a merged one keeps its stored shape (an
+    irregular grid): once the user deletes a neighbour, the survivor is a regular
+    grid again and is correctly treated as isolated. A gap much smaller than the
+    typical spacing means two positions are effectively the same isotope -- a
+    duplicate that only a merged/collapsed shape produces.
+    """
+
+    positions = sorted(float(mz) for mz, _w in shaped)
+    if len(positions) < 2:
+        return True
+    gaps = [positions[i + 1] - positions[i] for i in range(len(positions) - 1)]
+    minGap = min(gaps)
+    if minGap <= 0.0:
+        return False
+    medGap = sorted(gaps)[len(gaps) // 2]
+    if medGap <= 0.0:
+        return False
+    # any gap under half the typical isotope spacing is a duplicated position
+    return minGap >= 0.5 * medGap
+
+
 def _fit_group_areas(metas, x, y, nonIdeality):
     """Apportion the observed signal among a group of (overlapping) envelopes.
 
@@ -1700,20 +1732,32 @@ def _fit_group_areas(metas, x, y, nonIdeality):
             capInfo.append(([], 0.0))
             continue
 
-        # A stored shape (re-fitting an already-picked envelope) is reused
-        # verbatim -- REGARDLESS of overlap -- so the converted route reproduces
-        # exactly the shape peak-picking fitted. This must include the isolated
-        # (K==1) case: otherwise convert would re-soft-model the seed and drift
-        # from the picked value (and, for a merged grid, re-derive a different
-        # shape from the positions). With no stored shape we derive one: bend the
-        # pattern toward the data only when the envelope stands alone; in an
-        # overlap group keep the rigid averagine pattern so the apportionment
-        # stays honest (a flexing tail must not claim a neighbour's peak).
-        if storedShape is not None:
-            shaped = storedShape
-            shapes[k] = shaped
-        elif K == 1:
+        # Shape selection:
+        #
+        # * Isolated envelope (the only one in its group) with a regular,
+        #   single-species isotope grid: always soft-model at the CURRENT
+        #   non-ideality, so the user's preference takes effect -- including on the
+        #   "Convert to Envelopes" route, where the envelope carries a stored shape.
+        #   A stored shape is deliberately NOT reused here: reusing it froze the
+        #   shape and made non-ideality a no-op after a neighbour was deleted and
+        #   the survivor became isolated. Re-softening is idempotent at a fixed
+        #   non-ideality (same theoretical pattern + data), so an unchanged setting
+        #   still reproduces the picked value. (Spec: non-ideality is effective for
+        #   non-overlapping envelopes, inert for overlapping ones.)
+        #
+        # * A stored shape on a MERGED/irregular grid -- several overlapping species
+        #   collapsed onto one representative -- is reused verbatim: that shape
+        #   cannot be re-derived from the positions (they are duplicated), and even
+        #   though it forms a K==1 group it is not a single species, so non-ideality
+        #   does not apply.
+        #
+        # * Overlapping envelope with no stored shape keeps the rigid averagine
+        #   pattern, so a flexing tail cannot claim a neighbour's peak.
+        if K == 1 and (storedShape is None or _is_regular_isotope_grid(storedShape)):
             shaped = _soft_isotope_model(isotopes, x, y, fwhm, nonIdeality=nonIdeality)
+            shapes[k] = shaped
+        elif storedShape is not None:
+            shaped = storedShape
             shapes[k] = shaped
         else:
             shaped = isotopes
@@ -2572,6 +2616,86 @@ def _refresh_missing_fwhm_from_profile(peaklist, profile, recompute=False):
 # ----
 
 
+def _envelope_overlap_span(peak, isotopeShift, averagineType, pad):
+    """(lo, hi) m/z span an envelope seeded at `peak` occupies, padded by `pad`.
+
+    Uses the stored isotope positions when the peak already carries an envelope;
+    otherwise estimates the reach of the averagine envelope a monoisotopic seed
+    would grow (isotopes extend upward in m/z), so overlap with a neighbour can be
+    judged before the envelope is actually built.
+    """
+
+    env = peak.attributes.get("envelope") if hasattr(peak, "attributes") else None
+    isos = env.get("isotopes") if isinstance(env, dict) else None
+    if isos:
+        mzs = [float(mz) for mz, _w in isos]
+        lo, hi = min(mzs), max(mzs)
+    else:
+        z = abs(int(peak.charge)) if peak.charge else 1
+        spacing = (ISOTOPE_DISTANCE + isotopeShift) / z
+        neutralMass = _mass_scalar(mod_basics.mz(peak.mz, 0, z))
+        pattern = _isotope_pattern_at_mass(neutralMass, averagineType)
+        # count isotopes carrying non-negligible signal, so the reach covers the
+        # whole envelope tail that could overlap a neighbour
+        n = sum(1 for p in pattern if p >= 0.02) or 1
+        lo = peak.mz
+        hi = peak.mz + (n - 1) * spacing
+    return (lo - pad, hi + pad)
+
+
+def _selection_overlap_indices(peaklist, seedIdx, isotopeShift, averagineType, pad):
+    """Expand selected peak indices to their connected envelope-overlap component.
+
+    Spec: overlapping envelopes are always refined together. When the user
+    converts (or reconverts) a selection, any EXISTING envelope that overlaps it
+    -- transitively -- must be refit jointly, so a neighbour switches to the rigid
+    overlap treatment and the shared signal is re-apportioned (otherwise it keeps a
+    stale isolated area/shape from when it was fit alone). Only peaks that already
+    carry an envelope are pulled in; plain neighbours are never added, so the
+    selection is never widened into new envelope labels.
+
+    Returns the expanded index set (always a superset of `seedIdx`).
+    """
+
+    seedIdx = set(seedIdx)
+    # candidate nodes: the selected peaks plus every already-labelled envelope
+    nodes = list(seedIdx)
+    for i, peak in enumerate(peaklist):
+        if i in seedIdx:
+            continue
+        env = peak.attributes.get("envelope") if hasattr(peak, "attributes") else None
+        if isinstance(env, dict):
+            nodes.append(i)
+
+    if len(nodes) == len(seedIdx):
+        return seedIdx  # no other envelopes anywhere -- nothing to pull in
+
+    spans = {
+        i: _envelope_overlap_span(peaklist[i], isotopeShift, averagineType, pad)
+        for i in nodes
+    }
+    order = sorted(nodes, key=lambda i: spans[i][0])
+
+    # sweep the node spans into connected overlap components (transitive), then
+    # keep every component that contains at least one selected peak
+    result = set(seedIdx)
+    current = []
+    currentHi = None
+    for i in order:
+        lo, hi = spans[i]
+        if current and currentHi is not None and lo <= currentHi:
+            current.append(i)
+            currentHi = max(currentHi, hi)
+        else:
+            if current and any(j in seedIdx for j in current):
+                result.update(current)
+            current = [i]
+            currentHi = hi
+    if current and any(j in seedIdx for j in current):
+        result.update(current)
+    return result
+
+
 def recalculate_neighborhood_envelopes(peaklist, profile, mzs, params, selectedOnly=False):
     """Re-run envelope detection on the m/z neighborhood around given peaks.
 
@@ -2610,15 +2734,15 @@ def recalculate_neighborhood_envelopes(peaklist, profile, mzs, params, selectedO
     isotopeShift = params["isotopeShift"]
     maxCharge = max(1, abs(int(params["maxCharge"])))
     difference = (ISOTOPE_DISTANCE + isotopeShift) / float(maxCharge)
+    averagineType = params.get("averagineType", DEFAULT_AVERAGINE)
 
     localPeaks = []
     outsidePeaks = []
     if selectedOnly:
         # Convert-to-envelopes: match each selected m/z to its own peak (nearest
-        # within tolerance) and touch nothing else. Neighbours -- including the
-        # selected peak's own isotope peaks if the user labelled them separately
-        # -- are preserved as-is, so an explicit selection is never widened and
-        # nothing silently vanishes from the list.
+        # within tolerance). Plain (non-envelope) neighbours are never touched, so
+        # an explicit selection is never widened into new labels and nothing
+        # silently vanishes from the list.
         localIdx = set()
         for target in mzs:
             best = None
@@ -2632,6 +2756,14 @@ def recalculate_neighborhood_envelopes(peaklist, profile, mzs, params, selectedO
                     bestErr = err
             if best is not None:
                 localIdx.add(best)
+        # ...but existing envelopes that OVERLAP the selection are pulled into the
+        # joint fit (spec: overlapping envelopes are always refined together), so a
+        # neighbour is re-apportioned and switches to the rigid overlap treatment
+        # instead of keeping the isolated area/shape it was fit with when alone.
+        localIdx = _selection_overlap_indices(
+            peaklist, localIdx, isotopeShift, averagineType,
+            pad=max(2.0 * tolerance, 0.5 * difference),
+        )
         for i, peak in enumerate(peaklist):
             (localPeaks if i in localIdx else outsidePeaks).append(peak)
     else:
@@ -2649,7 +2781,6 @@ def recalculate_neighborhood_envelopes(peaklist, profile, mzs, params, selectedO
     if not localPeaks:
         return peaklist
 
-    averagineType = params.get("averagineType", DEFAULT_AVERAGINE)
     hasProfile = profile is not None and len(profile) > 0
 
     def _label_local(group, preserveSeeds=False):

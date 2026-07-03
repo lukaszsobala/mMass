@@ -71,6 +71,54 @@ def test_non_ideality_changes_area_of_non_averagine_envelope():
     assert flexible > rigid * 1.05  # at least a few % larger -- the knob works
 
 
+def test_non_ideality_reacts_for_converted_isolated_envelope():
+    """nonIdeality must move an ISOLATED envelope's area even on the convert route.
+
+    A converted (or re-labelled) envelope carries its previously fitted shape on
+    each peak (`_envweight`), so `_fit_group_areas` sees a stored shape. Reusing
+    that shape verbatim for an isolated envelope froze it and made nonIdeality a
+    no-op -- the user's bug: after deleting a neighbour the survivor is isolated,
+    but re-converting it at any nonIdeality gave the same area. An isolated
+    envelope on a regular single-species grid must instead re-soft-model at the
+    current nonIdeality (the stored shape is not reused), exactly as a fresh
+    find-peaks pass would, so the setting takes effect.
+    """
+
+    # non-averagine DATA (inflated +1), with a stored (regular-grid) shape attached
+    # to every peak so the convert route's storedShape branch is exercised
+    cluster = _cluster_at(1000.0, 1, 1000.0, weights=[1.0, 0.95, 0.30, 0.05])
+    for peak, weight in zip(cluster, mpp._cluster_weights(cluster), strict=True):
+        peak.attributes["_envweight"] = float(weight)
+    profile = _profile(cluster)
+
+    rigid = mpp._fit_envelope_areas([cluster], profile, 0.05, nonIdeality=0.0)[0]
+    flexible = mpp._fit_envelope_areas([cluster], profile, 0.05, nonIdeality=0.5)[0]
+
+    assert rigid > 0.0
+    # the stored shape no longer freezes the area: nonIdeality genuinely moves it
+    assert flexible > rigid * 1.05
+
+
+def test_is_regular_isotope_grid_distinguishes_merged_from_single():
+    """The regular-grid test tells a single species from a merged representative.
+
+    A clean single-species envelope has strictly increasing, roughly uniform
+    isotope spacing; a merged representative (overlapping species collapsed onto
+    one peak) carries duplicated/irregular positions. This gate is what routes an
+    isolated envelope to re-soft-modelling (regular) while keeping a merged one on
+    its stored shape (irregular), so nonIdeality applies to the former only.
+    """
+
+    single = [(1000.0, 0.5), (1001.0, 0.3), (1002.0, 0.15), (1003.0, 0.05)]
+    assert mpp._is_regular_isotope_grid(single)
+    # a merged pair: two species' isotopes interleave and some coincide
+    merged = [(906.47, 0.3), (907.47, 0.3), (909.49, 0.2), (909.49, 0.1), (910.50, 0.1)]
+    assert not mpp._is_regular_isotope_grid(merged)
+    # trivial grids are treated as regular (nothing to merge)
+    assert mpp._is_regular_isotope_grid([(1000.0, 1.0)])
+    assert mpp._is_regular_isotope_grid([])
+
+
 def test_non_ideality_is_inert_for_overlapping_envelopes():
     """nonIdeality must NOT move overlapping areas -- crowds use theoretical ratios.
 
