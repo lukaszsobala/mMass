@@ -645,6 +645,11 @@ class mainFrame(wx.Frame):
             ID_processingDeisotoping, "Deisotoping..." + HK_processingDeisotoping, ""
         )
         processing.Append(
+            ID_processingConvertAllToEnvelopes,
+            "Convert All to Envelopes" + HK_processingConvertAllToEnvelopes,
+            "",
+        )
+        processing.Append(
             ID_processingDeconvolution,
             "Deconvolution..." + HK_processingDeconvolution,
             "",
@@ -671,6 +676,11 @@ class mainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.onToolsRedo, id=ID_processingRedo)
         self.Bind(wx.EVT_MENU, self.onToolsProcessing, id=ID_processingPeakpicking)
         self.Bind(wx.EVT_MENU, self.onToolsProcessing, id=ID_processingDeisotoping)
+        self.Bind(
+            wx.EVT_MENU,
+            self.onConvertAllToEnvelopes,
+            id=ID_processingConvertAllToEnvelopes,
+        )
         self.Bind(wx.EVT_MENU, self.onToolsProcessing, id=ID_processingDeconvolution)
         self.Bind(wx.EVT_MENU, self.onToolsProcessing, id=ID_processingBaseline)
         self.Bind(wx.EVT_MENU, self.onToolsProcessing, id=ID_processingSmoothing)
@@ -3102,6 +3112,20 @@ class mainFrame(wx.Frame):
 
         # set tool in spectrum
         self.spectrumPanel.setCurrentTool(tool)
+
+    # ----
+
+    def onConvertAllToEnvelopes(self, evt=None):
+        """Convert every labelled peak/envelope to envelopes (works from anywhere).
+
+        Registered as a menubar accelerator so Shift+Ctrl+A fires regardless of
+        which panel has focus, not only when the peak list is focused.
+        """
+
+        if not self.documents:
+            wx.Bell()
+            return
+        self.peaklistPanel.convertAllPeaksToEnvelopes()
 
     # ----
 

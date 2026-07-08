@@ -732,8 +732,20 @@ class scan:
         isotopeShift=0.0,
         nonIdeality=None,
         averagineType=mod_peakpicking.DEFAULT_AVERAGINE,
+        preserveSeeds=False,
+        relaxed=False,
     ):
-        """Convert deisotoped peak clusters to envelope labels."""
+        """Convert deisotoped peak clusters to envelope labels.
+
+        preserveSeeds (bool) - keep every deisotoped monoisotopic seed as its own
+            clean envelope (no absorption of neighbours, no merging of adjacent
+            clusters). This is the SAME clean-seed path that "convert to envelopes"
+            uses, so peak-picking and convert produce identical envelopes for the
+            same set of seeds. Isotope peaks (isotope != 0) are still skipped as
+            seeds here exactly as before, so deisotoping is unaffected and they are
+            removed downstream by remisotopes() -- preserveSeeds never turns an
+            isotope peak into an envelope.
+        """
 
         # Imported peak lists may miss per-peak FWHM; recover it from profile
         # so envelope conversion does not collapse to one fallback width.
@@ -758,6 +770,8 @@ class scan:
             defaultFwhm=defaultFwhm,
             nonIdeality=nonIdeality,
             averagineType=averagineType,
+            preserveSeeds=preserveSeeds,
+            relaxed=relaxed,
         )
 
     # ----

@@ -2947,6 +2947,13 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             )
 
             if config.processing["deisotoping"].get("convertToEnvelopes"):
+                # Use the clean-seed path (preserveSeeds/relaxed) -- the exact same
+                # labelling "convert to envelopes" uses -- so peak-picking and
+                # convert produce identical envelopes: each deisotoped seed becomes
+                # its own clean single-species envelope, overlapping neighbours are
+                # never absorbed or fused into an irregular merged grid, and the
+                # joint fit apportions shared signal. Deisotoping above is
+                # unchanged, so this does not produce a peak per isotope.
                 scan.labelenvelopes(
                     label=config.processing["deisotoping"]["labelEnvelope"],
                     intensity=config.processing["deisotoping"]["envelopeIntensity"],
@@ -2956,6 +2963,8 @@ class panelProcessing(wx.Frame, MakeModalMixin):
                         "envelopeNonIdeality"
                     ),
                     averagineType=config.processing["deisotoping"]["averagineType"],
+                    preserveSeeds=True,
+                    relaxed=True,
                 )
 
             # remove isotopes
@@ -3042,6 +3051,9 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             )
 
             if config.processing["deisotoping"].get("convertToEnvelopes"):
+                # Clean-seed path, identical to "convert to envelopes" (see
+                # pickPeaksOnScan for the rationale): each deisotoped seed becomes
+                # its own clean envelope, none absorbed or merged.
                 self.currentDocument.spectrum.labelenvelopes(
                     label=config.processing["deisotoping"]["labelEnvelope"],
                     intensity=config.processing["deisotoping"]["envelopeIntensity"],
@@ -3051,6 +3063,8 @@ class panelProcessing(wx.Frame, MakeModalMixin):
                         "envelopeNonIdeality"
                     ),
                     averagineType=config.processing["deisotoping"]["averagineType"],
+                    preserveSeeds=True,
+                    relaxed=True,
                 )
 
             # remove isotopes

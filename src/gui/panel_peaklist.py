@@ -21,6 +21,7 @@ import wx
 # load modules
 from .ids import (
     ID_peaklistAnnotate,
+    ID_peaklistConvertAllToEnvelopes,
     ID_peaklistConvertToEnvelopes,
     ID_peaklistSendToMassToFormula,
     ID_viewPeaklistColumnAi,
@@ -616,6 +617,11 @@ class panelPeaklist(wx.Panel):
         menu.AppendSeparator()
         menu.Append(ID_peaklistSendToMassToFormula, "Send to Mass to Formula...", "")
         menu.Append(ID_peaklistConvertToEnvelopes, "Convert to Envelopes", "")
+        menu.Append(
+            ID_peaklistConvertAllToEnvelopes,
+            "Convert All to Envelopes\tCtrl+Shift+A",
+            "",
+        )
 
         # bind events
         self.Bind(wx.EVT_MENU, self.onAnnotate, id=ID_peaklistAnnotate)
@@ -626,6 +632,11 @@ class panelPeaklist(wx.Panel):
             wx.EVT_MENU,
             self.convertSelectedPeaksToEnvelopes,
             id=ID_peaklistConvertToEnvelopes,
+        )
+        self.Bind(
+            wx.EVT_MENU,
+            self.convertAllPeaksToEnvelopes,
+            id=ID_peaklistConvertAllToEnvelopes,
         )
 
         # show menu
@@ -753,8 +764,12 @@ class panelPeaklist(wx.Panel):
         # get key
         key = evt.GetKeyCode()
 
-        # select all
-        if key == 65 and evt.CmdDown():
+        # select all -- plain Ctrl+A only. Ctrl+SHIFT+A must NOT be swallowed here:
+        # it is "Convert All to Envelopes", a global menubar accelerator on the main
+        # frame. This branch consumes the event (no evt.Skip()), so without the
+        # Shift guard Ctrl+Shift+A selected-all whenever the list had focus and the
+        # accelerator never fired -- the reported "only selects all in the list" bug.
+        if key == 65 and evt.CmdDown() and not evt.ShiftDown():
             for x in range(self.peakList.GetItemCount()):
                 self.peakList.SetItemState(
                     x, wx.LIST_STATE_SELECTED, wx.LIST_STATE_SELECTED
@@ -1577,6 +1592,48 @@ class panelPeaklist(wx.Panel):
         )
 
         # identity means the helper found no peaks in the neighborhood -> no-op
+        if result is spectrum.peaklist:
+            wx.Bell()
+            return
+
+        self.currentDocument.backup(("spectrum"))
+        spectrum.peaklist = result
+        self.parent.onDocumentChanged(items=("spectrum"))
+
+    # ----
+
+    def convertAllPeaksToEnvelopes(self, evt=None):
+        """Recalculate the whole peak list into envelope labels at once.
+
+        Runs the joint overlap-aware fit over every labelled peak and envelope in
+        one pass, so the result does not depend on the order the peaks were
+        converted in (unlike converting them one at a time). This is the
+        order-independent reference behaviour; the per-selection action just
+        applies it to a subset.
+        """
+
+        if self.currentDocument is None:
+            wx.Bell()
+            return
+
+        spectrum = self.currentDocument.spectrum
+        peaks = list(spectrum.peaklist)
+        if not peaks:
+            wx.Bell()
+            return
+
+        seedCharge = self._getConvertEnvelopeCharge(peaks)
+        mzs = [peak.mz for peak in peaks]
+
+        result = mspy.recalculate_neighborhood_envelopes(
+            spectrum.peaklist,
+            spectrum.profile,
+            mzs,
+            self._envelopeParams(seedCharge=seedCharge),
+            selectedOnly=True,
+        )
+
+        # identity means the helper found nothing to do -> no-op
         if result is spectrum.peaklist:
             wx.Bell()
             return

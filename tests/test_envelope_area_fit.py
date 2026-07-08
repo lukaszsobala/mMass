@@ -466,6 +466,168 @@ def test_small_neighbour_isotope_does_not_rob_large_envelope_mono():
     assert numpy.max(model - y) <= 0.03 * numpy.max(y)
 
 
+def test_small_neighbour_on_dominant_minor_tail_conserves_group_area():
+    """A small envelope on a dominant one's MINOR tail must not crush the group.
+
+    The ``spectra/example_env3.msd`` regression, and the geometry the mirror test
+    above does NOT cover. A small species sits two Da *above* a much larger
+    envelope (charge 1), so the small species' *monoisotopic* peak lands on the
+    large species' *+2 isotope* -- one of the large envelope's minor tail peaks.
+
+    The invariant the user cares about is at the level of the whole overlap group:
+    the total fitted area of the group must equal the usable (averagine-explainable)
+    area under its peaks -- never crushed below it, never inflated above it. Adding
+    a labelled species can only *add* signal, so the group total can never drop
+    below the dominant envelope's area fitted alone.
+
+    The current per-envelope amplitude cap violates this. The large envelope's +2
+    isotope, which coincides with the small neighbour's mono, is flagged
+    "contested" and binds the cap -- and because one amplitude drives every
+    isotope, capping that one shared minor peak drags the whole envelope down
+    (its unshared mono is then modelled at ~half its observed height). On the real
+    file the dominant collapses to ~42% and on this synthetic proxy to ~61%, so the
+    group loses roughly a quarter of its real area even though nothing was removed.
+
+    The fair result: the dominant keeps essentially all of its area (its mono/+1
+    are unshared and pin the amplitude), the small neighbour keeps only its
+    residual share of the shared peak, and the two sum to the area under the curve
+    without exceeding it.
+    """
+
+    big = _averagine_cluster(1800.0, 1, 1000.0, fwhm=0.11)
+    small = _averagine_cluster(1802.0, 1, 150.0, fwhm=0.11)  # mono on big's +2
+    profile_both = _profile(big, small, fwhm=0.11)
+
+    # dominant fitted ALONE (on a profile without the neighbour) -- the reference
+    # the group total must not fall below when the neighbour is added
+    big_alone = mpp._fit_envelope_areas([big], _profile(big, fwhm=0.11), 0.11, 0.2)[0]
+    areas = mpp._fit_envelope_areas([big, small], profile_both, 0.11, 0.2)
+    total = areas[0] + areas[1]
+
+    # usable area under the group's peaks (never invent signal above it)
+    x = profile_both[:, 0]
+    y = numpy.clip(profile_both[:, 1], 0.0, None)
+    lo = min(p.mz for c in (big, small) for p in c) - 1.0
+    hi = max(p.mz for c in (big, small) for p in c) + 1.0
+    mask = (x >= lo) & (x <= hi)
+    curve_integral = numpy.trapezoid(y[mask], x[mask])
+
+    # (1) the dominant is NOT crushed by the shared minor tail (pre-fix ~0.61)
+    assert areas[0] >= big_alone * 0.85
+    # (2) adding a labelled species never destroys the group's area (pre-fix ~0.81)
+    assert total >= big_alone * 0.95
+    # (3) but the group never invents signal above the available area
+    assert total <= curve_integral * 1.03
+    # (4) the small neighbour is kept (not collapsed) yet only a minority residual
+    assert areas[1] > 0.0
+    assert areas[1] < areas[0] * 0.4
+
+
+def test_group_total_area_never_exceeds_curve_when_sliver_on_dominant_tail():
+    """The group total is held to the usable area even for a tiny tail neighbour.
+
+    The complement of the crush guard, and the case where the group-total ceiling
+    earns its keep. A genuine *sliver* (a few percent of the dominant) has its mono
+    on the dominant's +2. Once the crush fix lets the dominant keep its full
+    amplitude, the sliver -- whose apex-normalised mono still claims a large share
+    of the shared peak -- piles on top of the dominant's tail, so the *summed*
+    model would sit above the observed curve there and the group would claim more
+    area than the spectrum holds. The group-total ceiling rescales the whole group
+    back to the observed integral (uniformly, so the split is untouched), which is
+    exactly the "does the total overshoot the area available" invariant.
+    """
+
+    big = _averagine_cluster(1800.0, 1, 1000.0, fwhm=0.11)
+    sliver = _averagine_cluster(1802.0, 1, 20.0, fwhm=0.11)  # ~2% of the dominant
+    profile = _profile(big, sliver, fwhm=0.11)
+
+    big_alone = mpp._fit_envelope_areas([big], _profile(big, fwhm=0.11), 0.11, 0.2)[0]
+    areas = mpp._fit_envelope_areas([big, sliver], profile, 0.11, 0.2)
+
+    x = profile[:, 0]
+    y = numpy.clip(profile[:, 1], 0.0, None)
+    lo = min(p.mz for c in (big, sliver) for p in c) - 1.0
+    hi = max(p.mz for c in (big, sliver) for p in c) + 1.0
+    mask = (x >= lo) & (x <= hi)
+    curve_integral = numpy.trapezoid(y[mask], x[mask])
+
+    # the group total never claims more area than the curve holds (pre-ceiling ~1.04)
+    assert sum(areas) <= curve_integral * 1.01
+    # while the dominant is still not crushed and the sliver is still kept
+    assert areas[0] >= big_alone * 0.85
+    assert areas[1] > 0.0
+
+
+def _summed_model_overshoot(clusters, areas, shapes, x, y, fwhm):
+    """Peak amount the summed reconstruction rises above the observed curve, as a
+    fraction of the observed maximum."""
+    sigma = mpp._fwhm_to_sigma(fwhm)
+    norm = sigma * numpy.sqrt(2 * numpy.pi)
+    model = numpy.zeros_like(x)
+    for area, shape in zip(areas, shapes, strict=True):
+        for mz, w in shape:
+            model += (area * w / norm) * numpy.exp(-0.5 * ((x - mz) / sigma) ** 2)
+    return float(numpy.max(model - y)) / max(1e-12, float(numpy.max(y)))
+
+
+def test_residual_trim_removes_shared_peak_overshoot_and_frees_dominant():
+    """A buried species on a MINOR tail is trimmed to its residual, not its share.
+
+    The gated residual pass (`_apportion_group_areas`). When a real neighbour's
+    monoisotopic peak lands on a dominant envelope's *minor* tail isotope, the
+    abundance-independent shape split hands the neighbour a share of that shared
+    peak larger than the residual (observed minus the dominant's own contribution)
+    supports, so the summed model pokes ~3-5% above the observed curve there even
+    though the group *integral* stays bounded. Because the dominant at that peak is
+    only a minor isotope of its own pattern, trimming the neighbour to the residual
+    is safe: it leaves the neighbour its genuine share and, by removing the
+    over-credit, lets the dominant recover toward the area it has when fit alone
+    (the group-total ceiling had been dragging it down to compensate).
+
+    Guards the improvement in two directions at once: the shared-peak overshoot is
+    (near) eliminated, and the dominant recovers -- while the neighbour is still
+    kept (never crushed to zero) since its evidence is real.
+    """
+
+    big = _averagine_cluster(1800.0, 1, 1000.0, fwhm=0.11)
+    small = _averagine_cluster(1802.0, 1, 150.0, fwhm=0.11)  # mono on big's +2
+    profile = _profile(big, small, fwhm=0.11)
+
+    big_alone = mpp._fit_envelope_areas([big], _profile(big, fwhm=0.11), 0.11, 0.2)[0]
+    areas, shapes = mpp._fit_envelope_areas_shaped([big, small], profile, 0.11, 0.2)
+
+    x = profile[:, 0]
+    y = numpy.clip(profile[:, 1], 0.0, None)
+
+    # the shared-peak overshoot is essentially gone (pre-residual ~3.3% of max)
+    assert _summed_model_overshoot([big, small], areas, shapes, x, y, 0.11) <= 0.012
+    # the dominant recovers close to its isolated area (pre-residual ~0.96)
+    assert areas[0] >= big_alone * 0.95
+    # the neighbour is trimmed to a minority residual but never crushed away
+    assert 0.0 < areas[1] < areas[0] * 0.4
+
+
+def test_residual_trim_leaves_major_peak_neighbour_visible():
+    """The residual pass must NOT crush a neighbour whose mono is on a MAJOR peak.
+
+    The mirror guard for the residual gate. When the neighbour's monoisotopic peak
+    coincides with a *major* isotope of the dominant (a light +1 species one Da
+    apart), the residual -- observed minus the tall dominant's contribution --
+    would leave the neighbour almost nothing, silently discarding a labelled peak.
+    ``_dominant_shared_weight`` above ``ENVELOPE_RESIDUAL_MINOR_GATE`` keeps this
+    case on the shape split, so the neighbour stays clearly visible.
+    """
+
+    big = _averagine_cluster(1000.0, 1, 1000.0)
+    small = _averagine_cluster(1001.0, 1, 80.0)  # mono on big's +1 (a MAJOR peak)
+    profile = _profile(big, small)
+
+    areas = mpp._fit_envelope_areas([big, small], profile, 0.05, 0.2)
+
+    # the labelled neighbour keeps a meaningful, non-zero fraction (not residual-crushed)
+    assert areas[1] / areas[0] > 0.2
+
+
 def test_overlapping_model_never_exceeds_observed_curve():
     """The summed envelope model stays within the observed profile (mass conserving).
 
