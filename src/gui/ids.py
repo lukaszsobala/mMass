@@ -285,6 +285,7 @@ ID_helpDonate = wx.NewId()
 ID_helpUserGuide = wx.NewId()
 ID_helpDownload = wx.NewId()
 ID_helpWhatsNew = wx.NewId()
+ID_helpCheckUpdates = wx.NewId()
 
 HK_helpUserGuide = "\tF1"
 

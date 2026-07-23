@@ -270,7 +270,7 @@ main = {
     "updatesChecked": "",
     "updatesCurrent": version,
     "updatesAvailable": version,
-    "latestVersionUrl": "https://api.github.com/repos/lukaszsobala/mMass/releases/latest",
+    "latestVersionUrl": "https://api.github.com/repos/lukaszsobala/mMass/releases",
     "compassMode": "Profile",
     "compassFormat": "mzML",
     "compassDeleteFile": 1,
