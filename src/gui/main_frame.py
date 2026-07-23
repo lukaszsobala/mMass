@@ -164,6 +164,28 @@ class mainFrame(wx.Frame):
         self.makeMenubar()
         self.SetMenuBar(self.menubar)
 
+        # Restore the global Ctrl+Shift+A ("Convert All to Envelopes") shortcut.
+        # It used to be supplied by a Processing-menu accelerator that has since
+        # been removed, so register it as a frame accelerator instead -- this
+        # keeps it firing regardless of which panel has focus (the peak-list
+        # popup handler only covers the case where the list itself is focused).
+        self.Bind(
+            wx.EVT_MENU,
+            self.onConvertAllToEnvelopes,
+            id=ID_processingConvertAllToEnvelopes,
+        )
+        self.SetAcceleratorTable(
+            wx.AcceleratorTable(
+                [
+                    wx.AcceleratorEntry(
+                        wx.ACCEL_CTRL | wx.ACCEL_SHIFT,
+                        ord("A"),
+                        ID_processingConvertAllToEnvelopes,
+                    ),
+                ]
+            )
+        )
+
         # status bar: also where the URL fallback is shown on Wayland
         if not self._menuTipEnabled and self._STATUS_BAR_FALLBACK:
             self.CreateStatusBar()
@@ -3096,7 +3118,7 @@ class mainFrame(wx.Frame):
     def onConvertAllToEnvelopes(self, evt=None):
         """Convert every labelled peak/envelope to envelopes (works from anywhere).
 
-        Registered as a menubar accelerator so Shift+Ctrl+A fires regardless of
+        Wired to a frame accelerator (Shift+Ctrl+A) so it fires regardless of
         which panel has focus, not only when the peak list is focused.
         """
 
