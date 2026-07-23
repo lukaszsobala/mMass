@@ -305,6 +305,12 @@ class mainFrame(wx.Frame):
         document.Append(ID_documentReport, "Analysis Report..." + HK_documentReport, "")
         document.AppendSeparator()
         document.Append(ID_documentInfo, "Document Info..." + HK_documentInfo, "")
+        # On macOS wx relocates wx.ID_PREFERENCES into the application menu as the
+        # native "Preferences..." entry (Cmd+,); it opens the Canvas Properties
+        # dialog, which is where the old Settings controls now live. Elsewhere the
+        # View menu's "Canvas Properties..." already covers this, so skip it.
+        if wx.Platform == "__WXMAC__":
+            document.Append(wx.ID_PREFERENCES, "Preferences...\tCtrl+,", "")
         # Quit (wx.ID_EXIT) is relocated to the application menu on macOS, so its
         # preceding separator would be left dangling -- only add it elsewhere.
         if wx.Platform != "__WXMAC__":
@@ -327,6 +333,10 @@ class mainFrame(wx.Frame):
             wx.EVT_MENU, self.onDocumentPrintSpectrum, id=ID_documentPrintSpectrum
         )
         self.Bind(wx.EVT_MENU, self.onDocumentReport, id=ID_documentReport)
+        if wx.Platform == "__WXMAC__":
+            self.Bind(
+                wx.EVT_MENU, self.onViewCanvasProperties, id=wx.ID_PREFERENCES
+            )
         self.Bind(wx.EVT_MENU, self.onQuit, id=ID_quit)
 
         self.menubar.Append(document, "File")
