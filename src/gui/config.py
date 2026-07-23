@@ -356,7 +356,7 @@ spectrum = {
     "notationMarks": 1,
     "notationLabels": 0,
     "notationMZ": 0,
-    "filterSize": 1,
+    "filterSize": 1.0,
 }
 
 match = {
@@ -1337,6 +1337,9 @@ def saveConfig(path=os.path.join(confdir, "config.xml")):  # noqa: B008
     )
     buff += '    <param name="notationMZ" value="%d" type="int" />\n' % (
         bool(spectrum["notationMZ"])
+    )
+    buff += '    <param name="filterSize" value="%f" type="float" />\n' % (
+        spectrum["filterSize"]
     )
     buff += "  </spectrum>\n\n"
 

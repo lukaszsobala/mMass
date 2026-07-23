@@ -83,7 +83,6 @@ from .dlg_error import dlgError
 from .dlg_select_scans import dlgSelectScans
 from .dlg_select_sequences import dlgSelectSequences
 from .dlg_clipboard_editor import dlgClipboardEditor
-from .dlg_settings import dlgSettings
 
 # MAIN FRAME
 # ----------
@@ -304,13 +303,10 @@ class mainFrame(wx.Frame):
             ID_documentPrintSpectrum, "Print Spectrum..." + HK_documentPrintSpectrum, ""
         )
         document.Append(ID_documentReport, "Analysis Report..." + HK_documentReport, "")
-        # Settings (wx.ID_PREFERENCES) and Quit (wx.ID_EXIT) are relocated to the
-        # application menu on macOS, so their surrounding separators would be left
-        # dangling in this menu -- only add them on Windows/Linux.
-        if wx.Platform != "__WXMAC__":
-            document.AppendSeparator()
-        document.Append(ID_documentSettings, "Settings...", "")
+        document.AppendSeparator()
         document.Append(ID_documentInfo, "Document Info..." + HK_documentInfo, "")
+        # Quit (wx.ID_EXIT) is relocated to the application menu on macOS, so its
+        # preceding separator would be left dangling -- only add it elsewhere.
         if wx.Platform != "__WXMAC__":
             document.AppendSeparator()
         document.Append(ID_quit, "Quit" + HK_quit, "Quit mMass")
@@ -326,7 +322,6 @@ class mainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.onDocumentSave, id=ID_documentSaveAs)
         self.Bind(wx.EVT_MENU, self.onDocumentSaveAll, id=ID_documentSaveAll)
         self.Bind(wx.EVT_MENU, self.onDocumentExport, id=ID_documentExport)
-        self.Bind(wx.EVT_MENU, self.onDocumentSettings, id=ID_documentSettings)
         self.Bind(wx.EVT_MENU, self.onDocumentInfo, id=ID_documentInfo)
         self.Bind(
             wx.EVT_MENU, self.onDocumentPrintSpectrum, id=ID_documentPrintSpectrum
@@ -1421,15 +1416,6 @@ class mainFrame(wx.Frame):
 
     # ----
 
-    def onPreferences(self, evt):
-        """Show mMass preferences."""
-
-        dlg = dlgSettings(self)
-        dlg.ShowModal()
-        dlg.Destroy()
-
-    # ----
-
     def onServerCommand(self, command):
         """Process command from TCP server."""
 
@@ -2379,13 +2365,6 @@ class mainFrame(wx.Frame):
             self.documentExportPanel.Show(True)
 
         self.documentExportPanel.Raise()
-
-    # ----
-
-    def onDocumentSettings(self, evt=None):
-        """Show settings dialog."""
-        dlg = dlgSettings(self)
-        dlg.Show() # Open modelessly so the user can see updates live
 
     # ----
 

@@ -35,8 +35,6 @@ ID_documentSave = wx.NewId()
 ID_documentSaveAs = wx.NewId()
 ID_documentSaveAll = wx.NewId()
 ID_documentExport = wx.NewId()
-# wx.ID_PREFERENCES so macOS relocates "Settings..." into the application menu.
-ID_documentSettings = wx.ID_PREFERENCES
 ID_documentInfo = wx.NewId()
 ID_documentPrintSpectrum = wx.NewId()
 ID_documentReport = wx.NewId()
