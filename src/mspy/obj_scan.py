@@ -21,7 +21,6 @@ import copy
 from typing import Optional
 
 # load objects
-from . import obj_peak
 from . import obj_peaklist
 
 # load modules
@@ -272,26 +271,6 @@ class scan:
     # ----
 
     # MODIFIERS
-
-    def swap(self):
-        """Swap data between profile and peaklist."""
-
-        # make new profile
-        profile = [[i.mz, i.ai] for i in self.peaklist]
-        profile = numpy.array(profile)
-
-        # make new peaklist
-        peaks = [obj_peak.peak(i[0], i[1]) for i in self.profile]
-        peaks = obj_peaklist.peaklist(peaks)
-
-        # update scan
-        self.profile = profile
-        self.peaklist = peaks
-
-        # clear buffers
-        self.reset()
-
-    # ----
 
     def crop(self, minX, maxX):
         """Crop profile and peaklist.

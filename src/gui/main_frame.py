@@ -639,15 +639,19 @@ class mainFrame(wx.Frame):
         processing.Append(ID_processingRedo, "Redo" + HK_processingRedo, "")
         processing.AppendSeparator()
         processing.Append(
+            ID_processingSmoothing, "Smooth Spectrum..." + HK_processingSmoothing, ""
+        )
+        processing.Append(
+            ID_processingBaseline, "Correct Baseline..." + HK_processingBaseline, ""
+        )
+        processing.Append(ID_processingCrop, "Crop...", "")
+        processing.Append(ID_processingMath, "Math Operations...", "")
+        processing.AppendSeparator()
+        processing.Append(
             ID_processingPeakpicking, "Peak Picking..." + HK_processingPeakpicking, ""
         )
         processing.Append(
             ID_processingDeisotoping, "Deisotoping..." + HK_processingDeisotoping, ""
-        )
-        processing.Append(
-            ID_processingConvertAllToEnvelopes,
-            "Convert All to Envelopes" + HK_processingConvertAllToEnvelopes,
-            "",
         )
         processing.Append(
             ID_processingDeconvolution,
@@ -655,32 +659,15 @@ class mainFrame(wx.Frame):
             "",
         )
         processing.AppendSeparator()
-        processing.Append(
-            ID_processingBaseline, "Correct Baseline..." + HK_processingBaseline, ""
-        )
-        processing.Append(
-            ID_processingSmoothing, "Smooth Spectrum..." + HK_processingSmoothing, ""
-        )
-        processing.Append(ID_processingCrop, "Crop...", "")
-        processing.Append(ID_processingMath, "Math Operations...", "")
-        processing.AppendSeparator()
         processing.Append(ID_processingBatch, "Batch Processing...", "")
-        processing.AppendSeparator()
         processing.Append(
             ID_toolsCalibration, "Calibration..." + HK_toolsCalibration, ""
         )
-        processing.AppendSeparator()
-        processing.Append(ID_toolsSwapData, "Swap Data", "")
 
         self.Bind(wx.EVT_MENU, self.onToolsUndo, id=ID_processingUndo)
         self.Bind(wx.EVT_MENU, self.onToolsRedo, id=ID_processingRedo)
         self.Bind(wx.EVT_MENU, self.onToolsProcessing, id=ID_processingPeakpicking)
         self.Bind(wx.EVT_MENU, self.onToolsProcessing, id=ID_processingDeisotoping)
-        self.Bind(
-            wx.EVT_MENU,
-            self.onConvertAllToEnvelopes,
-            id=ID_processingConvertAllToEnvelopes,
-        )
         self.Bind(wx.EVT_MENU, self.onToolsProcessing, id=ID_processingDeconvolution)
         self.Bind(wx.EVT_MENU, self.onToolsProcessing, id=ID_processingBaseline)
         self.Bind(wx.EVT_MENU, self.onToolsProcessing, id=ID_processingSmoothing)
@@ -688,7 +675,6 @@ class mainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.onToolsProcessing, id=ID_processingMath)
         self.Bind(wx.EVT_MENU, self.onToolsProcessing, id=ID_processingBatch)
         self.Bind(wx.EVT_MENU, self.onToolsCalibration, id=ID_toolsCalibration)
-        self.Bind(wx.EVT_MENU, self.onToolsSwapData, id=ID_toolsSwapData)
 
         self.menubar.Append(processing, "Processing")
 
@@ -3761,46 +3747,6 @@ class mainFrame(wx.Frame):
 
     # ----
 
-    def onToolsSwapData(self, evt=None):
-        """Swap peaklist and spectrum data."""
-
-        # check document
-        if self.currentDocument is None:
-            wx.Bell()
-            return
-
-        # ask to process
-        title = "Do you really want to swap peaklist and spectrum data?"
-        message = "All the annotations and sequence matches will be lost."
-        buttons = [
-            (wx.ID_CANCEL, "Cancel", 80, False, 15),
-            (wx.ID_OK, "Swap", 80, True, 0),
-        ]
-        dlg = mwx.dlgMessage(self, title, message, buttons)
-        if dlg.ShowModal() != wx.ID_OK:
-            dlg.Destroy()
-            return
-        else:
-            dlg.Destroy()
-
-        # backup data
-        self.documents[self.currentDocument].backup(("spectrum", "notations"))
-
-        # swap data
-        self.documents[self.currentDocument].spectrum.swap()
-
-        # delete annotations
-        del self.documents[self.currentDocument].annotations[:]
-
-        # delete sequence matches
-        for sequence in self.documents[self.currentDocument].sequences:
-            del sequence.matches[:]
-
-        # update GUI
-        self.onDocumentChanged(items=("spectrum", "notations"))
-
-    # ----
-
     # SEQUENCE
 
     def onSequenceSelected(self, seqIndex):
@@ -5528,7 +5474,6 @@ class mainFrame(wx.Frame):
         self.menubar.Enable(ID_processingCrop, enable)
         self.menubar.Enable(ID_processingMath, enable)
         self.menubar.Enable(ID_processingBatch, bool(self.documents))
-        self.menubar.Enable(ID_toolsSwapData, enable)
         self.menubar.Enable(ID_sequenceNew, enable)
         self.menubar.Enable(ID_sequenceImport, enable)
         self.menubar.Enable(ID_sequenceSort, enable)

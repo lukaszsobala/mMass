@@ -424,7 +424,6 @@ processing = {
         "forceGroupWindow": 0,
     },
     "batch": {
-        "swap": 0,
         "math": 0,
         "crop": 0,
         "baseline": 0,
@@ -432,7 +431,7 @@ processing = {
         "peakpicking": 0,
         "deisotoping": 0,
         "deconvolution": 0,
-        "stepOrder": ['swap', 'math', 'crop', 'baseline', 'smoothing', 'peakpicking', 'deisotoping', 'deconvolution'],
+        "stepOrder": ['smoothing', 'baseline', 'math', 'peakpicking', 'crop', 'deisotoping', 'deconvolution'],
     },
 }
 

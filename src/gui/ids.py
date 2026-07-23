@@ -160,7 +160,6 @@ ID_processingSmoothing = wx.NewId()
 ID_processingCrop = wx.NewId()
 ID_processingMath = wx.NewId()
 ID_processingBatch = wx.NewId()
-ID_toolsSwapData = wx.NewId()
 
 HK_processingUndo = "\tCtrl+Z"
 HK_processingRedo = "\tCtrl+Y"
