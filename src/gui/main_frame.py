@@ -976,6 +976,8 @@ class mainFrame(wx.Frame):
         help.AppendSeparator()
         help.Append(ID_helpCite, "Papers to Cite...", "")
         help.Append(ID_helpDonate, "Make a Donation...", "")
+        help.AppendSeparator()
+        help.Append(ID_helpCheckUpdates, "Check for Updates...", "")
         # About (wx.ID_ABOUT) moves to the application menu on macOS; keep the
         # separator before it only where About stays in this menu.
         if wx.Platform != "__WXMAC__":
@@ -987,6 +989,7 @@ class mainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.onLibraryLink, id=ID_helpForum)
         self.Bind(wx.EVT_MENU, self.onLibraryLink, id=ID_helpCite)
         self.Bind(wx.EVT_MENU, self.onLibraryLink, id=ID_helpDonate)
+        self.Bind(wx.EVT_MENU, self.onHelpCheckUpdates, id=ID_helpCheckUpdates)
         self.Bind(wx.EVT_MENU, self.onHelpAbout, id=ID_helpAbout)
 
         self.menubar.Append(help, "&Help")
@@ -5770,43 +5773,119 @@ class mainFrame(wx.Frame):
 
     # ----
 
-    def decodeVersionString(self, versionString):
-        """Decode version string to int tuple."""
-        if re.match(r"^v?([0-9]{1,2})\.([0-9]{1,2})\.([0-9]{1,2})$", versionString):
-            return tuple(
-                int(i) for i in re.sub(r"[^.0-9]", "", versionString).split(".")
-            )
-        else:
-            raise ValueError
+    def parseVersionString(self, versionString):
+        """Parse a version or release name into a comparable sort key.
+
+        Handles the tag form ("v7.0.0-beta20") and the PEP 440 form that
+        installed metadata reports ("7.0.0b20") as equivalent, plus an
+        optional trailing "-hotfix". Returns a tuple that orders correctly
+        -- dev < alpha < beta < rc < final, and higher pre-release numbers
+        rank above lower ones -- or None if no X.Y.Z core can be found.
+        """
+
+        if not versionString:
+            return None
+
+        text = str(versionString).strip().lower()
+        m = re.search(r"(\d{1,3})\.(\d{1,3})\.(\d{1,3})", text)
+        if not m:
+            return None
+
+        major, minor, patch = (int(g) for g in m.groups())
+
+        # everything after the X.Y.Z core describes a pre-release
+        suffix = text[m.end():]
+        hotfix = 1 if "hotfix" in suffix else 0
+
+        # match the pre-release label at the start of the suffix, accepting
+        # both spelled-out ("beta20") and PEP 440 normalised ("b20") forms;
+        # longer labels are listed first so e.g. "beta" wins over "b"
+        token = suffix.lstrip(" .-_")
+        stage = re.match(r"(alpha|beta|preview|pre|rc|dev|a|b|c)(\d+)?", token)
+        if stage:
+            ranks = {
+                "dev": -1,
+                "a": 0, "alpha": 0,
+                "b": 1, "beta": 1, "pre": 1, "preview": 1,
+                "c": 2, "rc": 2,
+            }
+            number = int(stage.group(2)) if stage.group(2) else 0
+            return (major, minor, patch, ranks[stage.group(1)], number, hotfix)
+
+        # no recognised pre-release label -> treat as a final release, which
+        # ranks above every pre-release of the same X.Y.Z core
+        return (major, minor, patch, 3, 0, hotfix)
 
     # ----
 
-    def encodeVersionString(self, versionTuple):
-        """Encode int tuple to version string."""
-        if len(versionTuple) == 3:
-            return ".".join((str(i) for i in versionTuple))
-        else:
-            raise ValueError
+    def isNewerVersion(self, candidate, current):
+        """Whether `candidate` is a strictly newer version than `current`.
+
+        Compares parsed sort keys rather than raw strings so that equivalent
+        spellings (e.g. the release tag "7.0.0-beta20" and the installed
+        "7.0.0b20") are not mistaken for an available update.
+        """
+
+        candidate_key = self.parseVersionString(candidate)
+        current_key = self.parseVersionString(current)
+        if candidate_key is None or current_key is None:
+            return False
+        return candidate_key > current_key
+
+    # ----
+
+    def displayVersionString(self, versionString):
+        """Human-readable version label (strip 'v'/'Version ' prefixes)."""
+
+        text = (versionString or "").strip()
+        text = re.sub(r"(?i)^version\s+", "", text)
+        text = re.sub(r"(?i)^v(?=\d)", "", text)
+        return text
 
     # ----
 
     def getAvailableUpdates(self):
-        """Check for available updates."""
+        """Check GitHub for the newest available release.
+
+        Stores the newest available version in config.main and returns True
+        on a successful check, or False if the release information could not
+        be retrieved or parsed. mMass is currently distributed as GitHub
+        pre-releases, so the releases *list* is queried (the "latest"
+        endpoint ignores pre-releases) and the newest non-draft entry wins.
+        """
 
         try:
-            # get latest version available
             r = requests.get(config.main["latestVersionUrl"], timeout=5)
             r.raise_for_status()
             data = r.json()
 
-            # convert to comparable tuples
-            new_version = self.decodeVersionString(data["name"])
-            current_version = self.decodeVersionString(config.version)
+            # accept either a single release object or a list of them
+            releases = data if isinstance(data, list) else [data]
 
-            # this gives correct behaviour in case latest release is outdated
-            config.main["updatesAvailable"] = self.encodeVersionString(
-                max(new_version, current_version)
-            )
+            # find the newest non-draft release
+            newest_key = None
+            newest_name = ""
+            for release in releases:
+                if not isinstance(release, dict) or release.get("draft"):
+                    continue
+                name = release.get("tag_name") or release.get("name") or ""
+                key = self.parseVersionString(name)
+                if key is None:
+                    continue
+                if newest_key is None or key > newest_key:
+                    newest_key = key
+                    newest_name = name
+
+            current_key = self.parseVersionString(config.version)
+            if newest_key is None or current_key is None:
+                return False
+
+            # store the newest version if it is actually newer than what we
+            # are running, otherwise store our own version (== no update)
+            if newest_key > current_key:
+                config.main["updatesAvailable"] = self.displayVersionString(newest_name)
+            else:
+                config.main["updatesAvailable"] = config.version
             config.main["updatesChecked"] = time.strftime("%Y%m%d", time.localtime())
             return True
 
@@ -5833,7 +5912,7 @@ class mainFrame(wx.Frame):
         elif (
             config.main["updatesEnabled"]
             and config.main["updatesAvailable"]
-            and config.main["updatesAvailable"] != config.version
+            and self.isNewerVersion(config.main["updatesAvailable"], config.version)
         ):
             title = "A newer version of mMass is available from github.com"
             message = (
@@ -5865,5 +5944,83 @@ class mainFrame(wx.Frame):
         ] != time.strftime("%Y%m%d", time.localtime()):
             process = threading.Thread(target=self.getAvailableUpdates)
             process.start()
+
+    # ----
+
+    def onHelpCheckUpdates(self, evt=None):
+        """Manually check GitHub for a newer release."""
+
+        # avoid overlapping checks (the request runs in a worker thread)
+        if getattr(self, "_checkingUpdates", False):
+            return
+        self._checkingUpdates = True
+
+        # let the user know something is happening; the network request has a
+        # short timeout, so this window is brief
+        self._updatesBusy = wx.BusyInfo("Checking for updates...", self)
+        wx.Yield()
+
+        def worker():
+            ok = self.getAvailableUpdates()
+            wx.CallAfter(self._showUpdateCheckResult, ok)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    # ----
+
+    def _showUpdateCheckResult(self, ok):
+        """Report the outcome of a manual update check (main thread only)."""
+
+        # clear the busy indicator and the re-entry guard
+        self._updatesBusy = None
+        self._checkingUpdates = False
+
+        # the request or version parsing failed
+        if not ok:
+            title = "Unable to check for updates"
+            message = (
+                "mMass could not retrieve release information from github.com.\n"
+                "Please check your internet connection and try again later."
+            )
+            dlg = mwx.dlgMessage(self, title, message)
+            dlg.ShowModal()
+            dlg.Destroy()
+            return
+
+        latest = config.main["updatesAvailable"]
+
+        # a newer version is available
+        if latest and self.isNewerVersion(latest, config.version):
+            title = "A newer version of mMass is available from github.com"
+            message = (
+                "Version %s is now available for download.\nYou are currently using version %s."
+                % (latest, config.version)
+            )
+            buttons = [
+                (ID_helpWhatsNew, "What's New", -1, False, 15),
+                (wx.ID_CANCEL, "Close", -1, False, 15),
+                (ID_helpDownload, "Upgrade Now", -1, True, 0),
+            ]
+            dlg = mwx.dlgMessage(self, title, message, buttons)
+            response = dlg.ShowModal()
+            dlg.Destroy()
+            if response == ID_helpDownload:
+                try:
+                    wx.LaunchDefaultBrowser(config.links["mMassDownload"], flags=0)
+                except Exception:
+                    pass
+            elif response == ID_helpWhatsNew:
+                try:
+                    wx.LaunchDefaultBrowser(config.links["mMassWhatsNew"], flags=0)
+                except Exception:
+                    pass
+            return
+
+        # already up to date
+        title = "mMass is up to date"
+        message = "You are using the latest available version of mMass (%s)." % config.version
+        dlg = mwx.dlgMessage(self, title, message)
+        dlg.ShowModal()
+        dlg.Destroy()
 
     # ----
