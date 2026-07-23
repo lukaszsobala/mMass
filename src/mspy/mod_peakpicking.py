@@ -950,10 +950,23 @@ def _project_unimodal(weights):
 def _soft_isotope_model(isotopes, x, y, fwhm, nonIdeality=None):
     """Reshape averagine isotopes toward observed evidence within a bounded band.
 
-    Theoretical averagine is the backbone. Observed evidence may move each
-    isotope weight up or down, but never by more than `nonIdeality` (a relative
-    fraction) from its ideal value, so the modeled envelope always stays a
-    physically plausible isotope pattern.
+    Theoretical averagine is the backbone. Each isotope weight may move toward its
+    observed apex, but only within a band of +/- `nonIdeality` (relative) around
+    its theoretical value, so a contaminant sitting on an isotope position --
+    implausibly tall for that isotope -- is clipped back to a physical height
+    instead of being swallowed into the envelope, while a genuine, modest
+    non-averagine deviation (e.g. a +1 slightly below averagine) is followed. At
+    `nonIdeality == 0` the shape is rigidly theoretical.
+
+    The clipped weights are restored to sum 1 by a single UNIFORM rescale, which
+    preserves the observed *ratios* among the in-band isotopes. This is what lets
+    the high-abundance, high-S/N peaks that drive the fit (the mono and +1) keep
+    their observed proportions, so the modelled envelope matches them without
+    over- or under-shooting. Faint tail isotopes, whose band around a tiny theory
+    weight is correspondingly tiny, stay essentially on theory regardless of
+    noise (they may undershoot the data -- they are not trusted to reshape the
+    envelope). A final unimodality projection keeps the result a plausible
+    single-species pattern.
     """
 
     if not isotopes:
@@ -983,69 +996,36 @@ def _soft_isotope_model(isotopes, x, y, fwhm, nonIdeality=None):
 
     if nonIdeality is None:
         nonIdeality = ENVELOPE_NON_IDEALITY_DEFAULT
-    # `nonIdeality` is the maximum *relative* deviation each isotope weight may
-    # take from its ideal averagine value. The observed evidence reshapes the
-    # envelope, but every weight is clamped to [theory*(1-d), theory*(1+d)].
-    # The bound is relative to theory, so it is correct at every isotope
-    # regardless of its absolute abundance: a tail isotope -- whose ideal share
-    # is tiny -- can never be inflated by neighbouring noise or a partially
-    # overlapping species to rival a much more abundant earlier isotope. Both
-    # `theory` and `obs` are normalised to sum 1, so they are directly
-    # comparable here. At the upper limit (deviation == 1.0) the lower bound
-    # reaches 0, so an interior isotope could be driven to zero; the unimodality
-    # guard applied after the band clip below repairs any resulting notch/gap,
-    # so the envelope always stays a plausible single-species isotope pattern.
     deviation = max(0.0, min(float(nonIdeality), 1.0))
+
+    if obs_total <= 0.0 or deviation <= 0.0:
+        # no observed evidence, or non-ideality switched off -> pure theory
+        return [(ordered[i][0], float(theory[i])) for i in range(len(ordered))]
+
+    # Band each isotope to +/- `deviation` (relative) around its theoretical
+    # weight, then follow the observed value inside that band. The band is
+    # relative to theory, so it is tight for the faint tail (whose ideal share is
+    # tiny) and wide for the abundant isotopes; a contaminant implausibly tall for
+    # its isotope position is clipped back, while a modest real deviation is kept.
     upper = (1.0 + deviation) * theory
     lower = (1.0 - deviation) * theory
+    blended = numpy.clip(obs, lower, upper)
 
-    if obs_total > 0.0:
-        blended = numpy.clip(obs, lower, upper)
-    else:
-        blended = theory.copy()
+    # Restore sum 1 by a single UNIFORM rescale (absorbed by the fitted
+    # amplitude). Crucially this is NOT the old residual-redistribution, which
+    # pushed a clipped tail's mass up onto the mono and +1 and made a fully
+    # covered monoisotopic peak overshoot its +1. A uniform scale preserves the
+    # observed ratios among the in-band isotopes, so the high-S/N peaks that drive
+    # the fit keep their observed proportions and the model matches them.
+    total = float(numpy.sum(blended))
+    if total <= 0.0:
+        return ordered
+    blended = blended / total
 
-    # Renormalise to sum 1 (so the fitted 'area' keeps meaning the total
-    # envelope area and stays consistent across detection routes) *without*
-    # leaving the band. A plain divide would rescale every weight by the same
-    # factor and push the clamped ones straight back outside +/- deviation, so
-    # instead push the residual only into weights that still have headroom
-    # inside their own bounds. theory sums to 1 and the band spans [1-d, 1+d]
-    # around it, so a feasible sum-1 solution always exists and is reached in a
-    # single proportional pass (the loop just absorbs floating-point drift).
-    def _renorm_in_band(vec):
-        for _ in range(4):
-            residual = 1.0 - float(numpy.sum(vec))
-            if abs(residual) <= 1e-12:
-                break
-            slack = (upper - vec) if residual > 0.0 else (vec - lower)
-            total_slack = float(numpy.sum(slack))
-            if total_slack <= 1e-12:
-                break
-            vec = vec + residual * (slack / total_slack)
-        return numpy.clip(vec, lower, upper)
-
-    blended = _renorm_in_band(blended)
-
-    # Unimodality guard. With a wide non-ideality band the per-isotope clip alone
-    # no longer keeps the envelope shaped like a real isotope pattern: observed
-    # noise or an overlapping species can push an interior weight down (a notch)
-    # or, at deviation == 1.0, to zero (a gap). Project back onto the nearest
-    # unimodal shape, re-apply the band, and restore the sum. The band edges are
-    # scaled copies of the unimodal `theory`, so clipping a unimodal vector to
-    # them keeps it unimodal once the projected peak aligns with theory's; a few
-    # alternating passes converge (theory itself is a feasible fixed point:
-    # unimodal, inside the band, summing to 1). Skipped when there is no observed
-    # evidence, since `theory` is already unimodal.
-    if obs_total > 0.0:
-        for _ in range(6):
-            shaped = _renorm_in_band(numpy.clip(_project_unimodal(blended), lower, upper))
-            if numpy.max(numpy.abs(shaped - blended)) <= 1e-9:
-                blended = shaped
-                break
-            blended = shaped
-        # Final projection guarantees an exactly unimodal, area-preserving result
-        # (PAVA conserves the sum, which is ~1 after the loop above).
-        blended = _project_unimodal(blended)
+    # Unimodality guard: observed noise can push an interior isotope down (a
+    # notch) below its neighbours. Project onto the nearest unimodal shape (PAVA,
+    # area-preserving) so the model stays a plausible single-species pattern.
+    blended = _project_unimodal(blended)
 
     blended_total = float(numpy.sum(blended))
     if blended_total <= 0.0:
@@ -1400,6 +1380,24 @@ def _merge_adjacent_clusters(
                 continue
 
             trial = sorted(left + right, key=lambda p: p.mz)
+            # Two clusters that OVERLAP -- sharing isotope positions -- are two
+            # distinct species, not one envelope split by a gap. Fusing them makes a
+            # single representative carrying a DUPLICATED, irregular isotope grid (two
+            # combs interleaved), which then over-claims the shared signal and cannot
+            # be re-derived from positions. That is exactly the merge the "convert to
+            # envelopes" route has to undo, so "find peaks" and "convert" disagree
+            # (example_env4.msd: 900.49 fused 902.51 into a 10-isotope grid). Only
+            # merge genuinely adjacent fragments (no shared positions); leave
+            # overlapping species as separate seeds so the joint fit apportions them,
+            # and both routes produce the same clean single-species envelopes.
+            trialMzs = [p.mz for p in trial]
+            minGap = min(
+                (trialMzs[k + 1] - trialMzs[k] for k in range(len(trialMzs) - 1)),
+                default=difference,
+            )
+            if minGap < 0.5 * difference:
+                i += 1
+                continue
             # Enforce true envelope shape for merging even in relaxed mode,
             # so overlapping envelopes don't get squashed together.
             if not _is_plausible_cluster(
@@ -1446,30 +1444,84 @@ def _envelope_gaussian_column(x, isotopes, sigma):
 # ----
 
 
-def _envelope_amp_cap(areaColumn, x, capSignal, shaped, fwhm):
+ENVELOPE_CAP_ANCHOR_FRACTION = 0.75
+ENVELOPE_CAP_CONTEST_FRACTION = 0.10
+ENVELOPE_CAP_CONTEST_MIN_FRACTION = 0.50
+
+# A buried envelope's major peak is trimmed to its residual (see the gated
+# residual pass in `_apportion_group_areas`) only when the neighbour dominating
+# that shared peak is itself a MINOR isotope of its own pattern -- its weight is
+# below this fraction of its apex. Below the gate the neighbour takes only a
+# small bite of the shared peak, so the residual leaves the buried species its
+# real share; above it (a light species' +1 sitting under a heavier mono) the
+# residual would crush a real labelled peak, so the shape split is kept instead.
+# Sits between the measured minor-tail cases (dominant weight ~0.20-0.37, trimmed)
+# and the major-peak case that must stay visible (test_small_envelope_under_large
+# _neighbour_keeps_fair_share, dominant weight ~0.475, left alone).
+ENVELOPE_RESIDUAL_MINOR_GATE = 0.40
+
+
+def _envelope_amp_cap(areaColumn, x, capSignal, shaped, fwhm, otherFrac=None):
     """Largest amplitude whose modelled envelope stays under ``capSignal``.
 
     ``capSignal`` here is the envelope's own *apportioned share* ``g_k`` of the
     observed profile (see `_apportion_group_areas`), NOT the raw observed curve.
     For a unit-area column the amplitude is bounded by
-    ``min_i g_k(apex_i) / column(apex_i)`` over this envelope's isotope apexes,
-    where ``g_k`` and ``column`` are each the local maximum in a small window
-    around the isotope (window maxima, so a slight grid/position offset or an
-    inter-isotope valley cannot distort the ratio -- sampling the raw column
-    everywhere over-clamped to zero at the valleys).
+    ``min_i g_k(apex_i) / column(apex_i)`` over a *chosen subset* of this
+    envelope's isotope apexes, where ``g_k`` and ``column`` are each the local
+    maximum in a small window around the isotope (window maxima, so a slight
+    grid/position offset or an inter-isotope valley cannot distort the ratio --
+    sampling the raw column everywhere over-clamped to zero at the valleys).
 
     Capping against the *share* rather than the observed total is what makes the
     decomposition add up: because the shares sum to the observed curve
-    (``sum_k g_k = y``), holding every envelope's model under its own share means
-    the summed model can never exceed the observed peak. So two envelopes that
-    overlap at one m/z (a lower species' isotope and a higher species' mono) split
-    that peak fairly and their contributions sum to it -- neither takes it whole.
-    It also stops the highest-m/z envelope of a selection from inflating on the
-    untracked peak-forest to its right: there its share is ~1 but its column has
-    only a tiny tail weight, so the abundant-isotope apexes (near the mono) set a
-    far tighter bound and hold the area to a fair value. The cap is anchored on the
-    abundant isotopes, so it scales with the envelope's peak height and keeps
-    similar-height overlapping envelopes comparable.
+    (``sum_k g_k = y``), holding every envelope's model under its own share at a
+    peak it *shares* with a neighbour means the summed model can never exceed the
+    observed peak. So two envelopes that overlap at one m/z (a lower species'
+    isotope and a higher species' mono) split that peak fairly and their
+    contributions sum to it -- neither takes it whole.
+
+    **Which isotopes bind the cap (contested-aware).** Only two kinds of isotope
+    are allowed to lower the amplitude:
+
+    * the **abundant anchor** isotopes (weight >= ``ENVELOPE_CAP_ANCHOR_FRACTION``
+      of the apex). These set a ceiling that scales with the envelope's own peak
+      height, which is what keeps similar-height overlapping envelopes comparable
+      and stops the highest-m/z envelope of a selection from inflating on the
+      untracked peak-forest to its right (there its share is ~1 but its column has
+      only a tiny tail weight, so the near-mono apexes bound the area tightly).
+
+    * the **contested significant** isotopes -- those where another labelled
+      envelope in the group genuinely competes for the signal (``otherFrac`` at the
+      apex exceeds ``ENVELOPE_CAP_CONTEST_FRACTION``) *and* which are themselves a
+      significant peak of this envelope (weight >= ``ENVELOPE_CAP_CONTEST_MIN_FRACTION``
+      of the apex). This is where the no-overshoot guarantee is actually needed: two
+      envelopes competing for a *major* peak (a light species' +1 on a heavier
+      mono) must each be held to their fair share so the sum stays under it.
+
+    A contested isotope that is only a **minor tail** of this envelope (below
+    ``ENVELOPE_CAP_CONTEST_MIN_FRACTION`` of the apex) is deliberately NOT allowed
+    to bind, even though a neighbour competes there. Because one amplitude drives
+    every isotope, capping the envelope at a shared *minor* peak drags the whole
+    envelope down -- including its unshared, fully-owned mono/+1 -- crushing a
+    dominant envelope to a fraction of its real area and pulling the group total
+    *below* the usable area (the ``example_env3.msd`` regression: a small species'
+    mono landing on a large envelope's +2 collapsed the large one to ~42%). The
+    shared minor peak is instead held under the observed curve by the *neighbour's*
+    cap, for which that peak is a major/anchor isotope -- the envelope that owns it
+    is the one that bounds it.
+
+    An isotope that is neither abundant nor contested-significant -- one the
+    envelope owns outright but that simply sits below the modelled pattern (a
+    non-averagine tail, a noisy minor isotope) -- is likewise NOT allowed to bind.
+    Letting such an isotope into the ``min`` was the old over-strictness: a single
+    depressed isotope the envelope plainly owns dragged the whole amplitude down
+    and starved the monoisotopic peak, even with no neighbour to protect. The
+    model may now cover its own mono fully and, at most, poke cosmetically above
+    its own depressed tail (no shared signal is over-claimed). ``otherFrac`` is
+    the per-point fraction of the structural signal contributed by the *other*
+    envelopes in the group; ``None`` (an isolated envelope, no competitors) means
+    nothing is contested and only the abundant anchor binds.
     """
 
     if not shaped or areaColumn.size == 0:
@@ -1484,27 +1536,43 @@ def _envelope_amp_cap(areaColumn, x, capSignal, shaped, fwhm):
     # fraction of the peak width off the model grid) yet far inside the isotope
     # spacing so it never samples a neighbouring isotope
     halfWin = max(0.6 * float(fwhm), 1e-3)
+    anchorWeight = ENVELOPE_CAP_ANCHOR_FRACTION * wMax
 
     cap = None
     for (mz, w) in shaped:
-        # anchor the cap on the SIGNIFICANT isotopes (weight within ~5x of the
-        # apex). This must include the moderate isotopes (e.g. a light species' +2)
-        # that genuinely overlap a neighbour's monoisotopic peak, so an envelope is
-        # held to its fair share there and cannot over-claim a shared peak (the
-        # lower-m/z species would otherwise take a little more than its equal-weight
-        # split, nudging its area up and the neighbour's down). But it must EXCLUDE
-        # the near-zero tail isotopes: when one of those overlaps a much larger
-        # neighbour it is handed a vanishingly small equal-weight share, and
-        # anchoring on it would drag the whole envelope's amplitude down to that
-        # suppressed value and wrongly flatten a genuine abundance difference
-        # between overlapping species. The 0.1 cut keeps the moderate isotopes and
-        # drops only the faint tail.
+        # skip the near-zero tail entirely: unreliable and never a real ceiling
         if float(w) < 0.1 * wMax:
             continue
         i1 = int(numpy.searchsorted(x, mz - halfWin, side="left"))
         i2 = int(numpy.searchsorted(x, mz + halfWin, side="right"))
         if i2 <= i1:
             continue
+
+        isAnchor = float(w) >= anchorWeight
+        contested = False
+        if otherFrac is not None:
+            # a contested isotope may bind only if it is itself a *significant*
+            # peak of this envelope. A minor tail isotope (e.g. a +2/+3 at a small
+            # fraction of the apex) that happens to coincide with a neighbour's
+            # monoisotopic peak must NOT bind: since one amplitude drives every
+            # isotope, capping the envelope at that shared minor peak drags the
+            # whole envelope -- including its unshared, fully-owned mono/+1 -- down
+            # with it, crushing a dominant envelope to a fraction of its real area
+            # (the example_env3.msd regression). Requiring the contested isotope to
+            # be a significant peak keeps the cap where two envelopes genuinely
+            # compete for a *major* peak (a light species' +1 on a heavier mono),
+            # so the group total is still held to the usable area, without letting
+            # a shared tail crush the group total below it.
+            isMajor = float(w) >= ENVELOPE_CAP_CONTEST_MIN_FRACTION * wMax
+            contested = (
+                isMajor
+                and float(otherFrac[i1:i2].max()) >= ENVELOPE_CAP_CONTEST_FRACTION
+            )
+        # an isotope the envelope owns outright, or a minor tail it merely shares,
+        # must not pull the amplitude below what its own abundant peaks support
+        if not (isAnchor or contested):
+            continue
+
         colPeak = float(areaColumn[i1:i2].max())
         if colPeak <= 0.0:
             continue
@@ -1514,19 +1582,88 @@ def _envelope_amp_cap(areaColumn, x, capSignal, shaped, fwhm):
     return cap
 
 
-def _apportion_group_areas(areaColumns, monoColumns, x, y, capInfo=None):
+def _dominant_shared_weight(k, capInfo, x):
+    """Largest apex-relative weight any OTHER envelope has at one of envelope k's
+    own MAJOR isotopes -- the "signal 1" residual discriminator.
+
+    For each of k's significant peaks (weight >= ``ENVELOPE_CAP_CONTEST_MIN_FRACTION``
+    of its apex) we look at every other envelope's pattern for an isotope at the
+    same m/z and take that neighbour's own apex-relative weight there. A small
+    result means k's major peak sits on a neighbour's MINOR tail (the neighbour
+    takes only a small bite, so trimming k to the residual leaves it its fair
+    share); a large result means it sits on a neighbour's MAJOR peak (a light
+    species' +1 under a heavier mono), where the residual would crush a real
+    labelled peak. Returns 0.0 when nothing competes at k's major peaks.
+    """
+
+    shaped, fwhm = capInfo[k]
+    if not shaped:
+        return 0.0
+    halfWin = max(0.6 * float(fwhm), 1e-3)
+    wMax = max((float(w) for _mz, w in shaped), default=0.0) or 1.0
+    worst = 0.0
+    for (mz, w) in shaped:
+        if float(w) < ENVELOPE_CAP_CONTEST_MIN_FRACTION * wMax:
+            continue
+        for j, (shpJ, _fwhmJ) in enumerate(capInfo):
+            if j == k or not shpJ:
+                continue
+            wMaxJ = max((float(wj) for _m, wj in shpJ), default=0.0) or 1.0
+            for (mzj, wj) in shpJ:
+                if abs(float(mzj) - float(mz)) <= halfWin:
+                    rel = float(wj) / wMaxJ
+                    if rel > worst:
+                        worst = rel
+    return worst
+
+
+def _has_unshared_major(k, capInfo, otherFrac, x):
+    """True if envelope k owns a MAJOR isotope outright -- the "signal 2" tiebreaker.
+
+    A significant peak of k (weight >= ``ENVELOPE_CAP_CONTEST_MIN_FRACTION`` of its
+    apex) that no neighbour competes for (``otherFrac`` there below
+    ``ENVELOPE_CAP_CONTEST_FRACTION``) is independent evidence of k's real size, so
+    its residual can be trusted even when a neighbour dominates the shared peak.
+    This is what separates a buried species with its own clean anchor (safe to
+    trim) from a fully nested one whose every peak lies under a neighbour (must be
+    kept visible by the shape split). ``None`` otherFrac (isolated) has no
+    competitors, so the question does not arise and this returns False.
+    """
+
+    shaped, fwhm = capInfo[k]
+    if not shaped or otherFrac is None:
+        return False
+    halfWin = max(0.6 * float(fwhm), 1e-3)
+    wMax = max((float(w) for _mz, w in shaped), default=0.0) or 1.0
+    for (mz, w) in shaped:
+        if float(w) < ENVELOPE_CAP_CONTEST_MIN_FRACTION * wMax:
+            continue
+        i1 = int(numpy.searchsorted(x, mz - halfWin, side="left"))
+        i2 = int(numpy.searchsorted(x, mz + halfWin, side="right"))
+        if i2 <= i1:
+            continue
+        if float(otherFrac[i1:i2].max()) < ENVELOPE_CAP_CONTEST_FRACTION:
+            return True
+    return False
+
+
+def _apportion_group_areas(areaColumns, apexColumns, x, y, capInfo=None):
     """Split the observed signal among overlapping envelopes, then fit each area.
 
     Two column sets are supplied per envelope:
 
-    * `monoColumns[k]` -- the isotope pattern rendered as gaussians and normalised
-      so its *monoisotopic* apex equals 1. These drive the *base* split: at each
-      point ``share_k(x) = mono_k(x) / sum_j mono_j(x)``. Because every envelope is
-      normalised to its own monoisotopic peak, this base split does NOT depend on
-      absolute abundance -- so a tall lower-m/z species' isotope tail cannot swamp
-      and rob a shorter higher-m/z neighbour, and a small labelled envelope whose
-      every peak is buried under a much taller neighbour still keeps a meaningful
-      share instead of collapsing to zero.
+    * `apexColumns[k]` -- the isotope pattern rendered as gaussians and normalised
+      so its most abundant (*apex*) isotope equals 1. These drive the *base* split:
+      at each point ``share_k(x) = apex_k(x) / sum_j apex_j(x)``. Because every
+      envelope is normalised to its own tallest peak, this base split does NOT
+      depend on absolute abundance -- so a tall lower-m/z species' isotope tail
+      cannot swamp and rob a shorter higher-m/z neighbour, and a small labelled
+      envelope whose every peak is buried under a much taller neighbour still keeps
+      a meaningful share instead of collapsing to zero. Normalising to the apex
+      rather than the monoisotopic peak is what keeps the split fair for heavy
+      envelopes, whose apex is +2/+4/+5 and whose mono is a tiny sliver: comparing
+      two overlapping species at their representative (tallest) peak no longer
+      flattens a genuine abundance difference the way comparing at the mono did.
 
     * `areaColumns[k]` -- the same pattern but normalised to unit *area* (a unit
       coefficient integrates to one). Each envelope's area is the least-squares
@@ -1556,7 +1693,7 @@ def _apportion_group_areas(areaColumns, monoColumns, x, y, capInfo=None):
     non-negative deconvolution seeded from the fair base split. It is deliberately
     a *single* damped step, NOT run to convergence: full convergence is the plain
     least-squares/NNLS solution, which drives a fully buried labelled envelope's
-    area to (near) zero -- the regression the base mono-normalised split exists to
+    area to (near) zero -- the regression the base apex-normalised split exists to
     prevent. One step removes the gross over-crediting without erasing a buried
     label. (For an isolated envelope, ``K == 1``, the share is identically one both
     passes, so the refinement is a no-op and the fit is unchanged.)
@@ -1568,6 +1705,34 @@ def _apportion_group_areas(areaColumns, monoColumns, x, y, capInfo=None):
     the model stays under that envelope's OWN apportioned share ``g_k`` at its
     isotope apexes (see `_envelope_amp_cap`). The cap is applied on the refinement
     pass; it only lowers amplitudes, never raises them.
+
+    A **gated residual trim** then removes the remaining pointwise over-crediting.
+    Where a buried species' MAJOR peak sits on a neighbour's MINOR tail, the shape
+    split still hands it more of the shared peak than the residual (observed minus
+    the neighbours' own fitted contribution) can support, so the summed model pokes
+    above the curve at that peak even though the group integral is bounded. Each
+    such envelope is re-fit to that residual and trimmed to it (never raised).
+    ``_dominant_shared_weight`` and ``_has_unshared_major`` gate it so it fires only
+    where the residual equals the fair share -- a neighbour that takes only a small
+    minor-tail bite, or an envelope with its own unshared major peak to pin it --
+    and never on a light species' +1 buried under a heavier mono, which the shape
+    split keeps visible. It is one damped Gauss-Seidel step from a frozen amplitude
+    snapshot (so it is order-independent) and, by trimming an over-credited buried
+    species to its fair value, it also lets the dominant recover toward its true
+    area instead of being dragged down by the ceiling below. Areas that are already
+    fair (the residual supports at least the current amplitude) are left untouched,
+    so a real, well-fit overlap is unchanged.
+
+    Finally a **group-total ceiling** enforces the conservation invariant at the
+    level the user reads it -- the whole overlap group. The per-envelope cap bounds
+    each envelope at its *peaks*, but a neighbour whose mono sits on a dominant
+    envelope's tail can still push the *summed* model above the observed curve
+    where they overlap, so the group claims more area than the spectrum holds. A
+    single uniform rescale of every amplitude to the observed integral holds the
+    group total to the available area; being uniform it preserves the split (buried
+    labels keep their visible share, the dominant is only trimmed proportionally),
+    so it conserves mass without re-crushing anyone. It acts only on overlap groups
+    (``K > 1``) and only when the group would otherwise overshoot.
     """
 
     K = len(areaColumns)
@@ -1575,6 +1740,22 @@ def _apportion_group_areas(areaColumns, monoColumns, x, y, capInfo=None):
         return [0.0] * K
 
     yy = numpy.clip(y, 0.0, None)
+
+    # structural competition per envelope: at each point, the fraction of the
+    # (abundance-normalised) signal contributed by the OTHER envelopes in the
+    # group. Used to decide which of an envelope's isotopes are genuinely shared
+    # -- and so may bind its amplitude cap -- versus owned outright. Built from the
+    # unit-area columns (shape, not fitted amplitude) so it reflects real overlap,
+    # not this pass's provisional amplitudes.
+    structuralTotal = numpy.zeros(len(x), dtype=float)
+    for col in areaColumns:
+        structuralTotal = structuralTotal + col
+    safeStructural = numpy.where(structuralTotal > 0.0, structuralTotal, 1.0)
+    otherFracs = [
+        numpy.clip((structuralTotal - areaColumns[k]) / safeStructural, 0.0, 1.0)
+        if K > 1 else None
+        for k in range(K)
+    ]
 
     def _pass(weightColumns, useCap):
         """One apportionment pass over `weightColumns` (the per-envelope columns
@@ -1599,14 +1780,16 @@ def _apportion_group_areas(areaColumns, monoColumns, x, y, capInfo=None):
             amp = float(numpy.dot(areaCol, g)) / denom if denom > 0.0 else 0.0
             if useCap and capInfo is not None:
                 shaped, fwhm = capInfo[k]
-                cap = _envelope_amp_cap(areaCol, x, g, shaped, fwhm)
+                cap = _envelope_amp_cap(
+                    areaCol, x, g, shaped, fwhm, otherFrac=otherFracs[k]
+                )
                 if cap is not None:
                     amp = min(amp, cap)
             amps.append(max(0.0, amp))
         return amps
 
-    # base split: equal-weight, abundance-independent (mono-normalised columns)
-    baseAmps = _pass(monoColumns, useCap=False)
+    # base split: equal-weight, abundance-independent (apex-normalised columns)
+    baseAmps = _pass(apexColumns, useCap=False)
 
     # one refinement step: re-weight the split by each envelope's fitted model
     # amp_k * areaCol_k (its actual predicted intensity), then re-fit and cap. A
@@ -1615,7 +1798,76 @@ def _apportion_group_areas(areaColumns, monoColumns, x, y, capInfo=None):
     refineColumns = [
         max(0.0, baseAmps[k]) * areaColumns[k] for k in range(K)
     ]
-    return _pass(refineColumns, useCap=True)
+    amps = _pass(refineColumns, useCap=True)
+
+    # Gated residual trim (one damped Gauss-Seidel step). The shape split keeps a
+    # buried species visible, but where that species' MAJOR peak sits on a
+    # neighbour's MINOR tail it is still handed more of the shared peak than the
+    # residual -- observed minus the neighbours' own fitted contribution -- can
+    # support, leaving a pointwise overshoot at the shared peak even though the
+    # group integral is bounded (the parked ``example_env3`` overshoot). Trim such
+    # an envelope to its residual. Guarded so it fires only where residual == fair
+    # share:
+    #   * the neighbour dominating this envelope's major peak must itself be a
+    #     MINOR isotope there (`_dominant_shared_weight` below the gate) -- a small
+    #     bite that leaves the buried species its real share; OR
+    #   * the envelope must own an unshared major peak (`_has_unshared_major`) that
+    #     independently pins its size, so the residual is trustworthy even against
+    #     a major dominant.
+    # When the shared peak is a MAJOR peak of the neighbour (a light species' +1 on
+    # a heavier mono) and the envelope has no independent evidence, the residual
+    # would crush a real labelled peak, so the shape split is kept and the envelope
+    # stays visible. The residual only ever LOWERS an amplitude, and every
+    # candidate is computed from a single frozen snapshot of the pre-trim
+    # amplitudes, so the result does not depend on the order the envelopes are
+    # visited. Isolated envelopes (K == 1) share no peak and are left untouched.
+    if K > 1 and capInfo is not None and len(x) > 1:
+        frozen = list(amps)
+        model = numpy.zeros(len(x), dtype=float)
+        for amp, col in zip(frozen, areaColumns, strict=True):
+            model = model + amp * col
+        for k in range(K):
+            shaped, _fwhm = capInfo[k]
+            if not shaped:
+                continue
+            gentle = _dominant_shared_weight(k, capInfo, x) < ENVELOPE_RESIDUAL_MINOR_GATE
+            if not (gentle or _has_unshared_major(k, capInfo, otherFracs[k], x)):
+                continue
+            # residual = observed minus every OTHER envelope's fitted contribution
+            others = model - frozen[k] * areaColumns[k]
+            residual = numpy.clip(yy - others, 0.0, None)
+            areaCol = areaColumns[k]
+            denom = float(numpy.dot(areaCol, areaCol))
+            if denom <= 0.0:
+                continue
+            ampResid = float(numpy.dot(areaCol, residual)) / denom
+            if ampResid < amps[k]:
+                amps[k] = max(0.0, ampResid)
+
+    # Group-total ceiling. The per-envelope cap holds each envelope under its own
+    # apportioned share at its *peaks*, but once a dominant envelope is (correctly)
+    # allowed to keep its full amplitude, a neighbour whose monoisotopic peak sits
+    # on the dominant's tail can still leave the *summed* model above the observed
+    # curve where they overlap -- so the group as a whole claims more area than the
+    # spectrum holds there. The invariant the user cares about is at this group
+    # level: the total fitted area may not exceed the area actually available under
+    # the group's peaks. Enforce it with a single uniform rescale of every
+    # amplitude to the observed integral. Being uniform, it preserves the relative
+    # split -- a buried label keeps its visible share and the dominant is only
+    # trimmed proportionally ("a bit smaller, not crushed") -- so it conserves the
+    # group total without re-crushing anyone or re-opening the abundance question.
+    # Only overlap groups have a shared budget; an isolated envelope (K == 1) is
+    # bounded by its own cap and is left untouched.
+    if K > 1 and len(x) > 1:
+        model = numpy.zeros(len(x), dtype=float)
+        for amp, col in zip(amps, areaColumns, strict=True):
+            model = model + amp * col
+        modelInt = float(numpy.trapezoid(model, x))
+        budget = float(numpy.trapezoid(yy, x))
+        if modelInt > budget > 0.0:
+            scale = budget / modelInt
+            amps = [amp * scale for amp in amps]
+    return amps
 
 
 # ----
@@ -1723,12 +1975,12 @@ def _fit_group_areas(metas, x, y, nonIdeality):
     shapes = [list(isotopes) for _fwhm, _sigma, isotopes, _stored in metas]
 
     areaColumns = []
-    monoColumns = []
+    apexColumns = []
     capInfo = []
     for k, (fwhm, sigma, isotopes, storedShape) in enumerate(metas):
         if not norm_ok[k]:
             areaColumns.append(numpy.zeros(len(x), dtype=float))
-            monoColumns.append(numpy.zeros(len(x), dtype=float))
+            apexColumns.append(numpy.zeros(len(x), dtype=float))
             capInfo.append(([], 0.0))
             continue
 
@@ -1751,30 +2003,50 @@ def _fit_group_areas(metas, x, y, nonIdeality):
         #   though it forms a K==1 group it is not a single species, so non-ideality
         #   does not apply.
         #
-        # * Overlapping envelope with no stored shape keeps the rigid averagine
-        #   pattern, so a flexing tail cannot claim a neighbour's peak.
+        # * An overlapping envelope on a REGULAR grid keeps the rigid averagine
+        #   pattern, so a flexing tail cannot claim a neighbour's peak -- and it does
+        #   so whether or not it carries a stored shape. A stored REGULAR shape is
+        #   deliberately NOT reused in an overlap group: if the envelope was fit
+        #   ISOLATED earlier it stored a soft-modelled (data-bent) shape, and reusing
+        #   that bent shape here lets it over-claim the shared signal, so the fit
+        #   depends on the ORDER in which peaks were converted (converting a new
+        #   neighbour later gives it less area than converting the whole group at
+        #   once). Re-deriving the rigid averagine makes a previously-converted
+        #   regular envelope behave exactly like a fresh seed, so "convert to
+        #   envelopes" is order-independent. (Idempotency is preserved: find-peaks
+        #   stores the rigid averagine for overlapping envelopes, so reuse vs.
+        #   re-derive coincide there -- only the isolated-then-overlapped case moves.)
         if K == 1 and (storedShape is None or _is_regular_isotope_grid(storedShape)):
             shaped = _soft_isotope_model(isotopes, x, y, fwhm, nonIdeality=nonIdeality)
             shapes[k] = shaped
-        elif storedShape is not None:
+        elif storedShape is not None and not _is_regular_isotope_grid(storedShape):
             shaped = storedShape
             shapes[k] = shaped
         else:
             shaped = isotopes
 
         # area-normalised column (unit coefficient integrates to one) for the
-        # per-envelope amplitude fit, and the same column scaled so its
-        # monoisotopic apex is 1 for the abundance-independent signal split
+        # per-envelope amplitude fit, and the same column scaled so its most
+        # abundant (apex) isotope is 1 for the abundance-independent signal split.
+        # Normalising to the theoretical APEX -- not the monoisotopic peak -- is
+        # what makes the split fair for heavy envelopes whose apex is +2/+4/+5:
+        # comparing two overlapping species at their representative (tallest)
+        # peak, rather than at a mono that may be a tiny sliver of a heavy
+        # pattern, no longer flattens a genuine abundance difference between them.
+        # The apex weight is a fixed per-envelope scalar from the pattern, so it
+        # stays stable in crowded regions (it does not depend on the neighbours).
         areaColumn = _envelope_gaussian_column(x, shaped, sigma)
-        w0 = float(shaped[0][1]) if float(shaped[0][1]) > 0.0 else 1.0
+        wApex = max((float(w) for _mz, w in shaped), default=0.0)
+        if wApex <= 0.0:
+            wApex = 1.0
         norm = sigma * math.sqrt(2.0 * math.pi)
         areaColumns.append(areaColumn)
-        monoColumns.append(areaColumn * (norm / w0))
+        apexColumns.append(areaColumn * (norm / wApex))
         # the fitted shape + width, so the apportionment can cap each amplitude
         # against this envelope's own apportioned share at its isotope apexes
         capInfo.append((shaped, fwhm))
 
-    areas = _apportion_group_areas(areaColumns, monoColumns, x, y, capInfo=capInfo)
+    areas = _apportion_group_areas(areaColumns, apexColumns, x, y, capInfo=capInfo)
     return areas, shapes
 
 
@@ -2027,13 +2299,48 @@ def relabelenvelopes(
             else None
         )
         if isinstance(storedEnvelope, dict) and storedEnvelope.get("isotopes"):
-            used.add(x)
-            clusters.append(
-                _reconstruct_cluster_from_envelope(
-                    parent, storedEnvelope, averagineType=averagineType
+            storedIsos = storedEnvelope["isotopes"]
+            # A merged / irregular stored grid -- two overlapping species fused into
+            # one representative by find-peaks, with duplicated isotope positions --
+            # must only be reused for an ISOLATED envelope. Once a NEIGHBOUR seed is
+            # present (e.g. find-peaks found the first species merged, then the user
+            # labelled the second and is converting it) the merge is stale: reusing
+            # it lets this envelope keep the neighbour's isotopes, so its area
+            # balloons and the neighbour is crushed (example_env4_failes.msd: 900.49
+            # kept a 10-isotope grid -> area 82, and 902.51 collapsed to 22 instead
+            # of the correct 61 / 70). An irregular shape must not survive inside a
+            # neighbourhood -- rebuild it as a clean single-species seed so the joint
+            # fit re-apportions the shared signal. A regular grid is always safe to
+            # reuse (its positions are clean); only an irregular one is dropped, and
+            # only when a neighbouring seed actually overlaps its span (so the K==1
+            # merged-representative case that has no neighbour is still reproduced).
+            reuseStored = True
+            if not _is_regular_isotope_grid(storedIsos):
+                gridMzs = [float(m) for m, _w in storedIsos]
+                gridLo, gridHi = min(gridMzs), max(gridMzs)
+                # index by position -- do NOT iterate `peaklist` here: obj_peaklist's
+                # iterator keeps a single shared cursor, so a nested `for ... in
+                # peaklist` would reset the outer seed loop's cursor and drop every
+                # seed after this one.
+                for j in range(len(peaklist)):
+                    if j == x:
+                        continue
+                    other = peaklist[j]
+                    if other.charge is None or other.isotope not in (None, 0):
+                        continue
+                    # a seed past the mono but inside the merged span is a species
+                    # this grid absorbed -> the merge must be undone
+                    if gridLo + mzTolerance < other.mz <= gridHi + mzTolerance:
+                        reuseStored = False
+                        break
+            if reuseStored:
+                used.add(x)
+                clusters.append(
+                    _reconstruct_cluster_from_envelope(
+                        parent, storedEnvelope, averagineType=averagineType
+                    )
                 )
-            )
-            continue
+                continue
 
         cluster = [copy.deepcopy(parent)]
         indexes = [x]
@@ -2701,28 +3008,43 @@ def _selection_overlap_indices(peaklist, seedIdx, isotopeShift, averagineType, p
     """Expand selected peak indices to their connected envelope-overlap component.
 
     Spec: overlapping envelopes are always refined together. When the user
-    converts (or reconverts) a selection, any EXISTING envelope that overlaps it
-    -- transitively -- must be refit jointly, so a neighbour switches to the rigid
-    overlap treatment and the shared signal is re-apportioned (otherwise it keeps a
-    stale isolated area/shape from when it was fit alone). Only peaks that already
-    carry an envelope are pulled in; plain neighbours are never added, so the
-    selection is never widened into new envelope labels.
+    converts (or reconverts) a selection, any overlapping neighbour that is a real
+    species -- transitively -- must be refit jointly and converted with it, so the
+    shared signal is re-apportioned (otherwise the neighbour keeps a stale isolated
+    area, or the selected peak is fit alone and over-claims the neighbour's signal).
+
+    A neighbour counts as a real species -- and is pulled in -- when it is either:
+    * an EXISTING envelope (already carries the ``envelope`` attribute), or
+    * a DEISOTOPED SEED: a charged, monoisotopic peak. Such a peak is a latent
+      envelope (it has a charge and therefore an isotope pattern), so a "Find peaks"
+      result whose neighbours are still plain charged peaks -- not yet labelled as
+      envelopes -- is joined and converted exactly like one whose neighbours were
+      already enveloped. Without this, converting a peak added next to a find-peaks
+      neighbour fit it alone and reported too large an area.
+
+    A truly bare peak (no charge assigned) is NOT a committed species and is left
+    untouched, so the selection is not widened into unassigned/noise peaks.
 
     Returns the expanded index set (always a superset of `seedIdx`).
     """
 
     seedIdx = set(seedIdx)
-    # candidate nodes: the selected peaks plus every already-labelled envelope
+    # candidate nodes: the selected peaks plus every overlapping real species
+    # (existing envelope or charged monoisotopic seed)
     nodes = list(seedIdx)
     for i, peak in enumerate(peaklist):
         if i in seedIdx:
             continue
         env = peak.attributes.get("envelope") if hasattr(peak, "attributes") else None
-        if isinstance(env, dict):
+        isEnvelope = isinstance(env, dict)
+        isChargedSeed = bool(getattr(peak, "charge", None)) and getattr(
+            peak, "isotope", None
+        ) in (None, 0)
+        if isEnvelope or isChargedSeed:
             nodes.append(i)
 
     if len(nodes) == len(seedIdx):
-        return seedIdx  # no other envelopes anywhere -- nothing to pull in
+        return seedIdx  # no other real species anywhere -- nothing to pull in
 
     spans = {
         i: _envelope_overlap_span(peaklist[i], isotopeShift, averagineType, pad)
@@ -2748,6 +3070,52 @@ def _selection_overlap_indices(peaklist, seedIdx, isotopeShift, averagineType, p
     if current and any(j in seedIdx for j in current):
         result.update(current)
     return result
+
+
+def _dedupe_local_group_names(labeled, reserved):
+    """Remap freshly-labelled local group names off the ones already in use.
+
+    ``relabelenvelopes`` (invoked on just the local subset by
+    ``recalculate_neighborhood_envelopes`` below) restarts group names from "A"
+    with no knowledge of the groups carried by the untouched peaks outside the
+    neighbourhood. Left as-is, a per-selection "convert to envelopes" stamps
+    A/B/C onto new envelopes even though those letters already label OTHER
+    envelopes elsewhere in the list, so two unrelated envelopes end up sharing a
+    group. Here each distinct incoming local group is renamed to the next group
+    name not in ``reserved`` (nor already handed out), preserving the local
+    grouping so every isotope of one envelope keeps a shared label. Peaks with no
+    group (plain, un-enveloped peaks) are left untouched.
+
+    When ``reserved`` is empty (the whole-list convert / peak-picking paths, where
+    every peak is local) the mapping reproduces A/B/C in first-encounter order, so
+    it is a no-op there and the order-independent full relabel is unchanged.
+    """
+    used = set(reserved)
+    namer = obj_peaklist.peaklist([])
+
+    def _fresh():
+        size = 1
+        while True:
+            for name in namer._generateGroupNames(size):
+                if name not in used:
+                    return name
+            size += 1
+
+    mapping = {}
+    for peak in labeled:
+        g = getattr(peak, "group", "")
+        if not g or g in mapping:
+            continue
+        newName = _fresh()
+        used.add(newName)
+        mapping[g] = newName
+
+    if mapping:
+        for peak in labeled:
+            g = getattr(peak, "group", "")
+            if g in mapping:
+                peak.setgroup(mapping[g])
+    return labeled
 
 
 def recalculate_neighborhood_envelopes(
@@ -2900,6 +3268,13 @@ def recalculate_neighborhood_envelopes(
         return list(gpl)
 
     labeled = _label_local(localPeaks, preserveSeeds=selectedOnly)
+
+    # _label_local relabels its local subset from group "A" with no knowledge of
+    # the groups already carried by the untouched outside peaks; remap so a
+    # per-selection convert doesn't reuse letters that already label other
+    # envelopes in the list (a no-op when there are no reserved outside groups).
+    reserved = {p.group for p in outsidePeaks if getattr(p, "group", "")}
+    labeled = _dedupe_local_group_names(labeled, reserved)
 
     return obj_peaklist.peaklist(outsidePeaks + labeled)
 

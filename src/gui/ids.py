@@ -134,6 +134,8 @@ ID_viewPeaklistColumnGroup = wx.NewId()
 ID_viewPeaklistColumnEnvArea = wx.NewId()
 ID_viewPeaklistColumnEnvInt = wx.NewId()
 ID_peaklistConvertToEnvelopes = wx.NewId()
+ID_peaklistConvertAllToEnvelopes = wx.NewId()
+ID_processingConvertAllToEnvelopes = wx.NewId()
 
 HK_viewPosBars = "\tAlt+Ctrl+P"
 HK_viewGel = "\tAlt+Ctrl+G"
@@ -164,6 +166,7 @@ HK_processingUndo = "\tCtrl+Z"
 HK_processingRedo = "\tCtrl+Y"
 HK_processingPeakpicking = "\tCtrl+F"
 HK_processingDeisotoping = "\tCtrl+D"
+HK_processingConvertAllToEnvelopes = "\tShift+Ctrl+A"
 HK_processingDeconvolution = ""
 HK_processingSmoothing = "\tCtrl+G"
 HK_processingBaseline = "\tCtrl+B"

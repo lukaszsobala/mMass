@@ -32,6 +32,12 @@ def _find_peaks_envelopes(formulas_heights, params, fwhm=0.05):
     measured from the signal exactly as the real picker does), then deisotoped and
     labelled into envelopes. Returns (peaklist, profile) ready for a subsequent
     "select all -> convert to envelopes".
+
+    Mirrors pickPeaksOnScan: envelope labelling uses the clean-seed path
+    (preserveSeeds/relaxed) so find-peaks and "convert to envelopes" share the
+    exact same code and produce identical envelopes for the same seeds -- each
+    deisotoped seed is its own clean single-species envelope, never absorbed or
+    fused into a merged multi-species grid.
     """
     peaks = []
     for formula, height in formulas_heights:
@@ -56,7 +62,12 @@ def _find_peaks_envelopes(formulas_heights, params, fwhm=0.05):
         nonIdeality=params["envelopeNonIdeality"],
         relaxed=True,
         averagineType=avg,
+        preserveSeeds=True,
     )
+    # find-peaks removes the isotope peaks after envelope conversion; drop them
+    # here too so the peaklist handed to "convert" is the same seed-only state the
+    # GUI shows (envelope representatives at isotope 0).
+    fp = mspy.peaklist([pk for pk in fp if pk.isotope in (None, 0)])
     return fp, profile
 
 
@@ -237,11 +248,13 @@ def _three_separate_peaks(fwhm=0.05):
 
 
 def test_convert_selected_only_preserves_neighbours(envelope_params):
-    """Converting one selected peak leaves separately-labelled neighbours in place.
+    """Converting one selected peak never makes a charged neighbour disappear.
 
-    Regression for the "1372 disappeared" bug: with selectedOnly the neighbour
-    peaks are never pulled into the window, so re-deisotoping cannot absorb them
-    as isotopes of the converted peak.
+    Regression for the "1372 disappeared" bug: an overlapping charged neighbour is
+    now joined into the fit and converted with the selection (see
+    ``test_convert_selected_joins_overlapping_charged_neighbours``), but
+    preserveSeeds means it is kept as its own envelope -- never absorbed as an
+    isotope of the converted peak, merged away, or pruned.
     """
     pl, profile = _three_separate_peaks()
 
@@ -256,26 +269,55 @@ def test_convert_selected_only_preserves_neighbours(envelope_params):
     assert 1373.0 in mzs
 
 
-def test_convert_selected_only_does_not_widen_selection(envelope_params):
-    """Only the selected peak is (re)labelled; neighbours keep their old state."""
-    pl, profile = _three_separate_peaks()
+def test_convert_selected_joins_overlapping_charged_neighbours(envelope_params):
+    """An overlapping charged neighbour is joined into the fit and converted too.
+
+    A deisotoped charged peak is a latent envelope, so converting a peak that
+    overlaps one must refine them together (and convert the neighbour), otherwise
+    the selected peak is fit alone and over-claims the shared signal. This is what
+    makes "convert" work on a "Find peaks" result whose neighbours are still plain
+    charged peaks. (User chose this "join & convert" behaviour, July 2026; it
+    supersedes the earlier rule that only the selected peak was ever labelled.)
+    """
+    pl, profile = _three_separate_peaks()   # 1371/1372/1373, all charge 1
 
     result = mpp.recalculate_neighborhood_envelopes(
         pl, profile, [1371.0], envelope_params, selectedOnly=True
     )
 
-    labeled = [p for p in result if p.attributes.get("envelope")]
-    # exactly one envelope was produced -- the one the user selected
-    assert len(labeled) == 1
-    assert labeled[0].mz == pytest.approx(1371.0, abs=0.05)
-    # the untouched neighbours carry no freshly-built envelope metadata
-    neighbours = [p for p in result if round(p.mz, 3) in (1372.0, 1373.0)]
-    assert neighbours
-    assert all(not p.attributes.get("envelope") for p in neighbours)
+    labeled = sorted(round(p.mz, 3) for p in result if p.attributes.get("envelope"))
+    # the whole overlapping charged run is joined and converted, none lost
+    assert labeled == [1371.0, 1372.0, 1373.0]
 
 
-def test_convert_selected_only_multi_selection(envelope_params):
-    """Selecting several peaks converts exactly those, still sparing the rest."""
+def test_convert_selected_leaves_bare_uncharged_neighbour_untouched(envelope_params):
+    """A bare (uncharged) neighbour is NOT pulled in -- widening stays bounded.
+
+    The join is limited to real species (existing envelopes or charged seeds). A
+    peak with no charge assigned is not a committed species, so an overlapping bare
+    peak is left exactly as it was: not converted, not relabelled. This keeps the
+    selection from being widened into unassigned / noise peaks.
+    """
+    peaks = [
+        mspy.peak(mz=1371.0, ai=1000.0, charge=1, fwhm=0.05),
+        mspy.peak(mz=1372.0, ai=400.0, fwhm=0.05),          # bare: no charge
+    ]
+    pl = mspy.peaklist(peaks)
+    profile = mspy.profile(pl, fwhm=0.05, points=20)
+
+    result = mpp.recalculate_neighborhood_envelopes(
+        pl, profile, [1371.0], envelope_params, selectedOnly=True
+    )
+
+    labeled = sorted(round(p.mz, 3) for p in result if p.attributes.get("envelope"))
+    assert labeled == [1371.0]                              # only the selection
+    bare = next(p for p in result if round(p.mz, 3) == 1372.0)
+    assert not bare.attributes.get("envelope")              # left untouched
+    assert bare.charge is None
+
+
+def test_convert_selected_multi_selection_joins_middle(envelope_params):
+    """Selecting two peaks that straddle a charged neighbour joins the middle too."""
     pl, profile = _three_separate_peaks()
 
     result = mpp.recalculate_neighborhood_envelopes(
@@ -285,11 +327,62 @@ def test_convert_selected_only_multi_selection(envelope_params):
     labeled = sorted(
         (round(p.mz, 3) for p in result if p.attributes.get("envelope"))
     )
-    assert labeled == [1371.0, 1373.0]
-    # the unselected middle peak is preserved untouched
-    middle = [p for p in result if round(p.mz, 3) == 1372.0]
-    assert len(middle) == 1
-    assert not middle[0].attributes.get("envelope")
+    # the overlapping charged middle peak is joined into the same fit, not left out
+    assert labeled == [1371.0, 1372.0, 1373.0]
+
+
+def test_convert_selected_group_names_avoid_existing_groups(envelope_params):
+    """A per-selection convert must not reuse a group letter already in the list.
+
+    Regression: _label_local relabels only the local subset and restarts group
+    names from "A", so without deduplication a newly converted peak collides with
+    the group ("A", "B", ...) already carried by an untouched envelope elsewhere.
+    Here a far-away envelope already owns group "A"; converting a separate peak
+    must give it a *different* letter, not a second "A".
+    """
+    far = [
+        mspy.peak(mz=2000.0, ai=1000.0, charge=1, isotope=0, fwhm=0.05, group="A"),
+        mspy.peak(mz=2001.0, ai=500.0, charge=1, isotope=1, fwhm=0.05, group="A"),
+    ]
+    far[0].attributes["envelope"] = {
+        "isotopes": [(2000.0, 1.0), (2001.0, 0.5)],
+        "fwhm": 0.05,
+        "area": 1.0,
+    }
+    target = mspy.peak(mz=1371.0, ai=800.0, charge=1, fwhm=0.05)
+    pl = mspy.peaklist(far + [target])
+    profile = mspy.profile(pl, fwhm=0.05, points=20)
+
+    result = mpp.recalculate_neighborhood_envelopes(
+        pl, profile, [1371.0], envelope_params, selectedOnly=True
+    )
+
+    converted = next(p for p in result if round(p.mz, 3) == 1371.0)
+    untouched = [p for p in result if round(p.mz, 3) in (2000.0, 2001.0)]
+    # the untouched envelope keeps its "A"; the new one gets a fresh, distinct letter
+    assert all(p.group == "A" for p in untouched)
+    assert converted.group
+    assert converted.group != "A"
+    # no two distinct envelopes share a group letter
+    assert converted.group not in {p.group for p in untouched}
+
+
+def test_convert_all_group_names_start_from_a(envelope_params):
+    """The whole-list convert (no outside peaks) still starts group names at "A".
+
+    The dedup only reserves letters used by peaks OUTSIDE the converted subset;
+    when every peak is converted there are none, so labelling is unchanged and the
+    first envelope is group "A" as before (order-independent full relabel).
+    """
+    pl, profile = _three_separate_peaks()
+    mzs = [p.mz for p in pl]
+
+    result = mpp.recalculate_neighborhood_envelopes(
+        pl, profile, mzs, envelope_params, selectedOnly=True
+    )
+
+    groups = sorted({p.group for p in result if p.group})
+    assert groups[:3] == ["A", "B", "C"]
 
 
 def test_convert_selected_contiguous_none_disappear(envelope_params):
@@ -441,6 +534,115 @@ def test_convert_selected_leaves_non_overlapping_envelope_untouched(envelope_par
     assert any(p is far_peak for p in result)
     kept = next(p for p in result if round(p.mz) == 1860)
     assert kept.attributes["envelope"]["area"] == pytest.approx(far_area)
+
+
+def test_convert_joins_plain_charged_findpeaks_neighbour(envelope_params):
+    """Converting a peak next to a plain charged (find-peaks) neighbour joins it.
+
+    The reported workflow: after "Find peaks" a species is a plain charged peak (not
+    yet an envelope). The user adds a peak two Da below it and converts only the new
+    peak. Because the neighbour is a deisotoped charged seed -- a latent envelope --
+    it must be pulled into the joint fit and converted too; otherwise the new peak is
+    fit alone and over-claims the shared signal (its +2 lands on the neighbour mono).
+    The result must match the case where the neighbour was already an envelope.
+    """
+    params = _convert_params(envelope_params)
+    fwhm = 0.11
+    small = _avg_cluster_peaks(1800.0, 1, 300.0, fwhm)
+    big = _avg_cluster_peaks(1802.0, 1, 1000.0, fwhm)      # small's +2 == big mono
+    profile = mspy.profile(mspy.peaklist(small + big), fwhm=fwhm, points=20)
+
+    # neighbour is a PLAIN charged monoisotopic peak, as "Find peaks" leaves it
+    big_plain = mspy.peak(mz=1802.0, ai=big[0].intensity, charge=1, fwhm=fwhm)
+    assert not big_plain.attributes.get("envelope")
+
+    # reference: what the added peak's area should be when the neighbour is joined,
+    # obtained by converting BOTH together from bare seeds
+    ref = mpp.recalculate_neighborhood_envelopes(
+        mspy.peaklist([
+            mspy.peak(mz=1800.0, ai=small[0].intensity, charge=1, fwhm=fwhm),
+            mspy.peak(mz=1802.0, ai=big[0].intensity, charge=1, fwhm=fwhm),
+        ]),
+        profile, [1800.0, 1802.0], params, selectedOnly=True,
+    )
+    ref_small = next(p for p in ref if round(p.mz) == 1800).attributes["envelope"]["area"]
+
+    # the reported path: neighbour is a plain charged peak; convert ONLY the added one
+    added = mspy.peak(mz=1800.0, ai=small[0].intensity, charge=1, fwhm=fwhm)
+    result = mpp.recalculate_neighborhood_envelopes(
+        mspy.peaklist([big_plain, added]), profile, [1800.0], params, selectedOnly=True,
+    )
+    envs = {round(p.mz): p.attributes.get("envelope") for p in result}
+
+    # the plain neighbour was joined and converted, not left plain
+    assert envs[1802] is not None
+    assert envs[1800] is not None
+    # and the added peak got its correct joint area -- identical to converting both,
+    # NOT the inflated area it would claim if fit alone
+    assert envs[1800]["area"] == pytest.approx(ref_small, rel=1e-6)
+
+
+def test_convert_to_envelopes_is_order_independent_in_a_forest(envelope_params):
+    """Envelope areas in a peak forest must not depend on conversion order.
+
+    Reported bug: with envelopes every ~2 m/z, converting the whole forest at once
+    gives sensible areas, but converting them one at a time (label + "convert to
+    envelopes" on each new peak, leaving the earlier ones already converted) leaves
+    a later-added peak with a *smaller* area than it should have. The cause: a peak
+    converted while ISOLATED stored a soft-modelled (data-bent) shape, and when it
+    was later pulled into the overlap group that bent shape was reused verbatim,
+    letting it over-claim the shared signal at the expense of the freshly converted
+    neighbour. An overlapping envelope must use the rigid averagine pattern whether
+    or not it carries a stored shape, so a previously-converted regular envelope
+    behaves exactly like a fresh seed and the joint fit is order-independent.
+    """
+    params = _convert_params(envelope_params)
+    fwhm = 0.11
+    monos = [1798.0, 1800.0, 1802.0, 1804.0]
+    heights = [500.0, 800.0, 600.0, 400.0]
+    all_peaks = []
+    for m, h in zip(monos, heights, strict=True):
+        all_peaks += _avg_cluster_peaks(m, 1, h, fwhm)
+    profile = mspy.profile(mspy.peaklist(all_peaks), fwhm=fwhm, points=20)
+
+    def _seed(mono, height):
+        # a bare monoisotopic peak, as the user would label it
+        return mspy.peak(mz=mono, ai=height, charge=1, fwhm=fwhm)
+
+    def _areas(peaklist):
+        out = {}
+        for p in peaklist:
+            env = p.attributes.get("envelope")
+            if env:
+                out[round(p.mz)] = env["area"]
+        return out
+
+    # (A) convert the whole forest at once -- the reference result
+    ref = mpp.recalculate_neighborhood_envelopes(
+        mspy.peaklist([_seed(m, h) for m, h in zip(monos, heights, strict=True)]),
+        profile, list(monos), params, selectedOnly=True,
+    )
+    ref_areas = _areas(ref)
+
+    # (B) convert one peak at a time, each step selecting ONLY the newly added peak
+    # while the earlier ones are already converted envelopes
+    cur = mpp.recalculate_neighborhood_envelopes(
+        mspy.peaklist([_seed(monos[0], heights[0])]),
+        profile, [monos[0]], params, selectedOnly=True,
+    )
+    for m, h in zip(monos[1:], heights[1:], strict=True):
+        cur = mspy.peaklist(list(cur) + [_seed(m, h)])
+        cur = mpp.recalculate_neighborhood_envelopes(
+            cur, profile, [m], params, selectedOnly=True,
+        )
+    seq_areas = _areas(cur)
+
+    # every envelope is present in both routes and the areas match (pre-fix the
+    # sequentially converted forest drifted, e.g. 1800 fell to ~75% of its
+    # all-at-once area)
+    assert set(seq_areas) == set(ref_areas) == {round(m) for m in monos}
+    for mz in ref_areas:
+        assert seq_areas[mz] == pytest.approx(ref_areas[mz], rel=1e-6)
 
 
 def test_locked_fwhm_changes_area_and_survives_reconvert(envelope_params):
@@ -675,16 +877,15 @@ def test_convert_reproduces_find_peaks_envelopes(envelope_params):
 
 
 def test_convert_reproduces_find_peaks_overlapping_areas(envelope_params):
-    """Overlapping envelopes: 'find peaks' and 'convert' must report the same area.
+    """Overlapping envelopes: 'find peaks' and 'convert' must be identical.
 
-    Regression for the overlapping-envelope divergence. find-peaks fuses two
-    overlapping envelopes into one bloated cluster whose theoretical weights sum
-    to ~N (duplicate isotope indices from the merge) instead of ~1, which deflated
-    the reported area ~N-fold; the converted route normalised to one envelope and
-    so disagreed. Normalising every shape to a single-envelope distribution in the
-    shared fit fixes the picked area AND makes the two routes agree. The whole
-    point of the joint pipeline is to reconstruct overlapping envelopes
-    consistently, so this must not regress.
+    find-peaks and "convert to envelopes" now share the exact same clean-seed code
+    (preserveSeeds), so in a crowded overlapping region they must produce IDENTICAL
+    envelopes -- not merely close. Each species stays a clean single-envelope
+    distribution (weights sum to 1); none is fused into a bloated multi-species
+    grid whose weights sum to ~N (the old merge deflated the reported area ~N-fold
+    and made the two routes disagree). This is the core "both pipelines produce
+    identical results" contract for the hard overlapping case.
     """
     fp, profile = _find_peaks_envelopes(
         [
@@ -697,14 +898,19 @@ def test_convert_reproduces_find_peaks_overlapping_areas(envelope_params):
         fwhm=0.11,
     )
     envs = [p for p in fp if p.attributes.get("envelope")]
-    # this really is a crowded, merged region (not a set of clean 5-isotope runs)
-    assert any(len(p.attributes["envelope"]["isotopes"]) > 5 for p in envs)
+    # genuinely crowded/overlapping: many envelopes packed into a narrow window
+    # (four heavily overlapping species ~2 Da apart), yet every one is a CLEAN
+    # single-species run -- no merged multi-isotope grid survives.
+    assert len(envs) >= 5
+    span = max(p.mz for p in envs) - min(p.mz for p in envs)
+    assert span < 6.0 * len(envs)  # tightly packed, not spread out
+    assert all(len(p.attributes["envelope"]["isotopes"]) <= 5 for p in envs)
 
     # Select ALL envelope peaks at full-precision m/z, exactly as the GUI does on
     # "select all" (crowded regions can carry several envelopes at the same m/z,
-    # so compare multisets rather than a dict keyed on m/z). Both the area AND the
-    # summed intensity must match: the reported symptom was area and sumint drifting
-    # in OPPOSITE directions (one route stored a shape summing to <1, the other to 1).
+    # so compare multisets rather than a dict keyed on m/z). Because both routes
+    # run the identical clean-seed labelling, area AND summed intensity must match
+    # essentially exactly, not merely within a few percent.
     fp_env = sorted(
         (p.attributes["envelope"]["area"], p.attributes["envelope"]["sumint"])
         for p in envs
@@ -721,8 +927,8 @@ def test_convert_reproduces_find_peaks_overlapping_areas(envelope_params):
 
     assert len(cv_env) == len(fp_env)
     for (pa, ps), (ca, cs) in zip(fp_env, cv_env, strict=True):
-        assert ca == pytest.approx(pa, rel=0.02)
-        assert cs == pytest.approx(ps, rel=0.02)
+        assert ca == pytest.approx(pa, rel=1e-6)
+        assert cs == pytest.approx(ps, rel=1e-6)
         # the stored shape sums to 1 (single-envelope distribution) on both routes
     for p in list(envs) + [q for q in conv if q.attributes.get("envelope")]:
         wsum = sum(w for _, w in p.attributes["envelope"]["isotopes"])
@@ -730,12 +936,13 @@ def test_convert_reproduces_find_peaks_overlapping_areas(envelope_params):
 
 
 def test_convert_reproduces_merged_pair_area_and_sumint(envelope_params):
-    """Two envelopes 3 Da apart fuse into one merged cluster; both routes agree.
+    """Two envelopes ~3 Da apart: find-peaks and convert are identical.
 
-    Mirrors the reported 933/936 case: a single merged envelope (K==1 group with a
-    long, duplicated isotope grid). Converting it must reproduce find-peaks' area
-    AND summed intensity -- the fix reuses the stored shape verbatim for K==1 too
-    (instead of re-soft-modelling) and normalises the shape at one shared point.
+    Mirrors the reported 933/936 close pair. Under the shared clean-seed path the
+    two species are kept as two clean single-envelope distributions rather than
+    fused into one bloated merged grid, and find-peaks' area AND summed intensity
+    are reproduced exactly by convert (same code, same fit) -- neither species is
+    crushed and no irregular multi-species grid survives.
     """
     fp, profile = _find_peaks_envelopes(
         [("C40H63N11O13", 1000.0), ("C40H66N11O13", 700.0)],
@@ -744,6 +951,8 @@ def test_convert_reproduces_merged_pair_area_and_sumint(envelope_params):
     )
     envs = [p for p in fp if p.attributes.get("envelope")]
     assert envs
+    # clean single-species runs, not one fused irregular grid
+    assert all(len(p.attributes["envelope"]["isotopes"]) <= 6 for p in envs)
     fp_env = sorted(
         (p.attributes["envelope"]["area"], p.attributes["envelope"]["sumint"]) for p in envs
     )
@@ -757,8 +966,8 @@ def test_convert_reproduces_merged_pair_area_and_sumint(envelope_params):
     )
     assert len(cv_env) == len(fp_env)
     for (pa, ps), (ca, cs) in zip(fp_env, cv_env, strict=True):
-        assert ca == pytest.approx(pa, rel=0.02)
-        assert cs == pytest.approx(ps, rel=0.02)
+        assert ca == pytest.approx(pa, rel=1e-6)
+        assert cs == pytest.approx(ps, rel=1e-6)
 
 
 def test_find_peaks_and_convert_areas_do_not_exceed_curve(envelope_params):
@@ -770,7 +979,8 @@ def test_find_peaks_and_convert_areas_do_not_exceed_curve(envelope_params):
     unit tested in test_envelope_area_fit.py. For overlapping envelopes a
     least-squares amplitude of rigid averagine columns overshoots the integral
     (~5%), double-counting the shared signal; the apportioned-integral fit makes
-    the totals conserve. Both routes must obey it and agree.
+    the totals conserve. find-peaks and convert share the clean-seed code, so they
+    must both obey it AND agree exactly.
     """
     import numpy
 
@@ -785,7 +995,10 @@ def test_find_peaks_and_convert_areas_do_not_exceed_curve(envelope_params):
         fwhm=0.11,
     )
     envs = [p for p in fp if p.attributes.get("envelope")]
-    assert any(len(p.attributes["envelope"]["isotopes"]) > 5 for p in envs)  # crowded
+    # crowded overlapping region: many clean single-species envelopes packed close
+    # together (no bloated merged grid survives -- each is a short run).
+    assert len(envs) >= 5
+    assert all(len(p.attributes["envelope"]["isotopes"]) <= 5 for p in envs)
 
     x = profile[:, 0]
     y = numpy.clip(profile[:, 1], 0.0, None)
@@ -802,13 +1015,11 @@ def test_find_peaks_and_convert_areas_do_not_exceed_curve(envelope_params):
     # never invent mass: the summed areas must not exceed the observed integral
     assert find_total <= curve * 1.01
     assert conv_total <= curve * 1.01
-    # capture the bulk of it, but not all: to keep the decomposition fair the
-    # share cap declines to attribute signal an envelope's own isotope pattern
-    # cannot support at its shared isotopes (rather than let it over-claim), so a
-    # crowded run -- especially one with the redundant/duplicate envelopes
-    # find-peaks emits in dense regions -- sits under the full integral.
-    # Under-capture is safe; over-capture (inflated areas above the curve) is the
-    # bug being guarded against.
+    # capture the bulk of it: the apportioned-integral fit distributes the shared
+    # signal without over-claiming, so the summed areas stay under the full
+    # integral. Under-capture is safe; over-capture (inflated areas above the
+    # curve) is the bug being guarded against.
     assert find_total >= curve * 0.72
-    # both routes agree on the total
-    assert conv_total == pytest.approx(find_total, rel=0.02)
+    # both routes run the identical clean-seed labelling, so the totals are equal,
+    # not merely close.
+    assert conv_total == pytest.approx(find_total, rel=1e-6)
