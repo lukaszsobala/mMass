@@ -356,7 +356,7 @@ spectrum = {
     "notationMarks": 1,
     "notationLabels": 0,
     "notationMZ": 0,
-    "filterSize": 1,
+    "filterSize": 1.0,
 }
 
 match = {
@@ -424,7 +424,6 @@ processing = {
         "forceGroupWindow": 0,
     },
     "batch": {
-        "swap": 0,
         "math": 0,
         "crop": 0,
         "baseline": 0,
@@ -432,7 +431,7 @@ processing = {
         "peakpicking": 0,
         "deisotoping": 0,
         "deconvolution": 0,
-        "stepOrder": ['swap', 'math', 'crop', 'baseline', 'smoothing', 'peakpicking', 'deisotoping', 'deconvolution'],
+        "stepOrder": ['smoothing', 'baseline', 'math', 'peakpicking', 'crop', 'deisotoping', 'deconvolution'],
     },
 }
 
@@ -1338,6 +1337,9 @@ def saveConfig(path=os.path.join(confdir, "config.xml")):  # noqa: B008
     )
     buff += '    <param name="notationMZ" value="%d" type="int" />\n' % (
         bool(spectrum["notationMZ"])
+    )
+    buff += '    <param name="filterSize" value="%f" type="float" />\n' % (
+        spectrum["filterSize"]
     )
     buff += "  </spectrum>\n\n"
 

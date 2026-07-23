@@ -109,7 +109,6 @@ presets = {
                 "forceGroupWindow": 0,
             },
             "batch": {
-                "swap": 0,
                 "math": 0,
                 "crop": 0,
                 "baseline": 0,
@@ -162,7 +161,6 @@ presets = {
                 "forceGroupWindow": 0,
             },
             "batch": {
-                "swap": 0,
                 "math": 0,
                 "crop": 0,
                 "baseline": 0,
@@ -215,7 +213,6 @@ presets = {
                 "forceGroupWindow": 0,
             },
             "batch": {
-                "swap": 0,
                 "math": 0,
                 "crop": 0,
                 "baseline": 0,
@@ -268,7 +265,6 @@ presets = {
                 "forceGroupWindow": 0,
             },
             "batch": {
-                "swap": 0,
                 "math": 0,
                 "crop": 0,
                 "baseline": 0,
@@ -321,7 +317,6 @@ presets = {
                 "forceGroupWindow": 0,
             },
             "batch": {
-                "swap": 0,
                 "math": 0,
                 "crop": 0,
                 "baseline": 0,
@@ -374,7 +369,6 @@ presets = {
                 "forceGroupWindow": 0,
             },
             "batch": {
-                "swap": 0,
                 "math": 0,
                 "crop": 0,
                 "baseline": 0,
@@ -982,9 +976,6 @@ def savePresets(path=os.path.join(config.confdir, "presets.xml")):  # noqa: B008
         )
         buff += "      </deconvolution>\n"
         buff += "      <batch>\n"
-        buff += '        <param name="swap" value="%d" type="int" />\n' % (
-            bool(item["batch"]["swap"])
-        )
         buff += '        <param name="math" value="%d" type="int" />\n' % (
             bool(item["batch"]["math"])
         )

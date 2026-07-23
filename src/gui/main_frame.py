@@ -83,7 +83,6 @@ from .dlg_error import dlgError
 from .dlg_select_scans import dlgSelectScans
 from .dlg_select_sequences import dlgSelectSequences
 from .dlg_clipboard_editor import dlgClipboardEditor
-from .dlg_settings import dlgSettings
 
 # MAIN FRAME
 # ----------
@@ -164,6 +163,28 @@ class mainFrame(wx.Frame):
         # make GUI
         self.makeMenubar()
         self.SetMenuBar(self.menubar)
+
+        # Restore the global Ctrl+Shift+A ("Convert All to Envelopes") shortcut.
+        # It used to be supplied by a Processing-menu accelerator that has since
+        # been removed, so register it as a frame accelerator instead -- this
+        # keeps it firing regardless of which panel has focus (the peak-list
+        # popup handler only covers the case where the list itself is focused).
+        self.Bind(
+            wx.EVT_MENU,
+            self.onConvertAllToEnvelopes,
+            id=ID_processingConvertAllToEnvelopes,
+        )
+        self.SetAcceleratorTable(
+            wx.AcceleratorTable(
+                [
+                    wx.AcceleratorEntry(
+                        wx.ACCEL_CTRL | wx.ACCEL_SHIFT,
+                        ord("A"),
+                        ID_processingConvertAllToEnvelopes,
+                    ),
+                ]
+            )
+        )
 
         # status bar: also where the URL fallback is shown on Wayland
         if not self._menuTipEnabled and self._STATUS_BAR_FALLBACK:
@@ -304,13 +325,16 @@ class mainFrame(wx.Frame):
             ID_documentPrintSpectrum, "Print Spectrum..." + HK_documentPrintSpectrum, ""
         )
         document.Append(ID_documentReport, "Analysis Report..." + HK_documentReport, "")
-        # Settings (wx.ID_PREFERENCES) and Quit (wx.ID_EXIT) are relocated to the
-        # application menu on macOS, so their surrounding separators would be left
-        # dangling in this menu -- only add them on Windows/Linux.
-        if wx.Platform != "__WXMAC__":
-            document.AppendSeparator()
-        document.Append(ID_documentSettings, "Settings...", "")
+        document.AppendSeparator()
         document.Append(ID_documentInfo, "Document Info..." + HK_documentInfo, "")
+        # On macOS wx relocates wx.ID_PREFERENCES into the application menu as the
+        # native "Preferences..." entry (Cmd+,); it opens the Canvas Properties
+        # dialog, which is where the old Settings controls now live. Elsewhere the
+        # View menu's "Canvas Properties..." already covers this, so skip it.
+        if wx.Platform == "__WXMAC__":
+            document.Append(wx.ID_PREFERENCES, "Preferences...\tCtrl+,", "")
+        # Quit (wx.ID_EXIT) is relocated to the application menu on macOS, so its
+        # preceding separator would be left dangling -- only add it elsewhere.
         if wx.Platform != "__WXMAC__":
             document.AppendSeparator()
         document.Append(ID_quit, "Quit" + HK_quit, "Quit mMass")
@@ -326,12 +350,15 @@ class mainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.onDocumentSave, id=ID_documentSaveAs)
         self.Bind(wx.EVT_MENU, self.onDocumentSaveAll, id=ID_documentSaveAll)
         self.Bind(wx.EVT_MENU, self.onDocumentExport, id=ID_documentExport)
-        self.Bind(wx.EVT_MENU, self.onDocumentSettings, id=ID_documentSettings)
         self.Bind(wx.EVT_MENU, self.onDocumentInfo, id=ID_documentInfo)
         self.Bind(
             wx.EVT_MENU, self.onDocumentPrintSpectrum, id=ID_documentPrintSpectrum
         )
         self.Bind(wx.EVT_MENU, self.onDocumentReport, id=ID_documentReport)
+        if wx.Platform == "__WXMAC__":
+            self.Bind(
+                wx.EVT_MENU, self.onViewCanvasProperties, id=wx.ID_PREFERENCES
+            )
         self.Bind(wx.EVT_MENU, self.onQuit, id=ID_quit)
 
         self.menubar.Append(document, "File")
@@ -639,15 +666,19 @@ class mainFrame(wx.Frame):
         processing.Append(ID_processingRedo, "Redo" + HK_processingRedo, "")
         processing.AppendSeparator()
         processing.Append(
+            ID_processingSmoothing, "Smooth Spectrum..." + HK_processingSmoothing, ""
+        )
+        processing.Append(
+            ID_processingBaseline, "Correct Baseline..." + HK_processingBaseline, ""
+        )
+        processing.Append(ID_processingCrop, "Crop...", "")
+        processing.Append(ID_processingMath, "Math Operations...", "")
+        processing.AppendSeparator()
+        processing.Append(
             ID_processingPeakpicking, "Peak Picking..." + HK_processingPeakpicking, ""
         )
         processing.Append(
             ID_processingDeisotoping, "Deisotoping..." + HK_processingDeisotoping, ""
-        )
-        processing.Append(
-            ID_processingConvertAllToEnvelopes,
-            "Convert All to Envelopes" + HK_processingConvertAllToEnvelopes,
-            "",
         )
         processing.Append(
             ID_processingDeconvolution,
@@ -655,32 +686,15 @@ class mainFrame(wx.Frame):
             "",
         )
         processing.AppendSeparator()
-        processing.Append(
-            ID_processingBaseline, "Correct Baseline..." + HK_processingBaseline, ""
-        )
-        processing.Append(
-            ID_processingSmoothing, "Smooth Spectrum..." + HK_processingSmoothing, ""
-        )
-        processing.Append(ID_processingCrop, "Crop...", "")
-        processing.Append(ID_processingMath, "Math Operations...", "")
-        processing.AppendSeparator()
         processing.Append(ID_processingBatch, "Batch Processing...", "")
-        processing.AppendSeparator()
         processing.Append(
             ID_toolsCalibration, "Calibration..." + HK_toolsCalibration, ""
         )
-        processing.AppendSeparator()
-        processing.Append(ID_toolsSwapData, "Swap Data", "")
 
         self.Bind(wx.EVT_MENU, self.onToolsUndo, id=ID_processingUndo)
         self.Bind(wx.EVT_MENU, self.onToolsRedo, id=ID_processingRedo)
         self.Bind(wx.EVT_MENU, self.onToolsProcessing, id=ID_processingPeakpicking)
         self.Bind(wx.EVT_MENU, self.onToolsProcessing, id=ID_processingDeisotoping)
-        self.Bind(
-            wx.EVT_MENU,
-            self.onConvertAllToEnvelopes,
-            id=ID_processingConvertAllToEnvelopes,
-        )
         self.Bind(wx.EVT_MENU, self.onToolsProcessing, id=ID_processingDeconvolution)
         self.Bind(wx.EVT_MENU, self.onToolsProcessing, id=ID_processingBaseline)
         self.Bind(wx.EVT_MENU, self.onToolsProcessing, id=ID_processingSmoothing)
@@ -688,7 +702,6 @@ class mainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.onToolsProcessing, id=ID_processingMath)
         self.Bind(wx.EVT_MENU, self.onToolsProcessing, id=ID_processingBatch)
         self.Bind(wx.EVT_MENU, self.onToolsCalibration, id=ID_toolsCalibration)
-        self.Bind(wx.EVT_MENU, self.onToolsSwapData, id=ID_toolsSwapData)
 
         self.menubar.Append(processing, "Processing")
 
@@ -1430,15 +1443,6 @@ class mainFrame(wx.Frame):
         # show error message
         wx.Bell()
         dlg = dlgError(self, exception)
-        dlg.ShowModal()
-        dlg.Destroy()
-
-    # ----
-
-    def onPreferences(self, evt):
-        """Show mMass preferences."""
-
-        dlg = dlgSettings(self)
         dlg.ShowModal()
         dlg.Destroy()
 
@@ -2396,13 +2400,6 @@ class mainFrame(wx.Frame):
 
     # ----
 
-    def onDocumentSettings(self, evt=None):
-        """Show settings dialog."""
-        dlg = dlgSettings(self)
-        dlg.Show() # Open modelessly so the user can see updates live
-
-    # ----
-
     def onDocumentInfo(self, evt=None):
         """Show document information panel."""
 
@@ -3121,7 +3118,7 @@ class mainFrame(wx.Frame):
     def onConvertAllToEnvelopes(self, evt=None):
         """Convert every labelled peak/envelope to envelopes (works from anywhere).
 
-        Registered as a menubar accelerator so Shift+Ctrl+A fires regardless of
+        Wired to a frame accelerator (Shift+Ctrl+A) so it fires regardless of
         which panel has focus, not only when the peak list is focused.
         """
 
@@ -3758,46 +3755,6 @@ class mainFrame(wx.Frame):
         # set data
         self.prospectorPanel.setData(docData)
         self.prospectorPanel.Raise()
-
-    # ----
-
-    def onToolsSwapData(self, evt=None):
-        """Swap peaklist and spectrum data."""
-
-        # check document
-        if self.currentDocument is None:
-            wx.Bell()
-            return
-
-        # ask to process
-        title = "Do you really want to swap peaklist and spectrum data?"
-        message = "All the annotations and sequence matches will be lost."
-        buttons = [
-            (wx.ID_CANCEL, "Cancel", 80, False, 15),
-            (wx.ID_OK, "Swap", 80, True, 0),
-        ]
-        dlg = mwx.dlgMessage(self, title, message, buttons)
-        if dlg.ShowModal() != wx.ID_OK:
-            dlg.Destroy()
-            return
-        else:
-            dlg.Destroy()
-
-        # backup data
-        self.documents[self.currentDocument].backup(("spectrum", "notations"))
-
-        # swap data
-        self.documents[self.currentDocument].spectrum.swap()
-
-        # delete annotations
-        del self.documents[self.currentDocument].annotations[:]
-
-        # delete sequence matches
-        for sequence in self.documents[self.currentDocument].sequences:
-            del sequence.matches[:]
-
-        # update GUI
-        self.onDocumentChanged(items=("spectrum", "notations"))
 
     # ----
 
@@ -5528,7 +5485,6 @@ class mainFrame(wx.Frame):
         self.menubar.Enable(ID_processingCrop, enable)
         self.menubar.Enable(ID_processingMath, enable)
         self.menubar.Enable(ID_processingBatch, bool(self.documents))
-        self.menubar.Enable(ID_toolsSwapData, enable)
         self.menubar.Enable(ID_sequenceNew, enable)
         self.menubar.Enable(ID_sequenceImport, enable)
         self.menubar.Enable(ID_sequenceSort, enable)

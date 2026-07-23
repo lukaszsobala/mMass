@@ -765,10 +765,10 @@ class panelPeaklist(wx.Panel):
         key = evt.GetKeyCode()
 
         # select all -- plain Ctrl+A only. Ctrl+SHIFT+A must NOT be swallowed here:
-        # it is "Convert All to Envelopes", a global menubar accelerator on the main
-        # frame. This branch consumes the event (no evt.Skip()), so without the
-        # Shift guard Ctrl+Shift+A selected-all whenever the list had focus and the
-        # accelerator never fired -- the reported "only selects all in the list" bug.
+        # it is "Convert All to Envelopes", a global accelerator on the main frame
+        # (frame accelerator table). This branch consumes the event (no evt.Skip()),
+        # so without the Shift guard Ctrl+Shift+A selected-all whenever the list had
+        # focus and the accelerator never fired -- the "only selects all" bug.
         if key == 65 and evt.CmdDown() and not evt.ShiftDown():
             for x in range(self.peakList.GetItemCount()):
                 self.peakList.SetItemState(

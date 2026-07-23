@@ -125,6 +125,9 @@ class panelSpectrum(wx.Panel):
             reverseScrolling=config.main["reverseScrolling"]
         )
         self.spectrumCanvas.setProperties(reverseDrawing=True)
+        self.spectrumCanvas.setProperties(
+            filterSize=config.spectrum.get("filterSize", 1.0)
+        )
 
         axisFont = wx.Font(
             config.spectrum["axisFontSize"],
@@ -591,10 +594,25 @@ class panelSpectrum(wx.Panel):
     def onCanvasProperties(self, evt=None):
         """Show canvas properties dialog."""
 
-        # raise dialog
-        dlg = dlgCanvasProperties(self.parent, self.updateCanvasProperties)
-        dlg.ShowModal()
-        dlg.Destroy()
+        # reuse an already-open dialog rather than stacking a second one
+        if getattr(self, "canvasPropertiesDlg", None):
+            self.canvasPropertiesDlg.Raise()
+            return
+
+        # show modeless so the user can still pan/zoom/move the spectrum while
+        # the dialog is open (ShowModal would block the whole main window)
+        self.canvasPropertiesDlg = dlgCanvasProperties(
+            self.parent,
+            self.updateCanvasProperties,
+            onCloseFn=self._onCanvasPropertiesClosed,
+        )
+        self.canvasPropertiesDlg.Show()
+
+    # ----
+
+    def _onCanvasPropertiesClosed(self):
+        """Clear the canvas-properties dialog reference once it is closed."""
+        self.canvasPropertiesDlg = None
 
     # ----
 
@@ -1644,7 +1662,7 @@ class panelSpectrum(wx.Panel):
 class dlgCanvasProperties(wx.Dialog):
     """Set canvas properties."""
 
-    def __init__(self, parent, onChangeFn):
+    def __init__(self, parent, onChangeFn, onCloseFn=None):
 
         # initialize document frame
         wx.Dialog.__init__(
@@ -1655,6 +1673,10 @@ class dlgCanvasProperties(wx.Dialog):
             style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER | wx.STAY_ON_TOP,
         )
         self.onChangeFn = onChangeFn
+        self.onCloseFn = onCloseFn
+
+        # destroy on close (shown modeless) and let the owner drop its reference
+        self.Bind(wx.EVT_CLOSE, self.onClose)
 
         # make GUI
         sizer = self.makeGUI()
@@ -1776,6 +1798,24 @@ class dlgCanvasProperties(wx.Dialog):
         self.notationMaxLength_slider.SetTickFreq(10)
         self.notationMaxLength_slider.Bind(wx.EVT_SCROLL, self.onChange)
 
+        # spectrum drawing quality: higher = better (more detail), lower = faster.
+        # The 0-100 slider maps onto the canvas filterSize (5 = coarsest .. 1 =
+        # finest). A plain caption keeps it consistent with the other rulers,
+        # whose native SL_LABELS already show the current value -- a second,
+        # differently-scaled readout would only be confusing.
+        quality_label = wx.StaticText(self, -1, "Spectrum quality:")
+        self.quality_slider = wx.Slider(
+            self,
+            -1,
+            self._filterSizeToSlider(config.spectrum.get("filterSize", 1.0)),
+            0,
+            100,
+            size=(150, -1),
+            style=mwx.SLIDER_STYLE,
+        )
+        self.quality_slider.SetTickFreq(10)
+        self.quality_slider.Bind(wx.EVT_SCROLL, self.onChange)
+
         # pack elements
         grid = wx.GridBagSizer(mwx.GRIDBAG_VSPACE, mwx.GRIDBAG_HSPACE)
         grid.Add(mzDigits_label, (0, 0), flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL)
@@ -1806,12 +1846,28 @@ class dlgCanvasProperties(wx.Dialog):
             flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL,
         )
         grid.Add(self.notationMaxLength_slider, (6, 1), flag=wx.EXPAND)
+        grid.Add(
+            quality_label, (7, 0), flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL
+        )
+        grid.Add(self.quality_slider, (7, 1), flag=wx.EXPAND)
         grid.AddGrowableCol(1)
 
         mainSizer = wx.BoxSizer(wx.VERTICAL)
         mainSizer.Add(grid, 0, wx.EXPAND | wx.ALL, mwx.PANEL_SPACE_MAIN)
 
         return mainSizer
+
+    # ----
+
+    def _filterSizeToSlider(self, filterSize):
+        """Map a stored filterSize (5=coarsest .. 1=finest) to 0-100 quality."""
+        return max(0, min(100, int(round((5.0 - float(filterSize)) / 4.0 * 100))))
+
+    # ----
+
+    def _sliderToFilterSize(self, sliderValue):
+        """Map a 0-100 quality-slider position to a stored filterSize (5 .. 1)."""
+        return round(5.0 - (sliderValue / 100.0) * 4.0, 2)
 
     # ----
 
@@ -1826,9 +1882,21 @@ class dlgCanvasProperties(wx.Dialog):
         config.spectrum["axisFontSize"] = self.axisFontSize_slider.GetValue()
         config.spectrum["labelFontSize"] = self.labelFontSize_slider.GetValue()
         config.spectrum["notationMaxLength"] = self.notationMaxLength_slider.GetValue()
+        config.spectrum["filterSize"] = self._sliderToFilterSize(
+            self.quality_slider.GetValue()
+        )
 
         # set params to canvas and update
         self.onChangeFn()
+
+    # ----
+
+    def onClose(self, evt):
+        """Notify the owner and destroy the (modeless) dialog."""
+
+        if self.onCloseFn is not None:
+            self.onCloseFn()
+        self.Destroy()
 
     # ----
 

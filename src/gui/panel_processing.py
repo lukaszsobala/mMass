@@ -1160,22 +1160,28 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
         panel = wx.Panel(self, -1)
 
-        # ordered list of step keys — determines execution order
-        self._batchStepOrder = list(config.processing["batch"].get(
-            "stepOrder",
-            ['swap', 'math', 'crop', 'baseline', 'smoothing',
-             'peakpicking', 'deisotoping', 'deconvolution'],
-        ))
         self._batchStepLabels = {
-            'swap':          'Swap Data',
-            'math':          'Math',
-            'crop':          'Crop',
+            'smoothing':     'Smooth Spectrum',
             'baseline':      'Baseline Correction',
-            'smoothing':     'Smoothing',
+            'math':          'Math Operations',
             'peakpicking':   'Peak Picking',
+            'crop':          'Crop Spectrum',
             'deisotoping':   'Deisotoping',
             'deconvolution': 'Deconvolution',
         }
+        # default execution order
+        defaultOrder = ['smoothing', 'baseline', 'math', 'peakpicking',
+                        'crop', 'deisotoping', 'deconvolution']
+
+        # ordered list of step keys — determines execution order. Drop any
+        # unknown/retired keys (e.g. legacy 'swap') from a persisted order and
+        # fall back to the default whenever it no longer covers every step.
+        savedOrder = [k for k in config.processing["batch"].get("stepOrder", [])
+                      if k in self._batchStepLabels]
+        if set(savedOrder) == set(self._batchStepLabels):
+            self._batchStepOrder = savedOrder
+        else:
+            self._batchStepOrder = list(defaultOrder)
 
         choices = [self._batchStepLabels[k] for k in self._batchStepOrder]
         # wxMSW's native wxCheckListBox paints its rows light even in dark mode
@@ -2603,37 +2609,6 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
     # ----
 
-    def runApplySwap(self, batch=False):
-        """Crop data."""
-
-        # check current spectrum
-        if not self.currentDocument:
-            wx.Bell()
-            return
-
-        # run task
-        try:
-
-            # backup document
-            if not batch:
-                self.currentDocument.backup(("spectrum", "notations"))
-
-            # swap spectrum data
-            self.currentDocument.spectrum.swap()
-
-            # remove notations
-            del self.currentDocument.annotations[:]
-            for sequence in self.currentDocument.sequences:
-                del sequence.matches[:]
-
-        # task canceled
-        except mspy.ForceQuit:
-            if batch:
-                mspy.stop()
-            return
-
-    # ----
-
     def runApplyMath(self, batch=False):
         """Math operations."""
 
@@ -3155,7 +3130,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         # deconvolution creates a new document, so it doesn't need a backup
         apply_in_place = any(
             step_enabled.get(k, False)
-            for k in ['swap', 'crop', 'baseline', 'smoothing', 'peakpicking', 'deisotoping']
+            for k in ['crop', 'baseline', 'smoothing', 'peakpicking', 'deisotoping']
         ) or (step_enabled.get('math', False) and not math_is_global)
 
         apply_deconvolution = step_enabled.get('deconvolution', False)
@@ -3165,7 +3140,6 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
         # dispatch table for per-document steps
         _step_runners = {
-            'swap':          lambda: self.runApplySwap(batch=True),
             'crop':          lambda: self.runApplyCrop(batch=True),
             'baseline':      lambda: self.runApplyBaseline(batch=True),
             'smoothing':     lambda: self.runApplySmoothing(batch=True),
