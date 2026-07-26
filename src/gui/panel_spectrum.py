@@ -1664,6 +1664,12 @@ class panelSpectrum(wx.Panel):
 
     # ----
 
+    def getCurrentYRange(self):
+        """Get current Y range."""
+        return self.spectrumCanvas.getCurrentYRange()
+
+    # ----
+
 
 class dlgCanvasProperties(wx.Dialog):
     """Set canvas properties."""

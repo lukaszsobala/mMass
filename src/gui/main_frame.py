@@ -46,6 +46,7 @@ from . import config
 from . import display_scale
 from . import libs
 from . import doc
+from . import session
 
 from .panel_about import panelAbout
 from .panel_calibration import panelCalibration
@@ -80,6 +81,7 @@ from .dlg_presets_editor import dlgPresetsEditor
 from .dlg_references_editor import dlgReferencesEditor
 
 from .dlg_error import dlgError
+from .dlg_missing_documents import dlgMissingDocuments
 from .dlg_select_scans import dlgSelectScans
 from .dlg_select_sequences import dlgSelectSequences
 from .dlg_clipboard_editor import dlgClipboardEditor
@@ -319,6 +321,9 @@ class mainFrame(wx.Frame):
         document.Append(ID_documentSaveAs, "Save As..." + HK_documentSaveAs, "")
         document.Append(ID_documentSaveAll, "Save All" + HK_documentSaveAll, "")
         document.AppendSeparator()
+        document.Append(ID_sessionOpen, "Open Session...", "")
+        document.Append(ID_sessionSave, "Save Session...", "")
+        document.AppendSeparator()
         document.Append(ID_documentExport, "Export..." + HK_documentExport, "")
         document.AppendSeparator()
         document.Append(
@@ -349,6 +354,8 @@ class mainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.onDocumentSave, id=ID_documentSave)
         self.Bind(wx.EVT_MENU, self.onDocumentSave, id=ID_documentSaveAs)
         self.Bind(wx.EVT_MENU, self.onDocumentSaveAll, id=ID_documentSaveAll)
+        self.Bind(wx.EVT_MENU, self.onSessionOpen, id=ID_sessionOpen)
+        self.Bind(wx.EVT_MENU, self.onSessionSave, id=ID_sessionSave)
         self.Bind(wx.EVT_MENU, self.onDocumentExport, id=ID_documentExport)
         self.Bind(wx.EVT_MENU, self.onDocumentInfo, id=ID_documentInfo)
         self.Bind(
@@ -2265,6 +2272,304 @@ class mainFrame(wx.Frame):
         for docIndex, document in enumerate(self.documents):
             if document.dirty:
                 self.onDocumentSave(docIndex=docIndex)
+
+    # ----
+
+    def onSessionSave(self, evt=None, path=None):
+        """Save current session - the open documents and the current view."""
+
+        # check documents
+        if not self.documents:
+            wx.Bell()
+            dlg = mwx.dlgMessage(
+                self,
+                title="There is no session to save.",
+                message="A session stores the documents you have open,\nbut no document is currently open.",
+            )
+            dlg.ShowModal()
+            dlg.Destroy()
+            return False
+
+        # A session references documents by path only, so everything must be on
+        # disk before it is written. Saving an unsaved document may ask for a
+        # location; cancelling that cancels the whole session save.
+        for docIndex, document in enumerate(self.documents):
+            if document.dirty and not self.onDocumentSave(docIndex=docIndex):
+                return False
+
+        # collect documents that can be referenced
+        entries = []
+        currentEntry = None
+        unsaved = []
+        for docIndex, document in enumerate(self.documents):
+
+            # never saved (e.g. an untouched blank document) - nothing to point at
+            if not document.path:
+                unsaved.append(document)
+                continue
+
+            if docIndex == self.currentDocument:
+                currentEntry = len(entries)
+
+            entry = {
+                "path": os.path.abspath(document.path),
+                "title": document.title,
+                "visible": bool(document.visible),
+                "flipped": bool(document.flipped),
+                "offset": list(document.offset),
+                "colour": list(document.colour)[:3],
+                "style": int(document.style),
+            }
+
+            # remember which scan of a browsable run is shown
+            if document.islcms() and document.currentScanID is not None:
+                entry["scan"] = str(document.currentScanID)
+
+            entries.append(entry)
+
+        # nothing left to store
+        if not entries:
+            wx.Bell()
+            dlg = mwx.dlgMessage(
+                self,
+                title="There is no session to save.",
+                message="None of the open documents has been saved to a file,\nso the session cannot reference them.",
+            )
+            dlg.ShowModal()
+            dlg.Destroy()
+            return False
+
+        # warn about documents that will be left out
+        if unsaved:
+            title = "%d open document%s not been saved to a file." % (
+                len(unsaved),
+                ("s have", " has")[len(unsaved) == 1],
+            )
+            buttons = [
+                (ID_dlgCancel, "Cancel", 80, False, 15),
+                (wx.ID_OK, "Continue", 100, True, 0),
+            ]
+            dlg = mwx.dlgMessage(
+                self,
+                title=title,
+                message="Such documents cannot be part of a session\nand will not be reopened with it.",
+                buttons=buttons,
+            )
+            ID = dlg.ShowModal()
+            dlg.Destroy()
+            if ID != wx.ID_OK:
+                return False
+
+        # ask for the session file
+        if not path:
+            # default next to the documents, not to one shared last-used folder
+            saveDir = mwx.saveDialogDir(entries[0]["path"], config.main["lastDir"])
+            dlg = wx.FileDialog(
+                self,
+                "Save Session",
+                saveDir,
+                "session" + session.SESSION_EXTENSION,
+                session.SESSION_WILDCARD,
+                wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT,
+            )
+            if dlg.ShowModal() == wx.ID_OK:
+                path = dlg.GetPath()
+                dlg.Destroy()
+            else:
+                dlg.Destroy()
+                return False
+
+            # some platforms don't append the extension from the wildcard
+            if not path.lower().endswith(session.SESSION_EXTENSION):
+                path += session.SESSION_EXTENSION
+
+            config.main["lastDir"] = os.path.split(path)[0]
+
+        # save session
+        data = session.makeSession(
+            documents=entries,
+            currentDocument=currentEntry,
+            xRange=self.spectrumPanel.getCurrentRange(),
+            yRange=self.spectrumPanel.getCurrentYRange(),
+        )
+
+        try:
+            session.saveSession(path, data)
+        except (IOError, OSError):
+            wx.Bell()
+            dlg = mwx.dlgMessage(
+                self,
+                title="Unable to save the session.",
+                message="Please ensure that you have sufficient permissions\nto write into the selected folder.",
+            )
+            dlg.ShowModal()
+            dlg.Destroy()
+            return False
+
+        return True
+
+    # ----
+
+    def onSessionOpen(self, evt=None, path=None):
+        """Open a saved session - reopen its documents and restore the view."""
+
+        # ask for the session file
+        if not path:
+            lastDir = ""
+            if os.path.exists(config.main["lastDir"]):
+                lastDir = config.main["lastDir"]
+            wildcard = session.SESSION_WILDCARD + "|All files|*.*"
+            dlg = wx.FileDialog(
+                self,
+                "Open Session",
+                lastDir,
+                "",
+                wildcard=wildcard,
+                style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST,
+            )
+            if dlg.ShowModal() == wx.ID_OK:
+                path = dlg.GetPath()
+                dlg.Destroy()
+            else:
+                dlg.Destroy()
+                return False
+
+        # parse session
+        try:
+            data = session.parseSession(path)
+        except (ValueError, IOError, OSError):
+            wx.Bell()
+            dlg = mwx.dlgMessage(
+                self,
+                title="Unable to open the session.",
+                message="File structure can't be recognized as an mMass session\nor the file is not readable.",
+            )
+            dlg.ShowModal()
+            dlg.Destroy()
+            return False
+
+        if not data["documents"]:
+            wx.Bell()
+            dlg = mwx.dlgMessage(
+                self,
+                title="The session is empty.",
+                message="This session does not reference any document.",
+            )
+            dlg.ShowModal()
+            dlg.Destroy()
+            return False
+
+        # tag entries so the stored current document survives missing files
+        for x, entry in enumerate(data["documents"]):
+            entry["sessionIndex"] = x
+
+        # locate the documents (they may have been moved next to the session)
+        found, missing = session.resolveSession(data, os.path.split(path)[0])
+
+        # close current documents, reviewing unsaved changes
+        if self.documents and not self.onDocumentCloseAll():
+            return False
+
+        config.main["lastDir"] = os.path.split(path)[0]
+
+        # open documents, keeping track of which session entry each one came from
+        restored = []
+        for entry in found:
+            before = len(self.documents)
+            self.importDocument(path=entry["path"])
+            for docIndex in range(before, len(self.documents)):
+                restored.append((docIndex, entry))
+
+        # documents that failed to load are as good as missing to the user
+        loaded = set(entry["sessionIndex"] for _, entry in restored)
+        missing += [e for e in found if e["sessionIndex"] not in loaded]
+
+        # restore how each document is displayed
+        for docIndex, entry in restored:
+            self.applySessionDocumentState(docIndex, entry)
+        if restored:
+            self.spectrumPanel.refresh()
+
+        # restore the shown scan of each browsable run
+        for docIndex, entry in restored:
+            self.applySessionScan(docIndex, entry)
+
+        # restore the selected document
+        current = data["currentDocument"]
+        if current is not None:
+            for docIndex, entry in restored:
+                if entry["sessionIndex"] == current:
+                    self.documentsPanel.selectDocument(docIndex)
+                    break
+
+        # restore the view
+        if restored:
+            self.spectrumPanel.setCanvasRange(
+                xAxis=data["xRange"], yAxis=data["yRange"]
+            )
+
+        self.updateControls()
+
+        # report whatever could not be opened, but keep the rest of the session
+        if missing:
+            wx.Bell()
+            dlg = dlgMissingDocuments(self, missing, restored=len(restored))
+            dlg.ShowModal()
+            dlg.Destroy()
+
+        return bool(restored)
+
+    # ----
+
+    def applySessionDocumentState(self, docIndex, entry):
+        """Apply the display state stored in a session to a loaded document."""
+
+        document = self.documents[docIndex]
+
+        document.visible = bool(entry["visible"])
+        document.flipped = bool(entry["flipped"])
+
+        offset = entry["offset"]
+        if offset and len(offset) == 2:
+            document.offset = [float(offset[0]), float(offset[1])]
+
+        if entry["colour"]:
+            # the colour picked automatically on open is free again
+            if document.colour in self.usedColours:
+                del self.usedColours[self.usedColours.index(document.colour)]
+            document.colour = list(entry["colour"])
+            self.usedColours.append(document.colour)
+            self.documentsPanel.updateDocumentColour(docIndex)
+
+        if entry["style"] is not None:
+            document.style = entry["style"]
+
+        # update documents and spectrum panels
+        self.documentsPanel.enableDocument(docIndex, document.visible)
+        self.spectrumPanel.updateSpectrumProperties(docIndex, refresh=False)
+
+    # ----
+
+    def applySessionScan(self, docIndex, entry):
+        """Show the scan a session stored for a browsable LC-MS document."""
+
+        document = self.documents[docIndex]
+        if not entry["scan"] or not document.islcms():
+            return
+
+        # scan IDs are numeric in every supported format, but the scanlist keys
+        # come from the parser - match on whatever type it uses
+        scanID = None
+        for key in document.scanlist:
+            if str(key) == entry["scan"]:
+                scanID = key
+                break
+        if scanID is None or scanID == document.currentScanID:
+            return
+
+        # switching scans only works on the active document
+        self.documentsPanel.selectDocument(docIndex)
+        self.selectChromatogramScan(document, scanID)
 
     # ----
 
@@ -5468,6 +5773,7 @@ class mainFrame(wx.Frame):
         self.menubar.Enable(ID_documentSave, enable)
         self.menubar.Enable(ID_documentSaveAs, enable)
         self.menubar.Enable(ID_documentSaveAll, bool(self.documents))
+        self.menubar.Enable(ID_sessionSave, bool(self.documents))
         self.menubar.Enable(ID_documentExport, bool(self.documents))
         self.menubar.Enable(ID_documentReport, enable)
         self.menubar.Enable(ID_documentInfo, enable)
