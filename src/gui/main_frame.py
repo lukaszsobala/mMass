@@ -5439,9 +5439,9 @@ class mainFrame(wx.Frame):
 
     # ----
 
-    def updateMassPoints(self, points):
+    def updateMassPoints(self, points, anchor=None):
         """Highlight specified points in the spectrum."""
-        self.spectrumPanel.highlightPoints(points)
+        self.spectrumPanel.highlightPoints(points, anchor=anchor)
 
     # ----
 

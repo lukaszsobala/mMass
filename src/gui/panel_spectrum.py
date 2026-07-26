@@ -49,6 +49,7 @@ class panelSpectrum(wx.Panel):
         self.currentTmpSpectrumFlip = False
         self.currentNotationMarks = None
         self.currentTool = "ruler"
+        self.canvasPropertiesDlg = None
 
         # init container
         self.container = mspy.plot.container([])
@@ -595,8 +596,9 @@ class panelSpectrum(wx.Panel):
         """Show canvas properties dialog."""
 
         # reuse an already-open dialog rather than stacking a second one
-        if getattr(self, "canvasPropertiesDlg", None):
-            self.canvasPropertiesDlg.Raise()
+        dlg = self.canvasPropertiesDlg
+        if dlg:
+            dlg.Raise()
             return
 
         # show modeless so the user can still pan/zoom/move the spectrum while
@@ -1329,9 +1331,13 @@ class panelSpectrum(wx.Panel):
 
     # ----
 
-    def highlightPoints(self, points):
-        """Highlight specified points in the spectrum."""
-        self.spectrumCanvas.highlightXPoints(points)
+    def highlightPoints(self, points, anchor=None):
+        """Highlight specified points in the spectrum.
+
+        If anchor is given (a m/z value, typically the labelled monoisotopic
+        peak), the view is centred on it rather than on the middle of points.
+        """
+        self.spectrumCanvas.highlightXPoints(points, anchor=anchor)
 
     # ----
 

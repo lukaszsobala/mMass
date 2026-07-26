@@ -61,6 +61,10 @@ def _is_dark_mode():
 class canvas(wx.Window):
     """Plot canvas"""
 
+    # extra room left beyond the outermost highlighted point when the view is
+    # centred on an anchor (see ensureVisible)
+    ANCHOR_MARGIN = 1.15
+
     def __init__(
         self, parent, id=-1, size=wx.DefaultSize, style=wx.DEFAULT_FRAME_STYLE, **attr
     ):
@@ -2484,7 +2488,7 @@ class canvas(wx.Window):
 
     # ----
 
-    def highlightXPoints(self, points, zoom=False):
+    def highlightXPoints(self, points, zoom=False, anchor=None):
         """Move plot to see selected X position and show pointarrow"""
 
         self.highlightedPoints = points
@@ -2497,7 +2501,7 @@ class canvas(wx.Window):
             return
 
         # ensure visible
-        self.ensureVisible(points, zoom)
+        self.ensureVisible(points, zoom, anchor)
 
         # quick refresh to draw point-arrow
         dc = wx.MemoryDC(self.plotBuffer)
@@ -2506,8 +2510,15 @@ class canvas(wx.Window):
 
     # ----
 
-    def ensureVisible(self, points, zoom=False):
-        """Move plot to see selected X position"""
+    def ensureVisible(self, points, zoom=False, anchor=None):
+        """Move plot to see selected X position
+
+        With an anchor (e.g. the labelled monoisotopic peak of an envelope) the
+        view is centred on that anchor instead of on the middle of the point
+        set, and only widens if the remaining points do not fit around it -- so
+        an isotopic envelope stays pinned to its monoisotopic peak and zooms out
+        just enough to show the isotopes trailing off to the right.
+        """
 
         # check points
         if not points:
@@ -2522,6 +2533,19 @@ class canvas(wx.Window):
         if zoom:
             minX = min(points) - center * zoom / 100
             maxX = max(points) + center * zoom / 100
+        elif anchor is not None:
+            xRange = self.getCurrentXRange()
+            current_width = xRange[1] - xRange[0]
+
+            # keep the anchor centred and widen symmetrically only as far as
+            # needed to fit the outermost point (plus a small margin so it is
+            # not drawn right at the edge)
+            halfWidth = current_width / 2
+            halfWidth = max(halfWidth, (maxX - anchor) * self.ANCHOR_MARGIN)
+            halfWidth = max(halfWidth, (anchor - minX) * self.ANCHOR_MARGIN)
+
+            minX = anchor - halfWidth
+            maxX = anchor + halfWidth
         else:
             xRange = self.getCurrentXRange()
             current_width = xRange[1] - xRange[0]

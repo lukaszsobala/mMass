@@ -544,7 +544,12 @@ class panelPeaklist(wx.Panel):
                     fillUnderAlpha=115,
                     showOutline=False,
                 )
-                self.parent.updateMassPoints([x[0] for x in envelope["isotopes"]])
+                # centre the view on the labelled (monoisotopic) peak, not on
+                # the middle of the envelope, so the isotopes trail off to the
+                # right and the view only widens if they do not fit
+                self.parent.updateMassPoints(
+                    [x[0] for x in envelope["isotopes"]], anchor=peak.mz
+                )
                 return
 
         self.parent.updateTmpSpectrum(None)
