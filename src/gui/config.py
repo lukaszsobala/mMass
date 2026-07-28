@@ -402,6 +402,7 @@ processing = {
         "deisotoping": 1,
         "monoisotopic": 0,
         "removeShoulders": 0,
+        "averagineType": "protein",
     },
     "deisotoping": {
         "maxCharge": 1,
@@ -413,7 +414,6 @@ processing = {
         "labelEnvelope": "1st",
         "envelopeIntensity": "maximum",
         "envelopeNonIdeality": 0.40,
-        "averagineType": "protein",
         "setAsMonoisotopic": 0,
         "convertToEnvelopes": 1,
     },
@@ -928,12 +928,24 @@ def loadConfig(path=os.path.join(confdir, "config.xml")):  # noqa: B008
             processing["deisotoping"]["envelopeNonIdeality"] = min(
                 max(processing["deisotoping"]["envelopeNonIdeality"], 0.0), 1.0
             )
-            if processing["deisotoping"]["averagineType"] not in (
-                "protein",
-                "carbohydrate",
-                "lipid",
-            ):
-                processing["deisotoping"]["averagineType"] = "protein"
+
+        # averagine model: written under <peakpicking> since 7.0.0-beta22, under
+        # <deisotoping> before that -- fall back to the old spot so existing
+        # configs keep their model
+        picked = {"averagineType": ""}
+        if peakpickingTags:
+            _getParams(peakpickingTags[0], picked)
+        if not picked["averagineType"] and deisotopingTags:
+            legacy = {"averagineType": ""}
+            _getParams(deisotopingTags[0], legacy)
+            if legacy["averagineType"]:
+                processing["peakpicking"]["averagineType"] = legacy["averagineType"]
+        if processing["peakpicking"]["averagineType"] not in (
+            "protein",
+            "carbohydrate",
+            "lipid",
+        ):
+            processing["peakpicking"]["averagineType"] = "protein"
 
         deconvolutionTags = processingTags[0].getElementsByTagName("deconvolution")
         if deconvolutionTags:
@@ -1426,6 +1438,9 @@ def saveConfig(path=os.path.join(confdir, "config.xml")):  # noqa: B008
     buff += '      <param name="removeShoulders" value="%d" type="int" />\n' % (
         bool(processing["peakpicking"]["removeShoulders"])
     )
+    buff += '      <param name="averagineType" value="%s" type="str" />\n' % (
+        processing["peakpicking"]["averagineType"]
+    )
     buff += "    </peakpicking>\n"
     buff += "    <deisotoping>\n"
     buff += '      <param name="maxCharge" value="%d" type="int" />\n' % (
@@ -1451,9 +1466,6 @@ def saveConfig(path=os.path.join(confdir, "config.xml")):  # noqa: B008
     )
     buff += '      <param name="envelopeNonIdeality" value="%f" type="float" />\n' % (
         processing["deisotoping"]["envelopeNonIdeality"]
-    )
-    buff += '      <param name="averagineType" value="%s" type="str" />\n' % (
-        processing["deisotoping"]["averagineType"]
     )
     buff += '      <param name="setAsMonoisotopic" value="%d" type="int" />\n' % (
         bool(processing["deisotoping"]["setAsMonoisotopic"])
