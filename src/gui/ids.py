@@ -69,6 +69,10 @@ ID_documentRecent8 = wx.NewId()
 ID_documentRecent9 = wx.NewId()
 ID_documentRecentClear = wx.NewId()
 
+# session (open documents + current view)
+ID_sessionOpen = wx.NewId()
+ID_sessionSave = wx.NewId()
+
 HK_documentNew = "\tCtrl+N"
 HK_documentNewFromClipboard = "\tShift+Ctrl+N"
 HK_documentOpen = "\tCtrl+O"
