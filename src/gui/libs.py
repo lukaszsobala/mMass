@@ -928,6 +928,9 @@ def savePresets(path=os.path.join(config.confdir, "presets.xml")):  # noqa: B008
         buff += '        <param name="removeShoulders" value="%d" type="int" />\n' % (
             bool(item["peakpicking"]["removeShoulders"])
         )
+        buff += '        <param name="averagineType" value="%s" type="str" />\n' % (
+            item["peakpicking"].get("averagineType", "protein")
+        )
         buff += "      </peakpicking>\n"
         buff += "      <deisotoping>\n"
         buff += '        <param name="maxCharge" value="%d" type="int" />\n' % (

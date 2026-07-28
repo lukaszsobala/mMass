@@ -102,6 +102,9 @@ class panelPeaklist(wx.Panel):
         # hide peak editor
         self.mainSizer.Hide(1)
 
+        # show the current averagine model
+        self.updateAveragineInfo()
+
         # fit layout
         self.mainSizer.Fit(self)
         self.SetSizer(self.mainSizer)
@@ -177,6 +180,11 @@ class panelPeaklist(wx.Panel):
         self.peaksCount = wx.StaticText(panel, -1, "")
         self.peaksCount.SetFont(wx.SMALL_FONT)
 
+        # tells the user which averagine model peak picking / envelope fitting
+        # is currently using (set in Processing -> Peak Picking)
+        self.averagineInfo = wx.StaticText(panel, -1, "")
+        self.averagineInfo.SetFont(wx.SMALL_FONT)
+
         # pack elements
         sizer = wx.BoxSizer(wx.HORIZONTAL)
         sizer.AddSpacer(mwx.BOTTOMBAR_LSPACE)
@@ -201,6 +209,8 @@ class panelPeaklist(wx.Panel):
         )
         sizer.AddSpacer(10)
         sizer.Add(self.peaksCount, 0, wx.ALIGN_CENTER_VERTICAL, 0)
+        sizer.AddStretchSpacer()
+        sizer.Add(self.averagineInfo, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
         sizer.AddSpacer(mwx.BOTTOMBAR_RSPACE)
 
         mainSizer = wx.BoxSizer(wx.VERTICAL)
@@ -210,6 +220,28 @@ class panelPeaklist(wx.Panel):
         mainSizer.Fit(panel)
 
         return panel
+
+    # ----
+
+    def updateAveragineInfo(self):
+        """Show the averagine model currently used for picking and envelopes."""
+
+        labels = {
+            "protein": ("Prot", "Protein"),
+            "carbohydrate": ("Carb", "Carbohydrate"),
+            "lipid": ("Lipid", "Lipid"),
+        }
+        model = config.processing["peakpicking"].get("averagineType", "protein")
+        short, full = labels.get(model, labels["protein"])
+
+        self.averagineInfo.SetLabel(short)
+        self.averagineInfo.SetToolTip(
+            wx.ToolTip(
+                "Averagine model in use: %s\n"
+                "(change it in Processing -> Peak Picking)" % full
+            )
+        )
+        self.averagineInfo.GetContainingSizer().Layout()
 
     # ----
 
@@ -924,7 +956,9 @@ class panelPeaklist(wx.Panel):
             "labelEnvelope": d["labelEnvelope"],
             "envelopeIntensity": d["envelopeIntensity"],
             "envelopeNonIdeality": d["envelopeNonIdeality"],
-            "averagineType": d.get("averagineType", "protein"),
+            "averagineType": config.processing["peakpicking"].get(
+                "averagineType", "protein"
+            ),
             "seedCharge": seedCharge,
         }
 

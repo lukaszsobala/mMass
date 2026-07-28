@@ -1597,6 +1597,13 @@ class mainFrame(wx.Frame):
 
     # ----
 
+    def updateAveragineInfo(self):
+        """Refresh the averagine model shown in the peaklist bottom bar."""
+
+        self.peaklistPanel.updateAveragineInfo()
+
+    # ----
+
     def onDocumentChanged(self, items=()):
         """Document content has changed."""
 
