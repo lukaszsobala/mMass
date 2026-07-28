@@ -933,11 +933,16 @@ class panelPeaklist(wx.Panel):
     ):
         """Recalculate NNLS areas for envelopes in the neighborhood of edited peaks.
 
+        Only ENVELOPES are recalculated. Plain peaks around the edit are never
+        converted, absorbed or relabelled -- they only take part in the joint area
+        fit so the envelopes cannot over-claim their signal. A peak becomes an
+        envelope solely through the explicit "convert to envelopes" action.
+
         selectedOnly (bool) - when True, only the given peaks and the existing
             envelopes they overlap are re-fit (used for a FWHM edit / lock toggle,
             which must not re-deisotope the surrounding neighbourhood). When False
-            (the auto-recalc after a delete / charge change) the margin-window
-            neighbourhood is re-fit as a whole.
+            (the auto-recalc after a delete / charge change) the envelopes in the
+            margin-window neighbourhood are re-fit as a whole.
         respectFwhm (bool) - when True the current FWHM of every peak in the fit is
             kept as-is (not re-measured), so a directly typed width takes effect.
         """
@@ -1111,11 +1116,24 @@ class panelPeaklist(wx.Panel):
 
             if original_peak.charge != peak.charge:
                 # The stored envelope's isotope positions encode the old
-                # charge's spacing (1/charge). Drop them so the envelope is
-                # re-modeled from the profile at the new charge instead of
-                # being rebuilt verbatim from the stale positions.
-                if hasattr(peak, "attributes"):
-                    peak.attributes.pop("envelope", None)
+                # charge's spacing (1/charge). Drop the positions so the
+                # envelope is re-modeled from the profile at the new charge
+                # instead of being rebuilt verbatim from the stale ones -- but
+                # KEEP the envelope itself, otherwise the peak looks plain to
+                # the recalc (which only ever touches envelopes) and would
+                # silently stop being an envelope. Without a charge, or on a
+                # non-monoisotopic peak, there is no envelope to model, so the
+                # stale one is dropped for good.
+                env = getattr(peak, "attributes", {}).get("envelope")
+                if isinstance(env, dict):
+                    if peak.charge and peak.isotope in (None, 0):
+                        env = dict(env)
+                        env["isotopes"] = []
+                        peak.attributes["envelope"] = env
+                    else:
+                        peak.attributes.pop("envelope", None)
+                # a plain peak is never converted here: this only re-apportions
+                # the areas of envelopes that already exist around the edit
                 self._recalculateNeighborhoodEnvelopes([original_peak.mz, peak.mz])
                 recomputed = True
             elif isEnvelope and (fwhmChanged or lockChanged):

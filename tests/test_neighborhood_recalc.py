@@ -25,6 +25,25 @@ def _spectrum(formula="C50H80N14O18", charge=1, height=1000.0, fwhm=0.05, extra=
     return combined, profile
 
 
+def _converted(peaklist, profile, params, mzs):
+    """Run the user's explicit "convert to envelopes" action on given m/z values.
+
+    The auto-recalc path (selectedOnly=False) only ever recalculates envelopes
+    that already exist -- it never converts plain peaks -- so a test of that path
+    has to start from a list where the user has converted something first.
+    """
+    return mpp.recalculate_neighborhood_envelopes(
+        peaklist, profile, list(mzs), params, selectedOnly=True
+    )
+
+
+def _envelope_spectrum(params, extra=None, **kwargs):
+    """(peaklist, profile) with the species' monoisotopic peak already converted."""
+    pl, profile = _spectrum(extra=extra, **kwargs)
+    mono = min(p.mz for p in pl)
+    return _converted(pl, profile, params, [mono]), profile
+
+
 def _find_peaks_envelopes(formulas_heights, params, fwhm=0.05):
     """Emulate the find-peaks pipeline: pick from a profile, deisotope, label.
 
@@ -100,7 +119,7 @@ def test_no_local_peaks_is_noop(envelope_params):
 
 def test_far_peaks_preserved_unchanged(envelope_params):
     far = mspy.peak(mz=3000.0, ai=500.0, fwhm=0.05)
-    pl, profile = _spectrum(extra=[far])
+    pl, profile = _envelope_spectrum(envelope_params, extra=[far])
     target = min(p.mz for p in pl if p.mz < 2000.0)
 
     result = mpp.recalculate_neighborhood_envelopes(pl, profile, [target], envelope_params)
@@ -128,9 +147,9 @@ def test_margin_scales_with_max_charge(envelope_params):
 # ---------------------------------------------------------------------------
 
 
-def test_neighborhood_relabels_into_envelope(envelope_params):
-    """Peaks inside the window are collapsed into a labeled envelope."""
-    pl, profile = _spectrum()
+def test_neighborhood_recalc_refits_existing_envelope(envelope_params):
+    """An envelope inside the window is re-fit (that is what auto-recalc is for)."""
+    pl, profile = _envelope_spectrum(envelope_params)
     target = min(p.mz for p in pl)
     result = mpp.recalculate_neighborhood_envelopes(pl, profile, [target], envelope_params)
 
@@ -140,9 +159,143 @@ def test_neighborhood_relabels_into_envelope(envelope_params):
     assert labeled[0].attributes["envelope"]["area"] > 0.0
 
 
+def test_neighborhood_recalc_never_converts_plain_peaks(envelope_params):
+    """Auto-recalc must not turn plain peaks into envelopes.
+
+    A peak becomes an envelope only when the user says so ("convert to
+    envelopes"). With nothing but plain peaks in the window there is nothing to
+    recalculate, so the list is returned untouched -- by identity, so callers can
+    see the no-op.
+    """
+    pl, profile = _three_separate_peaks()          # plain charged peaks
+
+    result = mpp.recalculate_neighborhood_envelopes(
+        pl, profile, [1371.0], envelope_params
+    )
+
+    assert result is pl
+    assert not [p for p in result if p.attributes.get("envelope")]
+
+
+def test_neighborhood_recalc_leaves_plain_neighbours_alone(envelope_params):
+    """Recalculating an envelope never converts or eats the peaks next to it.
+
+    Regression: the neighbourhood re-fit used to re-deisotope and re-label every
+    peak in the margin window, so editing or deleting one peak silently converted
+    its plain neighbours into envelopes (or absorbed them into one). They must come
+    out exactly as they went in -- same object, charge, width and no envelope.
+    """
+    plain = mspy.peak(mz=1373.0, ai=600.0, charge=1, fwhm=0.05)
+    bare = mspy.peak(mz=1374.5, ai=200.0, fwhm=0.05)      # no charge at all
+    seed = mspy.peak(mz=1371.0, ai=1000.0, charge=1, fwhm=0.05)
+    pl = mspy.peaklist([seed, plain, bare])
+    profile = mspy.profile(pl, fwhm=0.05, points=20)
+
+    # the user converts ONE peak, then something nearby is edited/deleted
+    converted = _converted(pl, profile, envelope_params, [1371.0])
+    result = mpp.recalculate_neighborhood_envelopes(
+        converted, profile, [1371.0], envelope_params
+    )
+
+    labeled = sorted(round(p.mz, 3) for p in result if p.attributes.get("envelope"))
+    assert labeled == [1371.0]
+    for mz, charge in ((1373.0, 1), (1374.5, None)):
+        kept = next(p for p in result if round(p.mz, 3) == mz)
+        assert not kept.attributes.get("envelope")
+        assert kept.charge == charge
+        assert not kept.group
+        assert kept.fwhm == pytest.approx(0.05)
+
+
+def test_peak_editor_charge_edit_keeps_a_plain_peak_plain(envelope_params):
+    """Editing a plain peak's charge must not label it (peak editor "Update").
+
+    The editor re-fits the neighbourhood after a charge change so nearby envelopes
+    stay correct. That must not convert the edited peak itself: it had no envelope
+    before the edit and must have none after, even though it is now a charged
+    monoisotopic seed sitting next to an envelope.
+    """
+    seed = mspy.peak(mz=1371.0, ai=1000.0, charge=1, fwhm=0.05)
+    edited = mspy.peak(mz=1373.0, ai=600.0, fwhm=0.05)         # no charge yet
+    pl = mspy.peaklist([seed, edited])
+    profile = mspy.profile(pl, fwhm=0.05, points=20)
+    converted = _converted(pl, profile, envelope_params, [1371.0])
+
+    # the user types charge 1 into the editor and clicks Update
+    target = next(p for p in converted if round(p.mz, 3) == 1373.0)
+    target.setcharge(1)
+    result = mpp.recalculate_neighborhood_envelopes(
+        converted, profile, [1373.0], envelope_params
+    )
+
+    still_plain = next(p for p in result if round(p.mz, 3) == 1373.0)
+    assert not still_plain.attributes.get("envelope")
+    assert still_plain.charge == 1
+    # ...while the envelope next door was refit, which is the point of the recalc
+    envelope = next(p for p in result if round(p.mz, 3) == 1371.0)
+    assert envelope.attributes["envelope"]["area"] > 0.0
+
+
+def test_envelope_survives_a_charge_edit_that_fits_badly(envelope_params):
+    """A charge edit may leave an envelope fitting badly -- it must not vanish.
+
+    The editor drops the stored isotope grid on a charge change (the old spacing
+    is stale) and re-fits. At a wrong charge the model matches almost no signal, so
+    the joint fit gives the envelope ~zero area; it must still be reported (small
+    area = visible feedback), never pruned out of the peak list.
+    """
+    pl, profile = _three_separate_peaks()
+    converted = _converted(pl, profile, envelope_params, [1371.0])
+
+    env_peak = next(p for p in converted if p.attributes.get("envelope"))
+    env_peak.setcharge(2)
+    stored = dict(env_peak.attributes["envelope"])
+    stored["isotopes"] = []
+    env_peak.attributes["envelope"] = stored
+
+    result = mpp.recalculate_neighborhood_envelopes(
+        converted, profile, [1371.0], envelope_params
+    )
+
+    survivor = next(p for p in result if round(p.mz, 3) == 1371.0)
+    assert survivor.charge == 2
+    assert survivor.attributes.get("envelope") is not None
+    assert len(result) == len(converted)
+
+
+def test_recalc_does_not_duplicate_all_isotope_labels(envelope_params):
+    """Recalculating an "All Isotopes" envelope must not clone its isotope rows.
+
+    Regression: under labelEnvelope="isotopes" an envelope is several peaks sharing
+    one group. Re-labelling emitted a fresh peak per isotope while the originals
+    were left in the list, so every edit/delete grew the peak list by a whole
+    envelope and left orphans carrying a stale envelope behind.
+    """
+    params = dict(envelope_params, labelEnvelope="isotopes")
+    pl = mspy.peaklist([
+        mspy.peak(mz=1371.0, ai=1000.0, charge=1, fwhm=0.05),
+        mspy.peak(mz=1374.5, ai=500.0, charge=1, fwhm=0.05),   # clear of the grid
+    ])
+    profile = mspy.profile(pl, fwhm=0.05, points=20)
+
+    converted = _converted(pl, profile, params, [1371.0])
+    once = mpp.recalculate_neighborhood_envelopes(converted, profile, [1371.0], params)
+    twice = mpp.recalculate_neighborhood_envelopes(once, profile, [1371.0], params)
+
+    assert len(once) == len(converted)
+    assert len(twice) == len(converted)
+    # one group, and every member still carries its measured height
+    groups = {p.group for p in twice if p.group}
+    assert len(groups) == 1
+    assert all(p.ai > 0.0 for p in twice)
+    # the untouched neighbour is still a plain peak
+    plain = next(p for p in twice if round(p.mz, 3) == 1374.5)
+    assert not plain.attributes.get("envelope")
+
+
 def test_recalc_after_deleting_one_isotope(envelope_params):
     """Deleting an isotope then recalculating still yields a valid envelope."""
-    pl, profile = _spectrum()
+    pl, profile = _envelope_spectrum(envelope_params)
     mzs = sorted(p.mz for p in pl)
     deleted = mzs[1]  # remove the first isotope peak
 
@@ -156,7 +309,7 @@ def test_recalc_after_deleting_one_isotope(envelope_params):
 
 def test_recalc_is_idempotent(envelope_params):
     """Running the helper twice on the same edit gives a stable envelope grid."""
-    pl, profile = _spectrum()
+    pl, profile = _envelope_spectrum(envelope_params)
     target = min(p.mz for p in pl)
 
     first = mpp.recalculate_neighborhood_envelopes(pl, profile, [target], envelope_params)
@@ -180,7 +333,7 @@ def test_missing_fwhm_filled_from_profile(envelope_params):
     bare = mspy.peaklist([mspy.peak(mz=p.mz, ai=p.ai) for p in pl])
     target = min(p.mz for p in bare)
 
-    result = mpp.recalculate_neighborhood_envelopes(bare, profile, [target], envelope_params)
+    result = _converted(bare, profile, envelope_params, [target])
     labeled = [p for p in result if p.attributes.get("envelope")]
     assert labeled
     assert labeled[0].attributes["envelope"]["fwhm"] > 0.0
@@ -223,7 +376,7 @@ def test_convert_recomputes_fwhm_for_old_peaks(envelope_params):
     )
     target = min(p.mz for p in stale)
 
-    result = mpp.recalculate_neighborhood_envelopes(stale, profile, [target], envelope_params)
+    result = _converted(stale, profile, envelope_params, [target])
     labeled = [p for p in result if p.attributes.get("envelope")]
     assert labeled
     # the envelope width reflects a fresh measurement, not the stale 0.5
@@ -250,11 +403,10 @@ def _three_separate_peaks(fwhm=0.05):
 def test_convert_selected_only_preserves_neighbours(envelope_params):
     """Converting one selected peak never makes a charged neighbour disappear.
 
-    Regression for the "1372 disappeared" bug: an overlapping charged neighbour is
-    now joined into the fit and converted with the selection (see
-    ``test_convert_selected_joins_overlapping_charged_neighbours``), but
-    preserveSeeds means it is kept as its own envelope -- never absorbed as an
-    isotope of the converted peak, merged away, or pruned.
+    Regression for the "1372 disappeared" bug: an overlapping charged neighbour
+    joins the fit (see ``test_convert_selected_joins_overlapping_charged_neighbours``)
+    but is never absorbed as an isotope of the converted peak, merged away, or
+    pruned -- it stays in the list as the plain peak it was.
     """
     pl, profile = _three_separate_peaks()
 
@@ -270,14 +422,14 @@ def test_convert_selected_only_preserves_neighbours(envelope_params):
 
 
 def test_convert_selected_joins_overlapping_charged_neighbours(envelope_params):
-    """An overlapping charged neighbour is joined into the fit and converted too.
+    """An overlapping charged neighbour joins the fit but is NOT converted.
 
-    A deisotoped charged peak is a latent envelope, so converting a peak that
-    overlaps one must refine them together (and convert the neighbour), otherwise
-    the selected peak is fit alone and over-claims the shared signal. This is what
-    makes "convert" work on a "Find peaks" result whose neighbours are still plain
-    charged peaks. (User chose this "join & convert" behaviour, July 2026; it
-    supersedes the earlier rule that only the selected peak was ever labelled.)
+    A deisotoped charged peak occupies real signal, so converting a peak that
+    overlaps one must apportion the two together -- otherwise the selection is fit
+    alone and over-claims the shared signal (this is what makes "convert" work on a
+    "Find peaks" result whose neighbours are still plain charged peaks). The
+    neighbour takes part as fit CONTEXT only: only what the user selected becomes
+    an envelope, everything else stays exactly the peak it was.
     """
     pl, profile = _three_separate_peaks()   # 1371/1372/1373, all charge 1
 
@@ -286,8 +438,50 @@ def test_convert_selected_joins_overlapping_charged_neighbours(envelope_params):
     )
 
     labeled = sorted(round(p.mz, 3) for p in result if p.attributes.get("envelope"))
-    # the whole overlapping charged run is joined and converted, none lost
-    assert labeled == [1371.0, 1372.0, 1373.0]
+    # only the selection is converted; the neighbours are untouched plain peaks
+    assert labeled == [1371.0]
+    for mz in (1372.0, 1373.0):
+        kept = next(p for p in result if round(p.mz, 3) == mz)
+        assert not kept.attributes.get("envelope")
+        assert kept.charge == 1
+        assert not kept.group
+
+
+def test_convert_selected_apportions_against_plain_neighbour(envelope_params):
+    """The unconverted neighbour still holds its share of the signal in the fit.
+
+    Leaving a neighbour a plain peak must not hand its signal to the converted
+    envelope: the area the selection gets is the joint one (what it would get if
+    both were converted), not the inflated "fit alone" value.
+    """
+    pl, profile = _three_separate_peaks()
+
+    joined = mpp.recalculate_neighborhood_envelopes(
+        pl, profile, [1371.0], envelope_params, selectedOnly=True
+    )
+    area = next(
+        p for p in joined if round(p.mz, 3) == 1371.0
+    ).attributes["envelope"]["area"]
+
+    # reference: convert everything -- the same joint apportionment
+    both = mpp.recalculate_neighborhood_envelopes(
+        pl, profile, [1371.0, 1372.0, 1373.0], envelope_params, selectedOnly=True
+    )
+    joint = next(
+        p for p in both if round(p.mz, 3) == 1371.0
+    ).attributes["envelope"]["area"]
+
+    # and the "no neighbours at all" case, which over-claims the shared signal
+    alone_pl = mspy.peaklist([mspy.peak(mz=1371.0, ai=1000.0, charge=1, fwhm=0.05)])
+    alone = mpp.recalculate_neighborhood_envelopes(
+        alone_pl, profile, [1371.0], envelope_params, selectedOnly=True
+    )
+    alone_area = next(
+        p for p in alone if round(p.mz, 3) == 1371.0
+    ).attributes["envelope"]["area"]
+
+    assert area == pytest.approx(joint, rel=1e-6)
+    assert area < alone_area
 
 
 def test_convert_selected_leaves_bare_uncharged_neighbour_untouched(envelope_params):
@@ -316,8 +510,12 @@ def test_convert_selected_leaves_bare_uncharged_neighbour_untouched(envelope_par
     assert bare.charge is None
 
 
-def test_convert_selected_multi_selection_joins_middle(envelope_params):
-    """Selecting two peaks that straddle a charged neighbour joins the middle too."""
+def test_convert_selected_multi_selection_keeps_middle_a_peak(envelope_params):
+    """Selecting two peaks that straddle a charged neighbour converts only those two.
+
+    The middle peak is joined into the same fit (so the shared signal is
+    apportioned three ways) but the user did not select it, so it stays a peak.
+    """
     pl, profile = _three_separate_peaks()
 
     result = mpp.recalculate_neighborhood_envelopes(
@@ -327,8 +525,10 @@ def test_convert_selected_multi_selection_joins_middle(envelope_params):
     labeled = sorted(
         (round(p.mz, 3) for p in result if p.attributes.get("envelope"))
     )
-    # the overlapping charged middle peak is joined into the same fit, not left out
-    assert labeled == [1371.0, 1372.0, 1373.0]
+    assert labeled == [1371.0, 1373.0]
+    middle = next(p for p in result if round(p.mz, 3) == 1372.0)
+    assert not middle.attributes.get("envelope")
+    assert middle.charge == 1
 
 
 def test_convert_selected_group_names_avoid_existing_groups(envelope_params):
@@ -541,10 +741,11 @@ def test_convert_joins_plain_charged_findpeaks_neighbour(envelope_params):
 
     The reported workflow: after "Find peaks" a species is a plain charged peak (not
     yet an envelope). The user adds a peak two Da below it and converts only the new
-    peak. Because the neighbour is a deisotoped charged seed -- a latent envelope --
-    it must be pulled into the joint fit and converted too; otherwise the new peak is
-    fit alone and over-claims the shared signal (its +2 lands on the neighbour mono).
-    The result must match the case where the neighbour was already an envelope.
+    peak. The neighbour is a deisotoped charged seed occupying real signal, so it
+    must be pulled into the joint fit; otherwise the new peak is fit alone and
+    over-claims the shared signal (its +2 lands on the neighbour mono). The area
+    must match the case where the neighbour was converted too -- while the
+    neighbour itself stays the plain peak the user left it as.
     """
     params = _convert_params(envelope_params)
     fwhm = 0.11
@@ -574,8 +775,9 @@ def test_convert_joins_plain_charged_findpeaks_neighbour(envelope_params):
     )
     envs = {round(p.mz): p.attributes.get("envelope") for p in result}
 
-    # the plain neighbour was joined and converted, not left plain
-    assert envs[1802] is not None
+    # the plain neighbour was joined into the fit but left a plain peak
+    assert envs[1802] is None
+    assert next(p for p in result if round(p.mz) == 1802).charge == 1
     assert envs[1800] is not None
     # and the added peak got its correct joint area -- identical to converting both,
     # NOT the inflated area it would claim if fit alone
@@ -815,7 +1017,7 @@ def test_convert_recomputes_stored_envelope_fwhm(envelope_params):
     profile = mspy.profile(pl, fwhm=0.05, points=20)
     target = min(p.mz for p in pl)
 
-    first = mpp.recalculate_neighborhood_envelopes(pl, profile, [target], envelope_params)
+    first = _converted(pl, profile, envelope_params, [target])
     env_peak = next(p for p in first if p.attributes.get("envelope"))
 
     # simulate a width that a previous algorithm baked into the stored envelope

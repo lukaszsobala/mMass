@@ -121,6 +121,13 @@ ENVELOPE_TAIL_RISE_TOLERANCE = 1.5
 # trailing peak being placed on flat spectrum even at a permissive S/N limit.
 ENVELOPE_TAIL_MIN_DECAY = 0.1
 
+# Marker attribute set on a peak that takes part in an envelope fit as CONTEXT
+# ONLY: its species is included in the joint overlap-aware apportionment (so a
+# real envelope next to it cannot over-claim its signal), but it is never
+# labelled, absorbed or merged into an envelope -- it comes back out of the fit
+# exactly as it went in. A peak stays a peak until the user converts it.
+ENVELOPE_CONTEXT_ATTR = "_envFitContext"
+
 
 # PEAK PICKING FUNCTIONS
 # ----------------------
@@ -1338,6 +1345,12 @@ def _merge_adjacent_clusters(
                 i += 1
                 continue
 
+            # fit-context clusters stand only for themselves: never fuse one into
+            # a neighbour (nor a neighbour into it), so the peak survives the fit
+            if _is_context_cluster(left) or _is_context_cluster(right):
+                i += 1
+                continue
+
             parent = left[0]
             rightParent = right[0]
             if not parent.charge or rightParent.charge != parent.charge:
@@ -2238,6 +2251,91 @@ def _reconstruct_cluster_from_envelope(parent, envelope, averagineType=DEFAULT_A
     return cluster
 
 
+# ----
+
+
+def _peak_attributes(peak):
+    """Attribute dict of a peak (empty dict for objects that carry none)."""
+
+    attrs = getattr(peak, "attributes", None)
+    return attrs if isinstance(attrs, dict) else {}
+
+
+def _peak_carries_envelope(peak):
+    """True when the peak is part of a labelled envelope (carries its model)."""
+
+    return isinstance(_peak_attributes(peak).get("envelope"), dict)
+
+
+def _peak_is_charged_seed(peak):
+    """True when the peak is a deisotoped monoisotopic seed -- a latent species.
+
+    Such a peak has a charge (hence an isotope pattern) and sits at isotope 0, so
+    it occupies real signal in the profile and must be accounted for by a joint
+    fit. It is NOT an envelope, so it is only ever fit context, never a label.
+    """
+
+    return bool(getattr(peak, "charge", None)) and getattr(
+        peak, "isotope", None
+    ) in (None, 0)
+
+
+def _is_context_peak(peak):
+    """True when the peak only takes part in the fit (see ENVELOPE_CONTEXT_ATTR)."""
+
+    return bool(_peak_attributes(peak).get(ENVELOPE_CONTEXT_ATTR))
+
+
+def _is_context_cluster(cluster):
+    """True when a cluster was seeded by a fit-context peak."""
+
+    return bool(cluster) and _is_context_peak(cluster[0])
+
+
+def _adopt_envelope_members(peaklist, seedIdx, parent, cluster, used, members, mzTolerance):
+    """Consume the seed's own labelled isotope peaks into the cluster it rebuilds.
+
+    Under the "All Isotopes" label an envelope is stored as SEVERAL peaks sharing
+    one group and one envelope model. Rebuilding that envelope re-emits every
+    isotope, so the original member peaks have to be consumed here -- otherwise
+    each recalculation appended a second copy of every isotope (the peak list grew
+    on every edit) and left the old ones behind as orphans carrying a stale
+    envelope.
+
+    Only peaks that share the seed's group AND carry an envelope AND fall inside
+    the rebuilt cluster's span are taken, so a group the user typed on ordinary
+    peaks in the editor is never swallowed. Returns the consumed peaks so the
+    labelling step can hand their measured heights back to the isotopes it emits
+    in their place -- the fit itself never sees them (their heights are the
+    envelope's own labels, not independent measurements).
+    """
+
+    group = getattr(parent, "group", "")
+    if not group or not cluster:
+        return []
+
+    consumed = []
+    lo = min(p.mz for p in cluster) - mzTolerance
+    hi = max(p.mz for p in cluster) + mzTolerance
+    # the peaklist is sorted by m/z, so only the cluster's own span is scanned
+    for j in range(len(peaklist)):
+        other = peaklist[j]
+        if other.mz < lo:
+            continue
+        if other.mz > hi:
+            break
+        if j == seedIdx or j in members:
+            continue
+        if getattr(other, "group", "") != group or not _peak_carries_envelope(other):
+            continue
+
+        used.add(j)
+        members.add(j)
+        consumed.append(other)
+
+    return consumed
+
+
 def relabelenvelopes(
     peaklist,
     label="1st",
@@ -2260,6 +2358,12 @@ def relabelenvelopes(
         share the observed signal correctly ("many isotopes under one curve")
         while none of the explicitly chosen peaks can vanish. Used by the
         "convert to envelopes" action on an explicit selection.
+
+    Peaks carrying the ENVELOPE_CONTEXT_ATTR marker are FIT CONTEXT: their
+    species takes part in the joint area apportionment (so a neighbouring
+    envelope cannot over-claim their signal), but they are never labelled,
+    absorbed or merged -- they come back out of the result unchanged, still
+    carrying the marker so the caller can restore the untouched originals.
     """
 
     # check peaklist
@@ -2271,6 +2375,16 @@ def relabelenvelopes(
 
     result = obj_peaklist.peaklist([])
     used = set()
+    # peaks consumed as labelled isotopes of an envelope rebuilt earlier in this
+    # run: they are part of that envelope, so they never seed one of their own
+    # (unlike `used`, this holds even in relaxed mode, where overlapping species
+    # are deliberately allowed to seed on top of one another)
+    members = set()
+    # consumed members per cluster, so the isotopes emitted in their place can
+    # keep the heights the peaks actually had. Keyed by id() -- clusters travel
+    # by reference through pruning -- with the cluster itself kept in the value
+    # so its id cannot be recycled; a merged cluster falls back to its own peaks.
+    memberPeaks = {}
     clusters = []
 
     for x, parent in enumerate(peaklist):
@@ -2279,10 +2393,17 @@ def relabelenvelopes(
 
         if parent.charge is None or (parent.isotope is not None and parent.isotope != 0):
             continue
+        if x in members:
+            continue
         # Also skip if it strictly fits inside an existing cluster and is not an overlap.
         # NNLS will handle it if we spawn too many, but let's just use `x in used` normally, except wait.
         if (not relaxed) and x in used:
             continue
+
+        # a fit-context peak seeds its own cluster (so it claims its share of the
+        # signal) but is never grown by absorbing other peaks -- it is not being
+        # converted into an envelope, it is only standing in the fit for itself
+        isContext = _is_context_peak(parent)
 
         # If this peak already carries a detected envelope (e.g. re-running
         # detection on already-converted peaks, or converting the output of
@@ -2335,11 +2456,15 @@ def relabelenvelopes(
                         break
             if reuseStored:
                 used.add(x)
-                clusters.append(
-                    _reconstruct_cluster_from_envelope(
-                        parent, storedEnvelope, averagineType=averagineType
-                    )
+                rebuilt = _reconstruct_cluster_from_envelope(
+                    parent, storedEnvelope, averagineType=averagineType
                 )
+                consumed = _adopt_envelope_members(
+                    peaklist, x, parent, rebuilt, used, members, mzTolerance
+                )
+                if consumed:
+                    memberPeaks[id(rebuilt)] = (rebuilt, consumed)
+                clusters.append(rebuilt)
                 continue
 
         cluster = [copy.deepcopy(parent)]
@@ -2354,8 +2479,9 @@ def relabelenvelopes(
         # In preserveSeeds mode we never absorb the following peaks: each selected
         # seed stays on its own so no chosen peak is swallowed by a neighbour. The
         # envelope tail below is still grown from the profile, and the joint fit
-        # apportions the shared signal between overlapping seeds.
-        while not preserveSeeds:
+        # apportions the shared signal between overlapping seeds. A fit-context
+        # seed never absorbs either (it is not becoming an envelope).
+        while not (preserveSeeds or isContext):
             found = None
             found_isotope = None
             best_error = None
@@ -2371,6 +2497,11 @@ def relabelenvelopes(
                     if peak.mz > expected + dynamicTol:
                         break
                     if peak.charge != parent.charge:
+                        continue
+                    # a fit-context peak is not up for conversion: it must never be
+                    # swallowed as an isotope of a neighbouring envelope (that is
+                    # exactly how a plain peak silently stopped being a peak)
+                    if _is_context_peak(peak):
                         continue
 
                     # Respect deisotoping assignments when available.
@@ -2584,6 +2715,11 @@ def relabelenvelopes(
                 cluster.append(dummy)
 
         used.update(indexes)
+        consumed = _adopt_envelope_members(
+            peaklist, x, parent, cluster, used, members, mzTolerance
+        )
+        if consumed:
+            memberPeaks[id(cluster)] = (cluster, consumed)
         clusters.append(cluster)
 
     if not clusters:
@@ -2615,14 +2751,25 @@ def relabelenvelopes(
     # Re-calculate NNLS areas as fallbacks if needed, but mainly prune zero ones.
     # preserveSeeds keeps all clusters even at (near) zero area: the joint fit may
     # apportion little signal to an overlapped seed, but the user selected it, so
-    # it must survive as its own envelope rather than being pruned away.
+    # it must survive as its own envelope rather than being pruned away. A
+    # fit-context cluster is never pruned either -- its peak is emitted unchanged
+    # below, and pruning it would drop the peak from the result altogether. Nor is
+    # an EXISTING envelope: pruning consumes its peak, so re-fitting an envelope
+    # that momentarily fits badly (e.g. right after its charge was edited) would
+    # delete it from the list instead of just reporting a small area.
     max_area = max([a for a in areas]) if areas else 0.0
     pruned_clusters = []
     pruned_areas = []
     pruned_shapes = []
     for c, cluster in enumerate(clusters):
         a = float(max(0.0, areas[c])) if c < len(areas) else 0.0
-        if preserveSeeds or a > max_area * 1e-6 or len(clusters) == 1:
+        if (
+            preserveSeeds
+            or _is_context_cluster(cluster)
+            or _peak_carries_envelope(cluster[0])
+            or a > max_area * 1e-6
+            or len(clusters) == 1
+        ):
             pruned_clusters.append(cluster)
             pruned_areas.append(a)
             pruned_shapes.append(shapes[c] if c < len(shapes) else [])
@@ -2632,6 +2779,27 @@ def relabelenvelopes(
 
     for c, cluster in enumerate(clusters):
         parent = cluster[0]
+
+        # fit context only: the peak took part in the area apportionment but is
+        # NOT being converted -- emit it exactly as it came in (no group, no
+        # envelope, no re-measured width). It keeps its marker so the caller can
+        # swap the untouched original back in.
+        if _is_context_cluster(cluster):
+            result.append(copy.deepcopy(parent))
+            continue
+
+        # The area is fit; give the isotopes emitted below the heights the
+        # consumed member peaks actually carried, so re-labelling an "All
+        # Isotopes" envelope does not blank out its isotope rows. Placeholder
+        # positions only -- a real measured peak in the cluster keeps its own.
+        for original in memberPeaks.get(id(cluster), (None, ()))[1]:
+            for peak in cluster:
+                if peak.intensity <= 0.0 and abs(peak.mz - original.mz) <= mzTolerance:
+                    peak.setbase(original.base)
+                    peak.setai(original.ai)
+                    peak.setsn(original.sn)
+                    break
+
         # Use the exact isotope shape the area fit used, so the stored/drawn
         # envelope matches the fitted area (in crowded regions the overlap-aware
         # fit deliberately keeps the shape tighter than a raw re-derivation would
@@ -3009,23 +3177,24 @@ def _selection_overlap_indices(peaklist, seedIdx, isotopeShift, averagineType, p
 
     Spec: overlapping envelopes are always refined together. When the user
     converts (or reconverts) a selection, any overlapping neighbour that is a real
-    species -- transitively -- must be refit jointly and converted with it, so the
-    shared signal is re-apportioned (otherwise the neighbour keeps a stale isolated
-    area, or the selected peak is fit alone and over-claims the neighbour's signal).
+    species -- transitively -- must take part in the joint fit, so the shared
+    signal is re-apportioned (otherwise the neighbour keeps a stale isolated area,
+    or the selected peak is fit alone and over-claims the neighbour's signal).
 
     A neighbour counts as a real species -- and is pulled in -- when it is either:
-    * an EXISTING envelope (already carries the ``envelope`` attribute), or
-    * a DEISOTOPED SEED: a charged, monoisotopic peak. Such a peak is a latent
-      envelope (it has a charge and therefore an isotope pattern), so a "Find peaks"
-      result whose neighbours are still plain charged peaks -- not yet labelled as
-      envelopes -- is joined and converted exactly like one whose neighbours were
-      already enveloped. Without this, converting a peak added next to a find-peaks
-      neighbour fit it alone and reported too large an area.
+    * an EXISTING envelope (already carries the ``envelope`` attribute), which is
+      re-fit and re-labelled with the selection, or
+    * a DEISOTOPED SEED: a charged, monoisotopic peak. Such a peak occupies real
+      signal, so it joins the fit as CONTEXT -- it is apportioned against, but it
+      stays a plain peak (only the user converts a peak into an envelope). Without
+      it in the fit, converting a peak added next to a "Find peaks" neighbour fit
+      the selection alone and reported too large an area.
 
     A truly bare peak (no charge assigned) is NOT a committed species and is left
-    untouched, so the selection is not widened into unassigned/noise peaks.
+    out entirely, so the fit is not widened into unassigned/noise peaks.
 
-    Returns the expanded index set (always a superset of `seedIdx`).
+    Returns the expanded index set (always a superset of `seedIdx`); the caller
+    decides which of the pulled-in peaks are labelled and which are only context.
     """
 
     seedIdx = set(seedIdx)
@@ -3035,12 +3204,7 @@ def _selection_overlap_indices(peaklist, seedIdx, isotopeShift, averagineType, p
     for i, peak in enumerate(peaklist):
         if i in seedIdx:
             continue
-        env = peak.attributes.get("envelope") if hasattr(peak, "attributes") else None
-        isEnvelope = isinstance(env, dict)
-        isChargedSeed = bool(getattr(peak, "charge", None)) and getattr(
-            peak, "isotope", None
-        ) in (None, 0)
-        if isEnvelope or isChargedSeed:
+        if _peak_carries_envelope(peak) or _peak_is_charged_seed(peak):
             nodes.append(i)
 
     if len(nodes) == len(seedIdx):
@@ -3128,9 +3292,18 @@ def recalculate_neighborhood_envelopes(
     can be unit tested directly. Returns a NEW mspy.peaklist: peaks outside the
     neighborhood are preserved unchanged, peaks inside it are re-deisotoped and
     re-labeled into envelopes. When there is nothing to do (no mzs, empty
-    peaklist, or no peaks fall inside the neighborhood window) the original
-    peaklist is returned unchanged (the same object), so callers can detect a
-    no-op by identity.
+    peaklist, or nothing in the neighbourhood is an envelope to recalculate) the
+    original peaklist is returned unchanged (the same object), so callers can
+    detect a no-op by identity.
+
+    ONLY ENVELOPES ARE EVER LABELLED. A plain peak is converted into an envelope
+    exclusively by the user's explicit "convert to envelopes" action -- i.e. when
+    it is named in `mzs` with selectedOnly=True. Everything else the fit needs to
+    know about (a neighbouring charged seed, a neighbouring envelope's peak) takes
+    part in the joint area apportionment as CONTEXT and comes back out untouched:
+    same object, same charge, width, group and attributes. So an edit or a delete
+    can re-apportion the areas of nearby envelopes, but it can never turn the
+    peaks around it into envelopes, absorb them or make them disappear.
 
     peaklist (mspy.peaklist) - current peak list
     profile (numpy array or None) - spectrum profile for area fitting and fwhm
@@ -3140,13 +3313,14 @@ def recalculate_neighborhood_envelopes(
         labelEnvelope, envelopeIntensity, envelopeNonIdeality,
         seedCharge (optional, default 1),
         averagineType (optional, default "protein")
-    selectedOnly (bool) - when True, operate strictly on the peaks matching the
-        given m/z values (the explicit "convert to envelopes" action): no margin
-        window is added and neighbouring peaks are neither re-deisotoped nor
-        absorbed. The envelope tail is still reconstructed from the profile, so a
+    selectedOnly (bool) - when True, the peaks matching the given m/z values are
+        converted (the explicit "convert to envelopes" action): no margin window is
+        added, and only those peaks plus any EXISTING envelope they overlap are
+        labelled. The envelope tail is still reconstructed from the profile, so a
         single monoisotopic seed yields a full envelope while its neighbours stay
         in the list untouched. When False (default, the auto-recalc after a
-        delete / charge edit), the surrounding neighbourhood is re-fit as a whole.
+        delete / charge edit), every EXISTING envelope in the surrounding
+        neighbourhood is re-fit as a whole and plain peaks are left alone.
     respectFwhm (bool) - when True, no peak's FWHM is re-measured from the profile
         (every usable width is kept as-is); used for the pass that directly applies
         a manual FWHM edit, so the typed width takes effect this time even for an
@@ -3165,14 +3339,15 @@ def recalculate_neighborhood_envelopes(
     difference = (ISOTOPE_DISTANCE + isotopeShift) / float(maxCharge)
     averagineType = params.get("averagineType", DEFAULT_AVERAGINE)
 
-    localPeaks = []
-    outsidePeaks = []
+    # localIdx  - peaks that are (re)labelled as envelopes by this call
+    # contextIdx - species that join the joint fit but stay exactly as they are
+    localIdx = set()
+    contextIdx = set()
+
     if selectedOnly:
         # Convert-to-envelopes: match each selected m/z to its own peak (nearest
-        # within tolerance). Plain (non-envelope) neighbours are never touched, so
-        # an explicit selection is never widened into new labels and nothing
-        # silently vanishes from the list.
-        localIdx = set()
+        # within tolerance). Only the selection is converted, so an explicit
+        # action is never widened into new labels and nothing silently vanishes.
         for target in mzs:
             best = None
             bestErr = tolerance
@@ -3185,30 +3360,54 @@ def recalculate_neighborhood_envelopes(
                     bestErr = err
             if best is not None:
                 localIdx.add(best)
-        # ...but existing envelopes that OVERLAP the selection are pulled into the
-        # joint fit (spec: overlapping envelopes are always refined together), so a
-        # neighbour is re-apportioned and switches to the rigid overlap treatment
-        # instead of keeping the isolated area/shape it was fit with when alone.
-        localIdx = _selection_overlap_indices(
+        # ...but overlapping neighbours are pulled into the joint fit (spec:
+        # overlapping envelopes are always refined together). An EXISTING envelope
+        # is re-labelled with the selection, so it is re-apportioned and switches
+        # to the rigid overlap treatment instead of keeping the isolated
+        # area/shape it was fit with when alone; a plain charged neighbour is
+        # context only -- it is apportioned against but stays a plain peak.
+        for i in _selection_overlap_indices(
             peaklist, localIdx, isotopeShift, averagineType,
             pad=max(2.0 * tolerance, 0.5 * difference),
-        )
-        for i, peak in enumerate(peaklist):
-            (localPeaks if i in localIdx else outsidePeaks).append(peak)
+        ):
+            if i in localIdx:
+                continue
+            if _peak_carries_envelope(peaklist[i]):
+                localIdx.add(i)
+            else:
+                contextIdx.add(i)
     else:
-        # Isotope spacing shrinks as 1/charge, so the neighborhood must be wide
-        # enough to capture a full envelope at the lowest charge (largest spacing).
+        # Auto-recalc after a delete / edit. Isotope spacing shrinks as 1/charge,
+        # so the neighborhood must be wide enough to capture a full envelope at
+        # the lowest charge (largest spacing). Inside that window only EXISTING
+        # envelopes are recalculated; a plain peak keeps its identity and merely
+        # holds its share of the signal in the fit.
         margin = max(6.0 * difference, 8.0 * tolerance)
         minMz = min(mzs) - margin
         maxMz = max(mzs) + margin
-        for peak in peaklist:
-            if minMz <= peak.mz <= maxMz:
-                localPeaks.append(peak)
-            else:
-                outsidePeaks.append(peak)
+        for i, peak in enumerate(peaklist):
+            if not (minMz <= peak.mz <= maxMz):
+                continue
+            if _peak_carries_envelope(peak):
+                localIdx.add(i)
+            elif _peak_is_charged_seed(peak):
+                contextIdx.add(i)
 
-    if not localPeaks:
+    # nothing to recalculate: no envelope is involved, so the list is left alone
+    # (an auto-recalc must never invent envelopes where the user made none)
+    if not localIdx:
         return peaklist
+
+    localPeaks = []
+    contextPeaks = []
+    outsidePeaks = []
+    for i, peak in enumerate(peaklist):
+        if i in localIdx:
+            localPeaks.append(peak)
+        elif i in contextIdx:
+            contextPeaks.append(peak)
+        else:
+            outsidePeaks.append(peak)
 
     hasProfile = profile is not None and len(profile) > 0
 
@@ -3230,6 +3429,19 @@ def recalculate_neighborhood_envelopes(
             gpl, profile, recompute=True, respectAll=respectFwhm
         )
 
+        # A peak whose species is already settled -- an existing envelope, or a
+        # context seed standing in the fit for itself -- keeps its charge AND its
+        # isotope index through deisotoping. Deisotoping chains contiguous peaks
+        # into one series, which would demote such a peak to an isotope of its
+        # neighbour: the envelope would then be skipped as a seed (it silently
+        # stops being an envelope) and a context peak would drop out of the fit
+        # (letting the envelope next to it claim its signal back).
+        settled = [
+            (p, p.charge, p.isotope)
+            for p in gpl
+            if _peak_carries_envelope(p) or _is_context_peak(p)
+        ]
+
         # Existing charges are respected; seedCharge is only a fallback for peaks
         # that carry no charge assignment yet.
         gpl.deisotope(
@@ -3241,6 +3453,10 @@ def recalculate_neighborhood_envelopes(
             seedCharge=int(params.get("seedCharge", 1)),
             averagineType=averagineType,
         )
+
+        for peak, charge, isotope in settled:
+            peak.setcharge(charge)
+            peak.setisotope(isotope)
 
         if preserveSeeds:
             # Deisotoping chains contiguous peaks (isotope 1, 2, ...); reset every
@@ -3267,16 +3483,30 @@ def recalculate_neighborhood_envelopes(
         )
         return list(gpl)
 
-    labeled = _label_local(localPeaks, preserveSeeds=selectedOnly)
+    # Context species enter the fit as marked COPIES, so the joint apportionment
+    # sees them (a neighbouring envelope cannot claim their signal) while the real
+    # peaks are never touched: no re-measured width, no re-deisotoping, no label.
+    fitPeaks = list(localPeaks)
+    for peak in contextPeaks:
+        ghost = copy.deepcopy(peak)
+        ghost.attributes[ENVELOPE_CONTEXT_ATTR] = True
+        fitPeaks.append(ghost)
+
+    labeled = _label_local(fitPeaks, preserveSeeds=selectedOnly)
+
+    # drop the context stand-ins; their untouched originals go back into the list
+    labeled = [p for p in labeled if not _is_context_peak(p)]
 
     # _label_local relabels its local subset from group "A" with no knowledge of
     # the groups already carried by the untouched outside peaks; remap so a
     # per-selection convert doesn't reuse letters that already label other
     # envelopes in the list (a no-op when there are no reserved outside groups).
-    reserved = {p.group for p in outsidePeaks if getattr(p, "group", "")}
+    reserved = {
+        p.group for p in (outsidePeaks + contextPeaks) if getattr(p, "group", "")
+    }
     labeled = _dedupe_local_group_names(labeled, reserved)
 
-    return obj_peaklist.peaklist(outsidePeaks + labeled)
+    return obj_peaklist.peaklist(outsidePeaks + contextPeaks + labeled)
 
 
 # ----
