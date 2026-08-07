@@ -20,7 +20,8 @@ dependencies = [
     "numba",
     "wxPython>=4.1.0",
     "xdgenvpy>=3.0.0,<4.0.0",
-    "requests>=2.25.1"
+    "requests>=2.25.1",
+    "pyopenms>=3.0.0"
 ]
 
 [project.optional-dependencies]

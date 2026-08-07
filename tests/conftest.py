@@ -142,6 +142,30 @@ def sample_mzml():
     return path
 
 
+@pytest.fixture
+def sample_bruker():
+    """Path to a bundled negative-mode Bruker flex dataset, or skip."""
+
+    path = os.path.join(_REPO_ROOT, "spectra", "RN_M9_std_2AA_2")
+    if not os.path.exists(path):
+        pytest.skip("sample Bruker data not available (spectra/ is gitignored)")
+    return path
+
+
+@pytest.fixture
+def sample_bruker_positive():
+    """Path to a bundled positive-mode Bruker flex dataset, or skip.
+
+    Paired with sample_bruker so polarity handling can be checked against one
+    acquisition of each sign rather than against a single file.
+    """
+
+    path = os.path.join(_REPO_ROOT, "spectra", "RP_K7_MK_duchy_lipids_NOR_2")
+    if not os.path.exists(path):
+        pytest.skip("sample Bruker data not available (spectra/ is gitignored)")
+    return path
+
+
 def scalar(value):
     """Reduce a mass/mz result to a float.
 

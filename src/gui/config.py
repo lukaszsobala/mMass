@@ -271,9 +271,6 @@ main = {
     "updatesCurrent": version,
     "updatesAvailable": version,
     "latestVersionUrl": "https://api.github.com/repos/lukaszsobala/mMass/releases",
-    "compassMode": "Profile",
-    "compassFormat": "mzML",
-    "compassDeleteFile": 1,
 }
 
 recent = []
@@ -1183,15 +1180,6 @@ def saveConfig(path=os.path.join(confdir, "config.xml")):  # noqa: B008
     )
     buff += '    <param name="updatesAvailable" value="%s" type="str" />\n' % (
         main["updatesAvailable"]
-    )
-    buff += '    <param name="compassMode" value="%s" type="str" />\n' % (
-        main["compassMode"]
-    )
-    buff += '    <param name="compassFormat" value="%s" type="str" />\n' % (
-        main["compassFormat"]
-    )
-    buff += '    <param name="compassDeleteFile" value="%d" type="int" />\n' % (
-        bool(main["compassDeleteFile"])
     )
     buff += "  </main>\n\n"
 

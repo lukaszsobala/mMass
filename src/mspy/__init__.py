@@ -47,6 +47,7 @@ from .parser_mzdata import parseMZDATA
 from .parser_mzml import parseMZML
 from .parser_mgf import parseMGF
 from .parser_fasta import parseFASTA
+from .parser_bruker import parseBruker, findFIDs
 
 # load writers
 from .writer_mzml import writeMZML

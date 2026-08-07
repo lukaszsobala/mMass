@@ -153,7 +153,6 @@ class mainFrame(wx.Frame):
         self.tmpDocumentQueue = []
         self.tmpScanlist = None
         self.tmpSequenceList = None
-        self.tmpCompassXport = None
         self.tmpLibrarySaved = None
 
         # Link menu items advertise their destination URL on hover. A
@@ -313,6 +312,11 @@ class mainFrame(wx.Frame):
             "",
         )
         document.Append(ID_documentOpen, "Open..." + HK_documentOpen, "")
+        document.Append(
+            ID_documentOpenBruker,
+            "Open Bruker Folder...",
+            "Open a Bruker flex-series (XMASS) dataset directory",
+        )
         document.Append(ID_documentRecent, "Open Recent", self.menuRecent)
         document.AppendSeparator()
         document.Append(ID_documentClose, "Close" + HK_documentClose, "")
@@ -349,6 +353,7 @@ class mainFrame(wx.Frame):
             wx.EVT_MENU, self.onDocumentNewFromClipboard, id=ID_documentNewFromClipboard
         )
         self.Bind(wx.EVT_MENU, self.onDocumentOpen, id=ID_documentOpen)
+        self.Bind(wx.EVT_MENU, self.onDocumentOpenBruker, id=ID_documentOpenBruker)
         self.Bind(wx.EVT_MENU, self.onDocumentClose, id=ID_documentClose)
         self.Bind(wx.EVT_MENU, self.onDocumentCloseAll, id=ID_documentCloseAll)
         self.Bind(wx.EVT_MENU, self.onDocumentSave, id=ID_documentSave)
@@ -1913,7 +1918,7 @@ class mainFrame(wx.Frame):
             lastDir = ""
             if os.path.exists(config.main["lastDir"]):
                 lastDir = config.main["lastDir"]
-            wildcard = "All supported formats|fid;*.msd;*.baf;*.yep;*.mzData;*.mzdata*;*.mzXML;*.mzxml;*.mzML;*.mzml;*.xml;*.XML;*.mgf;*.MGF;*.txt;*.xy;*.asc|All files|*.*"
+            wildcard = "All supported formats|fid;*.msd;*.mzData;*.mzdata*;*.mzXML;*.mzxml;*.mzML;*.mzml;*.xml;*.XML;*.mgf;*.MGF;*.txt;*.xy;*.asc|All files|*.*"
             dlg = wx.FileDialog(
                 self,
                 "Open Document",
@@ -1931,6 +1936,46 @@ class mainFrame(wx.Frame):
                 return
 
         # import documents in queue
+        self.importDocumentQueue()
+
+    # ----
+
+    def onDocumentOpenBruker(self, evt=None):
+        """Open a Bruker flex-series dataset directory."""
+
+        # a flex dataset is a directory tree (<dataset>/<spot>/<run>/1SRef/fid)
+        # rather than a single file, so it needs a directory picker - the file
+        # dialog can still be used to open one fid directly
+        lastDir = ""
+        if os.path.exists(config.main["lastDir"]):
+            lastDir = config.main["lastDir"]
+        dlg = wx.DirDialog(
+            self,
+            "Open Bruker Folder",
+            lastDir,
+            style=wx.DD_DEFAULT_STYLE | wx.DD_DIR_MUST_EXIST,
+        )
+        if dlg.ShowModal() != wx.ID_OK:
+            dlg.Destroy()
+            return
+
+        path = dlg.GetPath()
+        dlg.Destroy()
+
+        # tell the user which folder to pick instead of failing with the
+        # generic "format is probably unsupported" message
+        if not mspy.findFIDs(path):
+            wx.Bell()
+            errDlg = mwx.dlgMessage(
+                self,
+                title="Unable to open the document.",
+                message="No Bruker data was found in the selected folder.\nSelect the dataset folder containing the fid files.",
+            )
+            errDlg.ShowModal()
+            errDlg.Destroy()
+            return
+
+        self.tmpDocumentQueue.append(path)
         self.importDocumentQueue()
 
     # ----
@@ -4717,15 +4762,6 @@ class mainFrame(wx.Frame):
             self.onSequenceImport(path=path)
             return
 
-        # convert Bruker format
-        compassUsed = False
-        if docType == "bruker":
-            compassUsed = True
-            docType = config.main["compassFormat"]
-            path = self.convertBrukerData(path)
-            if not path:
-                return
-
         # select scans from multiscan documents
         scans = [None]
         if docType in ("mzXML", "mzData", "mzML"):
@@ -4741,7 +4777,9 @@ class mainFrame(wx.Frame):
                 return
 
             # single-scan file: fall through to the normal open path
-        elif docType == "MGF":
+        elif docType in ("MGF", "bruker"):
+            # a flex dataset holds one acquisition per sample spot; let the
+            # user pick which ones to open, exactly as for MGF
             scans = self.askForScans(path, docType)
             if not scans:
                 return
@@ -4772,15 +4810,8 @@ class mainFrame(wx.Frame):
             # close processing gauge
             gauge.close()
 
-        # delete compass file
-        if compassUsed and config.main["compassDeleteFile"]:
-            try:
-                os.unlink(path)
-            except Exception:
-                pass
-
         # update recent files
-        if status and (not compassUsed or not config.main["compassDeleteFile"]):
+        if status:
             self.updateRecentFiles(path)
 
         # processing failed
@@ -4825,108 +4856,6 @@ class mainFrame(wx.Frame):
 
     # ----
 
-    def convertBrukerData(self, path):
-        """Convert Bruker data."""
-
-        self.tmpCompassXport = False
-
-        # check platform
-        if not wx.Platform == "__WXMSW__":
-            wx.Bell()
-            dlg = mwx.dlgMessage(
-                self,
-                title="Unable to convert data.",
-                message="Unfortunately, it is not possible to use Bruker's CompassXport tool\non this platform.",
-            )
-            dlg.ShowModal()
-            dlg.Destroy()
-            return False
-
-        # convert data
-        gauge = mwx.gaugePanel(self, "Converting data...")
-        gauge.show()
-        process = threading.Thread(target=self.runCompassXport, kwargs={"path": path})
-        process.start()
-        while process.is_alive():
-            gauge.pulse()
-        gauge.close()
-
-        # unable to convert data
-        if not self.tmpCompassXport:
-            wx.Bell()
-            dlg = mwx.dlgMessage(
-                self,
-                title="Unable to convert data.",
-                message="Make sure the Bruker's CompassXport tool is installed\non this computer.",
-            )
-            dlg.ShowModal()
-            dlg.Destroy()
-            return False
-
-        return self.tmpCompassXport
-
-    # ----
-
-    def runCompassXport(self, path):
-        """Convert Bruker data using CompassXport tool."""
-
-        self.tmpCompassXport = False
-
-        # get data path
-        if os.path.isdir(path):
-            for dirpath, _dirnames, filenames in os.walk(path):
-                if "Analysis.baf" in filenames:
-                    path = os.path.join(dirpath, "Analysis.baf")
-                    break
-                elif "analysis.baf" in filenames:
-                    path = os.path.join(dirpath, "analysis.baf")
-                    break
-                elif "Analysis.yep" in filenames:
-                    path = os.path.join(dirpath, "Analysis.yep")
-                    break
-                elif "analysis.yep" in filenames:
-                    path = os.path.join(dirpath, "analysis.yep")
-                    break
-                elif "fid" in filenames:
-                    path = os.path.join(dirpath, "fid")
-                    break
-                elif "FID" in filenames:
-                    path = os.path.join(dirpath, "FID")
-                    break
-
-        # set params
-        choices = {"Line": 0, "Profile": 1}
-        raw = choices[config.main["compassMode"]]
-        choices = {"mzXML": 0, "mzData": 1, "mzML": 2}
-        mode = choices[config.main["compassFormat"]]
-
-        # convert data
-        try:
-            output = os.path.join(
-                os.path.dirname(path), "Analysis." + config.main["compassFormat"]
-            )
-            retcode = subprocess.call(
-                [
-                    "CompassXport.exe",
-                    "-a",
-                    path,
-                    "-o",
-                    output,
-                    "-raw",
-                    str(raw),
-                    "-mode",
-                    str(mode),
-                ],
-                shell=True,
-            )
-            if retcode == 0:
-                self.tmpCompassXport = output
-                return
-        except Exception:
-            return
-
-    # ----
-
     def runDocumentParser(self, path, docType, scan=None):
         """Load spectrum document."""
 
@@ -4948,6 +4877,9 @@ class mainFrame(wx.Frame):
             spectrum = parser.scan(scan)
         elif docType == "MGF":
             parser = mspy.parseMGF(path)
+            spectrum = parser.scan(scan)
+        elif docType == "bruker":
+            parser = mspy.parseBruker(path)
             spectrum = parser.scan(scan)
         elif docType == "XY":
             parser = mspy.parseXY(path)
@@ -5112,7 +5044,7 @@ class mainFrame(wx.Frame):
         # get document type by filename or extension
         if extension == ".msd":
             return "mSD"
-        elif fileName == "fid" or extension in (".baf", ".yep"):
+        elif fileName == "fid":
             return "bruker"
         elif extension == ".mzdata":
             return "mzData"
@@ -5126,11 +5058,11 @@ class mainFrame(wx.Frame):
             return "XY"
         elif extension in (".fa", ".fsa", ".faa", ".fasta"):
             return "FASTA"
+
+        # a Bruker flex dataset is a directory tree of fid files
         elif os.path.isdir(path):
-            for _dirpath, _dirnames, filenames in os.walk(path):
-                names = [i.lower() for i in filenames]
-                if "fid" in names or "analysis.baf" in names or "analysis.yep" in names:
-                    return "bruker"
+            if mspy.findFIDs(path):
+                return "bruker"
 
         # get document type for xml files
         if extension == ".xml":
@@ -5171,6 +5103,8 @@ class mainFrame(wx.Frame):
             parser = mspy.parseMZML(path)
         elif docType == "MGF":
             parser = mspy.parseMGF(path)
+        elif docType == "bruker":
+            parser = mspy.parseBruker(path)
         else:
             return
 
