@@ -60,7 +60,7 @@ class dlgSelectScans(wx.Dialog):
         if not self.showChromCanvas:
             sizer.Hide(1)
             sizer.Hide(2)
-            self.scanList.SetInitialSize(wx.Size(656, 250))
+            self.scanList.SetInitialSize(wx.Size(self.scanListWidth, 250))
 
         # fit layout
         self.Layout()
@@ -123,9 +123,30 @@ class dlgSelectScans(wx.Dialog):
     def makeScanList(self):
         """Make list for scans."""
 
+        # scans that carry a name (Bruker sample spots, MGF query titles) get
+        # a column for it - it is the only thing telling them apart, since a
+        # spot has no retention time or precursor. LC-MS scans have no such
+        # name, so the column is left out rather than shown empty.
+        self.showTitleColumn = any(scan.get("title") for scan in self.scans.values())
+
+        columns = [("id", wx.LIST_FORMAT_RIGHT, 45)]
+        if self.showTitleColumn:
+            columns.append(("sample", wx.LIST_FORMAT_LEFT, 150))
+        columns += [
+            ("retention", wx.LIST_FORMAT_RIGHT, 110),
+            ("ms", wx.LIST_FORMAT_CENTER, 40),
+            ("precursor", wx.LIST_FORMAT_RIGHT, 85),
+            ("z", wx.LIST_FORMAT_CENTER, 40),
+            ("mz range", wx.LIST_FORMAT_RIGHT, 85),
+            ("ion current", wx.LIST_FORMAT_RIGHT, 90),
+            ("points", wx.LIST_FORMAT_RIGHT, 60),
+            ("data type", wx.LIST_FORMAT_CENTER, 80),
+        ]
+
         # init list
+        width = sum(column[2] for column in columns) + 21
         self.scanList = mwx.sortListCtrl(
-            self, -1, size=wx.Size(656, 200), style=mwx.LISTCTRL_STYLE_MULTI
+            self, -1, size=wx.Size(width, 200), style=mwx.LISTCTRL_STYLE_MULTI
         )
         self.scanList.SetFont(wx.SMALL_FONT)
         self.scanList.setAltColour(mwx.LISTCTRL_ALTCOLOUR)
@@ -135,19 +156,11 @@ class dlgSelectScans(wx.Dialog):
         self.scanList.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self.onItemActivated)
 
         # make columns
-        self.scanList.InsertColumn(0, "id", wx.LIST_FORMAT_RIGHT)
-        self.scanList.InsertColumn(1, "retention", wx.LIST_FORMAT_RIGHT)
-        self.scanList.InsertColumn(2, "ms", wx.LIST_FORMAT_CENTER)
-        self.scanList.InsertColumn(3, "precursor", wx.LIST_FORMAT_RIGHT)
-        self.scanList.InsertColumn(4, "z", wx.LIST_FORMAT_CENTER)
-        self.scanList.InsertColumn(5, "mz range", wx.LIST_FORMAT_RIGHT)
-        self.scanList.InsertColumn(6, "ion current", wx.LIST_FORMAT_RIGHT)
-        self.scanList.InsertColumn(7, "points", wx.LIST_FORMAT_RIGHT)
-        self.scanList.InsertColumn(8, "data type", wx.LIST_FORMAT_CENTER)
+        for col, (label, alignment, colWidth) in enumerate(columns):
+            self.scanList.InsertColumn(col, label, alignment)
+            self.scanList.SetColumnWidth(col, colWidth)
 
-        # set column widths
-        for col, width in enumerate((45, 110, 40, 85, 40, 85, 90, 60, 80)):
-            self.scanList.SetColumnWidth(col, width)
+        self.scanListWidth = width
 
     # ----
 
@@ -200,19 +213,20 @@ class dlgSelectScans(wx.Dialog):
         # set data map
         self.scanMap = []
         for _scanID, scan in sorted(self.scans.items()):
-            self.scanMap.append(
-                (
-                    scan["scanNumber"],
-                    scan["retentionTime"],
-                    scan["msLevel"],
-                    scan["precursorMZ"],
-                    scan["precursorCharge"],
-                    (scan["lowMZ"], scan["highMZ"]),
-                    scan["totIonCurrent"],
-                    scan["pointsCount"],
-                    scan["spectrumType"],
-                )
-            )
+            values = [scan["scanNumber"]]
+            if self.showTitleColumn:
+                values.append(scan.get("title", "") or "")
+            values += [
+                scan["retentionTime"],
+                scan["msLevel"],
+                scan["precursorMZ"],
+                scan["precursorCharge"],
+                (scan["lowMZ"], scan["highMZ"]),
+                scan["totIonCurrent"],
+                scan["pointsCount"],
+                scan["spectrumType"],
+            ]
+            self.scanMap.append(tuple(values))
         self.scanList.setDataMap(self.scanMap)
 
         # add data
@@ -268,15 +282,23 @@ class dlgSelectScans(wx.Dialog):
                 except (TypeError, ValueError):
                     pass
 
-            self.scanList.InsertItem(row, str(scan["scanNumber"]))
-            self.scanList.SetItem(row, 1, retentionTime)
-            self.scanList.SetItem(row, 2, msLevel)
-            self.scanList.SetItem(row, 3, precursorMZ)
-            self.scanList.SetItem(row, 4, precursorCharge)
-            self.scanList.SetItem(row, 5, mzRange)
-            self.scanList.SetItem(row, 6, totIonCurrent)
-            self.scanList.SetItem(row, 7, pointsCount)
-            self.scanList.SetItem(row, 8, scan["spectrumType"])
+            texts = [str(scan["scanNumber"])]
+            if self.showTitleColumn:
+                texts.append(scan.get("title", "") or "")
+            texts += [
+                retentionTime,
+                msLevel,
+                precursorMZ,
+                precursorCharge,
+                mzRange,
+                totIonCurrent,
+                pointsCount,
+                scan["spectrumType"],
+            ]
+
+            self.scanList.InsertItem(row, texts[0])
+            for col, text in enumerate(texts[1:], 1):
+                self.scanList.SetItem(row, col, text)
             self.scanList.SetItemData(row, row)
             row += 1
 

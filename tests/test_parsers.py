@@ -205,3 +205,115 @@ def test_parse_bruker_negative_and_positive_modes(sample_bruker, sample_bruker_p
 
     assert positive_scan.polarity == 1
     assert next(iter(positive_list.values()))["polarity"] == 1
+
+
+def test_parse_bruker_scanlist_carries_spectrum_type(sample_bruker):
+    """Every key the scan picker reads is present.
+
+    dlgSelectScans indexes scanlist entries directly, so a missing key raises
+    rather than degrading -- which used to make picking a spot impossible for
+    any dataset holding more than one acquisition.
+    """
+
+    scanlist = mspy.parseBruker(sample_bruker).scanlist()
+    assert scanlist
+
+    required = {
+        "title", "scanNumber", "msLevel", "pointsCount", "polarity",
+        "retentionTime", "lowMZ", "highMZ", "basePeakIntensity",
+        "totIonCurrent", "precursorMZ", "precursorCharge", "spectrumType",
+    }
+    for entry in scanlist.values():
+        assert required.issubset(entry)
+        # a fid is the raw TOF trace
+        assert entry["spectrumType"] == "continuous"
+
+
+# ---------------------------------------------------------------------------
+# Bruker: several datasets opened at once
+# ---------------------------------------------------------------------------
+
+
+def _write_fake_dataset(root, dataset, spot, owner, date):
+    """Build a minimal <dataset>/<spot>/1/1SRef tree with a fid and an acqu.
+
+    Only the metadata path is exercised, so the fid can stay empty -- reading
+    the trace itself goes through pyOpenMS and is covered against real data.
+    """
+
+    folder = root / dataset / ("0_" + spot) / "1" / "1SRef"
+    folder.mkdir(parents=True)
+    (folder / "fid").write_bytes(b"")
+    (folder / "acqu").write_text(
+        "##$SPOTNO= <%s>\n"
+        "##$OWNER= <%s>\n"
+        "##$AQ_DATE= <%s>\n"
+        "##$POLARI= <1>\n"
+        "##$TD= <1000>\n"
+        "##SPECTROMETER/DATASYSTEM= <Bruker Flex Series>\n" % (spot, owner, date)
+    )
+    return folder / "fid"
+
+
+def test_parse_bruker_opens_several_datasets_at_once(tmp_path):
+    """A folder holding several datasets opens as one list of acquisitions."""
+
+    _write_fake_dataset(tmp_path, "PlateA", "M9", "alice", "2026-06-25T12:36:20")
+    _write_fake_dataset(tmp_path, "PlateB", "M9", "bob", "2026-06-23T14:40:58")
+
+    scanlist = mspy.parseBruker(str(tmp_path)).scanlist()
+    assert len(scanlist) == 2
+
+    # the spot alone would be 'M9' for both -- it is a plate position, so it
+    # repeats across datasets and cannot identify an acquisition on its own
+    titles = sorted(entry["title"] for entry in scanlist.values())
+    assert titles == ["PlateA M9", "PlateB M9"]
+
+
+def test_parse_bruker_metadata_is_per_acquisition(tmp_path):
+    """Each acquisition reports its own operator and date, not the first one's."""
+
+    _write_fake_dataset(tmp_path, "PlateA", "M9", "alice", "2026-06-25T12:36:20")
+    _write_fake_dataset(tmp_path, "PlateB", "K7", "bob", "2026-06-23T14:40:58")
+
+    parser = mspy.parseBruker(str(tmp_path))
+    infos = {scanID: parser.info(scanID) for scanID in parser.scanlist()}
+    assert len(infos) == 2
+
+    byOwner = {info["operator"]: info for info in infos.values()}
+    assert set(byOwner) == {"alice", "bob"}
+    assert byOwner["alice"]["title"] == "PlateA M9"
+    assert byOwner["bob"]["title"] == "PlateB K7"
+    assert byOwner["alice"]["date"] != byOwner["bob"]["date"]
+
+    # no scan given: the first acquisition, as before
+    assert parser.info() == infos[min(infos)]
+
+
+def test_parse_bruker_single_dataset_names_are_unqualified(tmp_path):
+    """Opening one dataset labels its acquisitions by spot alone."""
+
+    _write_fake_dataset(tmp_path, "PlateA", "M9", "alice", "2026-06-25T12:36:20")
+    _write_fake_dataset(tmp_path, "PlateA", "K7", "alice", "2026-06-25T13:10:00")
+
+    dataset = str(tmp_path / "PlateA")
+    scanlist = mspy.parseBruker(dataset).scanlist()
+    assert sorted(entry["title"] for entry in scanlist.values()) == ["K7", "M9"]
+
+    # the document title still names the dataset, plus the spot to tell the
+    # two acquisitions apart
+    parser = mspy.parseBruker(dataset)
+    titles = sorted(parser.info(scanID)["title"] for scanID in parser.scanlist())
+    assert titles == ["PlateA K7", "PlateA M9"]
+
+
+def test_parse_bruker_spot_falls_back_to_the_spot_folder(tmp_path):
+    """Without ##$SPOTNO the label is the spot folder, not the shared '1SRef'."""
+
+    folder = tmp_path / "PlateA" / "0_M9" / "1" / "1SRef"
+    folder.mkdir(parents=True)
+    (folder / "fid").write_bytes(b"")
+    (folder / "acqu").write_text("##$TD= <1000>\n")
+
+    scanlist = mspy.parseBruker(str(tmp_path / "PlateA")).scanlist()
+    assert [entry["title"] for entry in scanlist.values()] == ["0_M9"]

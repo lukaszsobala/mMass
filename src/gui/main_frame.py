@@ -315,7 +315,7 @@ class mainFrame(wx.Frame):
         document.Append(
             ID_documentOpenBruker,
             "Open Bruker Folder...",
-            "Open a Bruker flex-series (XMASS) dataset directory",
+            "Open a Bruker flex-series (XMASS) dataset directory, or a folder of them",
         )
         document.Append(ID_documentRecent, "Open Recent", self.menuRecent)
         document.AppendSeparator()
@@ -1945,13 +1945,15 @@ class mainFrame(wx.Frame):
 
         # a flex dataset is a directory tree (<dataset>/<spot>/<run>/1SRef/fid)
         # rather than a single file, so it needs a directory picker - the file
-        # dialog can still be used to open one fid directly
+        # dialog can still be used to open one fid directly. The picker takes
+        # one folder at a time, but the folder may be one holding several
+        # datasets: every acquisition below it is offered in the scan picker.
         lastDir = ""
         if os.path.exists(config.main["lastDir"]):
             lastDir = config.main["lastDir"]
         dlg = wx.DirDialog(
             self,
-            "Open Bruker Folder",
+            "Open Bruker Folder (a dataset, or a folder of datasets)",
             lastDir,
             style=wx.DD_DEFAULT_STYLE | wx.DD_DIR_MUST_EXIST,
         )
@@ -4897,7 +4899,12 @@ class mainFrame(wx.Frame):
             document.spectrum = spectrum
 
             # get info
-            info = parser.info()
+            if docType == "bruker":
+                # a Bruker path can hold many acquisitions, each with its own
+                # operator, instrument and date - ask for this one's
+                info = parser.info(scan)
+            else:
+                info = parser.info()
             if isinstance(info, dict):
                 document.title = info["title"]
                 document.operator = info["operator"]
@@ -4923,8 +4930,10 @@ class mainFrame(wx.Frame):
                     else:
                         document.title = baseName
 
-            # add scan number to title
-            if scan:
+            # add scan number to title - a Bruker title already names the
+            # dataset and the spot, which identifies the acquisition better
+            # than its index in the tree does
+            if scan and docType != "bruker":
                 document.title += " [%s]" % scan
 
         # finalize and append document

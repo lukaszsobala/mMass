@@ -44,6 +44,14 @@ from . import obj_scan
 #
 # Note this covers the flex/XMASS family only. Bruker's later .baf/.yep/.d
 # (Compass, timsTOF) containers need the vendor SDK and are NOT supported.
+#
+# The path handed to the parser can be a single fid, one dataset folder, or a
+# folder holding several datasets - the fids are found by walking the tree, so
+# a whole plate of datasets opens in one go. Everything that describes an
+# acquisition (operator, instrument, date, polarity, spot) is therefore read
+# per fid rather than once for the tree: acquisitions collected on different
+# days, in different modes or by different operators can sit under the same
+# folder.
 
 # acqu is JCAMP-DX-ish: '##$NAME= value' for instrument parameters and
 # '##NAME= value' (sometimes dotted, e.g. '##.IONIZATION MODE=') for the
@@ -57,7 +65,7 @@ class parseBruker:
     def __init__(self, path):
         self.path = path
         self._fids = None
-        self._info = None
+        self._info = {}
 
         # check path
         if not os.path.exists(path):
@@ -79,11 +87,14 @@ class parseBruker:
 
     # ----
 
-    def info(self):
-        """Get document info."""
+    def info(self, scanID=None):
+        """Get document info for one acquisition (default: the first).
 
-        if self._info is not None:
-            return self._info
+        The operator, instrument and date belong to the acquisition, so they
+        are read from that acquisition's own acqu file - hoisting the first
+        one would stamp the whole tree with it, which is wrong as soon as more
+        than one dataset was opened at once.
+        """
 
         data = {
             "title": "",
@@ -95,16 +106,27 @@ class parseBruker:
             "notes": "",
         }
 
-        # take the dataset metadata from the first acquisition - the operator,
-        # instrument and date are properties of the run, not of the spot
         fids = self.load()
         if not fids:
-            self._info = data
             return data
 
-        params = _readAcqu(fids[min(fids)])
+        if scanID is None:
+            scanID = min(fids)
+        if scanID not in fids:
+            return data
 
-        data["title"] = _datasetName(self.path)
+        if scanID in self._info:
+            return self._info[scanID]
+
+        fidPath = fids[scanID]
+        params = _readAcqu(fidPath)
+
+        # name the dataset the acquisition belongs to, not the folder the user
+        # happened to open - those differ when several datasets were opened
+        data["title"] = _datasetName(fidPath)
+        if len(fids) > 1:
+            data["title"] = "%s %s" % (data["title"], _spotLabel(fidPath, params))
+
         data["operator"] = params.get("OWNER", "")
         # ##SPECTROMETER/DATASYSTEM names the instrument ('Bruker Flex
         # Series'); ##$INSTRUM only names the acquisition PC ('FLEX-PC')
@@ -113,7 +135,7 @@ class parseBruker:
         )
         data["date"] = _acquisitionDate(params)
 
-        self._info = data
+        self._info[scanID] = data
         return data
 
     # ----
@@ -130,7 +152,7 @@ class parseBruker:
             params = _readAcqu(fidPath)
 
             scanlist[scanID] = {
-                "title": _spotName(fidPath, params),
+                "title": _spotName(fidPath, params, self.path),
                 "scanNumber": scanID,
                 "parentScanNumber": None,
                 "msLevel": 1,
@@ -145,6 +167,8 @@ class parseBruker:
                 "precursorMZ": None,
                 "precursorIntensity": None,
                 "precursorCharge": None,
+                # a fid is the raw TOF trace, always a profile
+                "spectrumType": "continuous",
             }
 
         return scanlist
@@ -179,7 +203,7 @@ class parseBruker:
 
         # set metadata
         params = _readAcqu(fidPath)
-        scan.title = _spotName(fidPath, params)
+        scan.title = _spotName(fidPath, params, self.path)
         scan.scanNumber = scanID
         scan.msLevel = 1
         scan.polarity = _polarity(params)
@@ -334,28 +358,65 @@ def _pointsCount(params):
         return None
 
 
-def _spotName(fidPath, params):
-    """Get a human-readable name for a single acquisition."""
+def _spotLabel(fidPath, params):
+    """Get the bare label of a single acquisition."""
 
     # the sample position (e.g. 'M9' or 'A1') is the meaningful label
     spot = params.get("SPOTNO", "") or params.get("PATCHNO", "")
     if spot:
         return spot
 
-    # otherwise fall back to the acquisition folder, e.g. '0_M9/1/1SRef'
-    return os.path.basename(os.path.dirname(fidPath))
+    # otherwise fall back to the spot folder, e.g. '0_M9' - not the folder the
+    # fid sits in directly, which is the '1SRef' every acquisition shares
+    return os.path.basename(_spotDir(fidPath))
+
+
+def _spotName(fidPath, params, root=None):
+    """Get a human-readable name for a single acquisition.
+
+    Spot labels repeat across datasets - 'M9' is a position on every plate -
+    so when root is a folder holding more than the one dataset, the label is
+    qualified with the dataset the acquisition came from.
+    """
+
+    spot = _spotLabel(fidPath, params)
+
+    if root and os.path.isdir(root) and os.path.normpath(root) != _datasetDir(fidPath):
+        return "%s %s" % (_datasetName(fidPath), spot)
+
+    return spot
+
+
+def _levelsUp(path, levels):
+    """Get the ancestor directory the given number of levels above path."""
+
+    for _level in range(levels):
+        parent = os.path.dirname(path)
+        if not parent or parent == path:
+            break
+        path = parent
+
+    return path
+
+
+# a fid sits at <dataset>/<spot>/<run>/<1SRef>/fid, so its spot folder is two
+# levels above the folder holding it and its dataset folder three
+def _spotDir(fidPath):
+    """Get the spot folder holding a single acquisition."""
+
+    return os.path.normpath(_levelsUp(os.path.dirname(fidPath), 2))
+
+
+def _datasetDir(fidPath):
+    """Get the dataset folder a single acquisition belongs to."""
+
+    return os.path.normpath(_levelsUp(os.path.dirname(fidPath), 3))
 
 
 def _datasetName(path):
-    """Get the dataset name from the path the user opened."""
+    """Get the dataset name for a fid or a dataset folder."""
 
-    # walking up from a fid gives <dataset>/<spot>/<run>/<1SRef>/fid
     if os.path.isfile(path):
-        path = os.path.dirname(path)
-        for _level in range(3):
-            parent = os.path.dirname(path)
-            if not parent or parent == path:
-                break
-            path = parent
+        path = _datasetDir(path)
 
     return os.path.basename(os.path.normpath(path))
