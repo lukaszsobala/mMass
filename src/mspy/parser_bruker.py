@@ -87,6 +87,20 @@ class parseBruker:
 
     # ----
 
+    def spansDatasets(self):
+        """Tell whether the opened path holds acquisitions from several datasets.
+
+        Asked of the acquisitions rather than of the path, since the path can
+        be anywhere in the tree - the folder browser cannot select a fid, so a
+        single acquisition is often opened by picking the '1SRef' it sits in.
+        """
+
+        fids = self.load()
+
+        return len({datasetDir(fidPath) for fidPath in fids.values()}) > 1
+
+    # ----
+
     def info(self, scanID=None):
         """Get document info for one acquisition (default: the first).
 
@@ -147,12 +161,14 @@ class parseBruker:
         if not fids:
             return False
 
+        qualify = self.spansDatasets()
+
         scanlist = {}
         for scanID, fidPath in fids.items():
             params = _readAcqu(fidPath)
 
             scanlist[scanID] = {
-                "title": _spotName(fidPath, params, self.path),
+                "title": _spotName(fidPath, params, qualify),
                 "scanNumber": scanID,
                 "parentScanNumber": None,
                 "msLevel": 1,
@@ -203,7 +219,7 @@ class parseBruker:
 
         # set metadata
         params = _readAcqu(fidPath)
-        scan.title = _spotName(fidPath, params, self.path)
+        scan.title = _spotName(fidPath, params, self.spansDatasets())
         scan.scanNumber = scanID
         scan.msLevel = 1
         scan.polarity = _polarity(params)
@@ -371,17 +387,17 @@ def _spotLabel(fidPath, params):
     return os.path.basename(_spotDir(fidPath))
 
 
-def _spotName(fidPath, params, root=None):
+def _spotName(fidPath, params, qualify=False):
     """Get a human-readable name for a single acquisition.
 
     Spot labels repeat across datasets - 'M9' is a position on every plate -
-    so when root is a folder holding more than the one dataset, the label is
-    qualified with the dataset the acquisition came from.
+    so when several datasets were opened at once the label is qualified with
+    the dataset the acquisition came from.
     """
 
     spot = _spotLabel(fidPath, params)
 
-    if root and os.path.isdir(root) and os.path.normpath(root) != datasetDir(fidPath):
+    if qualify:
         return "%s %s" % (_datasetName(fidPath), spot)
 
     return spot

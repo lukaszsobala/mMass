@@ -308,6 +308,40 @@ def test_parse_bruker_single_dataset_names_are_unqualified(tmp_path):
     assert titles == ["PlateA K7", "PlateA M9"]
 
 
+def test_parse_bruker_names_are_the_same_from_anywhere_in_one_dataset(tmp_path):
+    """Where inside a dataset it was opened from does not change the labels.
+
+    The folder browser cannot select the fid itself, so a single acquisition
+    is opened by picking a folder somewhere above it -- the spot folder, the
+    run, or the '1SRef'. All of those are still one dataset.
+    """
+
+    _write_fake_dataset(tmp_path, "PlateA", "M9", "alice", "2026-06-25T12:36:20")
+
+    dataset = tmp_path / "PlateA"
+    for opened in (
+        dataset,
+        dataset / "0_M9",
+        dataset / "0_M9" / "1",
+        dataset / "0_M9" / "1" / "1SRef",
+        dataset / "0_M9" / "1" / "1SRef" / "fid",
+    ):
+        parser = mspy.parseBruker(str(opened))
+        assert not parser.spansDatasets()
+        titles = [entry["title"] for entry in parser.scanlist().values()]
+        assert titles == ["M9"], opened
+
+    # a second dataset alongside it is the case that needs the dataset name,
+    # and it is the only one that adds it
+    _write_fake_dataset(tmp_path, "PlateB", "M9", "bob", "2026-06-23T14:40:58")
+    parent = mspy.parseBruker(str(tmp_path))
+    assert parent.spansDatasets()
+    assert sorted(entry["title"] for entry in parent.scanlist().values()) == [
+        "PlateA M9",
+        "PlateB M9",
+    ]
+
+
 def test_bruker_dataset_dir_walks_up_from_a_fid(tmp_path):
     """The dataset folder is recoverable from a fid opened on its own.
 

@@ -4734,7 +4734,12 @@ class mainFrame(wx.Frame):
 
         # check path
         if os.path.exists(path):
-            config.main["lastDir"] = os.path.split(path)[0]
+            # remember where results for this document belong, which is not
+            # simply the path's parent: Bruker data is opened as a folder, and
+            # picking one deep inside a dataset (the folder browser cannot
+            # select the fid itself) would otherwise leave the last-used
+            # directory pointing into the acquisition tree
+            config.main["lastDir"] = mwx.saveDialogDir(path, config.main["lastDir"])
         else:
             wx.Bell()
             dlg = mwx.dlgMessage(
