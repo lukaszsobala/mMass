@@ -287,6 +287,38 @@ def cmp(a, b):
                 return (str(a) > str(b)) - (str(a) < str(b))
 
 
+def _isBrukerFID(path):
+    """Tell whether a path is a Bruker acquisition rather than a stray 'fid'.
+
+    The name alone is what makes mMass read a file as Bruker data, but the
+    dataset folder is only worth walking up to when the tree really is one:
+    every acquisition keeps its parameters in an acqu file beside the fid.
+    """
+
+    if os.path.basename(path).lower() != "fid":
+        return False
+
+    return os.path.exists(os.path.join(os.path.dirname(path), "acqu"))
+
+
+def _brukerDatasetDir(path):
+    """Get the dataset folder for Bruker data opened at path, else "".
+
+    The path may be a fid, the dataset folder itself, or a folder holding
+    several datasets. In the last case any one of them answers the question
+    being asked, since they are all siblings inside that folder.
+    """
+
+    if os.path.isdir(path):
+        fids = mspy.findFIDs(path)
+        return mspy.datasetDir(fids[0]) if fids else ""
+
+    if _isBrukerFID(path):
+        return mspy.datasetDir(path)
+
+    return ""
+
+
 def saveDialogDir(documentPath="", fallbackDir=""):
     """Pick the initial directory for a save/export file dialog.
 
@@ -294,11 +326,28 @@ def saveDialogDir(documentPath="", fallbackDir=""):
     exports default next to the source file rather than re-using one shared
     last-used directory for every document. Fall back to the last-used
     directory, and finally to "" so the dialog opens at its own default.
+
+    Bruker data is not a file but a folder tree, and a dataset is treated as
+    though it were one file however many spots it holds: results go BESIDE the
+    dataset folder. That one rule covers all three ways of opening it - a fid
+    on its own, its dataset folder, or a folder holding several datasets, in
+    which case beside the datasets means inside the folder that holds them.
     """
 
     candidates = []
     if documentPath:
-        candidates.append(os.path.dirname(documentPath))
+        dataset = _brukerDatasetDir(documentPath)
+        if dataset:
+            parent = os.path.dirname(dataset)
+            # an unusually shallow tree can leave nothing useful above the
+            # dataset - no 'beside' to save to, or the filesystem root
+            if parent and parent != dataset and parent != os.path.dirname(parent):
+                candidates.append(parent)
+
+        if os.path.isdir(documentPath):
+            candidates.append(documentPath)
+        else:
+            candidates.append(os.path.dirname(documentPath))
     candidates.append(fallbackDir)
 
     for candidate in candidates:

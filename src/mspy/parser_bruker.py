@@ -381,7 +381,7 @@ def _spotName(fidPath, params, root=None):
 
     spot = _spotLabel(fidPath, params)
 
-    if root and os.path.isdir(root) and os.path.normpath(root) != _datasetDir(fidPath):
+    if root and os.path.isdir(root) and os.path.normpath(root) != datasetDir(fidPath):
         return "%s %s" % (_datasetName(fidPath), spot)
 
     return spot
@@ -407,8 +407,13 @@ def _spotDir(fidPath):
     return os.path.normpath(_levelsUp(os.path.dirname(fidPath), 2))
 
 
-def _datasetDir(fidPath):
-    """Get the dataset folder a single acquisition belongs to."""
+def datasetDir(fidPath):
+    """Get the dataset folder a single acquisition belongs to.
+
+    Public because opening one fid directly still means working on the whole
+    dataset it came from: the GUI needs the dataset folder to decide where
+    results belong, not the '1SRef' the fid happens to sit in.
+    """
 
     return os.path.normpath(_levelsUp(os.path.dirname(fidPath), 3))
 
@@ -417,6 +422,6 @@ def _datasetName(path):
     """Get the dataset name for a fid or a dataset folder."""
 
     if os.path.isfile(path):
-        path = _datasetDir(path)
+        path = datasetDir(path)
 
     return os.path.basename(os.path.normpath(path))

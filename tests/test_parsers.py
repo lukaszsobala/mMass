@@ -2,6 +2,7 @@
 
 import datetime
 import math
+import os.path
 
 import numpy
 import pytest
@@ -305,6 +306,21 @@ def test_parse_bruker_single_dataset_names_are_unqualified(tmp_path):
     parser = mspy.parseBruker(dataset)
     titles = sorted(parser.info(scanID)["title"] for scanID in parser.scanlist())
     assert titles == ["PlateA K7", "PlateA M9"]
+
+
+def test_bruker_dataset_dir_walks_up_from_a_fid(tmp_path):
+    """The dataset folder is recoverable from a fid opened on its own.
+
+    The GUI leans on this to decide where results belong: a fid's own folder
+    is the '1SRef' inside the acquisition tree, which is no place to save to.
+    """
+
+    fid = _write_fake_dataset(tmp_path, "PlateA", "M9", "alice", "2026-06-25T12:36:20")
+
+    dataset = tmp_path / "PlateA"
+    assert mspy.datasetDir(str(fid)) == str(dataset)
+    # and so the folder holding the datasets is one further up
+    assert os.path.dirname(mspy.datasetDir(str(fid))) == str(tmp_path)
 
 
 def test_parse_bruker_spot_falls_back_to_the_spot_folder(tmp_path):
