@@ -36,18 +36,19 @@ class scan:
 
     def __init__(self, profile=None, peaklist=None, **attr):
 
-        self.title = ""
-        self.scanNumber = None
-        self.parentScanNumber = None
-        self.polarity = None
-        self.msLevel = None
-        self.retentionTime = None
-        self.totIonCurrent = None
-        self.basePeakMZ = None
-        self.basePeakIntensity = None
-        self.precursorMZ = None
-        self.precursorIntensity = None
-        self.precursorCharge = None
+        # metadata - all optional, filled in by the parsers
+        self.title: str = ""
+        self.scanNumber: Optional[int] = None
+        self.parentScanNumber: Optional[int] = None
+        self.polarity: Optional[int] = None
+        self.msLevel: Optional[int] = None
+        self.retentionTime: Optional[float] = None
+        self.totIonCurrent: Optional[float] = None
+        self.basePeakMZ: Optional[float] = None
+        self.basePeakIntensity: Optional[float] = None
+        self.precursorMZ: Optional[float] = None
+        self.precursorIntensity: Optional[float] = None
+        self.precursorCharge: Optional[int] = None
 
         # buffers
         self._baseline = None

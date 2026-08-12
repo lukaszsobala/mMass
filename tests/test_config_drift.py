@@ -9,7 +9,7 @@ be imported (e.g. wxPython missing).
 
 import pytest
 
-from .conftest import DEISOTOPING_KEYS
+from .helpers import DEISOTOPING_KEYS
 
 
 def test_deisotoping_keys_present_with_expected_types():

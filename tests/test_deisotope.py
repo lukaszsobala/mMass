@@ -10,7 +10,7 @@ import pytest
 import mspy
 from mspy import mod_peakpicking as mpp
 
-from .conftest import build_envelope_peaklist
+from .helpers import build_envelope_peaklist
 
 
 # ---------------------------------------------------------------------------

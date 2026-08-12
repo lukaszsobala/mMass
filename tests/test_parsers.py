@@ -110,6 +110,7 @@ def test_parse_bruker_fid_directly(sample_bruker):
 
     from_folder = mspy.parseBruker(sample_bruker).scan()
     from_fid = mspy.parseBruker(fids[0]).scan()
+    assert from_folder is not False and from_fid is not False  # False on failure
     assert numpy.array_equal(
         numpy.asarray(from_folder.profile), numpy.asarray(from_fid.profile)
     )
@@ -128,7 +129,9 @@ def test_parse_bruker_applies_acqu_calibration(sample_bruker):
     ml1, ml2, ml3, delay, dw, td = _acqu_constants(fids[0])
     assert ml3 != 0  # quadratic term present, so the simple form would be wrong
 
-    profile = numpy.asarray(mspy.parseBruker(fids[0]).scan().profile, dtype=float)
+    scan = mspy.parseBruker(fids[0]).scan()
+    assert scan is not False  # parser returns False on failure
+    profile = numpy.asarray(scan.profile, dtype=float)
     assert len(profile) == td
 
     for index in (0, td // 2, td - 1):
@@ -189,8 +192,16 @@ def test_parse_bruker_negative_and_positive_modes(sample_bruker, sample_bruker_p
         params = mspy.parser_bruker._readAcqu(fid)
         assert params[".IONIZATION MODE"].endswith("+")  # unhelpfully constant
 
-    assert negative.scan().polarity == -1
-    assert next(iter(negative.scanlist().values()))["polarity"] == -1
+    negative_scan = negative.scan()
+    positive_scan = positive.scan()
+    negative_list = negative.scanlist()
+    positive_list = positive.scanlist()
+    # parsers return False on failure
+    assert negative_scan is not False and positive_scan is not False
+    assert negative_list and positive_list
 
-    assert positive.scan().polarity == 1
-    assert next(iter(positive.scanlist().values()))["polarity"] == 1
+    assert negative_scan.polarity == -1
+    assert next(iter(negative_list.values()))["polarity"] == -1
+
+    assert positive_scan.polarity == 1
+    assert next(iter(positive_list.values()))["polarity"] == 1

@@ -11,7 +11,7 @@ import pytest
 import mspy
 from mspy import mod_peakpicking as mpp
 
-from .conftest import build_envelope_peaklist
+from .helpers import build_envelope_peaklist
 
 
 def _spectrum(formula="C50H80N14O18", charge=1, height=1000.0, fwhm=0.05, extra=None):

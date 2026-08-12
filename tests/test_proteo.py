@@ -5,7 +5,7 @@ import pytest
 import mspy
 from mspy import mod_proteo
 
-from .conftest import scalar
+from .helpers import scalar
 
 
 def _chain(peptide):

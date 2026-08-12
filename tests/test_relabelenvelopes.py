@@ -10,7 +10,7 @@ import pytest
 import mspy
 from mspy import mod_peakpicking as mpp
 
-from .conftest import assert_isotopes_equal, build_envelope_peaklist
+from .helpers import assert_isotopes_equal, build_envelope_peaklist
 
 
 def _deisotoped(charge=1, height=1000.0, fwhm=0.05):

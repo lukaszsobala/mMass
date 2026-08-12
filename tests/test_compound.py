@@ -4,7 +4,7 @@ import pytest
 
 import mspy
 
-from .conftest import scalar
+from .helpers import scalar
 
 
 def test_composition_simple():
