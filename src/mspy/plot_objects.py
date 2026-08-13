@@ -337,6 +337,11 @@ class container:
 
     # ----
 
+    def insert(self, index, obj):
+        self.objects.insert(index, obj)
+
+    # ----
+
     def empty(self):
         del self.objects[:]
 

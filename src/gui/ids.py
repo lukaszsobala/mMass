@@ -43,6 +43,8 @@ ID_documentFlip = wx.NewId()
 ID_documentOffset = wx.NewId()
 ID_documentClearOffset = wx.NewId()
 ID_documentClearOffsets = wx.NewId()
+ID_documentMoveUp = wx.NewId()
+ID_documentMoveDown = wx.NewId()
 ID_documentColour = wx.NewId()
 ID_documentStyle = wx.NewId()
 ID_documentStyleSolid = wx.NewId()
@@ -87,6 +89,8 @@ HK_documentInfo = "\tCtrl+I"
 HK_documentPrintSpectrum = "\tCtrl+P"
 HK_documentReport = "\tShift+Ctrl+R"
 HK_documentFlip = "\tAlt+Ctrl+F"
+HK_documentMoveUp = "\tCtrl+PgUp"
+HK_documentMoveDown = "\tCtrl+PgDn"
 
 # view
 ID_viewGrid = wx.NewId()

@@ -263,6 +263,7 @@ def test_parse_bruker_opens_several_datasets_at_once(tmp_path):
     _write_fake_dataset(tmp_path, "PlateB", "M9", "bob", "2026-06-23T14:40:58")
 
     scanlist = mspy.parseBruker(str(tmp_path)).scanlist()
+    assert scanlist  # parsers return False on failure
     assert len(scanlist) == 2
 
     # the spot alone would be 'M9' for both -- it is a plate position, so it
@@ -278,7 +279,9 @@ def test_parse_bruker_metadata_is_per_acquisition(tmp_path):
     _write_fake_dataset(tmp_path, "PlateB", "K7", "bob", "2026-06-23T14:40:58")
 
     parser = mspy.parseBruker(str(tmp_path))
-    infos = {scanID: parser.info(scanID) for scanID in parser.scanlist()}
+    scanlist = parser.scanlist()
+    assert scanlist  # parsers return False on failure
+    infos = {scanID: parser.info(scanID) for scanID in scanlist}
     assert len(infos) == 2
 
     byOwner = {info["operator"]: info for info in infos.values()}
@@ -299,12 +302,15 @@ def test_parse_bruker_single_dataset_names_are_unqualified(tmp_path):
 
     dataset = str(tmp_path / "PlateA")
     scanlist = mspy.parseBruker(dataset).scanlist()
+    assert scanlist  # parsers return False on failure
     assert sorted(entry["title"] for entry in scanlist.values()) == ["K7", "M9"]
 
     # the document title still names the dataset, plus the spot to tell the
     # two acquisitions apart
     parser = mspy.parseBruker(dataset)
-    titles = sorted(parser.info(scanID)["title"] for scanID in parser.scanlist())
+    scanlist = parser.scanlist()
+    assert scanlist
+    titles = sorted(parser.info(scanID)["title"] for scanID in scanlist)
     assert titles == ["PlateA K7", "PlateA M9"]
 
 
@@ -328,7 +334,9 @@ def test_parse_bruker_names_are_the_same_from_anywhere_in_one_dataset(tmp_path):
     ):
         parser = mspy.parseBruker(str(opened))
         assert not parser.spansDatasets()
-        titles = [entry["title"] for entry in parser.scanlist().values()]
+        scanlist = parser.scanlist()
+        assert scanlist, opened  # parsers return False on failure
+        titles = [entry["title"] for entry in scanlist.values()]
         assert titles == ["M9"], opened
 
     # a second dataset alongside it is the case that needs the dataset name,
@@ -336,7 +344,9 @@ def test_parse_bruker_names_are_the_same_from_anywhere_in_one_dataset(tmp_path):
     _write_fake_dataset(tmp_path, "PlateB", "M9", "bob", "2026-06-23T14:40:58")
     parent = mspy.parseBruker(str(tmp_path))
     assert parent.spansDatasets()
-    assert sorted(entry["title"] for entry in parent.scanlist().values()) == [
+    parentList = parent.scanlist()
+    assert parentList
+    assert sorted(entry["title"] for entry in parentList.values()) == [
         "PlateA M9",
         "PlateB M9",
     ]
@@ -366,4 +376,5 @@ def test_parse_bruker_spot_falls_back_to_the_spot_folder(tmp_path):
     (folder / "acqu").write_text("##$TD= <1000>\n")
 
     scanlist = mspy.parseBruker(str(tmp_path / "PlateA")).scanlist()
+    assert scanlist  # parsers return False on failure
     assert [entry["title"] for entry in scanlist.values()] == ["0_M9"]
