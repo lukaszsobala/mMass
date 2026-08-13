@@ -1312,6 +1312,27 @@ class panelSpectrum(wx.Panel):
 
     # ----
 
+    def moveSpectrum(self, fromIndex, toIndex, refresh=True):
+        """Move spectrum within the container to follow reordered documents."""
+
+        # move spectrum (the first two objects are the tmp spectrum and marks)
+        spectrum = self.container[fromIndex + 2]
+        del self.container[fromIndex + 2]
+        self.container.insert(toIndex + 2, spectrum)
+
+        # keep the current object pointing to the same document
+        if self.currentDocument is not None:
+            self.currentDocument = mwx.shiftIndex(
+                self.currentDocument, fromIndex, toIndex
+            )
+            self.spectrumCanvas.setCurrentObject(self.currentDocument + 2)
+
+        # redraw plot
+        if refresh:
+            self.refresh()
+
+    # ----
+
     def deleteSpectrum(self, docIndex, refresh=True):
         """Remove selected spectrum from container."""
 

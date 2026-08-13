@@ -510,6 +510,17 @@ class mainFrame(wx.Frame):
         view.Append(ID_documentClearOffsets, "Clear All Offsets", "")
         view.AppendSeparator()
         view.Append(
+            ID_documentMoveUp,
+            "Move Spectrum Up" + HK_documentMoveUp,
+            "Move current spectrum up in the spectra list",
+        )
+        view.Append(
+            ID_documentMoveDown,
+            "Move Spectrum Down" + HK_documentMoveDown,
+            "Move current spectrum down in the spectra list",
+        )
+        view.AppendSeparator()
+        view.Append(
             ID_viewCanvasProperties,
             "Canvas Properties..." + HK_viewCanvasProperties,
             "",
@@ -579,6 +590,8 @@ class mainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.onDocumentFlip, id=ID_documentFlip)
         self.Bind(wx.EVT_MENU, self.onDocumentOffset, id=ID_documentOffset)
         self.Bind(wx.EVT_MENU, self.onDocumentOffset, id=ID_documentClearOffsets)
+        self.Bind(wx.EVT_MENU, self.onDocumentMoveUp, id=ID_documentMoveUp)
+        self.Bind(wx.EVT_MENU, self.onDocumentMoveDown, id=ID_documentMoveDown)
         self.Bind(wx.EVT_MENU, self.onViewCanvasProperties, id=ID_viewCanvasProperties)
 
         self.menubar.Append(view, "View")
@@ -2116,6 +2129,75 @@ class mainFrame(wx.Frame):
         self.updateControls()
 
         # unchanged or saved document
+        return True
+
+    # ----
+
+    def onDocumentMoveUp(self, evt=None):
+        """Move current document one position up."""
+
+        if self.currentDocument is None:
+            wx.Bell()
+            return False
+
+        return self.onDocumentMove(self.currentDocument, self.currentDocument - 1)
+
+    # ----
+
+    def onDocumentMoveDown(self, evt=None):
+        """Move current document one position down."""
+
+        if self.currentDocument is None:
+            wx.Bell()
+            return False
+
+        return self.onDocumentMove(self.currentDocument, self.currentDocument + 1)
+
+    # ----
+
+    def onDocumentMove(self, fromIndex, toIndex):
+        """Move document to a new position in the documents list."""
+
+        # check indexes
+        if fromIndex is None or toIndex is None:
+            return False
+        if not 0 <= fromIndex < len(self.documents):
+            return False
+        if not 0 <= toIndex < len(self.documents) or toIndex == fromIndex:
+            return False
+
+        # reorder documents
+        docData = self.documents.pop(fromIndex)
+        self.documents.insert(toIndex, docData)
+
+        # clear visibility history (it is stored by document index)
+        self.documentsSoloCurrent = None
+        self.documentsSoloPrevious = {}
+
+        # update spectrum and documents panels (the current document keeps its
+        # selection, it just moves with the document itself)
+        self.spectrumPanel.moveSpectrum(fromIndex, toIndex)
+        self.documentsPanel.moveDocument(toIndex)
+        if self.currentDocument is not None:
+            self.currentDocument = mwx.shiftIndex(
+                self.currentDocument, fromIndex, toIndex
+            )
+
+        # update compare panel
+        if self.comparePeaklistsPanel:
+            self.comparePeaklistsPanel.setData(self.documents)
+
+        # update processing panel
+        if self.processingPanel:
+            self.processingPanel.updateAvailableDocuments()
+
+        # update mass defect plot panel
+        if self.massDefectPlotPanel:
+            self.massDefectPlotPanel.updateDocuments()
+
+        # update menubar and toolbar
+        self.updateControls()
+
         return True
 
     # ----
@@ -5735,6 +5817,11 @@ class mainFrame(wx.Frame):
         self.menubar.Enable(ID_documentFlip, enable)
         self.menubar.Enable(
             ID_documentOffset, bool(enable and not config.spectrum["normalize"])
+        )
+        self.menubar.Enable(ID_documentMoveUp, bool(enable and self.currentDocument))
+        self.menubar.Enable(
+            ID_documentMoveDown,
+            bool(enable and self.currentDocument < len(self.documents) - 1),
         )
         self.menubar.Enable(ID_processingUndo, bool(document and document.undo))
         self.menubar.Enable(ID_processingRedo, bool(document and document.redo))

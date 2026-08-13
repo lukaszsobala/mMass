@@ -47,6 +47,13 @@ class panelDocuments(wx.Panel):
         self.documents = documents
         self.documentTree: Any = None
 
+        # document being dragged to a new position (index in self.documents)
+        # and the gap it would be dropped into (0 is above the first document)
+        self._draggedDocument = None
+        self._dropPosition = None
+        # selection events are suppressed while the tree is rebuilt internally
+        self._skipSelectionEvents = False
+
         # make GUI
         self.makeGUI()
 
@@ -148,6 +155,10 @@ class panelDocuments(wx.Panel):
         self.documentTree.Bind(wx.EVT_TREE_SEL_CHANGING, self.onItemSelecting)
         self.documentTree.Bind(wx.EVT_TREE_SEL_CHANGED, self.onItemSelected)
         self.documentTree.Bind(wx.EVT_TREE_ITEM_ACTIVATED, self.onItemActivated)
+        self.documentTree.Bind(wx.EVT_TREE_BEGIN_DRAG, self.onItemBeginDrag)
+        self.documentTree.Bind(wx.EVT_MOTION, self.onTreeMotion)
+        self.documentTree.Bind(wx.EVT_LEFT_UP, self.onTreeLMU)
+        self.documentTree.Bind(wx.EVT_MOUSE_CAPTURE_LOST, self.onTreeCaptureLost)
 
         # set DnD
         dropTarget = fileDropTarget(self.parent.onDocumentDropped)
@@ -162,8 +173,17 @@ class panelDocuments(wx.Panel):
         key = evt.GetKeyCode()
         keyEvt = evt.GetKeyEvent()
 
+        # abandon dragging
+        if key == wx.WXK_ESCAPE and self._draggedDocument is not None:
+            self._endDrag()
+
+        # move document within the list (the main frame has the same shortcuts
+        # as accelerators, this only catches them while the tree has focus)
+        elif key in (wx.WXK_PAGEUP, wx.WXK_PAGEDOWN) and keyEvt.CmdDown():
+            self._moveSelectedDocument(-1 if key == wx.WXK_PAGEUP else 1)
+
         # delete
-        if key == wx.WXK_DELETE or (key == wx.WXK_BACK and keyEvt.CmdDown()):
+        elif key == wx.WXK_DELETE or (key == wx.WXK_BACK and keyEvt.CmdDown()):
             item = self.documentTree.GetSelection()
             itemType = self.documentTree.getItemType(item)
 
@@ -256,6 +276,9 @@ class panelDocuments(wx.Panel):
             menu.Append(ID_documentOffset, "Offset Spectrum...")
             menu.Append(ID_documentClearOffset, "Clear Offset")
             menu.AppendSeparator()
+            menu.Append(ID_documentMoveUp, "Move Up" + HK_documentMoveUp)
+            menu.Append(ID_documentMoveDown, "Move Down" + HK_documentMoveDown)
+            menu.AppendSeparator()
             menu.Append(ID_documentDuplicate, "Duplicate Document")
             menu.AppendSeparator()
             menu.Append(ID_documentClose, "Close Document")
@@ -265,6 +288,13 @@ class panelDocuments(wx.Panel):
                 menu.Enable(ID_documentOffset, False)
             if itemData.offset == [0, 0]:
                 menu.Enable(ID_documentClearOffset, False)
+
+            docIndex = self._getDocumentIndex(item)
+            menu.Enable(ID_documentMoveUp, bool(docIndex))
+            menu.Enable(
+                ID_documentMoveDown,
+                docIndex is not None and docIndex < len(self.documents) - 1,
+            )
 
             if not itemData.spectrum.hasprofile():
                 menu.Enable(ID_documentStyle, False)
@@ -365,6 +395,8 @@ class panelDocuments(wx.Panel):
             id=ID_documentNotationsDelete,
         )
         self.Bind(wx.EVT_MENU, self.parent.onDocumentDuplicate, id=ID_documentDuplicate)
+        self.Bind(wx.EVT_MENU, self.onDocumentMoveUp, id=ID_documentMoveUp)
+        self.Bind(wx.EVT_MENU, self.onDocumentMoveDown, id=ID_documentMoveDown)
         self.Bind(wx.EVT_MENU, self.parent.onDocumentClose, id=ID_documentClose)
         self.Bind(wx.EVT_MENU, self.parent.onDocumentCloseAll, id=ID_documentCloseAll)
 
@@ -439,6 +471,10 @@ class panelDocuments(wx.Panel):
     def onItemSelecting(self, evt):
         """Selecting item."""
 
+        # ignore selection changes caused by rebuilding the tree
+        if self._skipSelectionEvents:
+            return
+
         # do not allow to select disabled documents
         item = evt.GetItem()
         if self.documentTree.getItemIndent(item):
@@ -451,6 +487,10 @@ class panelDocuments(wx.Panel):
 
     def onItemSelected(self, evt):
         """Selected item."""
+
+        # ignore selection changes caused by rebuilding the tree
+        if self._skipSelectionEvents:
+            return
 
         # get item
         item = evt.GetItem()
@@ -513,6 +553,204 @@ class panelDocuments(wx.Panel):
         # edit annotation or sequence match
         elif itemType in ("annotation", "match"):
             self.onNotationEdit()
+
+    # ----
+
+    def onItemBeginDrag(self, evt):
+        """Start dragging a document to a new position.
+
+        The event is deliberately left vetoed: the tree's own dragging marks
+        the item under the cursor with a border, which says nothing about
+        where the document would land. The drag is run here instead, showing
+        an insertion line between documents.
+        """
+
+        self._endDrag()
+
+        # nothing to reorder
+        if len(self.documents) < 2:
+            return
+
+        # only whole documents can be reordered, but grabbing any of their
+        # items (annotation, sequence, ...) is taken as grabbing the document
+        item = evt.GetItem()
+        if not item or not item.IsOk():
+            return
+
+        docIndex = self._getDocumentIndex(item)
+        if docIndex is None:
+            return
+
+        # take over the drag
+        self._draggedDocument = docIndex
+        if not self.documentTree.HasCapture():
+            self.documentTree.CaptureMouse()
+        self.documentTree.SetCursor(wx.Cursor(wx.CURSOR_HAND))
+        self._updateDropLine(evt.GetPoint())
+
+    # ----
+
+    def onTreeMotion(self, evt):
+        """Show where the dragged document would land."""
+
+        if self._draggedDocument is None:
+            evt.Skip()
+            return
+
+        self._updateDropLine(evt.GetPosition())
+
+    # ----
+
+    def onTreeLMU(self, evt):
+        """Drop dragged document at the shown position."""
+
+        if self._draggedDocument is None:
+            evt.Skip()
+            return
+
+        # get and forget the drag
+        fromIndex = self._draggedDocument
+        insertAt = self._dropPosition
+        self._endDrag()
+
+        # move the document (the insertion point counts the dragged document
+        # itself, which leaves its old position first)
+        if insertAt is None:
+            return
+        toIndex = insertAt - 1 if insertAt > fromIndex else insertAt
+        if toIndex != fromIndex:
+            self.parent.onDocumentMove(fromIndex, toIndex)
+
+    # ----
+
+    def onTreeCaptureLost(self, evt):
+        """Abandon the drag when the mouse capture is taken away."""
+        self._endDrag()
+
+    # ----
+
+    def _endDrag(self):
+        """Stop dragging and remove the insertion line."""
+
+        self._draggedDocument = None
+        self._dropPosition = None
+        self.documentTree.hideDropLine()
+        self.documentTree.SetCursor(wx.NullCursor)
+
+        if self.documentTree.HasCapture():
+            self.documentTree.ReleaseMouse()
+
+    # ----
+
+    def _updateDropLine(self, position):
+        """Move the insertion line to the gap nearest to the cursor."""
+
+        self._dropPosition = None
+
+        # dragged out of the tree, so there is nowhere to drop
+        if not position or not self.documentTree.GetClientRect().Contains(position):
+            self.documentTree.hideDropLine()
+            return
+
+        # the document can be dropped into any gap between documents, from
+        # above the first one to below the last one
+        gaps = self._getDropGaps()
+        if not gaps:
+            self.documentTree.hideDropLine()
+            return
+
+        insertAt, y = min(gaps, key=lambda gap: abs(gap[1] - position.y))
+
+        self._dropPosition = insertAt
+        self.documentTree.showDropLine(y)
+
+    # ----
+
+    def _getDropGaps(self):
+        """Get (insertion index, y position) for all gaps between documents."""
+
+        tree = self.documentTree
+        gaps = []
+        if not self.documents:
+            return gaps
+
+        # a gap above every document
+        for docIndex, docData in enumerate(self.documents):
+            item = tree.getItemByData(docData)
+            rect = tree.GetBoundingRect(item, textOnly=False) if item else None
+            if rect:
+                gaps.append((docIndex, rect.y))
+
+        # and one below the last one, under whatever it has unfolded
+        lastItem = tree.getItemByData(self.documents[-1])
+        if lastItem:
+            rect = tree.GetBoundingRect(tree.getLastShownItem(lastItem), textOnly=False)
+            if rect:
+                gaps.append((len(self.documents), rect.GetBottom() + 1))
+
+        return gaps
+
+    # ----
+
+    def onDocumentMoveUp(self, evt=None):
+        """Move selected document one position up."""
+        self._moveSelectedDocument(-1)
+
+    # ----
+
+    def onDocumentMoveDown(self, evt=None):
+        """Move selected document one position down."""
+        self._moveSelectedDocument(1)
+
+    # ----
+
+    def _moveSelectedDocument(self, step):
+        """Move currently selected document by given number of positions."""
+
+        # get selected document
+        item = self.documentTree.GetSelection()
+        docIndex = None
+        if item and item.IsOk():
+            docIndex = self._getDocumentIndex(item)
+
+        # move document
+        if docIndex is None or not self.parent.onDocumentMove(
+            docIndex, docIndex + step
+        ):
+            wx.Bell()
+
+    # ----
+
+    def moveDocument(self, docIndex):
+        """Move tree item of the document now sitting at given index.
+
+        The documents list is reordered first, this just makes the tree
+        follow it.
+        """
+
+        docData = self.documents[docIndex]
+
+        # remember selection so that reordering does not change it
+        selectedData = None
+        selected = self.documentTree.GetSelection()
+        if selected and selected.IsOk():
+            selectedData = self.documentTree.GetItemData(selected)
+
+        # move the item and restore the selection without disturbing the panels
+        self._skipSelectionEvents = True
+        try:
+            docItem = self.documentTree.moveDocument(docData, docIndex)
+            if selectedData is not None:
+                selectedItem = self.documentTree.getItemByData(selectedData)
+                if selectedItem:
+                    self.documentTree.SelectItem(selectedItem)
+                    self.documentTree.highlightDocument(selectedItem)
+        finally:
+            self._skipSelectionEvents = False
+
+        # keep the moved document in view
+        if docItem:
+            self.documentTree.EnsureVisible(docItem)
 
     # ----
 
@@ -1139,6 +1377,60 @@ class documentsTree(wx.TreeCtrl):
         root = self.AddRoot("Documents")
         self.SetItemImage(root, 0, wx.TreeItemIcon_Normal)
 
+        # init insertion line shown while a document is dragged - a thin child
+        # window rather than something drawn on the tree, so that it survives
+        # the tree repainting itself under it
+        self.dropLineHeight = max(
+            2, display_scale.scale_metric(2, display_scale.get_ui_scale())
+        )
+        self.dropLineColour = (
+            wx.Colour(90, 160, 255)
+            if images.is_dark_mode()
+            else wx.SystemSettings.GetColour(wx.SYS_COLOUR_HIGHLIGHT)
+        )
+        self.dropLine = wx.Window(self, -1, size=wx.Size(-1, self.dropLineHeight))
+        self.dropLine.SetBackgroundColour(self.dropLineColour)
+        # not every toolkit fills a bare window with its background colour
+        self.dropLine.Bind(wx.EVT_PAINT, self._onDropLinePaint)
+        self.dropLine.Hide()
+
+    # ----
+
+    def showDropLine(self, y):
+        """Show the insertion line at given position."""
+
+        width = self.GetClientSize().width
+        top = max(0, y - self.dropLineHeight // 2)
+
+        self.dropLine.SetSize(0, top, width, self.dropLineHeight)
+        self.dropLine.Show()
+        self.dropLine.Raise()
+
+    # ----
+
+    def hideDropLine(self):
+        """Hide the insertion line."""
+        self.dropLine.Hide()
+
+    # ----
+
+    def _onDropLinePaint(self, evt):
+        """Paint the insertion line."""
+
+        dc = wx.PaintDC(self.dropLine)
+        dc.SetBackground(wx.Brush(self.dropLineColour, wx.BRUSHSTYLE_SOLID))
+        dc.Clear()
+
+    # ----
+
+    def getLastShownItem(self, item):
+        """Get last item displayed under given item, i.e. its bottom line."""
+
+        while self.IsExpanded(item) and self.ItemHasChildren(item):
+            item = self.GetLastChild(item)
+
+        return item
+
     # ----
 
     def getItemIndent(self, item):
@@ -1304,8 +1596,8 @@ class documentsTree(wx.TreeCtrl):
 
     # ----
 
-    def appendDocument(self, docData):
-        """Append document to tree."""
+    def appendDocument(self, docData, index=None):
+        """Append document to tree, or insert it at given position."""
 
         # add bullet
         bullet = self._makeColourBullet(docData.colour, True)
@@ -1317,7 +1609,10 @@ class documentsTree(wx.TreeCtrl):
             title = "*" + title
 
         # add document
-        docItem = self.AppendItem(self.GetRootItem(), title)
+        if index is None:
+            docItem = self.AppendItem(self.GetRootItem(), title)
+        else:
+            docItem = self.InsertItem(self.GetRootItem(), index, title)
         self.SetItemImage(docItem, docData.bulletIndex, wx.TreeItemIcon_Normal)
         self.SetItemData(docItem, docData)
 
@@ -1394,6 +1689,56 @@ class documentsTree(wx.TreeCtrl):
         item = self.getItemByData(data)
         if item:
             self.Delete(item)
+
+    # ----
+
+    def moveDocument(self, docData, index):
+        """Move document item to given position within the tree."""
+
+        # get current item
+        item = self.getItemByData(docData)
+        if not item:
+            return None
+
+        # the tree cannot move items, so the whole document is rebuilt from
+        # its data at the new position - only expansion has to be preserved
+        expanded = self._getExpandedItems(item)
+        self.Delete(item)
+        docItem = self.appendDocument(docData, index=index)
+        self._setExpandedItems(docItem, expanded)
+
+        return docItem
+
+    # ----
+
+    def _getExpandedItems(self, item, expanded=None):
+        """Get data of all expanded items in the branch."""
+
+        if expanded is None:
+            expanded = set()
+
+        if self.ItemHasChildren(item) and self.IsExpanded(item):
+            expanded.add(id(self.GetItemData(item)))
+
+        child, cookie = self.GetFirstChild(item)
+        while child.IsOk():
+            self._getExpandedItems(child, expanded)
+            child, cookie = self.GetNextChild(item, cookie)
+
+        return expanded
+
+    # ----
+
+    def _setExpandedItems(self, item, expanded):
+        """Expand items in the branch according to remembered data."""
+
+        if self.ItemHasChildren(item) and id(self.GetItemData(item)) in expanded:
+            self.Expand(item)
+
+        child, cookie = self.GetFirstChild(item)
+        while child.IsOk():
+            self._setExpandedItems(child, expanded)
+            child, cookie = self.GetNextChild(item, cookie)
 
     # ----
 

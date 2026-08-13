@@ -287,6 +287,19 @@ def cmp(a, b):
                 return (str(a) > str(b)) - (str(a) < str(b))
 
 
+def shiftIndex(index, fromIndex, toIndex):
+    """Get new position of an item after another item was moved in a list."""
+
+    if index == fromIndex:
+        return toIndex
+    elif fromIndex < index <= toIndex:
+        return index - 1
+    elif toIndex <= index < fromIndex:
+        return index + 1
+    else:
+        return index
+
+
 def _isBrukerFID(path):
     """Tell whether a path is a Bruker acquisition rather than a stray 'fid'.
 
