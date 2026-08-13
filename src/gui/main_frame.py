@@ -151,6 +151,13 @@ class mainFrame(wx.Frame):
 
         self.processingDocumentQueue = False
         self.tmpDocumentQueue = []
+
+        # batched document loading (see beginBatchDocumentLoad)
+        self.batchDocumentLoad = 0
+        self.batchDocumentLoaded = False
+        self.batchDocumentSelect = False
+        self.batchGauge = None
+
         self.tmpScanlist = None
         self.tmpSequenceList = None
         self.tmpLibrarySaved = None
@@ -1493,20 +1500,146 @@ class mainFrame(wx.Frame):
 
     # DOCUMENT
 
-    def onDocumentLoaded(self, select=True):
-        """Update GUI after document loaded."""
+    def beginBatchDocumentLoad(self):
+        """Defer the per-document GUI updates until the whole batch is loaded.
 
-        # clear visibility history
-        self.documentsSoloCurrent = None
-        self.documentsSoloPrevious = {}
+        Every onDocumentLoaded() redraws the spectrum canvas (which draws all
+        visible spectra), selects the new document and re-feeds all open tool
+        panels. Doing that once per document makes opening N spectra cost
+        O(N^2) - each additional document is slower than the one before. While
+        a batch is open the documents are only parsed and appended, and the
+        display work is done once in endBatchDocumentLoad().
 
-        # append document
-        self.spectrumPanel.appendLastSpectrum()
-        self.documentsPanel.appendLastDocument()
+        Calls nest; each begin must be matched by an end.
+        """
 
-        # select document
-        if select:
-            self.documentsPanel.selectDocument(-1)
+        self.batchDocumentLoad += 1
+        if self.batchDocumentLoad == 1:
+            self.batchDocumentLoaded = False
+            self.batchDocumentSelect = False
+            self.documentsPanel.Freeze()
+
+    # ----
+
+    def endBatchDocumentLoad(self):
+        """Do the deferred GUI updates for a batch of loaded documents."""
+
+        if not self.batchDocumentLoad:
+            return
+
+        self.batchDocumentLoad -= 1
+        if self.batchDocumentLoad:
+            return
+
+        loaded = self.batchDocumentLoaded
+        select = self.batchDocumentSelect
+        self.batchDocumentLoaded = False
+        self.batchDocumentSelect = False
+
+        try:
+            self.documentsPanel.Thaw()
+
+            # nothing was loaded, the display is unchanged
+            if not loaded:
+                return
+
+            # keep the gauge up while the spectra are drawn
+            if self.batchGauge is not None:
+                self.batchGauge.setLabel("Displaying spectra...")
+
+            # select the last document (canvas is redrawn below)
+            if select:
+                self.documentsPanel.selectDocument(-1)
+
+            # single redraw for the whole batch
+            self.spectrumPanel.refresh(fullsize=True)
+
+            # update the tool panels once
+            self.updateDocumentsInPanels()
+        finally:
+            self.closeBatchGauge()
+
+    # ----
+
+    def showReadingGauge(self, label):
+        """Show the progress gauge used while a document is being read.
+
+        Within a batch the same gauge is reused for all the documents:
+        creating and destroying a dialog per document costs far more than
+        reading a typical spectrum file.
+        """
+
+        # reuse the batch gauge
+        if self.batchDocumentLoad:
+            if self.batchGauge is None:
+                self.batchGauge = mwx.gaugePanel(self, label)
+                self.batchGauge.show()
+            else:
+                self.batchGauge.setLabel(label)
+            return self.batchGauge
+
+        # own gauge for a single document
+        gauge = mwx.gaugePanel(self, label)
+        gauge.show()
+        return gauge
+
+    # ----
+
+    def waitForParser(self, process, gauge):
+        """Wait for a parser thread while animating the progress gauge.
+
+        The gauge is pulsed at a fixed interval (50 ms), which is fine for a
+        long parse but is pure overhead for a small file read in a few
+        milliseconds - and it is paid once per document when a batch is
+        opened. A short join first lets quick parses finish without a tick.
+        """
+
+        process.join(0.01)
+        while process.is_alive():
+            gauge.pulse()
+
+    # ----
+
+    def hideReadingGauge(self, gauge):
+        """Close a gauge made by showReadingGauge, keeping the batch one."""
+
+        if gauge is not None and gauge is not self.batchGauge:
+            gauge.close()
+
+    # ----
+
+    def closeBatchGauge(self):
+        """Close the shared batch gauge.
+
+        Called at the end of a batch and before any dialog, so that the modal
+        gauge never sits on top of a message box or the scan picker. The next
+        showReadingGauge() call makes a new one.
+        """
+
+        if self.batchGauge is not None:
+            gauge = self.batchGauge
+            self.batchGauge = None
+            gauge.close()
+
+    # ----
+
+    def makeReadingLabel(self, progress=None, scan=None):
+        """Make the progress gauge label for a document being read."""
+
+        # which file of a multi-file batch
+        if progress:
+            return "Reading document %d of %d..." % progress
+
+        # which scan of a multiscan file
+        if scan:
+            return "Reading scan %d of %d..." % scan
+
+        return "Reading data..."
+
+    # ----
+
+    def updateDocumentsInPanels(self):
+        """Tell the open tool panels that the document list has changed."""
 
         # update compare panel
         if self.comparePeaklistsPanel:
@@ -1519,6 +1652,32 @@ class mainFrame(wx.Frame):
         # update mass defect plot panel
         if self.massDefectPlotPanel:
             self.massDefectPlotPanel.updateDocuments()
+
+    # ----
+
+    def onDocumentLoaded(self, select=True):
+        """Update GUI after document loaded."""
+
+        # clear visibility history
+        self.documentsSoloCurrent = None
+        self.documentsSoloPrevious = {}
+
+        # append document (redrawing the canvas is deferred within a batch)
+        self.spectrumPanel.appendLastSpectrum(refresh=not self.batchDocumentLoad)
+        self.documentsPanel.appendLastDocument()
+
+        # remember what the batch has to do once all documents are in
+        if self.batchDocumentLoad:
+            self.batchDocumentLoaded = True
+            self.batchDocumentSelect = self.batchDocumentSelect or select
+            return
+
+        # select document
+        if select:
+            self.documentsPanel.selectDocument(-1)
+
+        # update tool panels
+        self.updateDocumentsInPanels()
 
     # ----
 
@@ -4796,18 +4955,36 @@ class mainFrame(wx.Frame):
         if self.processingDocumentQueue:
             return
 
-        # process all files in queue
+        # opening several files at once is batched: the spectra are all read
+        # first and the display is updated once at the end, so the last file
+        # opens as fast as the first
         self.processingDocumentQueue = True
-        while self.tmpDocumentQueue:
-            self.importDocument(path=self.tmpDocumentQueue[0])
+        total = len(self.tmpDocumentQueue)
+        batch = total > 1
+        if batch:
+            self.beginBatchDocumentLoad()
 
-        # release processing flag
-        self.processingDocumentQueue = False
+        # process all files in queue
+        try:
+            index = 0
+            while self.tmpDocumentQueue:
+                index += 1
+                progress = (index, total) if batch else None
+                self.importDocument(path=self.tmpDocumentQueue[0], progress=progress)
+        finally:
+            # show the loaded documents and release processing flag
+            if batch:
+                self.endBatchDocumentLoad()
+            self.processingDocumentQueue = False
 
     # ----
 
-    def importDocument(self, path):
-        """Open document."""
+    def importDocument(self, path, progress=None):
+        """Open document.
+
+        progress is an optional (index, total) pair used to show which file of
+        a multi-file batch is being read.
+        """
 
         # remove path from queue
         if path in self.tmpDocumentQueue:
@@ -4824,6 +5001,7 @@ class mainFrame(wx.Frame):
             config.main["lastDir"] = mwx.saveDialogDir(path, config.main["lastDir"])
         else:
             wx.Bell()
+            self.closeBatchGauge()
             dlg = mwx.dlgMessage(
                 self,
                 title="Document doesn't exist.",
@@ -4837,6 +5015,7 @@ class mainFrame(wx.Frame):
         docType = self.getDocumentType(path)
         if not docType:
             wx.Bell()
+            self.closeBatchGauge()
             dlg = mwx.dlgMessage(
                 self,
                 title="Unable to open the document.",
@@ -4846,7 +5025,7 @@ class mainFrame(wx.Frame):
             dlg.Destroy()
             return
 
-        # import sequences from FASTA
+        # import sequences from FASTA (its own dialogs, no gauge)
         if docType == "FASTA":
             self.onSequenceImport(path=path)
             return
@@ -4873,31 +5052,44 @@ class mainFrame(wx.Frame):
             if not scans:
                 return
 
+        # picking several scans from one file is a batch as well
+        batch = len(scans) > 1
+        if batch:
+            self.beginBatchDocumentLoad()
+
+        # init processing gauge (shared by all scans and, in a batch, by all
+        # the files being opened)
+        gauge = self.showReadingGauge(self.makeReadingLabel(progress))
+
         # open document
         status = True
-        for scan in scans:
-            before = len(self.documents)
+        try:
+            for i, scan in enumerate(scans):
+                before = len(self.documents)
 
-            # init processing gauge
-            gauge = mwx.gaugePanel(self, "Reading data...")
-            gauge.show()
+                # count files in a multi-file batch, scans otherwise
+                if batch:
+                    gauge.setLabel(
+                        self.makeReadingLabel(progress, scan=(i + 1, len(scans)))
+                    )
 
-            # load document
-            process = threading.Thread(
-                target=self.runDocumentParser,
-                kwargs={"path": path, "docType": docType, "scan": scan},
-            )
-            process.start()
-            while process.is_alive():
-                gauge.pulse()
-            if before < len(self.documents):
-                self.onDocumentLoaded(select=True)
-                status *= True
-            else:
-                status *= False
-
-            # close processing gauge
-            gauge.close()
+                # load document
+                process = threading.Thread(
+                    target=self.runDocumentParser,
+                    kwargs={"path": path, "docType": docType, "scan": scan},
+                )
+                process.start()
+                self.waitForParser(process, gauge)
+                if before < len(self.documents):
+                    self.onDocumentLoaded(select=True)
+                    status *= True
+                else:
+                    status *= False
+        finally:
+            # close processing gauge and show the loaded scans
+            self.hideReadingGauge(gauge)
+            if batch:
+                self.endBatchDocumentLoad()
 
         # update recent files
         if status:
@@ -4906,6 +5098,7 @@ class mainFrame(wx.Frame):
         # processing failed
         if not status:
             wx.Bell()
+            self.closeBatchGauge()
             dlg = mwx.dlgMessage(
                 self,
                 title="Unable to open the document.",
@@ -5237,19 +5430,21 @@ class mainFrame(wx.Frame):
         self.tmpScanlist = None
 
         # get scan list
-        gauge = mwx.gaugePanel(self, "Gathering scan list...")
-        gauge.show()
-        process = threading.Thread(
-            target=self.getDocumentScanList, kwargs={"path": path, "docType": docType}
-        )
-        process.start()
-        while process.is_alive():
-            gauge.pulse()
-        gauge.close()
+        gauge = self.showReadingGauge("Gathering scan list...")
+        try:
+            process = threading.Thread(
+                target=self.getDocumentScanList,
+                kwargs={"path": path, "docType": docType},
+            )
+            process.start()
+            self.waitForParser(process, gauge)
+        finally:
+            self.hideReadingGauge(gauge)
 
         # unable to load scan list
         if not self.tmpScanlist:
             wx.Bell()
+            self.closeBatchGauge()
             dlg = mwx.dlgMessage(
                 self,
                 title="Unable to open the document.",
@@ -5277,6 +5472,8 @@ class mainFrame(wx.Frame):
 
         # select scans to open
         if len(self.tmpScanlist) > 1:
+            # the batch gauge is modal and stays on top, so it must go first
+            self.closeBatchGauge()
             dlg = dlgSelectScans(self, self.tmpScanlist)
             if dlg.ShowModal() == wx.ID_OK:
                 selected = dlg.selected
@@ -5426,19 +5623,19 @@ class mainFrame(wx.Frame):
 
         before = len(self.documents)
 
-        # init processing gauge
-        gauge = mwx.gaugePanel(self, "Reading data...")
-        gauge.show()
+        # init processing gauge (shared within a batch)
+        gauge = self.showReadingGauge(self.makeReadingLabel())
 
         # load document in a thread
-        process = threading.Thread(
-            target=self.runChromatogramParser,
-            kwargs={"path": path, "docType": docType, "scanlist": scanlist},
-        )
-        process.start()
-        while process.is_alive():
-            gauge.pulse()
-        gauge.close()
+        try:
+            process = threading.Thread(
+                target=self.runChromatogramParser,
+                kwargs={"path": path, "docType": docType, "scanlist": scanlist},
+            )
+            process.start()
+            self.waitForParser(process, gauge)
+        finally:
+            self.hideReadingGauge(gauge)
 
         # check result
         if before < len(self.documents):
@@ -5446,6 +5643,7 @@ class mainFrame(wx.Frame):
             return True
 
         wx.Bell()
+        self.closeBatchGauge()
         dlg = mwx.dlgMessage(
             self,
             title="Unable to open the document.",
@@ -5634,29 +5832,38 @@ class mainFrame(wx.Frame):
         if not selected:
             return
 
-        # open each selected scan as its own single-spectrum document
+        # open each selected scan as its own single-spectrum document, showing
+        # them all at once when they are read (see beginBatchDocumentLoad)
         status = True
-        for scan in selected:
-            before = len(self.documents)
+        batch = len(selected) > 1
+        if batch:
+            self.beginBatchDocumentLoad()
 
-            gauge = mwx.gaugePanel(self, "Reading data...")
-            gauge.show()
-            process = threading.Thread(
-                target=self.runDocumentParser,
-                kwargs={
-                    "path": document.path,
-                    "docType": document.format,
-                    "scan": scan,
-                },
-            )
-            process.start()
-            while process.is_alive():
-                gauge.pulse()
-            if before < len(self.documents):
-                self.onDocumentLoaded(select=True)
-            else:
-                status = False
-            gauge.close()
+        gauge = self.showReadingGauge(self.makeReadingLabel())
+        try:
+            for i, scan in enumerate(selected):
+                before = len(self.documents)
+
+                if batch:
+                    gauge.setLabel(self.makeReadingLabel(scan=(i + 1, len(selected))))
+                process = threading.Thread(
+                    target=self.runDocumentParser,
+                    kwargs={
+                        "path": document.path,
+                        "docType": document.format,
+                        "scan": scan,
+                    },
+                )
+                process.start()
+                self.waitForParser(process, gauge)
+                if before < len(self.documents):
+                    self.onDocumentLoaded(select=True)
+                else:
+                    status = False
+        finally:
+            self.hideReadingGauge(gauge)
+            if batch:
+                self.endBatchDocumentLoad()
 
         if not status:
             wx.Bell()
