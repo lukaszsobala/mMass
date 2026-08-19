@@ -16,6 +16,7 @@
 # -------------------------------------------------------------------------
 
 # load libs
+import os
 import threading
 import wx
 import wx.grid
@@ -24,6 +25,8 @@ import wx.grid
 from . import mwx
 from . import images
 from . import config
+from . import alignment
+from .dlg_export_alignment import dlgExportAlignment, separatorValue
 from .mixins import MakeModalMixin
 import mspy
 
@@ -31,18 +34,9 @@ import mspy
 # ------------------------------------------
 
 
-def _peak_intensity(peak_obj):
-    """Return best intensity for proportional fill: envelope area first, then ai-base."""
-    envelope = None
-    if hasattr(peak_obj, 'attributes'):
-        envelope = peak_obj.attributes.get('envelope')
-    if envelope:
-        area = envelope.get('area')
-        if area and area > 0:
-            return float(area)
-    ai = getattr(peak_obj, 'ai', 0.0)
-    base = getattr(peak_obj, 'base', 0.0)
-    return max(0.0, float(ai) - float(base))
+# proportional cell fill and the aligned table have to agree on how intense a
+# peak is, or the widest bar in a group would not be the peak the export picks
+_peak_intensity = alignment.peakIntensity
 
 
 # no edge at all, i.e. a cell that is not part of a group outline
@@ -348,6 +342,11 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         )
         self.consensus_butt.Bind(wx.EVT_BUTTON, self.onConsensus)
 
+        self.export_butt = wx.Button(
+            panel, -1, "Export Table...", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
+        )
+        self.export_butt.Bind(wx.EVT_BUTTON, self.onExportAlignment)
+
         self.onRatioCheckChanged()
 
         # pack elements
@@ -371,7 +370,8 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         sizer.Add(self.ratioThreshold_value, 0, wx.ALIGN_CENTER_VERTICAL)
         sizer.AddStretchSpacer()
         sizer.AddSpacer(20)
-        sizer.Add(self.consensus_butt, 0, wx.ALIGN_CENTER_VERTICAL)
+        sizer.Add(self.consensus_butt, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 10)
+        sizer.Add(self.export_butt, 0, wx.ALIGN_CENTER_VERTICAL)
         sizer.AddSpacer(mwx.CONTROLBAR_RSPACE)
 
         mainSizer = wx.BoxSizer(wx.VERTICAL)
@@ -782,6 +782,116 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
 
     # ----
 
+    def _alignmentGroups(self):
+        """Matched peaks as groups of (documentIndex, mz, peak).
+
+        Built from the very spans that are outlined in the grid, so the table
+        that leaves the tool holds the same groups the user was looking at when
+        they asked for it.
+        """
+
+        groups = []
+
+        for start, end in self._peakGroups():
+            group = []
+            for row in self.currentPeaklist[start : end + 1]:
+                # row is [mz, documentIndex, charge, intensity, matches, peak, document]
+                group.append((row[1], row[0], row[5]))
+            groups.append(group)
+
+        return groups
+
+    # ----
+
+    def onExportAlignment(self, evt):
+        """Export the matched peaks as one aligned table."""
+
+        # check processing
+        if self.processing:
+            return
+
+        # check data
+        if not self.currentDocuments or not self.currentPeaklist:
+            wx.Bell()
+            return
+
+        groups = self._alignmentGroups()
+
+        # get columns
+        dlg = dlgExportAlignment(
+            self, documents=len(self.currentDocuments), groups=len(groups)
+        )
+        if dlg.ShowModal() != wx.ID_OK:
+            dlg.Destroy()
+            return
+
+        destination = dlg.destination
+        dlg.Destroy()
+
+        # make the table
+        header, rows = alignment.buildAlignmentTable(
+            groups,
+            [getattr(document, "title", "") for document in self.currentDocuments],
+            statColumns=config.comparePeaklists["alignmentStats"],
+            peakColumns=config.comparePeaklists["alignmentColumns"],
+            duplicates=config.comparePeaklists["alignmentDuplicates"],
+        )
+
+        separator = separatorValue(config.comparePeaklists["alignmentSeparator"])
+        buff = alignment.formatTable(header, rows, separator=separator)
+
+        if destination == "clipboard":
+            obj = wx.TextDataObject()
+            obj.SetText(buff.rstrip())
+            if wx.TheClipboard.Open():
+                wx.TheClipboard.SetData(obj)
+                wx.TheClipboard.Close()
+            return
+
+        self.saveAlignment(buff, separator)
+
+    # ----
+
+    def saveAlignment(self, buff, separator):
+        """Ask for a path and write the aligned table there."""
+
+        if separator == ",":
+            fileName = "alignment.csv"
+            fileType = "CSV file|*.csv"
+        else:
+            fileName = "alignment.txt"
+            fileType = "ASCII file|*.txt"
+
+        # default next to the first of the compared documents
+        document = self.currentDocuments[0] if self.currentDocuments else None
+        exportDir = mwx.saveDialogDir(
+            getattr(document, "path", ""), config.main["lastDir"]
+        )
+
+        dlg = wx.FileDialog(
+            self,
+            "Export Alignment",
+            exportDir,
+            fileName,
+            fileType,
+            wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT,
+        )
+        if dlg.ShowModal() != wx.ID_OK:
+            dlg.Destroy()
+            return
+
+        path = dlg.GetPath()
+        config.main["lastDir"] = os.path.split(path)[0]
+        dlg.Destroy()
+
+        try:
+            with open(path, "wb") as f:
+                f.write(buff.encode("utf-8"))
+        except IOError:
+            wx.Bell()
+
+    # ----
+
     def onPeaklistCellSelected(self, evt):
         """Show more info for selected cell."""
 
@@ -1058,6 +1168,7 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         # show processing gauge
         self.onProcessing(True, quiet=quiet)
         self.consensus_butt.Enable(False)
+        self.export_butt.Enable(False)
 
         # do processing to get peaklists
         self.processing = threading.Thread(target=self.runGetPeaklists)
@@ -1097,6 +1208,7 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         # hide processing gauge
         self.onProcessing(False, quiet=quiet)
         self.consensus_butt.Enable(True)
+        self.export_butt.Enable(True)
 
         # give the caret back to the field being typed in
         self._restoreFocusState(focusState)
@@ -1135,6 +1247,7 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         # show processing gauge
         self.onProcessing(True)
         self.consensus_butt.Enable(False)
+        self.export_butt.Enable(False)
 
         # do processing to get peaklists
         self.processing = threading.Thread(target=self.runGetPeaklists)
@@ -1176,6 +1289,7 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         # hide processing gauge
         self.onProcessing(False)
         self.consensus_butt.Enable(True)
+        self.export_butt.Enable(True)
 
     # ----
 

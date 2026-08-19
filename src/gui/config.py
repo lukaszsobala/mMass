@@ -568,6 +568,10 @@ comparePeaklists = {
     "ratioCheck": 0,
     "ratioDirection": 1,
     "ratioThreshold": 2,
+    "alignmentStats": ["median", "mean", "min", "max", "range", "count", "duplicate"],
+    "alignmentColumns": ["mz", "int", "sn", "fwhm", "resol", "envarea", "envint"],
+    "alignmentDuplicates": "rows",
+    "alignmentSeparator": "tab",
 }
 
 spectrumGenerator = {
@@ -1013,6 +1017,11 @@ def loadConfig(path=os.path.join(confdir, "config.xml")):  # noqa: B008
     comparePeaklistsTags = document.getElementsByTagName("comparePeaklists")
     if comparePeaklistsTags:
         _getParams(comparePeaklistsTags[0], comparePeaklists)
+
+        for key in ("alignmentStats", "alignmentColumns"):
+            if not isinstance(comparePeaklists[key], list):
+                value = comparePeaklists[key]
+                comparePeaklists[key] = value.split(";") if value else []
 
     # spectrum generator
     spectrumGeneratorTags = document.getElementsByTagName("spectrumGenerator")
@@ -1772,6 +1781,18 @@ def saveConfig(path=os.path.join(confdir, "config.xml")):  # noqa: B008
     )
     buff += '    <param name="ratioThreshold" value="%f" type="float" />\n' % (
         comparePeaklists["ratioThreshold"]
+    )
+    buff += '    <param name="alignmentStats" value="%s" type="str" />\n' % (
+        ";".join(comparePeaklists["alignmentStats"])
+    )
+    buff += '    <param name="alignmentColumns" value="%s" type="str" />\n' % (
+        ";".join(comparePeaklists["alignmentColumns"])
+    )
+    buff += '    <param name="alignmentDuplicates" value="%s" type="str" />\n' % (
+        comparePeaklists["alignmentDuplicates"]
+    )
+    buff += '    <param name="alignmentSeparator" value="%s" type="str" />\n' % (
+        comparePeaklists["alignmentSeparator"]
     )
     buff += "  </comparePeaklists>\n\n"
 
