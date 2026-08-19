@@ -1917,6 +1917,12 @@ class mainFrame(wx.Frame):
         if not indexes:
             return
 
+        # drop anything out of range (a document may have been closed between
+        # the change and this deferred call)
+        indexes = [i for i in indexes if 0 <= i < len(self.documents)]
+        if not indexes:
+            return
+
         # set documents dirty
         for docIndex in indexes:
             self.documents[docIndex].dirty = True

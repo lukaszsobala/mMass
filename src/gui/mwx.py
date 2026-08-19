@@ -270,6 +270,31 @@ if UI_SCALE != 1.0:
     # (see the font-size note above).
 
 
+# breathing room on each side of a centred text column in a grid
+GRID_CELL_PADDING = 6
+
+
+def gridRowHeight(window, font, padding=6, minimum=19):
+    """A grid row height that actually fits the given font.
+
+    Grid row heights used to be a hardcoded 19 px. Raw pixel metrics like that
+    are not DPI-scaled (see the UI_SCALE note above) while the point-sized cell
+    font is scaled by the toolkit, so on Linux/HiDPI the text ended up taller
+    than its row and was clipped by the row edge. Measuring the font keeps the
+    two in step.
+    """
+
+    try:
+        dc = wx.ClientDC(window)
+    except Exception:
+        dc = wx.MemoryDC(wx.Bitmap(1, 1))
+
+    dc.SetFont(font)
+    height = dc.GetCharHeight()
+
+    return max(minimum, height + padding)
+
+
 def cmp(a, b):
     if a == b:
         return 0

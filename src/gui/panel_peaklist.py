@@ -1252,6 +1252,14 @@ class panelPeaklist(wx.Panel):
         # (see restoreEnvelopeSelection), which is the only place it is wanted.
         self.parent.updateTmpSpectrum(None)
 
+        # The isotope arrows are a second, independent overlay drawn straight
+        # into the canvas buffer and they survive a redraw, so clearing only the
+        # profile leaves the old envelope's arrows behind as an after-image
+        # (pointing at isotopes that were just re-fit or deleted). Drop them too;
+        # whoever re-selects a peak afterwards (incl. restoreEnvelopeSelection)
+        # draws them again from the fresh data.
+        self.parent.updateMassPoints(None)
+
         # check data
         if not self.currentDocument:
             self.peaksCount.SetLabel("")
