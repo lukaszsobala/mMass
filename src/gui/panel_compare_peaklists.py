@@ -16,6 +16,7 @@
 # -------------------------------------------------------------------------
 
 # load libs
+import os
 import threading
 import wx
 import wx.grid
@@ -24,6 +25,8 @@ import wx.grid
 from . import mwx
 from . import images
 from . import config
+from . import alignment
+from .dlg_export_alignment import dlgExportAlignment, separatorValue
 from .mixins import MakeModalMixin
 import mspy
 
@@ -31,29 +34,101 @@ import mspy
 # ------------------------------------------
 
 
-def _peak_intensity(peak_obj):
-    """Return best intensity for proportional fill: envelope area first, then ai-base."""
-    envelope = None
-    if hasattr(peak_obj, 'attributes'):
-        envelope = peak_obj.attributes.get('envelope')
-    if envelope:
-        area = envelope.get('area')
-        if area and area > 0:
-            return float(area)
-    ai = getattr(peak_obj, 'ai', 0.0)
-    base = getattr(peak_obj, 'base', 0.0)
-    return max(0.0, float(ai) - float(base))
+# proportional cell fill and the aligned table have to agree on how intense a
+# peak is, or the widest bar in a group would not be the peak the export picks
+_peak_intensity = alignment.peakIntensity
+
+
+# no edge at all, i.e. a cell that is not part of a group outline
+NO_BORDER = (False, False, False, False)
+
+# thickness of the group outline, in pixels
+BORDER_WIDTH = 2
+
+
+def _readableOn(colour):
+    """Black or white, whichever stays readable on the given background.
+
+    Used instead of a fixed colour so the same cell works in light and dark
+    mode and on top of any document colour.
+    """
+
+    if not colour.IsOk():
+        return wx.BLACK
+
+    luminance = (
+        0.299 * colour.Red() + 0.587 * colour.Green() + 0.114 * colour.Blue()
+    )
+
+    return wx.BLACK if luminance > 140 else wx.WHITE
+
+
+def _drawGroupBorder(dc, rect, colour, edges):
+    """Draw this cell's share of the outline around a group of matched peaks.
+
+    The outline is assembled cell by cell: the top and bottom row of a group
+    draw a horizontal edge across every column and the first and last column
+    draw the sides, which together box the whole block in. wxGrid's cell rect
+    already excludes the pixel the grid line goes in, so the edges can sit right
+    on the rect without being painted over afterwards.
+
+    The edges are filled bars rather than thick lines: a wide pen straddles the
+    coordinate it is given (and does so differently per platform), which would
+    push half of the outline outside the cell.
+    """
+
+    if colour is None or not any(edges):
+        return
+
+    top, bottom, left, right = edges
+    width = min(BORDER_WIDTH, rect.height, rect.width)
+
+    dc.SetBrush(wx.Brush(colour))
+    dc.SetPen(wx.TRANSPARENT_PEN)
+
+    if top:
+        dc.DrawRectangle(rect.x, rect.y, rect.width, width)
+    if bottom:
+        dc.DrawRectangle(
+            rect.x, rect.y + rect.height - width, rect.width, width
+        )
+    if left:
+        dc.DrawRectangle(rect.x, rect.y, width, rect.height)
+    if right:
+        dc.DrawRectangle(
+            rect.x + rect.width - width, rect.y, width, rect.height
+        )
+
+
+class _GroupBorderRenderer(wx.grid.GridCellStringRenderer):
+    """Ordinary text cell that also draws its share of the group outline."""
+
+    def __init__(self, borderColour=None, borderEdges=NO_BORDER):
+        super().__init__()
+        self._borderColour = borderColour
+        self._borderEdges = borderEdges
+
+    def Draw(self, grid, attr, dc, rect, row, col, isSelected):
+        super().Draw(grid, attr, dc, rect, row, col, isSelected)
+        _drawGroupBorder(dc, rect, self._borderColour, self._borderEdges)
+
+    def Clone(self):
+        return _GroupBorderRenderer(self._borderColour, self._borderEdges)
 
 
 class _IntensityFillRenderer(wx.grid.GridCellRenderer):
     """Fill a grid cell from the bottom proportionally to intensity."""
 
-    def __init__(self, colour, fraction):
+    def __init__(
+        self, colour, fraction, borderColour=None, borderEdges=NO_BORDER
+    ):
         super().__init__()
         if isinstance(colour, (list, tuple)):
             colour = wx.Colour(*colour)
         self._colour = colour
         self._fraction = max(0.0, min(1.0, fraction))
+        self._borderColour = borderColour
+        self._borderEdges = borderEdges
 
     def Draw(self, grid, attr, dc, rect, row, col, isSelected):
         if isSelected:
@@ -64,7 +139,8 @@ class _IntensityFillRenderer(wx.grid.GridCellRenderer):
         dc.SetPen(wx.TRANSPARENT_PEN)
         dc.DrawRectangle(rect)
 
-        if self._fraction > 0.0 and self._colour.IsOk():
+        filled = self._fraction > 0.0 and self._colour.IsOk()
+        if filled:
             fillHeight = max(1, int(round(rect.height * self._fraction)))
             fillRect = wx.Rect(
                 rect.x,
@@ -77,20 +153,38 @@ class _IntensityFillRenderer(wx.grid.GridCellRenderer):
 
         value = grid.GetCellValue(row, col)
         if value:
-            dc.SetFont(attr.GetFont() if attr.HasFont() else grid.GetFont())
-            textColour = wx.BLACK if not isSelected else grid.GetSelectionForeground()
+            # GetFont() is the window font, not the cell font, so the mark
+            # would not follow SetDefaultCellFont
+            dc.SetFont(
+                attr.GetFont() if attr.HasFont() else grid.GetDefaultCellFont()
+            )
+            if isSelected:
+                textColour = grid.GetSelectionForeground()
+            else:
+                # the label is centred, so it lands on the fill only once that
+                # reaches halfway up; picking the colour from whatever is
+                # actually behind it keeps it readable in dark mode too
+                behind = self._colour if (filled and self._fraction >= 0.5) else bgColour
+                textColour = _readableOn(behind)
             dc.SetTextForeground(textColour)
             dc.DrawLabel(value, rect, wx.ALIGN_CENTER | wx.ALIGN_CENTER_VERTICAL)
 
+        _drawGroupBorder(dc, rect, self._borderColour, self._borderEdges)
+
     def GetBestSize(self, grid, attr, dc, row, col):
-        return wx.Size(20, 19)
+        return wx.Size(20, grid.GetDefaultRowSize())
 
     def Clone(self):
-        return _IntensityFillRenderer(self._colour, self._fraction)
+        return _IntensityFillRenderer(
+            self._colour, self._fraction, self._borderColour, self._borderEdges
+        )
 
 
 class panelComparePeaklists(wx.Frame, MakeModalMixin):
     """Compare peaklists tool."""
+
+    # how long typing has to pause before the peaks are re-grouped
+    COMPARE_DELAY = 500
 
     def __init__(self, parent):
         wx.Frame.__init__(
@@ -112,8 +206,16 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
 
         self._maxSize = 0
 
+        # debounced re-compare: the numeric fields re-group the peaks on their
+        # own a moment after typing stops, so no Enter / extra click is needed
+        self._lastCompareSnapshot = None
+        self._guiReady = False
+        self._compareTimer = wx.Timer(self)
+        self.Bind(wx.EVT_TIMER, self.onCompareTimer, self._compareTimer)
+
         # make gui items
         self.makeGUI()
+        self._guiReady = True
         self.Bind(wx.EVT_CLOSE, self.onClose)
 
         # apply dark mode
@@ -190,6 +292,7 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
             validator=mwx.validator("floatPos"),
         )
         self.tolerance_value.Bind(wx.EVT_TEXT_ENTER, self.onCompare)
+        self.tolerance_value.Bind(wx.EVT_TEXT, self.onCompareValueTyped)
 
         self.unitsDa_radio = wx.RadioButton(panel, -1, "Da", style=wx.RB_GROUP)
         self.unitsDa_radio.SetFont(wx.SMALL_FONT)
@@ -232,11 +335,17 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
             validator=mwx.validator("floatPos"),
         )
         self.ratioThreshold_value.Bind(wx.EVT_TEXT_ENTER, self.onCompare)
+        self.ratioThreshold_value.Bind(wx.EVT_TEXT, self.onCompareValueTyped)
 
         self.consensus_butt = wx.Button(
             panel, -1, "Consensus", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
         )
         self.consensus_butt.Bind(wx.EVT_BUTTON, self.onConsensus)
+
+        self.export_butt = wx.Button(
+            panel, -1, "Export Table...", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
+        )
+        self.export_butt.Bind(wx.EVT_BUTTON, self.onExportAlignment)
 
         self.onRatioCheckChanged()
 
@@ -261,7 +370,8 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         sizer.Add(self.ratioThreshold_value, 0, wx.ALIGN_CENTER_VERTICAL)
         sizer.AddStretchSpacer()
         sizer.AddSpacer(20)
-        sizer.Add(self.consensus_butt, 0, wx.ALIGN_CENTER_VERTICAL)
+        sizer.Add(self.consensus_butt, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 10)
+        sizer.Add(self.export_butt, 0, wx.ALIGN_CENTER_VERTICAL)
         sizer.AddSpacer(mwx.CONTROLBAR_RSPACE)
 
         mainSizer = wx.BoxSizer(wx.VERTICAL)
@@ -304,6 +414,13 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         label_bg = wx.Colour(45, 45, 45) if dark else wx.Colour(245, 245, 245)
         grid_line = wx.Colour(70, 70, 70) if dark else wx.Colour(220, 220, 220)
 
+        # the group outline has to stand clear of the grid lines AND stay
+        # visible on top of a document colour fill, so it is deliberately much
+        # stronger than grid_line in both themes
+        self._groupBorderColour = (
+            wx.Colour(190, 190, 190) if dark else wx.Colour(60, 60, 60)
+        )
+
         # make table
         self.peaklistGrid = wx.grid.Grid(
             panel, -1, size=wx.Size(225, 400), style=mwx.GRID_STYLE
@@ -312,15 +429,16 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         self.peaklistGrid.SetSelectionMode(wx.grid.Grid.GridSelectRows)
         self.peaklistGrid.DisableDragColSize()
         self.peaklistGrid.DisableDragRowSize()
-        self.peaklistGrid.SetColLabelSize(19)
+        rowHeight = mwx.gridRowHeight(self.peaklistGrid, wx.SMALL_FONT)
+        self.peaklistGrid.SetColLabelSize(rowHeight)
         self.peaklistGrid.SetRowLabelSize(0)
-        self.peaklistGrid.SetDefaultRowSize(19)
+        self.peaklistGrid.SetDefaultRowSize(rowHeight)
         self.peaklistGrid.AutoSizeColumns(True)
         self.peaklistGrid.SetLabelFont(wx.SMALL_FONT)
         self.peaklistGrid.SetLabelBackgroundColour(label_bg)
         self.peaklistGrid.SetLabelTextColour(cell_fg)
         self.peaklistGrid.SetDefaultCellFont(wx.SMALL_FONT)
-        self.peaklistGrid.SetDefaultCellAlignment(wx.ALIGN_RIGHT, wx.ALIGN_TOP)
+        self.peaklistGrid.SetDefaultCellAlignment(wx.ALIGN_CENTER, wx.ALIGN_CENTER)
         self.peaklistGrid.SetDefaultCellBackgroundColour(cell_bg)
         self.peaklistGrid.SetDefaultCellTextColour(cell_fg)
         self.peaklistGrid.EnableGridLines(True)
@@ -349,15 +467,16 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         self.matchesGrid.CreateGrid(0, 0)
         self.matchesGrid.DisableDragColSize()
         self.matchesGrid.DisableDragRowSize()
-        self.matchesGrid.SetColLabelSize(19)
+        rowHeight = mwx.gridRowHeight(self.matchesGrid, wx.SMALL_FONT)
+        self.matchesGrid.SetColLabelSize(rowHeight)
         self.matchesGrid.SetRowLabelSize(0)
-        self.matchesGrid.SetDefaultRowSize(19)
+        self.matchesGrid.SetDefaultRowSize(rowHeight)
         self.matchesGrid.AutoSizeColumns(True)
         self.matchesGrid.SetLabelFont(wx.SMALL_FONT)
         self.matchesGrid.SetLabelBackgroundColour(label_bg)
         self.matchesGrid.SetLabelTextColour(cell_fg)
         self.matchesGrid.SetDefaultCellFont(wx.SMALL_FONT)
-        self.matchesGrid.SetDefaultCellAlignment(wx.ALIGN_RIGHT, wx.ALIGN_TOP)
+        self.matchesGrid.SetDefaultCellAlignment(wx.ALIGN_CENTER, wx.ALIGN_CENTER)
         self.matchesGrid.SetDefaultCellBackgroundColour(cell_bg)
         self.matchesGrid.SetDefaultCellTextColour(cell_fg)
         self.matchesGrid.EnableGridLines(True)
@@ -407,12 +526,166 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
             return
 
         # close self
+        self._compareTimer.Stop()
         self.Destroy()
 
     # ----
 
-    def onProcessing(self, status=True):
+    def _compareSnapshot(self):
+        """The settings that decide the grouping, used to spot real changes."""
+
+        return (
+            self.tolerance_value.GetValue().strip(),
+            self.unitsPpm_radio.GetValue(),
+            self.ignoreCharge_check.GetValue(),
+            self.ratioCheck_check.GetValue(),
+            self.ratioDirection_choice.GetStringSelection(),
+            self.ratioThreshold_value.GetValue().strip(),
+        )
+
+    # ----
+
+    def _compareValuesReady(self):
+        """True when the typed numbers are usable for grouping.
+
+        A half-typed value ("", "0", "0.") is not an instruction to group
+        everything into one bucket, it is a value the user is still writing, so
+        it is ignored and the current results are left alone until it makes
+        sense again.
+        """
+
+        try:
+            if float(self.tolerance_value.GetValue()) <= 0:
+                return False
+        except ValueError:
+            return False
+
+        if self.ratioCheck_check.GetValue():
+            try:
+                if float(self.ratioThreshold_value.GetValue()) <= 0:
+                    return False
+            except ValueError:
+                return False
+
+        return True
+
+    # ----
+
+    def _waitForProcessing(self, quiet=False):
+        """Block until the worker thread is done.
+
+        The visible path pulses the gauge, which yields to the event loop so the
+        Stop button stays live. The quiet path has no gauge and no Stop button,
+        so it just waits: keystrokes typed meanwhile queue up instead of being
+        swallowed by the yield, and the caret does not move.
+        """
+
+        while self.processing and self.processing.is_alive():
+            if quiet:
+                self.processing.join(0.02)
+            else:
+                self.gauge.pulse()
+
+    # ----
+
+    def _grabFocusState(self):
+        """Remember the caret in a numeric field before a refresh disables it.
+
+        The refresh puts the whole frame behind a wx.WindowDisabler (see
+        onProcessing / MakeModalMixin), which drops the keyboard focus, so a
+        field the user is still typing in loses its caret. Only our own two
+        numeric fields are tracked -- the grids look after their own focus.
+        """
+
+        focus = wx.Window.FindFocus()
+        if focus not in (self.tolerance_value, self.ratioThreshold_value):
+            return None
+
+        try:
+            return (focus, focus.GetInsertionPoint(), focus.GetSelection())
+        except RuntimeError:
+            return None
+
+    # ----
+
+    def _restoreFocusState(self, state):
+        """Put the caret back where _grabFocusState found it."""
+
+        if state is None:
+            return
+
+        ctrl, insertion, selection = state
+
+        def restore():
+            try:
+                ctrl.SetFocus()
+                ctrl.SetInsertionPoint(insertion)
+                if selection[0] != selection[1]:
+                    ctrl.SetSelection(selection[0], selection[1])
+            except RuntimeError:
+                # the field went away with the frame
+                pass
+
+        # once now, and once more after the grid's own deferred scrolling has
+        # run, so nothing that is still queued can take the focus back
+        restore()
+        wx.CallAfter(restore)
+
+    # ----
+
+    def onCompareValueTyped(self, evt=None):
+        """A numeric field was typed in: (re)arm the debounced re-compare."""
+
+        if evt is not None:
+            evt.Skip()
+
+        # the controls the check reads are not all built yet
+        if not self._guiReady:
+            return
+
+        # nothing usable typed (yet) - keep the current results on screen
+        if not self._compareValuesReady():
+            self._compareTimer.Stop()
+            return
+
+        # restart the countdown, so it only fires once typing settles
+        self._compareTimer.Start(self.COMPARE_DELAY, oneShot=wx.TIMER_ONE_SHOT)
+
+    # ----
+
+    def onCompareTimer(self, evt=None):
+        """Typing has settled: re-group the peaks if anything actually changed."""
+
+        if not self._compareValuesReady():
+            return
+
+        # a compare is already running - come back once it is done
+        if self.processing:
+            self._compareTimer.Start(self.COMPARE_DELAY, oneShot=wx.TIMER_ONE_SHOT)
+            return
+
+        if self._compareSnapshot() == self._lastCompareSnapshot:
+            return
+
+        # quiet: this was not asked for by a click, so it must not steal the
+        # focus, the caret or the keystrokes still coming in
+        self.onCompare(None, quiet=True)
+
+    # ----
+
+    def onProcessing(self, status=True, quiet=False):
         """Show processing gauge."""
+
+        # A debounced auto-refresh runs quietly. The normal path puts the whole
+        # frame behind a wx.WindowDisabler and pumps events through
+        # wx.SafeYield(), which drops the focus and swallows keystrokes -- fine
+        # for a button the user just pressed, not for a field they are still
+        # typing in. It also resizes the frame to fit the gauge in and out.
+        if quiet:
+            if not status:
+                self.processing = None
+                mspy.start()
+            return
 
         self.gauge.SetValue(0)
 
@@ -509,6 +782,116 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
 
     # ----
 
+    def _alignmentGroups(self):
+        """Matched peaks as groups of (documentIndex, mz, peak).
+
+        Built from the very spans that are outlined in the grid, so the table
+        that leaves the tool holds the same groups the user was looking at when
+        they asked for it.
+        """
+
+        groups = []
+
+        for start, end in self._peakGroups():
+            group = []
+            for row in self.currentPeaklist[start : end + 1]:
+                # row is [mz, documentIndex, charge, intensity, matches, peak, document]
+                group.append((row[1], row[0], row[5]))
+            groups.append(group)
+
+        return groups
+
+    # ----
+
+    def onExportAlignment(self, evt):
+        """Export the matched peaks as one aligned table."""
+
+        # check processing
+        if self.processing:
+            return
+
+        # check data
+        if not self.currentDocuments or not self.currentPeaklist:
+            wx.Bell()
+            return
+
+        groups = self._alignmentGroups()
+
+        # get columns
+        dlg = dlgExportAlignment(
+            self, documents=len(self.currentDocuments), groups=len(groups)
+        )
+        if dlg.ShowModal() != wx.ID_OK:
+            dlg.Destroy()
+            return
+
+        destination = dlg.destination
+        dlg.Destroy()
+
+        # make the table
+        header, rows = alignment.buildAlignmentTable(
+            groups,
+            [getattr(document, "title", "") for document in self.currentDocuments],
+            statColumns=config.comparePeaklists["alignmentStats"],
+            peakColumns=config.comparePeaklists["alignmentColumns"],
+            duplicates=config.comparePeaklists["alignmentDuplicates"],
+        )
+
+        separator = separatorValue(config.comparePeaklists["alignmentSeparator"])
+        buff = alignment.formatTable(header, rows, separator=separator)
+
+        if destination == "clipboard":
+            obj = wx.TextDataObject()
+            obj.SetText(buff.rstrip())
+            if wx.TheClipboard.Open():
+                wx.TheClipboard.SetData(obj)
+                wx.TheClipboard.Close()
+            return
+
+        self.saveAlignment(buff, separator)
+
+    # ----
+
+    def saveAlignment(self, buff, separator):
+        """Ask for a path and write the aligned table there."""
+
+        if separator == ",":
+            fileName = "alignment.csv"
+            fileType = "CSV file|*.csv"
+        else:
+            fileName = "alignment.txt"
+            fileType = "ASCII file|*.txt"
+
+        # default next to the first of the compared documents
+        document = self.currentDocuments[0] if self.currentDocuments else None
+        exportDir = mwx.saveDialogDir(
+            getattr(document, "path", ""), config.main["lastDir"]
+        )
+
+        dlg = wx.FileDialog(
+            self,
+            "Export Alignment",
+            exportDir,
+            fileName,
+            fileType,
+            wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT,
+        )
+        if dlg.ShowModal() != wx.ID_OK:
+            dlg.Destroy()
+            return
+
+        path = dlg.GetPath()
+        config.main["lastDir"] = os.path.split(path)[0]
+        dlg.Destroy()
+
+        try:
+            with open(path, "wb") as f:
+                f.write(buff.encode("utf-8"))
+        except IOError:
+            wx.Bell()
+
+    # ----
+
     def onPeaklistCellSelected(self, evt):
         """Show more info for selected cell."""
 
@@ -577,13 +960,20 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
 
             for row in selectedRows:
                 p_info = self.currentPeaklist[row]
-                docIndex = p_info[1]
                 item = p_info[5]
                 document = p_info[6]
+
+                # NOTE: p_info[1] indexes self.currentDocuments (visible documents
+                # only), which is NOT the index the main frame uses. Everything
+                # reported back to the parent must use the parent's own index.
+                docIndex = self._parentDocIndex(document)
+                if docIndex is None:
+                    continue
                 documentsByDoc[docIndex] = document
 
-                if item in document.spectrum.peaklist.peaks:
-                    idx = document.spectrum.peaklist.peaks.index(item)
+                peaks = document.spectrum.peaklist.peaks
+                idx = self._indexOf(peaks, item)
+                if idx is not None:
                     indexesByDoc.setdefault(docIndex, set()).add(idx)
 
             for docIndex in sorted(indexesByDoc):
@@ -610,13 +1000,16 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
 
             for row in selectedRows:
                 p_info = self.currentPeaklist[row]
-                docIndex = p_info[1]
                 item = p_info[5]
                 document = p_info[6]
+
+                docIndex = self._parentDocIndex(document)
+                if docIndex is None:
+                    continue
                 documentsByDoc[docIndex] = document
 
-                if item in document.annotations:
-                    idx = document.annotations.index(item)
+                idx = self._indexOf(document.annotations, item)
+                if idx is not None:
                     indexesByDoc.setdefault(docIndex, set()).add(idx)
 
             for docIndex in sorted(indexesByDoc):
@@ -637,14 +1030,58 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
             else:
                 items = ("annotations",)
 
+            # the deleted peak may still be highlighted in the canvas (this grid
+            # highlights the selected mass); drop the marks so no arrow is left
+            # pointing at a peak that no longer exists
+            self.parent.updateMassPoints(None)
+
+            # refresh this grid first, so the row that was just deleted cannot be
+            # re-selected / re-used while the parent update is still pending
+            self.onUpdatePeaklist()
+
             wx.CallAfter(
                 self.parent.onDocumentChangedMulti,
                 indexes=changedDocIndexes,
                 items=items,
             )
 
-            # immediately trigger an update logic
-            self.onUpdatePeaklist()
+    # ----
+
+    def _parentDocIndex(self, document):
+        """Translate a document object into the parent's document index.
+
+        self.currentDocuments holds only the VISIBLE documents, so its indexes
+        do not match the parent's self.documents whenever a document is hidden.
+        Anything handed back to the parent (onDocumentChangedMulti) must use the
+        parent's index or the wrong spectrum gets refreshed / marked dirty.
+        """
+
+        documents = getattr(self.parent, "documents", None)
+        if not documents:
+            return None
+
+        for i, doc_ in enumerate(documents):
+            if doc_ is document:
+                return i
+
+        return None
+
+    # ----
+
+    @staticmethod
+    def _indexOf(sequence, item):
+        """Index of item within sequence, matched by identity.
+
+        Peaks/annotations can compare equal without being the same object, so
+        list.index() may return a neighbouring item's position and delete the
+        wrong one.
+        """
+
+        for i, current in enumerate(sequence):
+            if current is item:
+                return i
+
+        return None
 
     # ----
 
@@ -697,12 +1134,18 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
 
     # ----
 
-    def onCompare(self, evt):
+    def onCompare(self, evt, quiet=False):
         """Compare data."""
+
+        # a compare is happening now, so any pending debounced one is moot
+        self._compareTimer.Stop()
 
         # check processing
         if self.processing:
             return
+
+        # keep the caret in the field being typed in across the refresh
+        focusState = self._grabFocusState()
 
         # check documents
         if not self.currentDocuments:
@@ -723,23 +1166,22 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
             sel_row = -1
 
         # show processing gauge
-        self.onProcessing(True)
+        self.onProcessing(True, quiet=quiet)
         self.consensus_butt.Enable(False)
+        self.export_butt.Enable(False)
 
         # do processing to get peaklists
         self.processing = threading.Thread(target=self.runGetPeaklists)
         self.processing.start()
 
         # pulse gauge while working
-        while self.processing and self.processing.is_alive():
-            self.gauge.pulse()
+        self._waitForProcessing(quiet)
 
         # AUTO COMPARE if possible
         if self.currentDocuments and self.currentPeaklist and self.getParams():
             self.processing = threading.Thread(target=self.runCompare)
             self.processing.start()
-            while self.processing and self.processing.is_alive():
-                self.gauge.pulse()
+            self._waitForProcessing(quiet)
 
         self._ignore_selection_events = True
         # update gui with recreate=True
@@ -759,9 +1201,17 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         wx.CallAfter(lambda: setattr(self, '_ignore_selection_events', False))
 
 
+        # remember what these results were computed from, so the debounced
+        # re-compare can skip a change that is not really a change
+        self._lastCompareSnapshot = self._compareSnapshot()
+
         # hide processing gauge
-        self.onProcessing(False)
+        self.onProcessing(False, quiet=quiet)
         self.consensus_butt.Enable(True)
+        self.export_butt.Enable(True)
+
+        # give the caret back to the field being typed in
+        self._restoreFocusState(focusState)
 
     # ----
 
@@ -797,6 +1247,7 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         # show processing gauge
         self.onProcessing(True)
         self.consensus_butt.Enable(False)
+        self.export_butt.Enable(False)
 
         # do processing to get peaklists
         self.processing = threading.Thread(target=self.runGetPeaklists)
@@ -831,9 +1282,14 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         wx.CallAfter(lambda: setattr(self, '_ignore_selection_events', False))
 
 
+        # remember what these results were computed from, so the debounced
+        # re-compare can skip a change that is not really a change
+        self._lastCompareSnapshot = self._compareSnapshot()
+
         # hide processing gauge
         self.onProcessing(False)
         self.consensus_butt.Enable(True)
+        self.export_butt.Enable(True)
 
     # ----
 
@@ -925,13 +1381,33 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         # set formats
         mzFormat = "%0." + repr(config.main["mzDigits"]) + "f"
 
-        # add data
+        # work out which rows hold the same peak, so the block can be boxed in
         count = len(self.currentDocuments)
+        lastCol = count
+        groupEdges = {}
+        for first, last in self._peakGroups():
+            for row in range(first, last + 1):
+                groupEdges[row] = (row == first, row == last)
+
+        def borderEdges(row, col):
+            """Which edges of the group outline this cell has to draw."""
+
+            if row not in groupEdges:
+                return NO_BORDER
+            top, bottom = groupEdges[row]
+            return (top, bottom, col == 0, col == lastCol)
+
+        # add data
         for i, item in enumerate(self.currentPeaklist):
 
             # add mz
             mz = mzFormat % item[0]
             self.peaklistGrid.SetCellValue(i, 0, mz)
+            self.peaklistGrid.SetCellRenderer(
+                i,
+                0,
+                _GroupBorderRenderer(self._groupBorderColour, borderEdges(i, 0)),
+            )
 
             # add matches
             rowMax = max((v for v in item[4] if v is not None), default=0.0)
@@ -939,20 +1415,21 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
                 intensity = item[4][x]
                 if intensity is not None:
                     fraction = float(intensity) / rowMax if rowMax > 0 else 1.0
-                    self.peaklistGrid.SetCellRenderer(
-                        i,
-                        x + 1,
-                        _IntensityFillRenderer(self.currentDocuments[x].colour, fraction),
-                    )
+                    fillColour = self.currentDocuments[x].colour
                 else:
-                    self.peaklistGrid.SetCellRenderer(
-                        i,
-                        x + 1,
-                        _IntensityFillRenderer(wx.NullColour, 0.0),
-                    )
+                    fraction = 0.0
+                    fillColour = wx.NullColour
 
-                if x == item[1]:
-                    self.peaklistGrid.SetCellTextColour(i, x + 1, wx.BLACK)
+                self.peaklistGrid.SetCellRenderer(
+                    i,
+                    x + 1,
+                    _IntensityFillRenderer(
+                        fillColour,
+                        fraction,
+                        self._groupBorderColour,
+                        borderEdges(i, x + 1),
+                    ),
+                )
 
                 if x == item[1]:
                     self.peaklistGrid.SetCellValue(i, x + 1, "*")
@@ -960,7 +1437,12 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
                         i, x + 1, wx.ALIGN_CENTER, wx.ALIGN_CENTER
                     )
 
+        # AutoSize fits the text exactly, which would leave the centred values
+        # touching the group outline, so give the text column some air
         self.peaklistGrid.AutoSizeColumns(True)
+        self.peaklistGrid.SetColSize(
+            0, self.peaklistGrid.GetColSize(0) + 2 * mwx.GRID_CELL_PADDING
+        )
 
     # ----
 
@@ -1017,7 +1499,12 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
                 )
                 self.matchesGrid.SetCellValue(i, 0, "*")
 
+        # same as above: centred text needs a margin AutoSize does not give it
         self.matchesGrid.AutoSizeColumns(True)
+        for x in range(1, 5):
+            self.matchesGrid.SetColSize(
+                x, self.matchesGrid.GetColSize(x) + 2 * mwx.GRID_CELL_PADDING
+            )
 
     # ----
 
@@ -1137,51 +1624,18 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
                 for j in range(i, count):
                     p1 = self.currentPeaklist[i]
                     p2 = self.currentPeaklist[j]
-                    matched = False
 
-                    # check charge
-                    if (
-                        not config.comparePeaklists["ignoreCharge"]
-                        and (p1[2] != p2[2])
-                        and (p1[2] is not None and p2[2] is not None)
-                    ):
-                        continue
-
-                    # check error
+                    # the list is sorted by m/z, so once p2 is further than the
+                    # tolerance above p1 nothing after it can match either
                     error = mspy.delta(p1[0], p2[0], config.comparePeaklists["units"])
-                    if abs(error) <= config.comparePeaklists["tolerance"]:
-                        matched = True
-                    elif error < 0:
+                    if (
+                        abs(error) > config.comparePeaklists["tolerance"]
+                        and error < 0
+                    ):
                         break
 
-                    # check ratio
-                    if (
-                        matched
-                        and config.comparePeaklists["ratioCheck"]
-                        and p1[3]
-                        and p2[3]
-                    ):
-
-                        ratio = p1[3] / p2[3]
-                        if (
-                            config.comparePeaklists["ratioThreshold"] > 1
-                            and ratio < 1
-                            or config.comparePeaklists["ratioThreshold"] < 1
-                            and ratio > 1
-                        ):
-                            ratio = 1.0 / ratio
-
-                        if (
-                            config.comparePeaklists["ratioDirection"] == 1
-                            and ratio < config.comparePeaklists["ratioThreshold"]
-                        ) or (
-                            config.comparePeaklists["ratioDirection"] == -1
-                            and ratio > config.comparePeaklists["ratioThreshold"]
-                        ):
-                            matched = False
-
                     # save matched
-                    if matched:
+                    if self._peaksMatch(p1, p2):
                         p1[4][p2[1]] = _peak_intensity(p2[5])
                         p2[4][p1[1]] = _peak_intensity(p1[5])
 
@@ -1189,6 +1643,75 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         except mspy.ForceQuit:
             return
 
+
+    # ----
+
+    def _peaksMatch(self, p1, p2):
+        """Whether two peaks count as the same peak under the current settings.
+
+        Kept in one place so the outline drawn around a group in the grid can
+        never disagree with the matches the comparison itself found.
+        """
+
+        # check charge
+        if (
+            not config.comparePeaklists["ignoreCharge"]
+            and (p1[2] != p2[2])
+            and (p1[2] is not None and p2[2] is not None)
+        ):
+            return False
+
+        # check error
+        error = mspy.delta(p1[0], p2[0], config.comparePeaklists["units"])
+        if abs(error) > config.comparePeaklists["tolerance"]:
+            return False
+
+        # check ratio
+        if config.comparePeaklists["ratioCheck"] and p1[3] and p2[3]:
+
+            ratio = p1[3] / p2[3]
+            if (
+                config.comparePeaklists["ratioThreshold"] > 1
+                and ratio < 1
+                or config.comparePeaklists["ratioThreshold"] < 1
+                and ratio > 1
+            ):
+                ratio = 1.0 / ratio
+
+            if (
+                config.comparePeaklists["ratioDirection"] == 1
+                and ratio < config.comparePeaklists["ratioThreshold"]
+            ) or (
+                config.comparePeaklists["ratioDirection"] == -1
+                and ratio > config.comparePeaklists["ratioThreshold"]
+            ):
+                return False
+
+        return True
+
+    # ----
+
+    def _peakGroups(self):
+        """Row spans of the grid that hold one and the same peak.
+
+        The rows are sorted by m/z, so a group is a run of neighbouring rows
+        that keep matching; it ends at the first row that does not match the one
+        above it. Every row belongs to exactly one span, so a peak that matched
+        nothing is a group of its own and is boxed in on its own -- the height of
+        the box is then what tells the two apart.
+        """
+
+        groups = []
+        peaklist = self.currentPeaklist
+        start = 0
+
+        for i in range(1, len(peaklist) + 1):
+            if i < len(peaklist) and self._peaksMatch(peaklist[i - 1], peaklist[i]):
+                continue
+            groups.append((start, i - 1))
+            start = i
+
+        return groups
 
     # ----
 

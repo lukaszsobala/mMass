@@ -244,13 +244,14 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
         self.differencesGrid.CreateGrid(0, 0)
         self.differencesGrid.DisableDragColSize()
         self.differencesGrid.DisableDragRowSize()
-        self.differencesGrid.SetColLabelSize(19)
-        self.differencesGrid.SetDefaultRowSize(19)
+        rowHeight = mwx.gridRowHeight(self.differencesGrid, wx.SMALL_FONT)
+        self.differencesGrid.SetColLabelSize(rowHeight)
+        self.differencesGrid.SetDefaultRowSize(rowHeight)
         self.differencesGrid.SetLabelFont(wx.SMALL_FONT)
         self.differencesGrid.SetLabelBackgroundColour(label_bg)
         self.differencesGrid.SetLabelTextColour(cell_fg)
         self.differencesGrid.SetDefaultCellFont(wx.SMALL_FONT)
-        self.differencesGrid.SetDefaultCellAlignment(wx.ALIGN_RIGHT, wx.ALIGN_TOP)
+        self.differencesGrid.SetDefaultCellAlignment(wx.ALIGN_CENTER, wx.ALIGN_CENTER)
         self.differencesGrid.SetDefaultCellBackgroundColour(cell_bg)
         self.differencesGrid.SetDefaultCellTextColour(cell_fg)
         self.differencesGrid.EnableGridLines(True)
@@ -279,15 +280,16 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
         self.matchesGrid.CreateGrid(0, 0)
         self.matchesGrid.DisableDragColSize()
         self.matchesGrid.DisableDragRowSize()
-        self.matchesGrid.SetColLabelSize(19)
+        rowHeight = mwx.gridRowHeight(self.matchesGrid, wx.SMALL_FONT)
+        self.matchesGrid.SetColLabelSize(rowHeight)
         self.matchesGrid.SetRowLabelSize(0)
-        self.matchesGrid.SetDefaultRowSize(19)
+        self.matchesGrid.SetDefaultRowSize(rowHeight)
         self.matchesGrid.AutoSizeColumns(True)
         self.matchesGrid.SetLabelFont(wx.SMALL_FONT)
         self.matchesGrid.SetLabelBackgroundColour(label_bg)
         self.matchesGrid.SetLabelTextColour(cell_fg)
         self.matchesGrid.SetDefaultCellFont(wx.SMALL_FONT)
-        self.matchesGrid.SetDefaultCellAlignment(wx.ALIGN_RIGHT, wx.ALIGN_TOP)
+        self.matchesGrid.SetDefaultCellAlignment(wx.ALIGN_CENTER, wx.ALIGN_CENTER)
         self.matchesGrid.SetDefaultCellBackgroundColour(cell_bg)
         self.matchesGrid.SetDefaultCellTextColour(cell_fg)
         self.matchesGrid.EnableGridLines(True)
@@ -555,11 +557,28 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
         mzFormat = "%0." + repr(config.main["mzDigits"]) + "f"
         cellAttr = wx.grid.GridCellAttr()
         cellAttr.SetReadOnly(True)
+        labels = []
         for x in range(size):
             label = mzFormat % self.currentDifferences[x][0][0]
+            labels.append(label)
             self.differencesGrid.SetColLabelValue(x, label)
             self.differencesGrid.SetRowLabelValue(x, label)
             self.differencesGrid.SetColAttr(x, cellAttr.Clone())
+
+        # Size the columns and the row-label gutter to the labels. Their widths
+        # are fixed pixel defaults while the label font is DPI-scaled, so on a
+        # large font the m/z labels ran into each other. Every cell here holds
+        # an m/z number of the same shape, so measuring the widest label sizes
+        # them all -- much cheaper than AutoSizeColumns on an n x n grid.
+        if labels:
+            dc = wx.ClientDC(self.differencesGrid)
+            dc.SetFont(wx.SMALL_FONT)
+            colWidth = (
+                max(dc.GetTextExtent(label)[0] for label in labels)
+                + 2 * mwx.GRID_CELL_PADDING
+            )
+            self.differencesGrid.SetDefaultColSize(colWidth, True)
+            self.differencesGrid.SetRowLabelSize(colWidth)
 
         # paste data
         mzFormat = "%0." + repr(config.main["mzDigits"]) + "f"
@@ -631,15 +650,14 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
         self.matchesGrid.SetColLabelValue(0, "match")
         self.matchesGrid.SetColLabelValue(1, "error")
 
-        cellAttr = wx.grid.GridCellAttr()
-        cellAttr.SetAlignment(wx.ALIGN_TOP, wx.ALIGN_LEFT)
-        cellAttr.SetReadOnly(True)
-        self.matchesGrid.SetColAttr(0, cellAttr)
-
-        cellAttr = wx.grid.GridCellAttr()
-        cellAttr.SetAlignment(wx.ALIGN_TOP, wx.ALIGN_RIGHT)
-        cellAttr.SetReadOnly(True)
-        self.matchesGrid.SetColAttr(1, cellAttr)
+        # NOTE: SetAlignment takes (horizontal, vertical). These used to pass
+        # ALIGN_TOP as the horizontal argument, which is 0 (== ALIGN_LEFT), so
+        # the intended alignment never took effect anyway.
+        for x in range(2):
+            cellAttr = wx.grid.GridCellAttr()
+            cellAttr.SetAlignment(wx.ALIGN_CENTER, wx.ALIGN_CENTER)
+            cellAttr.SetReadOnly(True)
+            self.matchesGrid.SetColAttr(x, cellAttr)
 
         # set format
         errFormat = "%0." + repr(config.main["mzDigits"]) + "f"
@@ -650,7 +668,13 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
             self.matchesGrid.SetCellValue(i, 0, match[0])
             self.matchesGrid.SetCellValue(i, 1, error)
 
+        # AutoSize fits the text exactly, leaving centred values flush against
+        # the cell edge, so give the columns some air
         self.matchesGrid.AutoSizeColumns(True)
+        for x in range(2):
+            self.matchesGrid.SetColSize(
+                x, self.matchesGrid.GetColSize(x) + 2 * mwx.GRID_CELL_PADDING
+            )
 
     # ----
 
