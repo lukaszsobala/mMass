@@ -2767,22 +2767,39 @@ class mainFrame(wx.Frame):
 
         config.main["lastDir"] = os.path.split(path)[0]
 
-        # open documents, keeping track of which session entry each one came from
+        # open documents, keeping track of which session entry each one came
+        # from; a session usually holds several documents, so they are read as
+        # one batch - the spectra are all parsed first and the display work
+        # (selection, canvas redraw, tool panels) is done once at the end
         restored = []
-        for entry in found:
-            before = len(self.documents)
-            self.importDocument(path=entry["path"])
-            for docIndex in range(before, len(self.documents)):
-                restored.append((docIndex, entry))
+        total = len(found)
+        batch = total > 1
+        if batch:
+            self.beginBatchDocumentLoad()
+
+        try:
+            for index, entry in enumerate(found):
+                before = len(self.documents)
+                progress = (index + 1, total) if batch else None
+                self.importDocument(path=entry["path"], progress=progress)
+                for docIndex in range(before, len(self.documents)):
+                    restored.append((docIndex, entry))
+
+            # restore how each document is displayed - still within the batch,
+            # so its single redraw already shows the stored colours, visibility
+            # and offsets instead of drawing the defaults first
+            for docIndex, entry in restored:
+                self.applySessionDocumentState(docIndex, entry)
+        finally:
+            if batch:
+                self.endBatchDocumentLoad()
 
         # documents that failed to load are as good as missing to the user
         loaded = set(entry["sessionIndex"] for _, entry in restored)
         missing += [e for e in found if e["sessionIndex"] not in loaded]
 
-        # restore how each document is displayed
-        for docIndex, entry in restored:
-            self.applySessionDocumentState(docIndex, entry)
-        if restored:
+        # outside a batch nothing has redrawn the restored display state yet
+        if restored and not batch:
             self.spectrumPanel.refresh()
 
         # restore the shown scan of each browsable run
@@ -5040,7 +5057,9 @@ class mainFrame(wx.Frame):
             # open a real multiscan run as a single browsable
             # chromatogram document (LC-MS is first-class)
             if self.tmpScanlist and len(self.tmpScanlist) > 1:
-                if self.openChromatogramDocument(path, docType, self.tmpScanlist):
+                if self.openChromatogramDocument(
+                    path, docType, self.tmpScanlist, progress=progress
+                ):
                     self.updateRecentFiles(path)
                 return
 
@@ -5618,13 +5637,13 @@ class mainFrame(wx.Frame):
 
     # ----
 
-    def openChromatogramDocument(self, path, docType, scanlist):
+    def openChromatogramDocument(self, path, docType, scanlist, progress=None):
         """Open a multiscan run as a single browsable chromatogram document."""
 
         before = len(self.documents)
 
         # init processing gauge (shared within a batch)
-        gauge = self.showReadingGauge(self.makeReadingLabel())
+        gauge = self.showReadingGauge(self.makeReadingLabel(progress))
 
         # load document in a thread
         try:
