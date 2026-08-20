@@ -28,6 +28,12 @@ InstallDirRegKey HKLM "Software\${APP_NAME}" "InstallDir"
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
+
+; Offer to start mMass straight from the finish page. Ticking the box and
+; clicking Finish closes the installer and launches the app.
+!define MUI_FINISHPAGE_RUN
+!define MUI_FINISHPAGE_RUN_TEXT "Open mMass"
+!define MUI_FINISHPAGE_RUN_FUNCTION LaunchApp
 !insertmacro MUI_PAGE_FINISH
 
 !insertmacro MUI_UNPAGE_COMPONENTS
@@ -76,6 +82,19 @@ Section "Install"
 
   WriteUninstaller "$INSTDIR\Uninstall.exe"
 SectionEnd
+
+; Launch the freshly installed app from the finish page.
+;
+; The installer runs elevated (RequestExecutionLevel admin), so a plain Exec
+; would hand that administrator token to mMass: it would write its XML config
+; into the administrator's %APPDATA% instead of the user's, and Explorer would
+; refuse to drag documents onto it. Handing the path to the already-running
+; (unelevated) shell instead starts mMass under the user's own token. This is
+; the plugin-free way of doing that -- ShellExecAsUser and the UAC plugin are
+; not part of a stock NSIS install, which is all the CI runner has.
+Function LaunchApp
+  Exec '"$WINDIR\explorer.exe" "$INSTDIR\mMass.exe"'
+FunctionEnd
 
 Section /o "Remove user XML configuration (%APPDATA%\mMass\*.xml)" un.RemoveUserConfig
   StrCpy $RemoveUserConfigs "1"
