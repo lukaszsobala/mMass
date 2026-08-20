@@ -84,11 +84,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         self.Bind(wx.EVT_CLOSE, self.onClose)
 
         # apply dark mode
-        if images.is_dark_mode():
-            self.SetBackgroundColour(wx.Colour(30, 30, 30))
-            self.SetForegroundColour(wx.Colour(220, 220, 220))
-            mwx.applyDarkModeToWindow(self)
-            mwx.applyWindowsDarkMode(self)
+        mwx.applyDarkMode(self)
 
         # update documents lists
         self.updateAvailableDocuments()
@@ -1190,13 +1186,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             self._batchStepOrder = list(defaultOrder)
 
         choices = [self._batchStepLabels[k] for k in self._batchStepOrder]
-        # wxMSW's native wxCheckListBox paints its rows light even in dark mode
-        # (the owner-drawn per-item background is unreachable from wxPython), so
-        # there we substitute an owner-drawn dark list with the same API.
-        if images.is_dark_mode() and wx.Platform == "__WXMSW__":
-            self.batchStepsList = mwx.DarkCheckListBox(panel, -1, choices=choices)
-        else:
-            self.batchStepsList = wx.CheckListBox(panel, -1, choices=choices)
+        self.batchStepsList = wx.CheckListBox(panel, -1, choices=choices)
         self.batchStepsList.Bind(wx.EVT_CHECKLISTBOX, self.onBatchChanged)
 
         self.batchMoveUp_butt = wx.Button(panel, -1, "Up")
@@ -1274,12 +1264,6 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         )
         self.batchDocumentsList.SetFont(wx.SMALL_FONT)
         self.batchDocumentsList.setAltColour(mwx.LISTCTRL_ALTCOLOUR)
-        if images.is_dark_mode():
-            self.batchDocumentsList.EnableSystemTheme(False)
-            self.batchDocumentsList.SetBackgroundColour(wx.Colour(30, 30, 30))
-            self.batchDocumentsList.SetTextColour(wx.Colour(220, 220, 220))
-            self.batchDocumentsList.setDefaultColour(wx.Colour(30, 30, 30))
-            self.batchDocumentsList.setAltColour(wx.Colour(40, 40, 40))
 
         # make columns — column fills full width; EVT_SIZE keeps it in sync
         self.batchDocumentsList.InsertColumn(0, "document title", wx.LIST_FORMAT_LEFT)

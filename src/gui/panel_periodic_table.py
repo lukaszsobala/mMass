@@ -475,13 +475,6 @@ class panelPeriodicTable(wx.Frame):
 
         panel = wx.Panel(self, -1)
 
-        # wxMSW panels keep the light system colour unless set explicitly; GTK
-        # already follows the dark theme. Match the other dark-mode panels so the
-        # gaps between element cells and the element name/mass text read dark.
-        if images.is_dark_mode():
-            panel.SetBackgroundColour(wx.Colour(30, 30, 30))
-            panel.SetForegroundColour(wx.Colour(220, 220, 220))
-
         # Keep element pitch consistent with sprite geometry (24x26 steps for 25x27 cells).
         sample_bitmap = images.lib["periodicTableHOff"]
         cell_width, cell_height = sample_bitmap.GetSize()

@@ -434,69 +434,8 @@ def appInit():
 # ----
 
 
-def applyWindowsDarkMode(window):
-    """Apply best-effort native Windows dark mode to a top-level window."""
-
-    if wx.Platform != "__WXMSW__" or not images.is_dark_mode():
-        return
-
-    try:
-        import ctypes
-
-        hwnd = window.GetHandle()
-        if not hwnd:
-            return
-
-        # Prefer dark non-client rendering (title bar / frame) when available.
-        try:
-            windll = getattr(ctypes, "WinDLL", None)
-            if windll is None:
-                return
-            dwmapi = windll("dwmapi", use_last_error=True)
-            use_dark = ctypes.c_int(1)
-            for attr in (20, 19):
-                if dwmapi.DwmSetWindowAttribute(
-                    ctypes.c_void_p(hwnd),
-                    ctypes.c_int(attr),
-                    ctypes.byref(use_dark),
-                    ctypes.sizeof(use_dark),
-                ) == 0:
-                    break
-        except Exception:
-            pass
-
-        # Allow dark rendering for this specific window and refresh menu themes.
-        try:
-            windll = getattr(ctypes, "WinDLL", None)
-            if windll is None:
-                return
-            uxtheme = windll("uxtheme", use_last_error=True)
-            try:
-                allow_dark_for_window = uxtheme[133]
-                allow_dark_for_window.argtypes = [ctypes.c_void_p, ctypes.c_bool]
-                allow_dark_for_window.restype = ctypes.c_bool
-                allow_dark_for_window(ctypes.c_void_p(hwnd), True)
-            except Exception:
-                pass
-
-            try:
-                flush_menu_themes = uxtheme[136]
-                flush_menu_themes.argtypes = []
-                flush_menu_themes.restype = None
-                flush_menu_themes()
-            except Exception:
-                pass
-        except Exception:
-            pass
-
-    except Exception:
-        pass
-
-
-
 _DARK_BG = wx.Colour(30, 30, 30)
 _DARK_FG = wx.Colour(220, 220, 220)
-_DARK_INPUT_BG = wx.Colour(50, 50, 50)
 
 
 def _setHwndTheme(hwnd, theme, sub_id=None):
@@ -530,23 +469,6 @@ def _setHwndTheme(hwnd, theme, sub_id=None):
         ]
         set_window_theme.restype = ctypes.c_long  # HRESULT
         set_window_theme(ctypes.c_void_p(hwnd), theme, sub_id)
-    except Exception:
-        pass
-
-
-def _setWindowsControlTheme(window, theme):
-    """Best-effort: assign a native visual-styles theme class to a control's HWND.
-
-    The colour setters (SetBackgroundColour/SetForegroundColour) do not reach
-    natively-drawn parts on wxMSW -- scrollbars, a combo box's closed display, or
-    the check/radio glyphs.  Re-theming the control with a "DarkMode_*" class
-    makes Windows draw those parts dark.  No-op off Windows or on any failure.
-    """
-
-    if wx.Platform != "__WXMSW__":
-        return
-    try:
-        _setHwndTheme(window.GetHandle(), theme)
     except Exception:
         pass
 
@@ -782,206 +704,21 @@ def _darkenWindowsListHeader(listctrl):
         pass
 
 
-class DarkCheckListBox(wx.VListBox):
-    """Owner-drawn, dark-mode replacement for wx.CheckListBox.
-
-    A native wxMSW wxCheckListBox paints each row through wxOwnerDrawn, whose
-    per-item background is not exposed by wxPython, so SetBackgroundColour only
-    darkens the empty field while the checked rows stay light.  Painting the
-    rows ourselves gives a consistently dark list.  Only the slice of the
-    wx.CheckListBox API the processing dialog relies on is implemented
-    (Check / IsChecked / Set / GetSelection / SetSelection / GetCount), and a
-    wxEVT_CHECKLISTBOX event is emitted on toggle, so it drops straight in.
-    """
-
-    _BG = _DARK_INPUT_BG
-    _FG = _DARK_FG
-    _SEL = wx.Colour(70, 90, 120)
-    _PAD = 5
-
-    def __init__(self, parent, id=wx.ID_ANY, choices=()):
-        wx.VListBox.__init__(self, parent, id, style=wx.BORDER_SIMPLE)
-        self._labels = list(choices)
-        self._checked = [False] * len(self._labels)
-        self.SetBackgroundColour(self._BG)
-        # Theme the control dark so wx.RendererNative draws the *native* dark
-        # checkbox glyph (matching the real wx.CheckBoxes elsewhere in the app),
-        # and so the scrollbar is dark.  No-op off Windows.
-        _setWindowsControlTheme(self, "DarkMode_Explorer")
-        self.SetItemCount(len(self._labels))
-        self._updateBestSize()
-        self.Bind(wx.EVT_LEFT_DOWN, self._onLeftDown)
-        self.Bind(wx.EVT_KEY_DOWN, self._onKeyDown)
-
-    # -- geometry --
-
-    def _checkBoxSize(self):
-        try:
-            return wx.RendererNative.Get().GetCheckBoxSize(self)
-        except Exception:
-            sz = self.GetCharHeight()
-            return wx.Size(sz, sz)
-
-    def _rowHeight(self):
-        return max(self.GetCharHeight(), self._checkBoxSize().height) + _scale_int(8)
-
-    def _updateBestSize(self):
-        dc = wx.ClientDC(self)
-        dc.SetFont(self.GetFont())
-        widest = max([dc.GetTextExtent(s)[0] for s in self._labels], default=0)
-        box = self._checkBoxSize().width
-        width = self._PAD + box + 6 + widest + self._PAD + _scale_int(6)
-        height = self._rowHeight() * max(1, len(self._labels)) + 4
-        self.SetMinSize(wx.Size(width, height))
-
-    # -- VListBox drawing hooks --
-
-    def OnMeasureItem(self, n):
-        return self._rowHeight()
-
-    def OnDrawBackground(self, dc, rect, n):
-        dc.SetPen(wx.TRANSPARENT_PEN)
-        dc.SetBrush(wx.Brush(self._SEL if self.IsSelected(n) else self._BG))
-        dc.DrawRectangle(rect)
-
-    def OnDrawItem(self, dc, rect, n):
-        cb = self._checkBoxSize()
-        box = wx.Rect(rect.x + self._PAD,
-                      rect.y + (rect.height - cb.height) // 2,
-                      cb.width, cb.height)
-        flags = wx.CONTROL_CHECKED if self._checked[n] else 0
-        wx.RendererNative.Get().DrawCheckBox(self, dc, box, flags)
-        dc.SetTextForeground(self._FG)
-        dc.DrawText(self._labels[n], box.x + box.width + 6,
-                    rect.y + (rect.height - self.GetCharHeight()) // 2)
-
-    # -- interaction --
-
-    def _toggle(self, n):
-        self._checked[n] = not self._checked[n]
-        self.RefreshRow(n)
-        evt = wx.CommandEvent(wx.wxEVT_CHECKLISTBOX, self.GetId())
-        evt.SetInt(n)
-        evt.SetEventObject(self)
-        wx.PostEvent(self, evt)
-
-    def _onLeftDown(self, evt):
-        n = self.VirtualHitTest(evt.GetPosition().y)
-        if n != wx.NOT_FOUND:
-            self.SetSelection(n)
-            self._toggle(n)
-        evt.Skip()
-
-    def _onKeyDown(self, evt):
-        sel = self.GetSelection()
-        if evt.GetKeyCode() == wx.WXK_SPACE and sel != wx.NOT_FOUND:
-            self._toggle(sel)
-        else:
-            evt.Skip()
-
-    # -- wx.CheckListBox-compatible API --
-
-    def Check(self, n, check=True):
-        if 0 <= n < len(self._checked):
-            self._checked[n] = bool(check)
-            self.RefreshRow(n)
-
-    def IsChecked(self, n):
-        return self._checked[n]
-
-    def Set(self, labels):
-        labels = list(labels)
-        self._checked = (self._checked + [False] * len(labels))[:len(labels)]
-        self._labels = labels
-        self.SetItemCount(len(labels))
-        self._updateBestSize()
-        self.Refresh()
-
-    def GetCount(self):
-        return len(self._labels)
-
-
 def applyDarkModeToWindow(window):
-    """Recursively apply dark background/foreground colours to *window* and
-    all its children.  Call after the window's GUI has been fully constructed.
+    """Apply the app's own dark colours to *window* and all its children.
+
+    wxWidgets 3.3 dark-themes every standard control by itself once
+    wxApp.MSWEnableDarkMode() has run (see appInit()), so all that is left here
+    is the drawing wx cannot know about: the alternating row colours a
+    sortListCtrl paints from its own item attributes.  Call after the window's
+    GUI has been fully constructed.
     """
     if not images.is_dark_mode():
         return
 
-    def _disable_system_theme(w):
-        # On wxMSW the native (light) theme keeps painting the control unless we
-        # opt out of it; harmless no-op elsewhere.
-        try:
-            enable_system_theme = getattr(w, "EnableSystemTheme", None)
-            if enable_system_theme is not None:
-                enable_system_theme(False)
-        except Exception:
-            pass
-
     def _recurse(w):
-        if isinstance(w, DarkCheckListBox):
-            # Fully owner-drawn: it paints its own dark rows, checkboxes and
-            # selection, so the generic panel/listbox colouring must skip it.
-            return
         if isinstance(w, sortListCtrl):
-            # Virtual list tables manage their own row/header colours.
             w.applyDarkTheme()
-            # Dark scrollbars and selection highlight.
-            _setWindowsControlTheme(w, "DarkMode_Explorer")
-        elif isinstance(w, wx.ScrolledWindow):
-            w.SetBackgroundColour(_DARK_BG)
-            w.SetForegroundColour(_DARK_FG)
-            # Dark scrollbars.
-            _setWindowsControlTheme(w, "DarkMode_Explorer")
-        elif isinstance(w, wx.Panel):
-            w.SetBackgroundColour(_DARK_BG)
-            w.SetForegroundColour(_DARK_FG)
-        elif isinstance(w, wx.StaticBox):
-            # Only the box label/border honour the foreground colour; leave the
-            # background transparent so the parent panel shows through.
-            w.SetForegroundColour(_DARK_FG)
-        elif isinstance(w, (wx.StaticText, wx.StaticLine)):
-            w.SetBackgroundColour(_DARK_BG)
-            w.SetForegroundColour(_DARK_FG)
-        elif isinstance(w, (wx.CheckBox, wx.RadioButton)):
-            w.SetBackgroundColour(_DARK_BG)
-            w.SetForegroundColour(_DARK_FG)
-            # Repaint the tick box / radio dot for a dark background.
-            _setWindowsControlTheme(w, "DarkMode_Explorer")
-        elif isinstance(w, (wx.ComboBox, wx.Choice)):
-            _disable_system_theme(w)
-            w.SetBackgroundColour(_DARK_INPUT_BG)
-            w.SetForegroundColour(_DARK_FG)
-            # Dark closed-display field and dropdown button (CFD = combo/filled
-            # dropdown); colour setters alone leave the selected item light.
-            _setWindowsControlTheme(w, "DarkMode_CFD")
-        elif isinstance(w, wx.ListBox):
-            # A plain wxMSW listbox honours these colours for its field and rows.
-            # (A *checkable* listbox does not -- wxCheckListBox paints its rows via
-            # wxOwnerDrawn, whose background is unreachable from wxPython and stays
-            # light; dark mode therefore uses DarkCheckListBox instead, handled
-            # above.)  DarkMode_Explorer gives dark scrollbars / selection.
-            _disable_system_theme(w)
-            w.SetBackgroundColour(_DARK_INPUT_BG)
-            w.SetForegroundColour(_DARK_FG)
-            _setWindowsControlTheme(w, "DarkMode_Explorer")
-        elif isinstance(w, (wx.TextCtrl, wx.SpinCtrl)):
-            _disable_system_theme(w)
-            w.SetBackgroundColour(_DARK_INPUT_BG)
-            w.SetForegroundColour(_DARK_FG)
-        elif isinstance(w, wx.Slider):
-            # SL_LABELS draws native min/max/value numbers next to the slider
-            # that otherwise stay black on the dark panel; the foreground colour
-            # repaints them light.
-            w.SetBackgroundColour(_DARK_BG)
-            w.SetForegroundColour(_DARK_FG)
-        elif isinstance(w, wx.BitmapButton):
-            # Bitmap toolbar buttons should melt into their toolbar, not take the
-            # lighter input-field shade used for ordinary push buttons.
-            w.SetBackgroundColour(w.GetParent().GetBackgroundColour())
-        elif isinstance(w, wx.Button):
-            w.SetBackgroundColour(_DARK_INPUT_BG)
-            w.SetForegroundColour(_DARK_FG)
         for child in w.GetChildren():
             _recurse(child)
 
@@ -990,20 +727,12 @@ def applyDarkModeToWindow(window):
 
 
 def applyDarkMode(window):
-    """Apply the full dark theme to a top-level *window*.
+    """Apply the dark theme to a top-level *window*.  No-op outside dark mode.
 
-    Sets the window's own colours, recolours every child control, and switches
-    the native Windows frame (title bar / menus) to dark.  No-op outside dark
-    mode.  This centralises the per-window dark block so every tool frame and
-    dialog gets identical treatment -- needed because on wxMSW child controls do
-    not inherit the parent's colours the way they do on GTK.
+    Kept as the single entry point every tool frame and dialog calls, even
+    though wxWidgets 3.3 now does the bulk of the work itself.
     """
-    if not images.is_dark_mode():
-        return
-    window.SetBackgroundColour(_DARK_BG)
-    window.SetForegroundColour(_DARK_FG)
     applyDarkModeToWindow(window)
-    applyWindowsDarkMode(window)
 
 
 def fitChoice(choice, min_width=None, extra_padding=35):
@@ -1330,18 +1059,14 @@ class sortListCtrl(wx.ListCtrl):
     def applyDarkTheme(self):
         """Apply dark-mode colours to the rows, text and column header.
 
-        Centralises the table dark-theming pattern so every sortListCtrl reads
-        dark on wxMSW (where the native list keeps its light theme unless we opt
-        out and set the colours explicitly).  No-op outside dark mode.
+        wxWidgets 3.3 dark-themes the list control itself, but the alternating
+        row colours are painted by this class from its own item attributes, so
+        they still have to be told what dark looks like.  No-op outside dark
+        mode.
         """
 
         if not images.is_dark_mode():
             return
-
-        try:
-            self.EnableSystemTheme(False)
-        except Exception:
-            pass
 
         self.SetBackgroundColour(_DARK_BG)
         self.SetTextColour(_DARK_FG)
@@ -1356,9 +1081,8 @@ class sortListCtrl(wx.ListCtrl):
         except Exception:
             pass
 
-        # The native MSW header is a separate SysHeader32 child that ignores the
-        # attr above while it is themed; disable its visual styles so the dark
-        # SetHeaderAttr background actually paints instead of a light strip.
+        # The native MSW header is a separate SysHeader32 child, drawn by hand
+        # (see _darkenWindowsListHeader) rather than from the attr above.
         _darkenWindowsListHeader(self)
 
         self.Refresh()
@@ -1615,14 +1339,9 @@ class formulaCtrl(wx.TextCtrl):
     ):
         wx.TextCtrl.__init__(self, parent, id, value, pos, size, style, validator)
 
-        # Background used when the current formula is valid.  In dark mode this
-        # must stay dark instead of reverting to the light system default.
-        if images.is_dark_mode():
-            self._validColour = _DARK_INPUT_BG
-            self.SetBackgroundColour(self._validColour)
-            self.SetForegroundColour(_DARK_FG)
-        else:
-            self._validColour = wx.NullColour
+        # Background restored once the formula parses again: the control's own
+        # default, which wx already paints dark when the app is in dark mode.
+        self._validColour = wx.NullColour
 
         self.Bind(wx.EVT_TEXT, self._onText)
 

@@ -85,8 +85,6 @@ class panelDocuments(wx.Panel):
         # init toolbar panel
         if images.is_dark_mode():
             panel = wx.Panel(self, -1, size=wx.Size(-1, mwx.BOTTOMBAR_HEIGHT))
-            panel.SetBackgroundColour(wx.Colour(30, 30, 30))
-            panel.SetForegroundColour(wx.Colour(220, 220, 220))
         else:
             panel = mwx.bgrPanel(
                 self,
@@ -1362,10 +1360,7 @@ class documentsTree(wx.TreeCtrl):
         font = wx.SystemSettings.GetFont(wx.SYS_DEFAULT_GUI_FONT)
         font.SetPointSize(font.GetPointSize() - 2)
         self.SetFont(font)
-        if images.is_dark_mode():
-            self.SetOwnBackgroundColour(wx.Colour(30, 30, 30))
-            self.SetForegroundColour(wx.Colour(220, 220, 220))
-        else:
+        if not images.is_dark_mode():
             self.SetOwnBackgroundColour(wx.Colour(*mwx.DOCTREE_COLOUR))
 
         # init bullets

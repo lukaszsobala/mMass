@@ -121,8 +121,6 @@ class panelPeaklist(wx.Panel):
         # init toolbar panel
         if images.is_dark_mode():
             panel = wx.Panel(self, -1, size=wx.Size(-1, mwx.BOTTOMBAR_HEIGHT))
-            panel.SetBackgroundColour(wx.Colour(30, 30, 30))
-            panel.SetForegroundColour(wx.Colour(220, 220, 220))
         else:
             panel = mwx.bgrPanel(
                 self, -1, images.lib["bgrBottombar"], size=wx.Size(-1, mwx.BOTTOMBAR_HEIGHT)
