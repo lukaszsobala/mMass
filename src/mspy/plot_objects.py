@@ -91,6 +91,19 @@ def _is_dark_mode_cached():
     return _DARK_MODE
 
 
+def invalidate_dark_mode_cache():
+    """Forget the cached dark-mode state.
+
+    The cache above is resolved once and then kept for the process lifetime,
+    which is what stops the plot from following a light/dark switch made while
+    the app is running.  The canvas calls this from its wxEVT_SYS_COLOUR_CHANGED
+    handler so the next redraw asks the system again.
+    """
+
+    global _DARK_MODE
+    _DARK_MODE = None
+
+
 # MAIN PLOT OBJECTS
 # -----------------
 

@@ -120,17 +120,9 @@ class canvas(wx.Window):
             ),
         }
 
-        # apply dark-mode colour overrides before caller overrides
-        if _is_dark_mode():
-            self.SetBackgroundColour(wx.Colour(30, 30, 30))
-            self.properties["canvasColour"] = (30, 30, 30)
-            self.properties["plotColour"] = (30, 30, 30)
-            self.properties["axisColour"] = (200, 200, 200)
-            self.properties["gridColour"] = (60, 60, 60)
-
-        # get new attributes
-        for name, value in list(attr.items()):
-            self.properties[name] = value
+        # apply the theme colours, then the caller's overrides on top
+        self._callerProperties = dict(attr)
+        self.applyThemeColours()
 
         # set default canvas params
         self.mouseFn = None
@@ -189,6 +181,7 @@ class canvas(wx.Window):
         self.Bind(wx.EVT_MOTION, self.onMMotion)
         self.Bind(wx.EVT_MOUSEWHEEL, self.onMScroll)
         self.Bind(wx.EVT_KEY_DOWN, self.onChar)
+        self.Bind(wx.EVT_SYS_COLOUR_CHANGED, self.onSysColourChanged)
 
         # initialize bitmap buffer and set initial size based on client size
         self.onSize(0)
@@ -231,6 +224,64 @@ class canvas(wx.Window):
         bitmap = wx.Bitmap()
         bitmap.CreateWithDIPSize((width, height), scale, depth=24)
         return bitmap
+
+    # ----
+
+    def applyThemeColours(self):
+        """Set the canvas colours for the current system theme.
+
+        Called at construction and again whenever the system switches between
+        light and dark, so the plot follows the theme without a restart.  The
+        caller's own overrides go on last so they always win.
+        """
+
+        if _is_dark_mode():
+            self.properties["canvasColour"] = (30, 30, 30)
+            self.properties["plotColour"] = (30, 30, 30)
+            self.properties["axisColour"] = (200, 200, 200)
+            self.properties["gridColour"] = (60, 60, 60)
+        else:
+            self.properties["canvasColour"] = (255, 255, 255)
+            self.properties["plotColour"] = (255, 255, 255)
+            self.properties["axisColour"] = (0, 0, 0)
+            self.properties["gridColour"] = (235, 235, 235)
+
+        for name, value in self._callerProperties.items():
+            self.properties[name] = value
+
+        canvasColour = self.properties["canvasColour"]
+        if not isinstance(canvasColour, wx.Colour):
+            canvasColour = wx.Colour(*canvasColour)
+        self.SetBackgroundColour(canvasColour)
+
+    # ----
+
+    def onSysColourChanged(self, evt):
+        """Follow a light/dark switch made while the app is running."""
+
+        evt.Skip()
+
+        # plot_objects caches the dark-mode flag for the process lifetime, so it
+        # has to be told the answer changed.  Imported here rather than at module
+        # level because plot_objects is not otherwise a dependency of this module.
+        try:
+            from mspy import plot_objects
+
+            plot_objects.invalidate_dark_mode_cache()
+        except Exception:
+            pass
+
+        self.applyThemeColours()
+
+        # redraw with the new colours (same path as onSize)
+        if self.lastDraw:
+            self.draw(
+                self.lastDraw[0],
+                self.getCurrentXRange(),
+                self.getCurrentYRange(),
+            )
+        else:
+            self.clear()
 
     # ----
 
