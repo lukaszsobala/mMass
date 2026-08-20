@@ -28,12 +28,13 @@ from . import calculations
 def _is_dark_mode():
     """Return True when the system colour theme has a dark window background."""
 
-    # Prefer wx API when available.
+    # Ask wx first. Note that this deliberately does not use IsDark(): on MSW
+    # that reports whether *this application* is in dark mode, which stays False
+    # until wxApp.MSWEnableDarkMode() has been called, whereas IsSystemDark()
+    # reports the system setting we actually want. Needs a live wx.App, so it is
+    # unavailable when called during early module import -- hence the fallbacks.
     try:
-        appearance_getter = getattr(wx.SystemSettings, "GetAppearance", None)
-        if appearance_getter is not None:
-            appearance = appearance_getter()
-            return bool(appearance.IsDark())
+        return bool(wx.SystemSettings.GetAppearance().IsSystemDark())
     except Exception:
         pass
 

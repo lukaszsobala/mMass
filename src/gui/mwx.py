@@ -417,49 +417,14 @@ def appInit():
         wx.SMALL_FONT.SetPointSize(SMALL_FONT_SIZE)
 
         if images.is_dark_mode():
-            # Best-effort native dark menu support on newer Windows builds.
-            try:
-                import ctypes
-
-                windll = getattr(ctypes, "WinDLL", None)
-                if windll is None:
-                    return
-                uxtheme = windll("uxtheme", use_last_error=True)
-
-                # Undocumented ordinals used by many desktop apps.
-                # 135 = SetPreferredAppMode, 136 = FlushMenuThemes
-                set_preferred_app_mode = None
-                flush_menu_themes = None
-                try:
-                    set_preferred_app_mode = uxtheme[135]
-                except Exception:
-                    pass
-                try:
-                    flush_menu_themes = uxtheme[136]
-                except Exception:
-                    pass
-
-                if set_preferred_app_mode is not None:
-                    set_preferred_app_mode.argtypes = [ctypes.c_int]
-                    set_preferred_app_mode.restype = ctypes.c_int
-                    # 1 = AllowDark
-                    set_preferred_app_mode(1)
-
-                # Refresh immersive colours when supported.
-                try:
-                    refresh_immersive = uxtheme[104]
-                    refresh_immersive.argtypes = []
-                    refresh_immersive.restype = None
-                    refresh_immersive()
-                except Exception:
-                    pass
-
-                if flush_menu_themes is not None:
-                    flush_menu_themes.argtypes = []
-                    flush_menu_themes.restype = None
-                    flush_menu_themes()
-            except Exception:
-                pass
+            # wxWidgets 3.3+ drives MSW dark mode itself: it sets the preferred
+            # app mode, flushes the menu themes and dark-renders the menu bar,
+            # native toolbars and window frames -- none of which honour a plain
+            # SetBackgroundColour(). DarkMode_Auto follows the system setting,
+            # which we have just established is dark.
+            app = wx.GetApp()
+            if app is not None:
+                app.MSWEnableDarkMode()
 
     # set GTK
     elif wx.Platform == "__WXGTK__":
@@ -541,7 +506,8 @@ def _setHwndTheme(hwnd, theme, sub_id=None):
     styles on the control, which makes it honour the colours wx paints (e.g. a
     list header's SetHeaderAttr background, which the themed header ignores).
 
-    Requires SetPreferredAppMode(AllowDark), which appInit() sets at startup.
+    Requires the app to be in dark mode, which appInit() arranges at startup
+    via wxApp.MSWEnableDarkMode().
     No-op on any failure.
     """
 
