@@ -104,6 +104,24 @@ def invalidate_dark_mode_cache():
     _DARK_MODE = None
 
 
+def apply_theme_label_colours(properties):
+    """Set a plot object's label colours for the current system theme.
+
+    The labels are drawn on an opaque badge, so both the text and its backing
+    have to flip with the theme.  Kept out of the objects themselves because
+    both the annotation and the spectrum object need exactly this, and because
+    a live light/dark switch has to be able to redo it on objects that were
+    built under the previous theme (see plot_canvas.onSysColourChanged).
+    """
+
+    if _is_dark_mode_cached():
+        properties["labelColour"] = (220, 220, 220)
+        properties["labelBgrColour"] = (30, 30, 30)
+    else:
+        properties["labelColour"] = (0, 0, 0)
+        properties["labelBgrColour"] = (255, 255, 255)
+
+
 # MAIN PLOT OBJECTS
 # -----------------
 
@@ -113,6 +131,16 @@ class container:
 
     def __init__(self, objects):
         self.objects = objects
+
+    # ----
+
+    def applyThemeColours(self):
+        """Re-theme every object that draws colours of its own."""
+
+        for obj in self.objects:
+            apply = getattr(obj, "applyThemeColours", None)
+            if apply is not None:
+                apply()
 
     # ----
 
@@ -440,10 +468,7 @@ class annotations:
 
         # convert points to array
         self.points = numpy.array([[p[0], p[1]] for p in points])
-        # apply dark-mode label colour overrides
-        if _is_dark_mode():
-            self.properties["labelColour"] = (220, 220, 220)
-            self.properties["labelBgrColour"] = (30, 30, 30)
+        self.applyThemeColours()
 
         self.pointsCropped = self.points
         self.pointsScaled = self.pointsCropped
@@ -462,6 +487,18 @@ class annotations:
 
         # calculate normalization
         self._normalization()
+
+    # ----
+
+    def applyThemeColours(self):
+        """Set the label colours for the current system theme.
+
+        Called at construction and again whenever the system switches between
+        light and dark, so labels drawn under the previous theme are not left
+        as dark text on a dark badge (or the reverse).
+        """
+
+        apply_theme_label_colours(self.properties)
 
     # ----
 
@@ -1161,10 +1198,7 @@ class spectrum:
 
         # convert spectrum points to array
         self.spectrumPoints = numpy.array(scan.profile)
-        # apply dark-mode label colour overrides
-        if _is_dark_mode_cached():
-            self.properties["labelColour"] = (220, 220, 220)
-            self.properties["labelBgrColour"] = (30, 30, 30)
+        self.applyThemeColours()
 
         self.spectrumCropped = self.spectrumPoints
         self.spectrumScaled = self.spectrumCropped
@@ -1190,6 +1224,18 @@ class spectrum:
 
         # calculate normalization
         self._normalization()
+
+    # ----
+
+    def applyThemeColours(self):
+        """Set the label colours for the current system theme.
+
+        Called at construction and again whenever the system switches between
+        light and dark, so labels drawn under the previous theme are not left
+        as dark text on a dark badge (or the reverse).
+        """
+
+        apply_theme_label_colours(self.properties)
 
     # ----
 

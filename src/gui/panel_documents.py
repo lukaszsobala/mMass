@@ -82,16 +82,14 @@ class panelDocuments(wx.Panel):
     def makeToolbar(self):
         """Make bottom toolbar."""
 
-        # init toolbar panel
-        if images.is_dark_mode():
-            panel = wx.Panel(self, -1, size=wx.Size(-1, mwx.BOTTOMBAR_HEIGHT))
-        else:
-            panel = mwx.bgrPanel(
-                self,
-                -1,
-                images.lib["bgrBottombar"],
-                size=wx.Size(-1, mwx.BOTTOMBAR_HEIGHT),
-            )
+        # init toolbar panel (bgrPanel drops the sprite for a flat fill in dark
+        # mode itself, and can swap between the two on a live theme switch)
+        panel = mwx.bgrPanel(
+            self,
+            -1,
+            images.lib["bgrBottombar"],
+            size=wx.Size(-1, mwx.BOTTOMBAR_HEIGHT),
+        )
 
         self.add_butt = mwx.makeBitmapButton(
             panel,
@@ -112,10 +110,6 @@ class panelDocuments(wx.Panel):
         )
         self.delete_butt.SetToolTip(wx.ToolTip("Remove..."))
         self.delete_butt.Bind(wx.EVT_BUTTON, self.onDelete)
-
-        if images.is_dark_mode():
-            self.add_butt.SetBackgroundColour(panel.GetBackgroundColour())
-            self.delete_butt.SetBackgroundColour(panel.GetBackgroundColour())
 
         # pack elements
         sizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -1360,8 +1354,7 @@ class documentsTree(wx.TreeCtrl):
         font = wx.SystemSettings.GetFont(wx.SYS_DEFAULT_GUI_FONT)
         font.SetPointSize(font.GetPointSize() - 2)
         self.SetFont(font)
-        if not images.is_dark_mode():
-            self.SetOwnBackgroundColour(wx.Colour(*mwx.DOCTREE_COLOUR))
+        self._applyThemeBackground()
 
         # init bullets
         self.bullets = wx.ImageList(13, 12)
@@ -1378,16 +1371,83 @@ class documentsTree(wx.TreeCtrl):
         self.dropLineHeight = max(
             2, display_scale.scale_metric(2, display_scale.get_ui_scale())
         )
-        self.dropLineColour = (
-            wx.Colour(90, 160, 255)
-            if images.is_dark_mode()
-            else wx.SystemSettings.GetColour(wx.SYS_COLOUR_HIGHLIGHT)
-        )
+        self.dropLineColour = self._themedDropLineColour()
         self.dropLine = wx.Window(self, -1, size=wx.Size(-1, self.dropLineHeight))
         self.dropLine.SetBackgroundColour(self.dropLineColour)
         # not every toolkit fills a bare window with its background colour
         self.dropLine.Bind(wx.EVT_PAINT, self._onDropLinePaint)
         self.dropLine.Hide()
+
+    # ----
+
+    def _themedDropLineColour(self):
+        """Colour of the insertion line shown while a document is dragged."""
+
+        if images.is_dark_mode():
+            return wx.Colour(90, 160, 255)
+
+        return wx.SystemSettings.GetColour(wx.SYS_COLOUR_HIGHLIGHT)
+
+    # ----
+
+    def _applyThemeBackground(self):
+        """Set the tree background for the current theme.
+
+        Both themes name a colour explicitly, because _makeColourBullet bakes
+        GetBackgroundColour() into every bullet bitmap: unless the tree is made
+        to paint exactly the colour that read back, each bullet carries a
+        square that does not match the row behind it.
+        """
+
+        if images.is_dark_mode():
+            colour = wx.Colour(*mwx.DOCTREE_DARK_COLOUR)
+        else:
+            colour = wx.Colour(*mwx.DOCTREE_COLOUR)
+
+        self.SetOwnBackgroundColour(colour)
+
+    # ----
+
+    def onThemeChanged(self):
+        """Rebuild the bullets after a live light/dark switch.
+
+        _makeColourBullet bakes the tree background into every document bullet
+        (the bitmaps have no alpha), so on a switch they all carry a block of
+        the old background and have to be drawn again.  Rebuilding the image
+        list renumbers the per-document bullets, so each document is given its
+        new index as well, and the item text colours -- also picked per theme --
+        are re-applied on the way through.
+        """
+
+        self._applyThemeBackground()
+
+        self.dropLineColour = self._themedDropLineColour()
+        self.dropLine.SetBackgroundColour(self.dropLineColour)
+
+        self._resetBullets()
+
+        root = self.GetRootItem()
+        if not root.IsOk():
+            return
+
+        # enableItem() clears the bold flag that marks the current document
+        highlighted = None
+
+        child, cookie = self.GetFirstChild(root)
+        while child.IsOk():
+            if self.IsBold(child):
+                highlighted = child
+
+            docData = self.GetItemData(child)
+            if docData is not None:
+                bullet = self._makeColourBullet(docData.colour, True)
+                docData.bulletIndex = self.bullets.Add(bullet)
+                self.enableItemTree(child, docData.visible)
+
+            child, cookie = self.GetNextChild(root, cookie)
+
+        if highlighted is not None:
+            self.SetItemBold(highlighted, True)
 
     # ----
 

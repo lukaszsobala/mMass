@@ -109,22 +109,23 @@ class panelPeaklist(wx.Panel):
         self.mainSizer.Fit(self)
         self.SetSizer(self.mainSizer)
 
-        # recolour static labels / inputs for dark mode (wxMSW does not inherit
-        # the parent colours the way GTK does)
-        mwx.applyDarkModeToWindow(self)
+        # recolour static labels / inputs for the current theme (wxMSW does not
+        # inherit the parent colours the way GTK does)
+        mwx.applyThemeToWindow(self)
 
     # ----
 
     def makeToolbar(self):
         """Make bottom toolbar."""
 
-        # init toolbar panel
-        if images.is_dark_mode():
-            panel = wx.Panel(self, -1, size=wx.Size(-1, mwx.BOTTOMBAR_HEIGHT))
-        else:
-            panel = mwx.bgrPanel(
-                self, -1, images.lib["bgrBottombar"], size=wx.Size(-1, mwx.BOTTOMBAR_HEIGHT)
-            )
+        # init toolbar panel (bgrPanel drops the sprite for a flat fill in dark
+        # mode itself, and can swap between the two on a live theme switch)
+        panel = mwx.bgrPanel(
+            self,
+            -1,
+            images.lib["bgrBottombar"],
+            size=wx.Size(-1, mwx.BOTTOMBAR_HEIGHT),
+        )
 
         self.addPeak_butt = mwx.makeBitmapButton(
             panel,
@@ -165,15 +166,6 @@ class panelPeaklist(wx.Panel):
         )
         self.editPeak_butt.SetToolTip(wx.ToolTip("Show / hide peak editor"))
         self.editPeak_butt.Bind(wx.EVT_BUTTON, self.onEdit)
-
-        if images.is_dark_mode():
-            for button in (
-                self.addPeak_butt,
-                self.deletePeak_butt,
-                self.annotatePeak_butt,
-                self.editPeak_butt,
-            ):
-                button.SetBackgroundColour(panel.GetBackgroundColour())
 
         self.peaksCount = wx.StaticText(panel, -1, "")
         self.peaksCount.SetFont(wx.SMALL_FONT)
@@ -258,7 +250,7 @@ class panelPeaklist(wx.Panel):
         self.peakList.setSecondarySortColumn(0)
         self.peakList.setAltColour(mwx.LISTCTRL_ALTCOLOUR)
 
-        self.peakList.applyDarkTheme()
+        self.peakList.applyTheme()
 
         # set events
         self.peakList.Bind(wx.EVT_LIST_COL_RIGHT_CLICK, self.onColumnRMU)

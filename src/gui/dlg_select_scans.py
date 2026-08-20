@@ -23,7 +23,6 @@ import wx
 # load modules
 from . import mwx
 from . import config
-from . import images
 from mspy.plot_canvas import canvas as plot_canvas
 from mspy.plot_objects import container as plot_container, points as plot_points
 
@@ -323,12 +322,9 @@ class dlgSelectScans(wx.Dialog):
             if scan["basePeakIntensity"] is not None:
                 bpcData.append((scan["retentionTime"] / 60, scan["basePeakIntensity"]))
 
-        # invert trace colours in dark mode, matching panel_chromatogram
-        ticColour = (16, 71, 185)
-        bpcColour = (50, 140, 0)
-        if images.is_dark_mode():
-            ticColour = tuple(255 - c for c in ticColour)
-            bpcColour = tuple(255 - c for c in bpcColour)
+        # trace colours follow the theme, matching panel_chromatogram
+        ticColour = mwx.themedPlotColour((16, 71, 185))
+        bpcColour = mwx.themedPlotColour((50, 140, 0))
 
         # make objects
         if len(ticData) > 10:
@@ -361,6 +357,17 @@ class dlgSelectScans(wx.Dialog):
 
         # draw container
         self.chromCanvas.draw(container)
+
+    # ----
+
+    def onThemeChanged(self):
+        """Redraw the traces in the new theme's colours.
+
+        The colours are baked into the plot objects when the container is
+        built, so the traces have to be made again rather than repainted.
+        """
+
+        self.updateChromPlot()
 
     # ----
 

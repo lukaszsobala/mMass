@@ -153,13 +153,11 @@ class panelSpectrum(wx.Panel):
     def makeToolbar(self):
         """Make bottom toolbar."""
 
-        # init toolbar panel
-        if images.is_dark_mode():
-            panel = wx.Panel(self, -1, size=(-1, mwx.BOTTOMBAR_HEIGHT))
-        else:
-            panel = mwx.bgrPanel(
-                self, -1, images.lib["bgrBottombar"], size=(-1, mwx.BOTTOMBAR_HEIGHT)
-            )
+        # init toolbar panel (bgrPanel drops the sprite for a flat fill in dark
+        # mode itself, and can swap between the two on a live theme switch)
+        panel = mwx.bgrPanel(
+            self, -1, images.lib["bgrBottombar"], size=(-1, mwx.BOTTOMBAR_HEIGHT)
+        )
 
         # make canvas toolset
         image = (images.lib["spectrumLabelsOff"], images.lib["spectrumLabelsOn"])[
@@ -352,27 +350,6 @@ class panelSpectrum(wx.Panel):
         )
         self.toolsOffset_butt.SetToolTip(wx.ToolTip("Offset spectrum"))
         self.toolsOffset_butt.Bind(wx.EVT_BUTTON, self.parent.onToolsSpectrum)
-
-        if images.is_dark_mode():
-            for button in (
-                self.showLabels_butt,
-                self.showTicks_butt,
-                self.showNotations_butt,
-                self.labelAngle_butt,
-                self.showPosBars_butt,
-                self.showGel_butt,
-                self.showTracker_butt,
-                self.autoscale_butt,
-                self.normalize_butt,
-                self.toolsRuler_butt,
-                self.toolsLabelPeak_butt,
-                self.toolsMultiLabelPeak_butt,
-                self.toolsLabelPoint_butt,
-                self.toolsLabelEnvelope_butt,
-                self.toolsDeleteLabel_butt,
-                self.toolsOffset_butt,
-            ):
-                button.SetBackgroundColour(panel.GetBackgroundColour())
 
         # make cursor info
         self.cursorInfo = wx.StaticText(panel, -1, "")

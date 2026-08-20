@@ -273,10 +273,17 @@ class canvas(wx.Window):
 
         self.applyThemeColours()
 
-        # redraw with the new colours (same path as onSize)
         if self.lastDraw:
+            # the plot objects bake their label colours in when they are built,
+            # so the ones already on the canvas have to pick them again
+            graphics = self.lastDraw[0]
+            applyObjectColours = getattr(graphics, "applyThemeColours", None)
+            if applyObjectColours is not None:
+                applyObjectColours()
+
+            # redraw with the new colours (same path as onSize)
             self.draw(
-                self.lastDraw[0],
+                graphics,
                 self.getCurrentXRange(),
                 self.getCurrentYRange(),
             )

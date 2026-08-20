@@ -216,6 +216,11 @@ class mainFrame(wx.Frame):
         self.Bind(wx.EVT_SIZE, self.onSize)
         self.Bind(wx.EVT_DROP_FILES, self.onDocumentDropped)
 
+        # follow a light/dark switch made while the app is running: the icons
+        # are baked for one theme and several panels paint their own colours,
+        # so the whole app has to be re-themed rather than just repainted
+        mwx.watchThemeChanges(self)
+
         # hover tooltip showing the destination URL of link menu items
         # (Wayland uses the status bar instead, set up above)
         if self._menuTipEnabled:
@@ -6162,9 +6167,10 @@ class mainFrame(wx.Frame):
     def getFreeColour(self):
         """Get free colour from config or generate random."""
 
-        palette = config.colours
-        if images.is_dark_mode():
-            palette = [[255 - c[0], 255 - c[1], 255 - c[2]] for c in config.colours]
+        # a fresh list per entry: the returned colour is stored on a document
+        # and flipped in place when the theme changes, so it must not alias the
+        # config palette
+        palette = [mwx.themedPlotColour(list(colour)) for colour in config.colours]
 
         # get colour from config
         for colour in palette:
@@ -6184,6 +6190,39 @@ class mainFrame(wx.Frame):
             if colour not in self.usedColours or i == 10000:
                 self.usedColours.append(colour)
                 return colour
+
+    # ----
+
+    def onThemeChanged(self):
+        """Flip the document colours to match a live light/dark switch.
+
+        The palette is picked for a white canvas and inverted for dark mode
+        (see getFreeColour), so every colour already handed out has to be
+        inverted again -- including the ones the user chose by hand and the
+        ones restored from a file, which is why they are flipped rather than
+        re-drawn from the palette.
+
+        Only this frame's own views are refreshed here.  The documents tree and
+        the comparison tools read the colours straight off the documents and
+        re-theme themselves, and mwx.refreshTheme() walks this frame first so
+        they see the new values.
+        """
+
+        self.usedColours = [mwx.invertColour(colour) for colour in self.usedColours]
+
+        for document in self.documents:
+            document.colour = mwx.invertColour(document.colour)
+
+        # push the new colours into the plot objects, then redraw once
+        for docIndex in range(len(self.documents)):
+            self.spectrumPanel.updateSpectrumProperties(docIndex, refresh=False)
+        self.spectrumPanel.refresh()
+
+        if self.processingPanel:
+            self.processingPanel.updateAvailableDocuments()
+
+        if self.massDefectPlotPanel:
+            self.massDefectPlotPanel.updateDocuments()
 
     # ----
 

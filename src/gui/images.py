@@ -400,6 +400,26 @@ def _apply_ui_scale_to_small_bitmaps(scale):
         lib[key] = _scale_bitmap(value, scale)
 
 
+def reloadImages():
+    """Rebuild every entry of lib for the current system theme.
+
+    Called when the system switches between light and dark while the app is
+    running: loadImages() bakes the theme into the bitmaps (glyph inversion,
+    accent recolouring, controlbar background flattening), so the only way to
+    follow a live switch is to build them all again.
+
+    The dict object itself is reused so that modules holding a reference to
+    images.lib keep seeing the current bitmaps.  Returns the previous
+    (key, value) pairs, which lets a caller identify the bitmap a widget is
+    still displaying and swap it for its rebuilt counterpart.
+    """
+
+    previous = list(lib.items())
+    lib.clear()
+    loadImages()
+    return previous
+
+
 def loadImages():
     """Load images from lib."""
 

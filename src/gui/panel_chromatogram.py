@@ -21,7 +21,6 @@ import wx
 # load modules
 from . import mwx
 from . import config
-from . import images
 from mspy.plot_canvas import canvas as plot_canvas
 from mspy.plot_objects import container as plot_container, points as plot_points
 
@@ -70,9 +69,10 @@ class panelChromatogram(wx.Panel):
 
         self.SetSizer(self.mainSizer)
 
-        # recolour the control-bar widgets for dark mode (the canvas themes
-        # itself; applyDarkModeToWindow skips it as it is a wx.Window, not a panel)
-        mwx.applyDarkModeToWindow(self)
+        # recolour the control-bar widgets for the current theme (the canvas
+        # themes itself; applyThemeToWindow leaves it alone as it is a
+        # wx.Window, not a panel)
+        mwx.applyThemeToWindow(self)
 
     # ----
 
@@ -179,12 +179,9 @@ class panelChromatogram(wx.Panel):
 
         chroms = self.currentDocument.chromatograms or {}
 
-        # invert trace colours in dark mode, matching the main spectrum view
-        ticColour = (16, 71, 185)
-        bpcColour = (50, 140, 0)
-        if images.is_dark_mode():
-            ticColour = tuple(255 - c for c in ticColour)
-            bpcColour = tuple(255 - c for c in bpcColour)
+        # trace colours follow the theme, matching the main spectrum view
+        ticColour = mwx.themedPlotColour((16, 71, 185))
+        bpcColour = mwx.themedPlotColour((50, 140, 0))
 
         if self.showTIC and chroms.get("tic"):
             container.append(
@@ -213,6 +210,18 @@ class panelChromatogram(wx.Panel):
             )
 
         self.canvas.draw(container)
+
+    # ----
+
+    def onThemeChanged(self):
+        """Redraw the traces in the new theme's colours.
+
+        The colours are baked into the plot objects when the container is
+        built, so the traces have to be made again rather than repainted.
+        """
+
+        self.updateChromatogram()
+        self.highlightCurrentScan()
 
     # ----
 

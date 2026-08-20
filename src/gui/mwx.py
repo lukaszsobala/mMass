@@ -90,6 +90,11 @@ LISTCTRL_ALTCOLOUR = None
 LISTCTRL_SORT = 1
 
 DOCTREE_COLOUR = (255, 255, 255)
+# Dark counterpart, kept in step with the _DARK_BG the peak list and the plot
+# canvas use so the left-hand column reads as one surface.  Set explicitly
+# rather than left to the toolkit because panel_documents bakes the tree
+# background into its document bullet bitmaps.
+DOCTREE_DARK_COLOUR = (30, 30, 30)
 DOCTREE_BULLETSIZE = 5
 DOCTREE_STYLE = wx.TR_DEFAULT_STYLE | wx.TR_HAS_BUTTONS
 
@@ -423,8 +428,10 @@ def appInit():
             # SetBackgroundColour(). DarkMode_Auto follows the system setting,
             # which we have just established is dark.
             app = wx.GetApp()
-            if app is not None:
-                app.MSWEnableDarkMode()
+            # MSW-only method, absent from the cross-platform wx stubs.
+            enableDarkMode = getattr(app, "MSWEnableDarkMode", None)
+            if enableDarkMode is not None:
+                enableDarkMode()
 
     # set GTK
     elif wx.Platform == "__WXGTK__":
@@ -704,35 +711,337 @@ def _darkenWindowsListHeader(listctrl):
         pass
 
 
-def applyDarkModeToWindow(window):
-    """Apply the app's own dark colours to *window* and all its children.
+def _undarkenWindowsListHeader(listctrl):
+    """Undo _darkenWindowsListHeader so the header paints itself again.
 
-    wxWidgets 3.3 dark-themes every standard control by itself once
-    wxApp.MSWEnableDarkMode() has run (see appInit()), so all that is left here
-    is the drawing wx cannot know about: the alternating row colours a
-    sortListCtrl paints from its own item attributes.  Call after the window's
-    GUI has been fully constructed.
+    Needed only when the system switches back to light while the app is
+    running: the owner-draw subclass installed above paints dark
+    unconditionally, so it has to come off rather than be recoloured.  No-op
+    off Windows, on a list that was never darkened, or on any failure.
     """
-    if not images.is_dark_mode():
+
+    if wx.Platform != "__WXMSW__":
         return
 
+    subclass_proc = getattr(listctrl, "_headerSubclassProc", None)
+    if subclass_proc is None:
+        listctrl._headerDarkened = False
+        return
+
+    try:
+        import ctypes
+
+        c_void_p = ctypes.c_void_p
+        c_uint = ctypes.c_uint
+        c_int = ctypes.c_int
+        c_ssize_t = ctypes.c_ssize_t
+        c_size_t = ctypes.c_size_t
+
+        windll = getattr(ctypes, "WinDLL", None)
+        if windll is None:
+            return
+
+        user32 = windll("user32", use_last_error=True)
+        comctl32 = windll("comctl32", use_last_error=True)
+
+        send = user32.SendMessageW
+        send.restype = c_ssize_t
+        send.argtypes = [c_void_p, c_uint, c_size_t, c_void_p]
+        LVM_GETHEADER = 0x1000 + 31
+        SUBCLASS_ID = 1
+
+        header = send(listctrl.GetHandle(), LVM_GETHEADER, 0, None)
+        if not header:
+            return
+
+        comctl32.RemoveWindowSubclass.restype = c_int
+        comctl32.RemoveWindowSubclass.argtypes = [
+            c_void_p,
+            type(subclass_proc),
+            c_size_t,
+        ]
+        comctl32.RemoveWindowSubclass(
+            c_void_p(header), subclass_proc, SUBCLASS_ID
+        )
+
+        # Restore the native visual style in case the subclass never took and
+        # _darkenWindowsListHeader fell back to switching it off.
+        _setHwndTheme(header, "Header", None)
+
+        user32.InvalidateRect.argtypes = [c_void_p, c_void_p, c_int]
+        user32.InvalidateRect(c_void_p(header), None, 1)
+    except Exception:
+        pass
+    finally:
+        try:
+            _header_subclass_procs.remove(subclass_proc)
+        except ValueError:
+            pass
+        listctrl._headerSubclassProc = None
+        listctrl._headerDarkened = False
+
+
+def applyThemeToWindow(window, notify=False):
+    """Apply the app's own theme colours to *window* and all its children.
+
+    wxWidgets 3.3 themes every standard control by itself once
+    wxApp.MSWEnableDarkMode() has run (see appInit()), so all that is left here
+    is the drawing wx cannot know about: the alternating row colours a
+    sortListCtrl paints from its own item attributes and the image-tiled
+    controlbars.  Call after the window's GUI has been fully constructed.
+
+    With *notify* set, each window that defines an ``onThemeChanged()`` hook is
+    asked to re-theme whatever only it knows about (grid cells, generated
+    bullet bitmaps, ...).  That is reserved for a live light/dark switch: at
+    construction time the panel has just drawn itself in the right colours
+    anyway, and re-running the hook there would repopulate it for nothing.
+    """
+
     def _recurse(w):
-        if isinstance(w, sortListCtrl):
-            w.applyDarkTheme()
+        if isinstance(w, (sortListCtrl, bgrPanel)):
+            w.applyTheme()
+        if notify:
+            hook = getattr(w, "onThemeChanged", None)
+            if callable(hook):
+                # One panel with a broken hook must not leave every window
+                # after it in the walk stranded in the old theme.
+                try:
+                    hook()
+                except Exception:
+                    pass
         for child in w.GetChildren():
-            _recurse(child)
+            # a tool frame is a child of the main frame but is themed as a
+            # top-level window in its own right, so it is not descended into
+            # here (see refreshTheme)
+            if not isinstance(child, wx.TopLevelWindow):
+                _recurse(child)
 
     _recurse(window)
     window.Refresh()
 
 
 def applyDarkMode(window):
-    """Apply the dark theme to a top-level *window*.  No-op outside dark mode.
+    """Apply the current theme to a freshly built top-level *window*.
 
     Kept as the single entry point every tool frame and dialog calls, even
     though wxWidgets 3.3 now does the bulk of the work itself.
     """
-    applyDarkModeToWindow(window)
+    applyThemeToWindow(window)
+
+
+def invertColour(colour):
+    """Return the photographic negative of an RGB (or RGBA) colour.
+
+    Any alpha component is carried through untouched, and the sequence type is
+    preserved so a document's colour stays the list the rest of the code
+    expects.
+    """
+
+    inverted = [255 - int(component) for component in colour[:3]]
+    inverted.extend(colour[3:])
+
+    if isinstance(colour, tuple):
+        return tuple(inverted)
+
+    return inverted
+
+
+def themedPlotColour(colour):
+    """Adapt a plot content *colour*, chosen for a white canvas, to the theme.
+
+    Dark mode inverts it so it keeps the same contrast against the dark canvas.
+    Since the inversion is its own opposite, a colour already stored in its
+    dark form inverts straight back to the light one, which is what lets a live
+    switch flip the documents' colours in either direction (see
+    mainFrame.onThemeChanged).
+    """
+
+    if images.is_dark_mode():
+        return invertColour(colour)
+
+    return colour
+
+
+def applyGridTheme(grid):
+    """Colour a wx.grid.Grid for the current system theme.
+
+    wxGrid paints its cells and labels itself and takes no notice of the system
+    colours, so both themes have to be spelled out.  Only the defaults are set:
+    cells given a colour of their own when the grid was filled (a document
+    colour, a match highlight) keep it.
+    """
+
+    if images.is_dark_mode():
+        cell_bg = wx.Colour(30, 30, 30)
+        cell_fg = wx.Colour(220, 220, 220)
+        label_bg = wx.Colour(45, 45, 45)
+        grid_line = wx.Colour(70, 70, 70)
+    else:
+        cell_bg = wx.WHITE
+        cell_fg = wx.BLACK
+        label_bg = wx.Colour(245, 245, 245)
+        grid_line = wx.Colour(220, 220, 220)
+
+    grid.SetLabelBackgroundColour(label_bg)
+    grid.SetLabelTextColour(cell_fg)
+    grid.SetDefaultCellBackgroundColour(cell_bg)
+    grid.SetDefaultCellTextColour(cell_fg)
+    grid.EnableGridLines(True)
+    grid.SetGridLineColour(grid_line)
+
+
+# Theme the app was last seen in, so that the stream of
+# wxEVT_SYS_COLOUR_CHANGED events GTK emits for unrelated style changes does
+# not trigger a full (and visible) rebuild every time.
+_currentDarkMode = None
+
+
+def watchThemeChanges(window):
+    """Make *window* the app's watchdog for live light/dark switches.
+
+    wx delivers wxEVT_SYS_COLOUR_CHANGED to the top-level windows and on down
+    through their children, so binding the main frame alone is enough to hear
+    about the switch; refreshTheme() then re-themes every window in the app.
+    """
+
+    global _currentDarkMode
+
+    _currentDarkMode = images.is_dark_mode()
+    window.Bind(wx.EVT_SYS_COLOUR_CHANGED, _onSysColourChanged)
+
+
+def _onSysColourChanged(evt):
+    """Rebuild the app's theme if the light/dark setting actually flipped."""
+
+    global _currentDarkMode
+
+    evt.Skip()
+
+    dark = images.is_dark_mode()
+    if dark == _currentDarkMode:
+        return
+
+    _currentDarkMode = dark
+    refreshTheme()
+
+
+def _bitmapIndex(items):
+    """Index (key, bitmap) pairs by size for _bitmapKey lookups."""
+
+    index = {}
+    for key, value in items:
+        if isinstance(value, wx.Bitmap) and value.IsOk():
+            size = (value.GetWidth(), value.GetHeight())
+            index.setdefault(size, []).append((key, value))
+
+    return index
+
+
+def _bitmapKey(index, bitmap):
+    """Return the images.lib key *bitmap* was taken from, or None.
+
+    wx.Bitmap copies share their reference-counted data, so IsSameAs() still
+    recognises the bitmap a widget was handed even though GetBitmap() returns a
+    fresh Python wrapper each time.  The index buckets by size first so that
+    each lookup only compares against bitmaps that could possibly match.
+    """
+
+    if not isinstance(bitmap, wx.Bitmap) or not bitmap.IsOk():
+        return None
+
+    for key, candidate in index.get((bitmap.GetWidth(), bitmap.GetHeight()), ()):
+        if bitmap.IsSameAs(candidate):
+            return key
+
+    return None
+
+
+def _reloadBitmaps(window, index):
+    """Swap every bitmap taken from images.lib for its rebuilt version.
+
+    *index* maps the pre-reload bitmaps back to their images.lib keys (see
+    images.reloadImages), which is what lets this walk work without every call
+    site having to remember which icon it asked for.
+    """
+
+    def _rebuilt(bitmap):
+        key = _bitmapKey(index, bitmap)
+        return images.lib.get(key) if key is not None else None
+
+    def _recurse(w):
+        if isinstance(w, wx.ToolBar):
+            for pos in range(w.GetToolsCount()):
+                tool = w.GetToolByPos(pos)
+                if tool is None:
+                    continue
+                bitmap = _rebuilt(tool.GetNormalBitmap())
+                if bitmap is not None:
+                    w.SetToolNormalBitmap(tool.GetId(), bitmap)
+        elif isinstance(w, wx.StaticBitmap):
+            bitmap = _rebuilt(w.GetBitmap())
+            if bitmap is not None:
+                w.SetBitmap(bitmap)
+        elif isinstance(w, wx.AnyButton):
+            bitmap = _rebuilt(w.GetBitmapLabel())
+            if bitmap is not None:
+                w.SetBitmapLabel(bitmap)
+
+        # A bgrPanel tiles its background bitmap itself, so it holds the only
+        # reference wx knows nothing about.
+        if isinstance(w, bgrPanel):
+            bitmap = _rebuilt(w.image)
+            if bitmap is not None:
+                w.image = bitmap
+
+        for child in w.GetChildren():
+            # child tool frames come round again as top-level windows
+            if not isinstance(child, wx.TopLevelWindow):
+                _recurse(child)
+
+    _recurse(window)
+
+
+def refreshTheme():
+    """Re-theme the whole app after the system switched between light and dark.
+
+    The icons are baked for one theme (see images.reloadImages), so they are
+    built again and every widget still displaying an old one is handed its
+    replacement; then each window re-applies the colours it paints itself.
+    """
+
+    # Each plot canvas re-themes itself from its own wxEVT_SYS_COLOUR_CHANGED
+    # handler, but plot_objects caches the dark-mode flag for the process
+    # lifetime, so drop it here too: anything built during this rebuild has to
+    # see the new theme regardless of which handler ran first.
+    try:
+        from mspy import plot_objects
+
+        plot_objects.invalidate_dark_mode_cache()
+    except Exception:
+        pass
+
+    index = _bitmapIndex(images.reloadImages())
+
+    # (the wxPython stub wrongly declares this module function as a method)
+    windows = list(wx.GetTopLevelWindows())  # type: ignore[call-arg]
+
+    # The main frame owns the document colours, which it flips in its own
+    # onThemeChanged hook; every tool window that draws with them has to be
+    # re-themed after that, so it goes first (sort is stable, so the rest keep
+    # their order).
+    # (GetTopWindow lives on wx.App, which the stubs do not narrow GetApp to)
+    getTopWindow = getattr(wx.GetApp(), "GetTopWindow", None)
+    topWindow = getTopWindow() if getTopWindow is not None else None
+    windows.sort(key=lambda window: window is not topWindow)
+
+    for window in windows:
+        try:
+            _reloadBitmaps(window, index)
+            applyThemeToWindow(window, notify=True)
+            window.Layout()
+        except RuntimeError:
+            # Window deleted on the C++ side while the walk was running.
+            continue
 
 
 def fitChoice(choice, min_width=None, extra_padding=35):
@@ -793,7 +1102,13 @@ class menuTipWindow(wx.PopupWindow):
 
 
 class bgrPanel(wx.Panel):
-    """Simple panel with image background."""
+    """Simple panel with image background.
+
+    In dark mode the light background sprite is dropped for a flat dark fill.
+    Both variants are driven from the same handlers rather than from a
+    different set of bindings each, so that a live light/dark switch is just a
+    call to applyTheme() -- see mwx.refreshTheme().
+    """
 
     _DARK_BG = wx.Colour(30, 30, 30)
 
@@ -802,26 +1117,48 @@ class bgrPanel(wx.Panel):
         self.SetMinSize(size)
 
         self.image = image
+        self._dark_mode = None
+
+        self.Bind(wx.EVT_SIZE, self._onSize)
+        self.Bind(wx.EVT_PAINT, self._onPaint)
+
+        self.applyTheme()
+
+    # ----
+
+    def applyTheme(self):
+        """Follow the current system theme."""
+
         self._dark_mode = images.is_dark_mode()
 
         if self._dark_mode:
             self.SetBackgroundColour(self._DARK_BG)
             self.SetBackgroundStyle(wx.BG_STYLE_COLOUR)
-            self.Bind(wx.EVT_SIZE, self._onDarkSize)
         else:
-            # set paint event to tile image
-            self.Bind(wx.EVT_PAINT, self._onPaint)
+            # the tiled sprite is painted over whatever is there, so the
+            # background goes back to being erased by the toolkit
+            self.SetBackgroundColour(wx.NullColour)
+            self.SetBackgroundStyle(wx.BG_STYLE_ERASE)
+
+        self._propagateBg()
+        self.Refresh()
 
     # ----
 
-    def _onDarkSize(self, event):
-        """Propagate dark background to all BitmapButton children on first resize."""
+    def _onSize(self, event):
+        """Re-propagate the panel background to the children on resize."""
         event.Skip()
-        self._propagateDarkBg()
+        self._propagateBg()
 
-    def _propagateDarkBg(self):
-        """Set background colour on all BitmapButton children to match the panel."""
-        colour = self.GetBackgroundColour()
+    def _propagateBg(self):
+        """Match the BitmapButton children's background to the panel.
+
+        wxGTK draws a borderless BitmapButton on its own background colour, so
+        without this the buttons sit in light blocks on the dark bar.  In light
+        mode they go back to inheriting, which lets the tiled sprite show
+        through.
+        """
+        colour = self.GetBackgroundColour() if self._dark_mode else wx.NullColour
         for child in self.GetChildren():
             if isinstance(child, wx.BitmapButton):
                 child.SetBackgroundColour(colour)
@@ -832,7 +1169,13 @@ class bgrPanel(wx.Panel):
 
         # create paint surface
         dc = wx.PaintDC(self)
-        # dc.Clear()
+
+        # dark mode has no background sprite, just the flat fill; the DC still
+        # has to be created (and the region validated) or MSW repaints forever
+        if self._dark_mode:
+            dc.SetBackground(wx.Brush(self.GetBackgroundColour(), wx.BRUSHSTYLE_SOLID))
+            dc.Clear()
+            return
 
         # tile/wallpaper the image across the canvas
         for x in range(0, self.GetSize()[0], self.image.GetWidth()):
@@ -1056,34 +1399,59 @@ class sortListCtrl(wx.ListCtrl):
 
     # ----
 
-    def applyDarkTheme(self):
-        """Apply dark-mode colours to the rows, text and column header.
+    def applyTheme(self):
+        """Match the rows, text and column header to the current system theme.
 
-        wxWidgets 3.3 dark-themes the list control itself, but the alternating
-        row colours are painted by this class from its own item attributes, so
-        they still have to be told what dark looks like.  No-op outside dark
-        mode.
+        wxWidgets 3.3 themes the list control itself, but the alternating row
+        colours are painted by this class from its own item attributes, so they
+        still have to be told what light and dark look like.  Both directions
+        are handled so that a live switch can simply call this again.
         """
 
-        if not images.is_dark_mode():
-            return
+        dark = images.is_dark_mode()
 
-        self.SetBackgroundColour(_DARK_BG)
-        self.SetTextColour(_DARK_FG)
-        self.setDefaultColour(_DARK_BG)
-        self.setAltColour(wx.Colour(40, 40, 40))
+        # An attribute with no colours of its own leaves the header to the
+        # platform, which is what light mode wants.
+        header_attr = wx.ItemAttr()
 
-        try:
-            header_attr = wx.ItemAttr()
+        if dark:
+            self.SetBackgroundColour(_DARK_BG)
+            self.SetTextColour(_DARK_FG)
+            self.setDefaultColour(_DARK_BG)
+            self.setAltColour(wx.Colour(40, 40, 40))
             header_attr.SetBackgroundColour(wx.Colour(45, 45, 45))
             header_attr.SetTextColour(_DARK_FG)
+        else:
+            # Hand the colours back to the toolkit rather than naming the light
+            # ones, so this does not depend on wx having already refreshed its
+            # system-colour cache when the switch is handled.
+            self.SetBackgroundColour(wx.NullColour)
+            self.SetTextColour(wx.NullColour)
+            # None means "whatever the control's own background is", which is
+            # what the light theme wants everywhere the platform has no
+            # alternating row colour of its own (LISTCTRL_ALTCOLOUR is only set
+            # on wxOSX).
+            self.setDefaultColour(None)
+            self.setAltColour(LISTCTRL_ALTCOLOUR)
+
+        try:
             self.SetHeaderAttr(header_attr)
         except Exception:
             pass
 
         # The native MSW header is a separate SysHeader32 child, drawn by hand
         # (see _darkenWindowsListHeader) rather than from the attr above.
-        _darkenWindowsListHeader(self)
+        if dark:
+            _darkenWindowsListHeader(self)
+        else:
+            _undarkenWindowsListHeader(self)
+
+        # A virtual list gets its row colours from OnGetItemAttr on every
+        # repaint; a real one keeps them per item and has to be told.  Forced,
+        # because switching back to light leaves the rows carrying the dark
+        # colours of the theme before it, which the usual skip would not clear.
+        if not self.IsVirtual():
+            self.updateItemsBackground(force=True)
 
         self.Refresh()
 
@@ -1144,11 +1512,17 @@ class sortListCtrl(wx.ListCtrl):
 
     # ----
 
-    def updateItemsBackground(self):
-        """Update item background colours."""
+    def updateItemsBackground(self, force=False):
+        """Update item background colours.
+
+        With both colours the same there is nothing to alternate and the rows
+        can simply use the control's own background -- unless *force* is set,
+        which is how a theme switch clears the colours the previous theme left
+        on them.
+        """
 
         # check colours
-        if self._defaultColour == self._altColour:
+        if self._defaultColour == self._altColour and not force:
             return
 
         # update each row

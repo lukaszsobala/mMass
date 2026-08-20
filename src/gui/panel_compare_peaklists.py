@@ -404,18 +404,7 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
     def makePeaklistGrid(self, panel):
         """Make total peaklist grid."""
 
-        dark = images.is_dark_mode()
-        cell_bg = wx.Colour(30, 30, 30) if dark else wx.WHITE
-        cell_fg = wx.Colour(220, 220, 220) if dark else wx.BLACK
-        label_bg = wx.Colour(45, 45, 45) if dark else wx.Colour(245, 245, 245)
-        grid_line = wx.Colour(70, 70, 70) if dark else wx.Colour(220, 220, 220)
-
-        # the group outline has to stand clear of the grid lines AND stay
-        # visible on top of a document colour fill, so it is deliberately much
-        # stronger than grid_line in both themes
-        self._groupBorderColour = (
-            wx.Colour(190, 190, 190) if dark else wx.Colour(60, 60, 60)
-        )
+        self._groupBorderColour = self._themedGroupBorderColour()
 
         # make table
         self.peaklistGrid = wx.grid.Grid(
@@ -431,14 +420,9 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         self.peaklistGrid.SetDefaultRowSize(rowHeight)
         self.peaklistGrid.AutoSizeColumns(True)
         self.peaklistGrid.SetLabelFont(wx.SMALL_FONT)
-        self.peaklistGrid.SetLabelBackgroundColour(label_bg)
-        self.peaklistGrid.SetLabelTextColour(cell_fg)
         self.peaklistGrid.SetDefaultCellFont(wx.SMALL_FONT)
         self.peaklistGrid.SetDefaultCellAlignment(wx.ALIGN_CENTER, wx.ALIGN_CENTER)
-        self.peaklistGrid.SetDefaultCellBackgroundColour(cell_bg)
-        self.peaklistGrid.SetDefaultCellTextColour(cell_fg)
-        self.peaklistGrid.EnableGridLines(True)
-        self.peaklistGrid.SetGridLineColour(grid_line)
+        mwx.applyGridTheme(self.peaklistGrid)
 
         self.peaklistGrid.Bind(
             wx.grid.EVT_GRID_SELECT_CELL, self.onPeaklistCellSelected
@@ -449,12 +433,6 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
 
     def makeMatchesGrid(self, panel):
         """Make matches grid."""
-
-        dark = images.is_dark_mode()
-        cell_bg = wx.Colour(30, 30, 30) if dark else wx.WHITE
-        cell_fg = wx.Colour(220, 220, 220) if dark else wx.BLACK
-        label_bg = wx.Colour(45, 45, 45) if dark else wx.Colour(245, 245, 245)
-        grid_line = wx.Colour(70, 70, 70) if dark else wx.Colour(220, 220, 220)
 
         # make table
         self.matchesGrid = wx.grid.Grid(
@@ -469,16 +447,46 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         self.matchesGrid.SetDefaultRowSize(rowHeight)
         self.matchesGrid.AutoSizeColumns(True)
         self.matchesGrid.SetLabelFont(wx.SMALL_FONT)
-        self.matchesGrid.SetLabelBackgroundColour(label_bg)
-        self.matchesGrid.SetLabelTextColour(cell_fg)
         self.matchesGrid.SetDefaultCellFont(wx.SMALL_FONT)
         self.matchesGrid.SetDefaultCellAlignment(wx.ALIGN_CENTER, wx.ALIGN_CENTER)
-        self.matchesGrid.SetDefaultCellBackgroundColour(cell_bg)
-        self.matchesGrid.SetDefaultCellTextColour(cell_fg)
-        self.matchesGrid.EnableGridLines(True)
-        self.matchesGrid.SetGridLineColour(grid_line)
+        mwx.applyGridTheme(self.matchesGrid)
 
         self.matchesGrid.Bind(wx.EVT_KEY_DOWN, self.onMatchesKey)
+
+    # ----
+
+    def _themedGroupBorderColour(self):
+        """Colour of the outline drawn around a group of matched peaks.
+
+        It has to stand clear of the grid lines AND stay visible on top of a
+        document colour fill, so it is deliberately much stronger than the grid
+        line colour in both themes.
+        """
+
+        if images.is_dark_mode():
+            return wx.Colour(190, 190, 190)
+
+        return wx.Colour(60, 60, 60)
+
+    # ----
+
+    def onThemeChanged(self):
+        """Recolour the grids after a live light/dark switch.
+
+        wxGrid paints its own cells, so a repaint alone leaves them in the old
+        theme.  Both grids additionally need filling again rather than just
+        recolouring: the peaklist grid bakes the group outline colour into its
+        cell renderers, and both draw the documents' own colours, which the
+        main frame has just inverted for the new theme.  Neither refill
+        recomputes anything -- they redraw what is already there.
+        """
+
+        for grid in (self.peaklistGrid, self.matchesGrid):
+            mwx.applyGridTheme(grid)
+
+        self._groupBorderColour = self._themedGroupBorderColour()
+        self.updatePeaklistGrid(recreate=False)
+        self.updateMatchesGrid()
 
     # ----
 
@@ -594,11 +602,14 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         """
 
         focus = wx.Window.FindFocus()
-        if focus not in (self.tolerance_value, self.ratioThreshold_value):
+        for ctrl in (self.tolerance_value, self.ratioThreshold_value):
+            if focus is ctrl:
+                break
+        else:
             return None
 
         try:
-            return (focus, focus.GetInsertionPoint(), focus.GetSelection())
+            return (ctrl, ctrl.GetInsertionPoint(), ctrl.GetSelection())
         except RuntimeError:
             return None
 
