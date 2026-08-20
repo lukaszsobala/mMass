@@ -846,6 +846,25 @@ def invertColour(colour):
     return inverted
 
 
+def readableOn(colour):
+    """Black or white, whichever stays readable on the given background.
+
+    Used instead of a fixed text colour wherever a cell carries a colour of its
+    own (a match highlight, a document colour), so the same cell works in both
+    themes and no highlight can end up light-on-light.
+    """
+
+    if not isinstance(colour, wx.Colour):
+        colour = wx.Colour(*colour)
+
+    if not colour.IsOk():
+        return wx.BLACK
+
+    luminance = 0.299 * colour.Red() + 0.587 * colour.Green() + 0.114 * colour.Blue()
+
+    return wx.BLACK if luminance > 140 else wx.WHITE
+
+
 def themedPlotColour(colour):
     """Adapt a plot content *colour*, chosen for a white canvas, to the theme.
 

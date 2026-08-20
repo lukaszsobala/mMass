@@ -32,6 +32,19 @@ import mspy
 # -----------------------------------------
 
 
+# Background colour of a highlighted difference, by the kind of match found.
+# The hues are saturated enough to read against either theme's cell background;
+# the text drawn on them is derived per cell (see mwx.readableOn) rather than
+# fixed, so a pale highlight never ends up light-on-light in dark mode.
+MATCH_COLOURS = {
+    "value": wx.Colour(0, 140, 70),
+    "amino": wx.Colour(0, 200, 255),
+    "dipep": wx.Colour(100, 255, 255),
+    "sugar": wx.Colour(255, 170, 0),
+    "permesugar": wx.Colour(255, 210, 100),
+}
+
+
 class panelPeakDifferences(wx.Frame, MakeModalMixin):
     """Peak differences tool."""
 
@@ -590,33 +603,12 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
                 self.differencesGrid.SetCellValue(x, y, diff)
 
                 # highlight matches
-                if not self.currentDifferences[i][j][1]:
+                colour = MATCH_COLOURS.get(self.currentDifferences[i][j][1])
+                if colour is None:
                     continue
-                elif self.currentDifferences[i][j][1] == "value":
-                    self.differencesGrid.SetCellBackgroundColour(
-                        x, y, wx.Colour(0, 140, 70)
-                    )
-                    self.differencesGrid.SetCellTextColour(x, y, wx.WHITE)
-                elif self.currentDifferences[i][j][1] == "amino":
-                    self.differencesGrid.SetCellBackgroundColour(
-                        x, y, wx.Colour(0, 200, 255)
-                    )
-                    self.differencesGrid.SetCellTextColour(x, y, wx.BLACK)
-                elif self.currentDifferences[i][j][1] == "dipep":
-                    self.differencesGrid.SetCellBackgroundColour(
-                        x, y, wx.Colour(100, 255, 255)
-                    )
-                    self.differencesGrid.SetCellTextColour(x, y, wx.BLACK)
-                elif self.currentDifferences[i][j][1] == "sugar":
-                    self.differencesGrid.SetCellBackgroundColour(
-                        x, y, wx.Colour(255, 170, 0)
-                    )
-                    self.differencesGrid.SetCellTextColour(x, y, wx.BLACK)
-                elif self.currentDifferences[i][j][1] == "permesugar":
-                    self.differencesGrid.SetCellBackgroundColour(
-                        x, y, wx.Colour(255, 210, 100)
-                    )
-                    self.differencesGrid.SetCellTextColour(x, y, wx.BLACK)
+
+                self.differencesGrid.SetCellBackgroundColour(x, y, colour)
+                self.differencesGrid.SetCellTextColour(x, y, mwx.readableOn(colour))
 
     # ----
 

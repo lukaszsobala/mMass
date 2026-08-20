@@ -46,23 +46,6 @@ NO_BORDER = (False, False, False, False)
 BORDER_WIDTH = 2
 
 
-def _readableOn(colour):
-    """Black or white, whichever stays readable on the given background.
-
-    Used instead of a fixed colour so the same cell works in light and dark
-    mode and on top of any document colour.
-    """
-
-    if not colour.IsOk():
-        return wx.BLACK
-
-    luminance = (
-        0.299 * colour.Red() + 0.587 * colour.Green() + 0.114 * colour.Blue()
-    )
-
-    return wx.BLACK if luminance > 140 else wx.WHITE
-
-
 def _drawGroupBorder(dc, rect, colour, edges):
     """Draw this cell's share of the outline around a group of matched peaks.
 
@@ -165,7 +148,7 @@ class _IntensityFillRenderer(wx.grid.GridCellRenderer):
                 # reaches halfway up; picking the colour from whatever is
                 # actually behind it keeps it readable in dark mode too
                 behind = self._colour if (filled and self._fraction >= 0.5) else bgColour
-                textColour = _readableOn(behind)
+                textColour = mwx.readableOn(behind)
             dc.SetTextForeground(textColour)
             dc.DrawLabel(value, rect, wx.ALIGN_CENTER | wx.ALIGN_CENTER_VERTICAL)
 
