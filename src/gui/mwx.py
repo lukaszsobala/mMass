@@ -944,14 +944,34 @@ def _onSysColourChanged(evt):
     refreshTheme()
 
 
+def _logicalSize(bitmap):
+    """A bitmap's size in logical (unscaled) units.
+
+    On wxMSW the icons are HiDPI-tagged (see images._scale_bitmap), so a 2x
+    icon measures 44x44 pixels but only 22x22 logical units.  Bucketing the
+    index by the logical size is what lets a widget's bitmap and the images.lib
+    bitmap it came from meet even when one of them has been resolved out of a
+    wxBitmapBundle at a different pixel density (see _bundleKey).
+    """
+
+    try:
+        scale = bitmap.GetScaleFactor()
+    except Exception:
+        scale = 1.0
+
+    if not scale:
+        scale = 1.0
+
+    return (round(bitmap.GetWidth() / scale), round(bitmap.GetHeight() / scale))
+
+
 def _bitmapIndex(items):
-    """Index (key, bitmap) pairs by size for _bitmapKey lookups."""
+    """Index (key, bitmap) pairs by logical size for _bitmapKey lookups."""
 
     index = {}
     for key, value in items:
         if isinstance(value, wx.Bitmap) and value.IsOk():
-            size = (value.GetWidth(), value.GetHeight())
-            index.setdefault(size, []).append((key, value))
+            index.setdefault(_logicalSize(value), []).append((key, value))
 
     return index
 
@@ -968,8 +988,30 @@ def _bitmapKey(index, bitmap):
     if not isinstance(bitmap, wx.Bitmap) or not bitmap.IsOk():
         return None
 
-    for key, candidate in index.get((bitmap.GetWidth(), bitmap.GetHeight()), ()):
+    for key, candidate in index.get(_logicalSize(bitmap), ()):
         if bitmap.IsSameAs(candidate):
+            return key
+
+    return None
+
+
+def _bundleKey(index, bundle):
+    """Return the images.lib key *bundle* was built from, or None.
+
+    Widgets that store their icon as a wxBitmapBundle cannot be matched by
+    _bitmapKey: asking such a bundle for a plain bitmap resolves it at the
+    bundle's default (logical) size, which on wxMSW means the HiDPI-tagged icon
+    is *rescaled* into a brand new bitmap -- a different size and different
+    reference-counted data from the images.lib entry it was made from, so no
+    identity test can ever match it.  Asking the bundle for its own source size
+    instead hands the original bitmap straight back, which does match.
+    """
+
+    if bundle is None or not bundle.IsOk():
+        return None
+
+    for key, candidate in index.get(tuple(bundle.GetDefaultSize()), ()):
+        if bundle.GetBitmap(candidate.GetSize()).IsSameAs(candidate):
             return key
 
     return None
@@ -983,8 +1025,10 @@ def _reloadBitmaps(window, index):
     site having to remember which icon it asked for.
     """
 
-    def _rebuilt(bitmap):
+    def _rebuilt(bitmap, bundle=None):
         key = _bitmapKey(index, bitmap)
+        if key is None:
+            key = _bundleKey(index, bundle)
         return images.lib.get(key) if key is not None else None
 
     def _recurse(w):
@@ -993,7 +1037,13 @@ def _reloadBitmaps(window, index):
                 tool = w.GetToolByPos(pos)
                 if tool is None:
                     continue
-                bitmap = _rebuilt(tool.GetNormalBitmap())
+                # a tool keeps its icon as a bundle, so the plain bitmap alone
+                # does not identify it -- see _bundleKey
+                getBundle = getattr(tool, "GetNormalBitmapBundle", None)
+                bitmap = _rebuilt(
+                    tool.GetNormalBitmap(),
+                    getBundle() if getBundle is not None else None,
+                )
                 if bitmap is not None:
                     w.SetToolNormalBitmap(tool.GetId(), bitmap)
         elif isinstance(w, wx.StaticBitmap):
