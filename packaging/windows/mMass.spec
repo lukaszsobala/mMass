@@ -11,6 +11,7 @@ APP_MANIFEST = Path(SPECPATH) / "mMass.manifest"
 datas = [
     (str(PROJECT_ROOT / "src" / "gui" / "configs"), "gui/configs"),
     (str(PROJECT_ROOT / "license.txt"), "."),
+    (str(PROJECT_ROOT / "User Guide.pdf"), "."),
 ]
 datas += collect_data_files("xdgenvpy")
 

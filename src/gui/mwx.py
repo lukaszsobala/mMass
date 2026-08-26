@@ -2238,7 +2238,15 @@ class dlgMessage(wx.Dialog):
         sizer.Fit(self)
         self.SetSizer(sizer)
         self.SetMinSize(self.GetSize())
-        self.Centre()
+
+        # Centre on the owning window rather than on the primary display: with
+        # more than one monitor the plain Centre() can drop the dialog on a
+        # screen the main window is nowhere near. Only usable once the parent
+        # is really on screen -- before that its position is not settled yet.
+        if parent is not None and parent.IsShownOnScreen():
+            self.CentreOnParent()
+        else:
+            self.Centre()
 
     # ----
 

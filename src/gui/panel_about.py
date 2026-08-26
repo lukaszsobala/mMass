@@ -96,9 +96,6 @@ class panelAbout(frame):
         homepage_butt = mwx.makeButton(panel, ID_helpHomepage, "Homepage", 150)
         homepage_butt.Bind(wx.EVT_BUTTON, self.parent.onLibraryLink)
 
-        donate_butt = mwx.makeButton(panel, ID_helpDonate, "Make a Donation", 150)
-        donate_butt.Bind(wx.EVT_BUTTON, self.parent.onLibraryLink)
-
         cite_butt = mwx.makeButton(panel, ID_helpCite, "How to Cite", 150)
         cite_butt.Bind(wx.EVT_BUTTON, self.parent.onLibraryLink)
 
@@ -112,8 +109,6 @@ class panelAbout(frame):
         sizer.Add(copyright, 0, wx.CENTER | wx.LEFT | wx.RIGHT, 20)
         sizer.AddSpacer(20)
         sizer.Add(homepage_butt, 0, wx.CENTER | wx.LEFT | wx.RIGHT, 20)
-        sizer.AddSpacer(10)
-        sizer.Add(donate_butt, 0, wx.CENTER | wx.LEFT | wx.RIGHT, 20)
         sizer.AddSpacer(10)
         sizer.Add(cite_butt, 0, wx.CENTER | wx.LEFT | wx.RIGHT | wx.BOTTOM, 20)
 

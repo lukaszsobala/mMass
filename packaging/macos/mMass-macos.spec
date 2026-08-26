@@ -14,6 +14,7 @@ APP_VERSION = os.environ.get("MMASS_APP_VERSION", "0.0.0")
 datas = [
     (str(PROJECT_ROOT / "src" / "gui" / "configs"), "gui/configs"),
     (str(PROJECT_ROOT / "license.txt"), "."),
+    (str(PROJECT_ROOT / "User Guide.pdf"), "."),
 ]
 datas += collect_data_files("xdgenvpy")
 

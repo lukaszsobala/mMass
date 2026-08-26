@@ -106,6 +106,10 @@ class mainFrame(wx.Frame):
     # disabled for now -- flip to True to re-enable. To be decided later.
     _STATUS_BAR_FALLBACK = False
 
+    # how long to wait after the main window is shown before the automatic
+    # update notice pops up (ms)
+    _UPDATE_NOTICE_DELAY = 750
+
     def __init__(self, parent, id, title):
         wx.Frame.__init__(
             self,
@@ -284,9 +288,8 @@ class mainFrame(wx.Frame):
         # map of menu items that open a webpage -> their config.links key
         self.linkTargets = {
             ID_helpHomepage: "mMassHomepage",
-            ID_helpForum: "mMassForum",
+            ID_helpIssues: "mMassIssues",
             ID_helpCite: "mMassCite",
-            ID_helpDonate: "mMassDonate",
             ID_linksBiomedMSTools: "biomedmstools",
             ID_linksBLAST: "blast",
             ID_linksClustalW: "clustalw",
@@ -1016,12 +1019,18 @@ class mainFrame(wx.Frame):
         help.Append(ID_helpUserGuide, "User's Guide..." + HK_helpUserGuide, "")
         help.AppendSeparator()
         help.Append(ID_helpHomepage, "Homepage...", "")
-        help.Append(ID_helpForum, "Support Forum...", "")
+        help.Append(ID_helpIssues, "Report a Bug...", "")
         help.AppendSeparator()
         help.Append(ID_helpCite, "Papers to Cite...", "")
-        help.Append(ID_helpDonate, "Make a Donation...", "")
         help.AppendSeparator()
         help.Append(ID_helpCheckUpdates, "Check for Updates...", "")
+        self.updatesEnabledItem = help.Append(
+            ID_helpUpdatesEnabled,
+            "Check for Updates Automatically",
+            "",
+            wx.ITEM_CHECK,
+        )
+        self.updatesEnabledItem.Check(bool(config.main["updatesEnabled"]))
         # About (wx.ID_ABOUT) moves to the application menu on macOS; keep the
         # separator before it only where About stays in this menu.
         if wx.Platform != "__WXMAC__":
@@ -1030,10 +1039,10 @@ class mainFrame(wx.Frame):
 
         self.Bind(wx.EVT_MENU, self.onHelpUserGuide, id=ID_helpUserGuide)
         self.Bind(wx.EVT_MENU, self.onLibraryLink, id=ID_helpHomepage)
-        self.Bind(wx.EVT_MENU, self.onLibraryLink, id=ID_helpForum)
+        self.Bind(wx.EVT_MENU, self.onLibraryLink, id=ID_helpIssues)
         self.Bind(wx.EVT_MENU, self.onLibraryLink, id=ID_helpCite)
-        self.Bind(wx.EVT_MENU, self.onLibraryLink, id=ID_helpDonate)
         self.Bind(wx.EVT_MENU, self.onHelpCheckUpdates, id=ID_helpCheckUpdates)
+        self.Bind(wx.EVT_MENU, self.onHelpUpdatesEnabled, id=ID_helpUpdatesEnabled)
         self.Bind(wx.EVT_MENU, self.onHelpAbout, id=ID_helpAbout)
 
         self.menubar.Append(help, "&Help")
@@ -4904,44 +4913,92 @@ class mainFrame(wx.Frame):
 
     # HELP
 
+    def getUserGuidePath(self):
+        """Locate the User's Guide PDF, or None if it is not installed.
+
+        The guide sits next to the sources in a checkout, in the bundle
+        directory of a frozen build and in the environment's shared data
+        directory of a pip install, so all three are tried.
+        """
+
+        name = "User Guide.pdf"
+        candidates = []
+
+        # frozen build: PyInstaller unpacks data files under _MEIPASS, but a
+        # one-dir build can also be run from beside the executable (and a macOS
+        # .app keeps them in Contents/Resources)
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            candidates.append(os.path.join(meipass, name))
+        if getattr(sys, "frozen", False):
+            exeDir = os.path.dirname(os.path.realpath(sys.executable))
+            candidates.append(os.path.join(exeDir, name))
+            candidates.append(
+                os.path.join(os.path.dirname(exeDir), "Resources", name)
+            )
+
+        # source checkout: gui -> src -> project root (where the PDF lives)
+        guiDir = os.path.dirname(os.path.realpath(__file__))
+        srcDir = os.path.dirname(guiDir)
+        candidates.append(os.path.join(os.path.dirname(srcDir), name))
+        candidates.append(os.path.join(srcDir, name))
+
+        # pip install: data files go to <prefix>/share/mMass
+        candidates.append(os.path.join(sys.prefix, "share", "mMass", name))
+
+        for path in candidates:
+            if os.path.isfile(path):
+                return path
+
+        return None
+
+    # ----
+
     def onHelpUserGuide(self, evt):
         """Open User's Guide PDF."""
 
-        # get path
-        if sys.platform == "darwin":
-            path = ""
-        else:
-            path = os.path.sep
-            for folder in os.path.dirname(os.path.realpath(__file__)).split(
-                os.path.sep
-            )[:-1]:
-                tmp = os.path.join(path, folder)
-                if os.path.isdir(tmp):
-                    path = tmp
+        path = self.getUserGuidePath()
 
-        path = os.path.join(path, "User Guide.pdf")
-
-        # check path
-        if not os.path.exists(path):
+        # not installed: point at the project page, which is where it can be
+        # downloaded from
+        if path is None:
             wx.Bell()
             dlg = mwx.dlgMessage(
                 self,
-                title="User's Guide PDF doesn't exist.",
-                message="Please go to the mMass website, download the User's Guide PDF\nand move it into your mMass application folder.",
+                title="The User's Guide PDF was not found.",
+                message="It is not installed with this copy of mMass.\nYou can download it from the mMass project page.",
+                buttons=[
+                    (wx.ID_CANCEL, "Close", -1, False, 15),
+                    (ID_helpHomepage, "Open Project Page", -1, True, 0),
+                ],
             )
-            dlg.ShowModal()
+            response = dlg.ShowModal()
             dlg.Destroy()
+            if response == ID_helpHomepage:
+                try:
+                    wx.LaunchDefaultBrowser(config.links["mMassHomepage"])
+                except Exception:
+                    pass
             return
 
         # try to open pdf
+        # The viewer is a separate application and inherits our streams: a Qt
+        # one (Okular is the default on KDE and on stock Ubuntu) then prints
+        # its own portal/Wayland warnings into mMass's terminal, where they
+        # look like our errors. Give it null streams and its own session so it
+        # neither talks to our console nor dies with it.
         try:
             if wx.Platform == "__WXMSW__" and hasattr(os, "startfile"):
                 os.startfile(path)
             else:
-                try:
-                    subprocess.Popen(["xdg-open", path])
-                except Exception:
-                    subprocess.Popen(["open", path])
+                opener = "open" if wx.Platform == "__WXMAC__" else "xdg-open"
+                subprocess.Popen(
+                    [opener, path],
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
         except Exception:
             wx.Bell()
             dlg = mwx.dlgMessage(
@@ -6446,18 +6503,49 @@ class mainFrame(wx.Frame):
             if newest_key is None or current_key is None:
                 return False
 
-            # store the newest version if it is actually newer than what we
-            # are running, otherwise store our own version (== no update)
+            # the newest version if it is actually newer than what we are
+            # running, otherwise our own version (== no update)
             if newest_key > current_key:
-                config.main["updatesAvailable"] = self.displayVersionString(newest_name)
+                available = self.displayVersionString(newest_name)
             else:
-                config.main["updatesAvailable"] = config.version
-            config.main["updatesChecked"] = time.strftime("%Y%m%d", time.localtime())
+                available = config.version
+
+            # this runs in a worker thread and every config write rewrites
+            # config.xml, so hand the result to the main thread instead of
+            # racing the GUI (and a shutdown) for the file
+            wx.CallAfter(self.storeAvailableUpdate, available)
             return True
 
         except Exception:
             # print(e)
             return False
+
+    # ----
+
+    def storeAvailableUpdate(self, available):
+        """Remember the result of an update check (main thread only)."""
+
+        config.main["updatesAvailable"] = available
+        config.main["updatesChecked"] = time.strftime("%Y%m%d", time.localtime())
+
+    # ----
+
+    def isUpdateWorthAnnouncing(self, candidate):
+        """Whether an available version should trigger the startup notice.
+
+        It has to be newer than the running version and newer than whatever
+        the user last chose to skip -- so "Skip This Version" silences that
+        release for good while a later one still gets announced.
+        """
+
+        if not candidate or not self.isNewerVersion(candidate, config.version):
+            return False
+
+        skipped = config.main["updatesSkipped"]
+        if skipped and not self.isNewerVersion(candidate, skipped):
+            return False
+
+        return True
 
     # ----
 
@@ -6468,48 +6556,101 @@ class mainFrame(wx.Frame):
         if config.nightbuild:
             return
 
-        # first run
+        # first run of this version: forget what the previous one knew (the
+        # skip applied to an older release and would be wrong to keep)
         if config.main["updatesCurrent"] != config.version:
             config.main["updatesCurrent"] = config.version
             config.main["updatesAvailable"] = ""
             config.main["updatesChecked"] = ""
+            config.main["updatesSkipped"] = ""
 
-        # updates are available
-        elif (
-            config.main["updatesEnabled"]
-            and config.main["updatesAvailable"]
-            and self.isNewerVersion(config.main["updatesAvailable"], config.version)
+        # an earlier run found an update: announce it unless the user opted out
+        elif config.main["updatesEnabled"] and self.isUpdateWorthAnnouncing(
+            config.main["updatesAvailable"]
         ):
-            title = "A newer version of mMass is available from github.com"
-            message = (
-                "Version %s is now available for download.\nYou are currently using version %s."
-                % (config.main["updatesAvailable"], config.version)
+            # Show(True) has only just been called, so the window manager has
+            # not mapped or placed the frame yet: a dialog created now gets no
+            # usable parent geometry and can end up centred on another display
+            # (and behind the main window). A short delay lets the frame settle
+            # first, which also makes the notice less jarring at launch.
+            wx.CallLater(
+                self._UPDATE_NOTICE_DELAY,
+                self.promptUpdateAvailable,
+                config.main["updatesAvailable"],
+                True,
             )
-            buttons = [
-                (ID_helpWhatsNew, "What's New", -1, False, 15),
-                (wx.ID_CANCEL, "Ask Again Later", -1, False, 15),
-                (ID_helpDownload, "Upgrade Now", -1, True, 0),
-            ]
-            dlg = mwx.dlgMessage(self, title, message, buttons)
-            response = dlg.ShowModal()
-            dlg.Destroy()
-            if response == ID_helpDownload:
-                try:
-                    wx.LaunchDefaultBrowser(config.links["mMassDownload"], flags=0)
-                except Exception:
-                    pass
-            elif response == ID_helpWhatsNew:
-                try:
-                    wx.LaunchDefaultBrowser(config.links["mMassWhatsNew"], flags=0)
-                except Exception:
-                    pass
 
-        # check for updates
+        # check for updates (daemon so a hung request cannot delay quitting)
         if config.main["updatesEnabled"] and config.main[
             "updatesChecked"
         ] != time.strftime("%Y%m%d", time.localtime()):
-            process = threading.Thread(target=self.getAvailableUpdates)
+            process = threading.Thread(target=self.getAvailableUpdates, daemon=True)
             process.start()
+
+    # ----
+
+    def promptUpdateAvailable(self, latest, startup=False):
+        """Offer the available update to the user.
+
+        The automatic check adds a "Skip This Version" opt-out; a manual check
+        is the user asking right now, so muting the version there would only be
+        confusing.
+        """
+
+        # the window may have been closed before the deferred call ran
+        if not self:
+            return
+
+        title = "A newer version of mMass is available from github.com"
+        message = (
+            "Version %s is now available for download.\nYou are currently using version %s."
+            % (latest, config.version)
+        )
+
+        # "Upgrade Now" opens the releases page, which is also where the
+        # release notes live, so a separate "What's New" button would only
+        # duplicate it
+        buttons = []
+        if startup:
+            buttons.append((ID_helpSkipVersion, "Skip This Version", -1, False, 15))
+            buttons.append((wx.ID_CANCEL, "Remind Me Later", -1, False, 15))
+        else:
+            buttons.append((wx.ID_CANCEL, "Close", -1, False, 15))
+        buttons.append((ID_helpDownload, "Upgrade Now", -1, True, 0))
+
+        # keep the notice with its parent rather than behind it
+        self.Raise()
+
+        dlg = mwx.dlgMessage(self, title, message, buttons)
+        response = dlg.ShowModal()
+        dlg.Destroy()
+
+        if response == ID_helpDownload:
+            self.openUpdateLink("mMassDownload")
+        elif response == ID_helpSkipVersion:
+            config.main["updatesSkipped"] = latest
+
+    # ----
+
+    def openUpdateLink(self, linkID):
+        """Open one of the update-related links in the default browser."""
+
+        try:
+            wx.LaunchDefaultBrowser(config.links[linkID], flags=0)
+        except Exception:
+            pass
+
+    # ----
+
+    def onHelpUpdatesEnabled(self, evt=None):
+        """Switch the automatic (once a day) update check on or off."""
+
+        enabled = bool(self.updatesEnabledItem.IsChecked())
+        config.main["updatesEnabled"] = int(enabled)
+
+        # re-enabling should take effect today rather than tomorrow
+        if enabled:
+            config.main["updatesChecked"] = ""
 
     # ----
 
@@ -6557,29 +6698,7 @@ class mainFrame(wx.Frame):
 
         # a newer version is available
         if latest and self.isNewerVersion(latest, config.version):
-            title = "A newer version of mMass is available from github.com"
-            message = (
-                "Version %s is now available for download.\nYou are currently using version %s."
-                % (latest, config.version)
-            )
-            buttons = [
-                (ID_helpWhatsNew, "What's New", -1, False, 15),
-                (wx.ID_CANCEL, "Close", -1, False, 15),
-                (ID_helpDownload, "Upgrade Now", -1, True, 0),
-            ]
-            dlg = mwx.dlgMessage(self, title, message, buttons)
-            response = dlg.ShowModal()
-            dlg.Destroy()
-            if response == ID_helpDownload:
-                try:
-                    wx.LaunchDefaultBrowser(config.links["mMassDownload"], flags=0)
-                except Exception:
-                    pass
-            elif response == ID_helpWhatsNew:
-                try:
-                    wx.LaunchDefaultBrowser(config.links["mMassWhatsNew"], flags=0)
-                except Exception:
-                    pass
+            self.promptUpdateAvailable(latest)
             return
 
         # already up to date

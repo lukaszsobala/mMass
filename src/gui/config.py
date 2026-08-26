@@ -270,6 +270,9 @@ main = {
     "updatesChecked": "",
     "updatesCurrent": version,
     "updatesAvailable": version,
+    # newest version the user asked not to be reminded about again; the
+    # startup notification stays silent for it and for anything older
+    "updatesSkipped": "",
     "latestVersionUrl": "https://api.github.com/repos/lukaszsobala/mMass/releases",
 }
 
@@ -750,10 +753,9 @@ prospector = {
 
 links = {
     "mMassHomepage": "https://github.com/lukaszsobala/mMass",
-    "mMassForum": "https://github.com/lukaszsobala/mMass",
+    "mMassIssues": "https://github.com/lukaszsobala/mMass/issues",
     "mMassCite": "https://web.archive.org/web/20220307182056/http://www.mmass.org/donate/papers.php",
-    "mMassDonate": "https://web.archive.org/web/20220123052313/http://www.mmass.org/donate/",
-    "mMassDownload": "https://github.com/lukaszsobala/mMass/",
+    "mMassDownload": "https://github.com/lukaszsobala/mMass/releases",
     "mMassWhatsNew": "https://github.com/lukaszsobala/mMass/releases",
     "biomedmstools": "https://ms.biomed.cas.cz/MSTools/",
     "blast": "https://www.ebi.ac.uk/Tools/blastall/",
@@ -780,7 +782,7 @@ links = {
 # links (names not built into mMass) are read from / written to the user XML.
 # "Retired" names are links that no longer exist and must never be restored.
 _builtinLinks = frozenset(links)
-_retiredLinks = frozenset({"mMassTwitter"})
+_retiredLinks = frozenset({"mMassTwitter", "mMassForum", "mMassDonate"})
 
 
 def isManagedLink(name):
@@ -1189,6 +1191,9 @@ def saveConfig(path=os.path.join(confdir, "config.xml")):  # noqa: B008
     )
     buff += '    <param name="updatesAvailable" value="%s" type="str" />\n' % (
         main["updatesAvailable"]
+    )
+    buff += '    <param name="updatesSkipped" value="%s" type="str" />\n' % (
+        main["updatesSkipped"]
     )
     buff += "  </main>\n\n"
 

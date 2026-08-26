@@ -50,6 +50,11 @@ include = ["gui", "gui.*", "mspy", "mspy.*", "mmass_app", "mmass_app.*"]
 [tool.setuptools.package-data]
 gui = ["configs/*.xml"]
 
+# installed to <prefix>/share/mMass, where main_frame.getUserGuidePath() looks
+# for it (Help > User's Guide)
+[tool.setuptools.data-files]
+"share/mMass" = ["User Guide.pdf"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]

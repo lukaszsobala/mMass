@@ -285,13 +285,14 @@ HK_windowLayout4 = "\tF8"
 # help
 ID_helpAbout = wx.ID_ABOUT
 ID_helpHomepage = wx.NewId()
-ID_helpForum = wx.NewId()
+ID_helpIssues = wx.NewId()
 ID_helpCite = wx.NewId()
-ID_helpDonate = wx.NewId()
 ID_helpUserGuide = wx.NewId()
 ID_helpDownload = wx.NewId()
 ID_helpWhatsNew = wx.NewId()
 ID_helpCheckUpdates = wx.NewId()
+ID_helpUpdatesEnabled = wx.NewId()
+ID_helpSkipVersion = wx.NewId()
 
 HK_helpUserGuide = "\tF1"
 
