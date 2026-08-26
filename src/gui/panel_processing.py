@@ -46,6 +46,25 @@ WX_DEAD_OBJECT_ERROR = getattr(wx, "PyDeadObjectError", RuntimeError)
 # ------------------------------------
 
 
+def _throttleFromScroll(throttle, evt):
+    """Queue a throttled update, letting the end of a slider drag jump ahead.
+
+    Anything that is not a scroll event (a checkbox, a text field, a
+    programmatic call) is a one-off and runs immediately.
+    """
+
+    if evt is not None and evt.GetEventType() in (
+        wx.wxEVT_SCROLL_THUMBTRACK,
+        wx.wxEVT_SCROLL_LINEUP,
+        wx.wxEVT_SCROLL_LINEDOWN,
+        wx.wxEVT_SCROLL_PAGEUP,
+        wx.wxEVT_SCROLL_PAGEDOWN,
+    ):
+        throttle.request()
+    else:
+        throttle.flush()
+
+
 class panelProcessing(wx.Frame, MakeModalMixin):
     """Data processing tools."""
 
@@ -78,6 +97,13 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         self.baselinePreviewTimer = wx.Timer(self)
         self.baselinePreviewInterval = 33
         self.Bind(wx.EVT_TIMER, self.onBaselinePreviewTimer, self.baselinePreviewTimer)
+
+        # Slider drags raise a scroll event per pixel of travel, and both of
+        # these previews end in a full canvas redraw. Coalesce them to the rate
+        # the canvas can actually sustain, or the backlog starves the main loop
+        # (baseline has its own background-thread throttle above).
+        self.smoothingThrottle = mwx.throttler(self, self.updateSmoothingPreview)
+        self.peakpickingThrottle = mwx.throttler(self, self.updatePeakpickingPreview)
 
         # make gui items
         self.makeGUI()
@@ -1292,6 +1318,8 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
         self.baselinePreviewClosed = True
         self._stopBaselinePreviewTimer()
+        self.smoothingThrottle.stop()
+        self.peakpickingThrottle.stop()
         self.clearPreview()
         self.Destroy()
 
@@ -1799,6 +1827,13 @@ class panelProcessing(wx.Frame, MakeModalMixin):
     def onSmoothingChanged(self, evt=None):
         """Auto preview smoothing while params changed."""
 
+        _throttleFromScroll(self.smoothingThrottle, evt)
+
+    # ----
+
+    def updateSmoothingPreview(self):
+        """Recompute and show the smoothed spectrum."""
+
         # check tool
         if self.currentTool != "smoothing":
             return
@@ -1829,6 +1864,13 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
         # update batch processing options
         self.onBatchChanged()
+
+        _throttleFromScroll(self.peakpickingThrottle, evt)
+
+    # ----
+
+    def updatePeakpickingPreview(self):
+        """Recompute and show the intensity threshold line."""
 
         # check tool
         if self.currentTool != "peakpicking":
@@ -3317,7 +3359,7 @@ class dlgPresetsName(wx.Dialog):
     def makeGUI(self):
         """Make GUI elements."""
 
-        staticSizer = wx.StaticBoxSizer(wx.StaticBox(self, -1, ""), wx.HORIZONTAL)
+        staticSizer = mwx.staticBoxSizer(self, "", wx.HORIZONTAL)
 
         # make elements
         self.name_value = wx.TextCtrl(

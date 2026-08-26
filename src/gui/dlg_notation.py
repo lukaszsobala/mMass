@@ -61,8 +61,8 @@ class dlgNotation(wx.Dialog):
     def makeGUI(self):
         """Make GUI elements."""
 
-        labelBox = wx.StaticBoxSizer(wx.StaticBox(self, -1, ""), wx.HORIZONTAL)
-        formulaBox = wx.StaticBoxSizer(wx.StaticBox(self, -1, ""), wx.HORIZONTAL)
+        labelBox = mwx.staticBoxSizer(self, "", wx.HORIZONTAL)
+        formulaBox = mwx.staticBoxSizer(self, "", wx.HORIZONTAL)
 
         # make elements
         label_label = wx.StaticText(self, -1, "Label:", style=wx.ALIGN_RIGHT)

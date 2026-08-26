@@ -1113,20 +1113,84 @@ def refreshTheme():
             continue
 
 
-def fitChoice(choice, min_width=None, extra_padding=35):
-    """Fit wx.Choice control width to the longest available label."""
+# a string wide enough for the measurement below not to be swallowed by
+# rounding, but otherwise arbitrary
+_OVERHEAD_PROBE = "MMMMMMMMMMMMMMMMMMMM"
 
-    best_width = 0
+# used if the probe below cannot be created (no parent window yet)
+_OVERHEAD_FALLBACK = 35
+
+# native choice overhead in pixels, keyed by font description
+_choiceOverheads = {}
+
+
+def choiceOverhead(choice):
+    """Pixels a native choice needs on top of its widest label.
+
+    That is the drop-down arrow, the internal padding and the border.  It is
+    measured from a throwaway control rather than guessed, so it follows the
+    platform, the widget theme and the current UI scale, and it is cached per
+    font because every choice sharing a font shares the answer.
+    """
+
+    font = choice.GetFont()
+    key = font.GetNativeFontInfoDesc()
+
+    overhead = _choiceOverheads.get(key)
+    if overhead is None:
+        parent = choice.GetParent()
+        if parent is None:
+            return _OVERHEAD_FALLBACK
+
+        # far off-screen so it cannot flash if the parent is already shown
+        probe = wx.Choice(
+            parent, -1, choices=[_OVERHEAD_PROBE], pos=wx.Point(-30000, -30000)
+        )
+        probe.SetFont(font)
+        dc = wx.ClientDC(probe)
+        dc.SetFont(font)
+        overhead = probe.GetBestSize().GetWidth() - dc.GetTextExtent(_OVERHEAD_PROBE)[0]
+        probe.Destroy()
+
+        overhead = max(overhead, _OVERHEAD_FALLBACK)
+        _choiceOverheads[key] = overhead
+
+    return overhead
+
+
+def fitChoice(choice, min_width=None, max_width=None):
+    """Widen *choice* so its longest label is readable in full.
+
+    The width the call site asked for at construction time is kept as a floor,
+    so a choice that is still empty (its items arrive later, from a document
+    list or a server) keeps its intended size instead of collapsing, and so
+    that a later refit with shorter items cannot ratchet the control down to
+    nothing either.
+    """
+
     dc = wx.ClientDC(choice)
     dc.SetFont(choice.GetFont())
 
+    best_width = 0
     for i in range(choice.GetCount()):
         text_width, _ = dc.GetTextExtent(choice.GetString(i))
         best_width = max(best_width, text_width)
 
-    best_width += int(extra_padding)
+    if best_width:
+        best_width += choiceOverhead(choice)
+
+    # the width the control was built with, captured before the first fit
+    # changes it
+    floor = getattr(choice, "_fitChoiceFloor", None)
+    if floor is None:
+        floor = choice.GetSize().GetWidth()
+        choice._fitChoiceFloor = floor
+
+    best_width = max(best_width, floor)
     if min_width is not None:
         best_width = max(best_width, int(min_width))
+    if max_width is not None:
+        best_width = min(best_width, int(max_width))
 
     _, current_height = choice.GetSize()
     best_height = choice.GetBestSize().GetHeight()
@@ -1142,8 +1206,152 @@ def fitChoice(choice, min_width=None, extra_padding=35):
 # ----
 
 
+def adoptIntoBox(box, item):
+    """Reparent every control in *item* to *box*, in place.
+
+    *item* may be a single window or a whole sizer tree; anything else (a
+    spacer, a size tuple) is ignored.
+    """
+
+    if box is None:
+        return item
+
+    if isinstance(item, wx.Window):
+        if item.GetParent() is not box:
+            item.Reparent(box)
+    elif isinstance(item, wx.Sizer):
+        for child in item.GetChildren():
+            window = child.GetWindow()
+            if window is not None:
+                adoptIntoBox(box, window)
+                continue
+            sizer = child.GetSizer()
+            if sizer is not None:
+                adoptIntoBox(box, sizer)
+
+    return item
+
+
+# ----
+
+
 # MODIFIED WX OBJECTS
 # -------------------
+
+
+class throttler:
+    """Fold a burst of UI events into as many updates as the app can afford.
+
+    A slider dragged over a large spectrum produces motion events far faster
+    than the canvas can repaint; running the update once per event leaves the
+    main loop permanently behind and the window stops responding until the
+    backlog drains.
+
+    ``request()`` runs the callback straight away when the throttle has been
+    idle, and otherwise folds everything arriving in the meantime into a single
+    trailing run, leaving at least as long a gap between two runs as the last
+    run took.  An expensive update therefore backs off on its own -- a 40 ms
+    redraw settles at about twelve frames a second -- while a cheap one stays
+    effectively immediate.  ``flush()`` bypasses the wait, for the end of a
+    drag where the user is waiting on the final result.
+    """
+
+    def __init__(self, window, fn, minimum=30, maximum=500):
+        self.fn = fn
+        self.minimum = minimum
+        self.maximum = maximum
+
+        self._timer = wx.Timer(window)
+        window.Bind(wx.EVT_TIMER, self._onTimer, self._timer)
+
+        self._duration = 0.0  # how long the last run took, in ms
+        self._finished = 0.0  # when it finished, in ms
+        self._running = False
+
+    # ----
+
+    def request(self):
+        """Run the callback now, or as soon as the throttle allows."""
+
+        if self._running:
+            return
+
+        gap = min(max(self._duration, self.minimum), self.maximum)
+        wait = gap - (time.monotonic() * 1000 - self._finished)
+
+        if wait <= 0:
+            self._run()
+        elif not self._timer.IsRunning():
+            self._timer.StartOnce(int(wait))
+
+    # ----
+
+    def flush(self):
+        """Run the callback now, whatever the throttle would have said."""
+
+        self._timer.Stop()
+        self._run()
+
+    # ----
+
+    def stop(self):
+        """Drop any pending run (the window is going away)."""
+        self._timer.Stop()
+
+    # ----
+
+    def _onTimer(self, evt):
+        self._run()
+
+    # ----
+
+    def _run(self):
+        if self._running:
+            return
+
+        self._running = True
+        started = time.monotonic() * 1000
+        try:
+            self.fn()
+        finally:
+            self._finished = time.monotonic() * 1000
+            self._duration = self._finished - started
+            self._running = False
+
+
+class staticBoxSizer(wx.StaticBoxSizer):
+    """A wx.StaticBoxSizer that adopts whatever is put into it.
+
+    wxWidgets wants the controls drawn inside a static box to be children of
+    the box itself and logs a debug warning for every one that is not.  mMass
+    builds its controls against the panel or dialog that owns them, so the
+    reparenting is done here on the way in rather than at each of the call
+    sites.
+    """
+
+    def __init__(self, parent, label="", orient=wx.VERTICAL):
+        wx.StaticBoxSizer.__init__(self, wx.StaticBox(parent, -1, label), orient)
+
+    # ----
+
+    def Add(self, item, *args, **kwargs):
+        return wx.StaticBoxSizer.Add(
+            self, adoptIntoBox(self.GetStaticBox(), item), *args, **kwargs
+        )
+
+    # ----
+
+    def Prepend(self, item, *args, **kwargs):
+        return wx.StaticBoxSizer.Prepend(
+            self, adoptIntoBox(self.GetStaticBox(), item), *args, **kwargs
+        )
+
+    # ----
+
+    def Insert(self, index, item, *args, **kwargs):
+        return wx.StaticBoxSizer.Insert(
+            self, index, adoptIntoBox(self.GetStaticBox(), item), *args, **kwargs
+        )
 
 
 class menuTipWindow(wx.PopupWindow):

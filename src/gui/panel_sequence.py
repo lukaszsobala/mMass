@@ -2592,6 +2592,25 @@ class panelSequence(wx.Frame, MakeModalMixin):
 
     # ----
 
+    def fitModificationChoices(self):
+        """Re-fit the modification dropdowns to whatever they now hold.
+
+        Their items only arrive once a sequence is loaded, so the width they
+        were built with cannot know about residue or modification names as
+        long as "Phenylalanine (F)".
+        """
+
+        for choice in (
+            self.modsResidue_choice,
+            self.modsPosition_choice,
+            self.modsMod_choice,
+        ):
+            mwx.fitChoice(choice)
+
+        self.modsResidue_choice.GetParent().Layout()
+
+    # ----
+
     def updateAvailableResidues(self):
         """Update available residues."""
 
@@ -2602,6 +2621,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
 
         # check sequence type
         if not self.currentSequence or self.currentSequence.chainType != "aminoacids":
+            self.fitModificationChoices()
             return
 
         # get residues
@@ -2620,6 +2640,8 @@ class panelSequence(wx.Frame, MakeModalMixin):
         for res in sorted(residues):
             self.modsResidue_choice.Append(res)
 
+        self.fitModificationChoices()
+
     # ----
 
     def updateAvailablePositions(self):
@@ -2633,6 +2655,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
 
         # check terminal modifications
         if residue in ("N-terminus", "C-terminus"):
+            self.fitModificationChoices()
             return
 
         # residual modifications
@@ -2650,6 +2673,8 @@ class panelSequence(wx.Frame, MakeModalMixin):
         # select first
         self.modsPosition_choice.Select(0)
 
+        self.fitModificationChoices()
+
     # ----
 
     def updateAvailableModifications(self):
@@ -2663,6 +2688,7 @@ class panelSequence(wx.Frame, MakeModalMixin):
             residue = self.modsResidue_choice.GetStringSelection()
             checkSpecifity = self.modsSpecifity_check.GetValue()
         except Exception:
+            # called before the panel finished building itself
             return
 
         # get corresponding modifications
@@ -2686,6 +2712,8 @@ class panelSequence(wx.Frame, MakeModalMixin):
         # update modifications
         for mod in sorted(mods):
             self.modsMod_choice.Append(mod)
+
+        self.fitModificationChoices()
 
     # ----
 
@@ -3991,11 +4019,11 @@ class sequenceCanvas(wx.TextCtrl):
     # ----
 
 
-class sequenceGrid(wx.StaticBoxSizer):
+class sequenceGrid(mwx.staticBoxSizer):
     """Sequence editor for all monomers."""
 
     def __init__(self, parent, panel, sequence=None, items=20):
-        wx.StaticBoxSizer.__init__(self, wx.StaticBox(panel, -1, ""), wx.VERTICAL)
+        mwx.staticBoxSizer.__init__(self, panel, "", wx.VERTICAL)
 
         self.parent = parent
         self.panel = panel
@@ -4177,11 +4205,16 @@ class sequenceGrid(wx.StaticBoxSizer):
     def addRow(self):
         """Append new row of items."""
 
+        # rows added after the grid is already in the box must be built
+        # against the box themselves -- only what is in the grid at Add time
+        # gets adopted
+        box = self.GetStaticBox()
+
         length = len(self.items)
         for x in range(5):
 
             # make item
-            item = wx.TextCtrl(self.panel, -1, "", size=wx.Size(85, -1))
+            item = wx.TextCtrl(box, -1, "", size=wx.Size(85, -1))
             item.Bind(wx.EVT_TEXT, self._onSequence)
             dropTarget = monomerDropTarget(item)
             item.SetDropTarget(dropTarget)
@@ -4191,7 +4224,7 @@ class sequenceGrid(wx.StaticBoxSizer):
             row = (length + x) // 5
             col = 2 * (x % 5)
 
-            label = wx.StaticText(self.panel, -1, str(length + x + 1))
+            label = wx.StaticText(box, -1, str(length + x + 1))
             label.SetFont(wx.SMALL_FONT)
 
             self.grid.Add(
@@ -4252,7 +4285,7 @@ class dlgPresetsName(wx.Dialog):
     def makeGUI(self):
         """Make GUI elements."""
 
-        staticSizer = wx.StaticBoxSizer(wx.StaticBox(self, -1, ""), wx.HORIZONTAL)
+        staticSizer = mwx.staticBoxSizer(self, "", wx.HORIZONTAL)
 
         # make elements
         self.name_value = wx.TextCtrl(

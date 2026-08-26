@@ -1824,7 +1824,7 @@ class dlgThreshold(wx.Dialog):
     def makeGUI(self):
         """Make GUI elements."""
 
-        staticSizer = wx.StaticBoxSizer(wx.StaticBox(self, -1, ""), wx.VERTICAL)
+        staticSizer = mwx.staticBoxSizer(self, "", wx.VERTICAL)
 
         # make elements
         threshold_label = wx.StaticText(self, -1, "Minimal value:")
@@ -1933,7 +1933,7 @@ class dlgCopy(wx.Dialog):
     def makeGUI(self):
         """Make GUI elements."""
 
-        staticSizer = wx.StaticBoxSizer(wx.StaticBox(self, -1, ""), wx.VERTICAL)
+        staticSizer = mwx.staticBoxSizer(self, "", wx.VERTICAL)
 
         # make elements
         self.peaklistColumnMz_check = wx.CheckBox(self, -1, "m/z")

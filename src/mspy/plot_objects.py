@@ -1553,18 +1553,35 @@ class spectrum:
             return []
 
         # set font
-        dc.SetFont(_scaleFont(self.properties["labelFont"], printerScale["fonts"]))
+        labelFont = _scaleFont(self.properties["labelFont"], printerScale["fonts"])
+        dc.SetFont(labelFont)
+        deviceKey = (
+            type(dc).__name__,
+            dc.GetPPI().Get(),
+            labelFont.GetNativeFontInfoDesc(),
+        )
+
+        # Everything constant is hoisted out of the loop below: on a dense
+        # peaklist it runs once per visible peak on every frame, and the
+        # repeated dict lookups and wx.Size indexing cost more than the work.
+        properties = self.properties
+        showIsotopicLabels = properties["showIsotopicLabels"]
+        labelCharge = properties["labelCharge"]
+        labelGroup = properties["labelGroup"]
+        labelAngle = properties["labelAngle"]
+        flipped = properties["flipped"]
+        angledOffset = 5 * printerScale["drawings"]
+        flatOffset = 4 * printerScale["drawings"]
+        peaks = self.peaklistCroppedPeaks
 
         # prepare labels
         labels = []
-        format = "%0." + repr(self.properties["labelDigits"]) + "f"
+        format = "%0." + repr(properties["labelDigits"]) + "f"
         for x, peak in enumerate(self.peaklistScaled):
+            source = peaks[x]
 
             # skip isotopes
-            if (
-                not self.properties["showIsotopicLabels"]
-                and self.peaklistCroppedPeaks[x].isotope != 0
-            ):
+            if not showIsotopicLabels and source.isotope != 0:
                 continue
 
             # get position
@@ -1572,66 +1589,61 @@ class spectrum:
             yPos = peak[1]
 
             # get label
-            label = format % self.peaklistCroppedPeaks[x].mz
+            label = format % source.mz
 
             # add charge to label
-            if (
-                self.properties["labelCharge"]
-                and self.peaklistCroppedPeaks[x].charge is not None
-            ):
-                label += " (%d)" % self.peaklistCroppedPeaks[x].charge
+            if labelCharge and source.charge is not None:
+                label += " (%d)" % source.charge
 
             # add group to label
-            if self.properties["labelGroup"] and self.peaklistCroppedPeaks[x].group:
-                label += " [%s]" % self.peaklistCroppedPeaks[x].group
+            if labelGroup and source.group:
+                label += " [%s]" % source.group
 
             # get text position
-            textSize = dc.GetTextExtent(label)
+            textWidth, textHeight = _textExtent(dc, deviceKey, label)
             textCoords = None
-            if self.properties["labelAngle"] == 90:
-                if self.properties["flipped"]:
-                    textXPos = xPos + textSize[1] * 0.5
-                    textYPos = yPos + 5 * printerScale["drawings"]
+            if labelAngle == 90:
+                if flipped:
+                    textXPos = xPos + textHeight * 0.5
+                    textYPos = yPos + angledOffset
                     textCoords = (
                         textXPos,
                         textYPos,
-                        textXPos - textSize[1],
-                        textYPos + textSize[0],
+                        textXPos - textHeight,
+                        textYPos + textWidth,
                     )
                 else:
-                    textXPos = xPos - textSize[1] * 0.5
-                    textYPos = yPos - 5 * printerScale["drawings"]
+                    textXPos = xPos - textHeight * 0.5
+                    textYPos = yPos - angledOffset
                     textCoords = (
                         textXPos,
                         textYPos,
-                        textXPos + textSize[1],
-                        textYPos - textSize[0],
+                        textXPos + textHeight,
+                        textYPos - textWidth,
                     )
 
-            elif self.properties["labelAngle"] == 0:
-                if self.properties["flipped"]:
-                    textXPos = xPos - textSize[0] * 0.5
-                    textYPos = yPos + 4 * printerScale["drawings"]
+            elif labelAngle == 0:
+                if flipped:
+                    textXPos = xPos - textWidth * 0.5
+                    textYPos = yPos + flatOffset
                     textCoords = (
                         textXPos,
                         textYPos,
-                        textXPos + textSize[0],
-                        textYPos - textSize[1],
+                        textXPos + textWidth,
+                        textYPos - textHeight,
                     )
                 else:
-                    textXPos = xPos - textSize[0] * 0.5
-                    textYPos = yPos - textSize[1] - 4 * printerScale["drawings"]
+                    textXPos = xPos - textWidth * 0.5
+                    textYPos = yPos - textHeight - flatOffset
                     textCoords = (
                         textXPos,
                         textYPos,
-                        textXPos + textSize[0],
-                        textYPos - textSize[1],
+                        textXPos + textWidth,
+                        textYPos - textHeight,
                     )
 
             # add label and sort by intensity
-            labels.append(
-                (self.peaklistCroppedPeaks[x].ai, label, textCoords, self.properties)
-            )
+            labels.append((source.ai, label, textCoords, properties))
 
         return labels
 
@@ -1790,52 +1802,73 @@ class spectrum:
         if self.properties["msmsColour"]:
             msmsBrush.SetColour(self.properties["msmsColour"])
 
+        # Ticks are drawn in batches rather than one wx call per peak: a dense
+        # peaklist puts thousands of them on screen and the per-call overhead
+        # dominated the redraw. Peaks whose coordinates do not fit a device
+        # integer are dropped, exactly as the per-peak OverflowError guard did.
+        scaled = self.peaklistScaled
+        capHalf = 3 * printerScale["drawings"]
+        markSize = int(printerScale["drawings"])
+        markWidth = int(3 * printerScale["drawings"])
+
+        xs = scaled[:, 0]
+        tops = scaled[:, 1]
+        bases = scaled[:, 2]
+
+        limit = 2 ** 31 - 1 - capHalf
+        drawable = (
+            numpy.isfinite(xs)
+            & numpy.isfinite(tops)
+            & numpy.isfinite(bases)
+            & (numpy.abs(xs) < limit)
+            & (numpy.abs(tops) < limit)
+            & (numpy.abs(bases) < limit)
+        )
+
+        isotope = numpy.fromiter(
+            (peak.isotope != 0 for peak in self.peaklistCroppedPeaks),
+            dtype=bool,
+            count=len(scaled),
+        )
+
+        def _ticks(mask):
+            """Stem and cap segments for the selected peaks."""
+
+            x = xs[mask].astype(numpy.int32)
+            top = tops[mask].astype(numpy.int32)
+            base = bases[mask].astype(numpy.int32)
+
+            segments = numpy.empty((2 * len(x), 4), dtype=numpy.int32)
+            segments[: len(x), 0] = x
+            segments[: len(x), 1] = base
+            segments[: len(x), 2] = x
+            segments[: len(x), 3] = top
+            segments[len(x) :, 0] = (xs[mask] - capHalf).astype(numpy.int32)
+            segments[len(x) :, 1] = base
+            segments[len(x) :, 2] = (xs[mask] + capHalf).astype(numpy.int32)
+            segments[len(x) :, 3] = base
+            return segments, x, top
+
         # draw isotopes
         dc.SetPen(isotopePen)
-        for x, peak in enumerate(self.peaklistScaled):
-            if self.peaklistCroppedPeaks[x].isotope != 0:
-                try:
-                    dc.DrawLine(
-                        int(int(peak[0])),
-                        int(int(peak[2])),
-                        int(int(peak[0])),
-                        int(int(peak[1])),
-                    )
-                    dc.DrawLine(
-                        int(peak[0] - 3 * printerScale["drawings"]),
-                        int(peak[2]),
-                        int(peak[0] + 3 * printerScale["drawings"]),
-                        int(peak[2]),
-                    )
-                except OverflowError:
-                    pass
+        mask = drawable & isotope
+        if numpy.any(mask):
+            dc.DrawLineList(_ticks(mask)[0])
 
         # draw peaks
         dc.SetPen(peakPen)
         dc.SetBrush(peakBrush)
-        for x, peak in enumerate(self.peaklistScaled):
-            if self.peaklistCroppedPeaks[x].isotope == 0:
-                try:
-                    dc.DrawLine(
-                        int(int(peak[0])),
-                        int(int(peak[2])),
-                        int(int(peak[0])),
-                        int(int(peak[1])),
-                    )
-                    dc.DrawLine(
-                        int(peak[0] - 3 * printerScale["drawings"]),
-                        int(peak[2]),
-                        int(peak[0] + 3 * printerScale["drawings"]),
-                        int(peak[2]),
-                    )
-                    dc.DrawRectangle(
-                        int(peak[0] - int(printerScale["drawings"])),
-                        int(peak[1] - int(printerScale["drawings"])),
-                        int(3 * printerScale["drawings"]),
-                        int(3 * printerScale["drawings"]),
-                    )
-                except OverflowError:
-                    pass
+        mask = drawable & ~isotope
+        if numpy.any(mask):
+            segments, x, top = _ticks(mask)
+            dc.DrawLineList(segments)
+
+            marks = numpy.empty((len(x), 4), dtype=numpy.int32)
+            marks[:, 0] = x - markSize
+            marks[:, 1] = top - markSize
+            marks[:, 2] = markWidth
+            marks[:, 3] = markWidth
+            dc.DrawRectangleList(marks, pens=peakPen, brushes=peakBrush)
 
         # draw fragmentation mark
         dc.SetPen(wx.TRANSPARENT_PEN)
@@ -1967,6 +2000,31 @@ class spectrum:
 
 # HELPERS
 # -------
+
+
+# Measured text extents, keyed by output device, font and string. A dense
+# peaklist asks for a thousand of them per frame and, while the view sits
+# still, hands back the very same labels frame after frame, so measuring each
+# one once pays for itself many times over. The device and font are part of the
+# key so an export or a printout never reuses screen metrics.
+_TEXT_EXTENT_LIMIT = 20000
+_textExtents = {}
+
+
+def _textExtent(dc, deviceKey, text):
+    """Width and height of *text* on *dc*, remembered between frames."""
+
+    key = (deviceKey, text)
+    extent = _textExtents.get(key)
+    if extent is None:
+        if len(_textExtents) > _TEXT_EXTENT_LIMIT:
+            _textExtents.clear()
+        extent = _textExtents[key] = dc.GetTextExtent(text).Get()
+
+    return extent
+
+
+# ----
 
 
 def _scaleFont(font, scale):
@@ -2260,27 +2318,39 @@ def _compress_screen_polyline(points):
         return pts
 
     # 2) For vertical runs (same x), keep only first/min/max/last points.
+    #
+    # Done without a per-run Python loop: a dense spectrum has one run per
+    # occupied pixel column, so the loop used to run about a thousand times per
+    # frame and dominated the redraw.  Runs of one or two points need no
+    # special case -- their min and max are already the endpoints.
     x = pts[:, 0]
     run_starts = numpy.r_[0, numpy.where(x[1:] != x[:-1])[0] + 1]
     run_ends = numpy.r_[run_starts[1:] - 1, len(pts) - 1]
 
-    selected = []
-    for start, end in zip(run_starts, run_ends, strict=True):
-        run_len = end - start + 1
-        if run_len <= 2:
-            for idx in range(start, end + 1):
-                if not selected or selected[-1] != idx:
-                    selected.append(idx)
-            continue
+    ys = pts[:, 1]
+    count = len(pts)
+    # which run each point belongs to
+    run_of = numpy.zeros(count, dtype=numpy.intp)
+    run_of[run_starts[1:]] = 1
+    numpy.cumsum(run_of, out=run_of)
 
-        ys = pts[start : end + 1, 1]
-        i_min = int(start + numpy.argmin(ys))
-        i_max = int(start + numpy.argmax(ys))
-        for idx in sorted({int(start), i_min, i_max, int(end)}):
-            if not selected or selected[-1] != idx:
-                selected.append(idx)
+    # first index at which each run attains its minimum, and its maximum
+    indices = numpy.arange(count, dtype=numpy.intp)
+    at_min = ys == numpy.minimum.reduceat(ys, run_starts)[run_of]
+    at_max = ys == numpy.maximum.reduceat(ys, run_starts)[run_of]
+    i_min = numpy.minimum.reduceat(numpy.where(at_min, indices, count), run_starts)
+    i_max = numpy.minimum.reduceat(numpy.where(at_max, indices, count), run_starts)
 
-    pts = pts[numpy.array(selected, dtype=numpy.int32)]
+    # the four keepers of every run, in order; runs are already in order, so
+    # dropping repeats from the flattened result leaves exactly the sorted
+    # unique index list
+    keepers = numpy.stack((run_starts, i_min, i_max, run_ends), axis=1)
+    keepers.sort(axis=1)
+    keepers = keepers.ravel()
+    unique = numpy.ones(len(keepers), dtype=bool)
+    unique[1:] = keepers[1:] != keepers[:-1]
+
+    pts = pts[keepers[unique]]
     if len(pts) < 3:
         return pts
 

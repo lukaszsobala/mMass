@@ -136,8 +136,7 @@ class dlgExportAlignment(wx.Dialog):
     def makeColumnBox(self, label, definitions, selected, store, rows):
         """A boxed block of checkboxes, one per available column."""
 
-        box = wx.StaticBox(self, -1, label)
-        sizer = wx.StaticBoxSizer(box, wx.VERTICAL)
+        sizer = mwx.staticBoxSizer(self, label, wx.VERTICAL)
 
         grid = wx.GridBagSizer(mwx.GRIDBAG_VSPACE, mwx.GRIDBAG_HSPACE)
 
@@ -165,12 +164,7 @@ class dlgExportAlignment(wx.Dialog):
             choices=[title for _key, title in DUPLICATES],
             size=wx.Size(200, mwx.CHOICE_HEIGHT),
         )
-        # fitChoice sizes to the text alone, which on GTK comes out just short
-        # of what the native control needs for its arrow
-        mwx.fitChoice(
-            self.duplicates_choice,
-            min_width=self.duplicates_choice.GetBestSize().GetWidth(),
-        )
+        mwx.fitChoice(self.duplicates_choice)
         self.duplicates_choice.Select(
             self.indexOf(
                 [key for key, _title in DUPLICATES],
@@ -185,10 +179,7 @@ class dlgExportAlignment(wx.Dialog):
             choices=[title for _key, title, _value in SEPARATORS],
             size=wx.Size(200, mwx.CHOICE_HEIGHT),
         )
-        mwx.fitChoice(
-            self.separator_choice,
-            min_width=self.separator_choice.GetBestSize().GetWidth(),
-        )
+        mwx.fitChoice(self.separator_choice)
         self.separator_choice.Select(
             self.indexOf(
                 [key for key, _title, _value in SEPARATORS],

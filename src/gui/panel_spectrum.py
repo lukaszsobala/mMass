@@ -1681,6 +1681,13 @@ class dlgCanvasProperties(wx.Dialog):
         self.onChangeFn = onChangeFn
         self.onCloseFn = onCloseFn
 
+        # Every pixel of slider travel raises a scroll event, and each one used
+        # to trigger a full canvas redraw. On a large spectrum the redraws
+        # cannot keep up with the events and the backlog starves the main loop,
+        # so they are coalesced to whatever rate the canvas can actually
+        # sustain.
+        self.updateThrottle = mwx.throttler(self, self.onChangeFn)
+
         # destroy on close (shown modeless) and let the owner drop its reference
         self.Bind(wx.EVT_CLOSE, self.onClose)
 
@@ -1892,13 +1899,22 @@ class dlgCanvasProperties(wx.Dialog):
             self.quality_slider.GetValue()
         )
 
-        # set params to canvas and update
-        self.onChangeFn()
+        # set params to canvas and update; the last event of a drag is the one
+        # the user is waiting on, so it skips the queue
+        if evt is not None and evt.GetEventType() in (
+            wx.wxEVT_SCROLL_THUMBRELEASE,
+            wx.wxEVT_SCROLL_CHANGED,
+        ):
+            self.updateThrottle.flush()
+        else:
+            self.updateThrottle.request()
 
     # ----
 
     def onClose(self, evt):
         """Notify the owner and destroy the (modeless) dialog."""
+
+        self.updateThrottle.stop()
 
         if self.onCloseFn is not None:
             self.onCloseFn()
@@ -1934,7 +1950,7 @@ class dlgViewRange(wx.Dialog):
     def makeGUI(self):
         """Make GUI elements."""
 
-        staticSizer = wx.StaticBoxSizer(wx.StaticBox(self, -1, ""), wx.HORIZONTAL)
+        staticSizer = mwx.staticBoxSizer(self, "", wx.HORIZONTAL)
 
         # make elements
         minX_label = wx.StaticText(self, -1, "Min:", style=wx.ALIGN_RIGHT)
@@ -2049,7 +2065,7 @@ class dlgSpectrumOffset(wx.Dialog):
     def makeGUI(self):
         """Make GUI elements."""
 
-        staticSizer = wx.StaticBoxSizer(wx.StaticBox(self, -1, ""), wx.VERTICAL)
+        staticSizer = mwx.staticBoxSizer(self, "", wx.VERTICAL)
 
         # make elements
         offset_label = wx.StaticText(self, -1, "Intensity offset:")

@@ -122,7 +122,7 @@ class dlgMonomersEditor(wx.Dialog):
     def makeItemEditor(self):
         """Make items editor."""
 
-        mainSizer = wx.StaticBoxSizer(wx.StaticBox(self, -1, ""), wx.VERTICAL)
+        mainSizer = mwx.staticBoxSizer(self, "", wx.VERTICAL)
 
         # make elements
         itemSearch_label = wx.StaticText(self, -1, "Search:")

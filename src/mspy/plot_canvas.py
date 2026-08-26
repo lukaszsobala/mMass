@@ -1546,11 +1546,19 @@ class canvas(wx.Window):
         # case plotBuffer was not touched by this draw call and its content is
         # unchanged from the previous on-screen draw).
         # MSW can return a blank sub-bitmap here when sourced from a bitmap
-        # participating in active DC drawing; image round-trip is more robust.
-        # The image round-trip drops the scale factor, so restore it -- otherwise
+        # participating in active DC drawing, so it takes the robust route
+        # through wx.Image. That round-trip unpacks and repacks every pixel and
+        # costs several milliseconds a frame, which is worth avoiding on the
+        # toolkits that copy the bitmap correctly.
+        # Either way the copy drops the scale factor, so restore it -- otherwise
         # the clean buffer's logical size would mismatch plotBuffer and
         # quickRefresh would blit it at the wrong scale on HiDPI/Wayland.
-        self.cleanPlotBuffer = self.plotBuffer.ConvertToImage().ConvertToBitmap()
+        if wx.Platform == "__WXMSW__":
+            self.cleanPlotBuffer = self.plotBuffer.ConvertToImage().ConvertToBitmap()
+        else:
+            self.cleanPlotBuffer = self.plotBuffer.GetSubBitmap(
+                wx.Rect(0, 0, self.plotBuffer.GetWidth(), self.plotBuffer.GetHeight())
+            )
         if hasattr(self.plotBuffer, "GetScaleFactor"):
             self.cleanPlotBuffer.SetScaleFactor(self.plotBuffer.GetScaleFactor())
 

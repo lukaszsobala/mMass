@@ -632,7 +632,7 @@ class dlgPresetsName(wx.Dialog):
     def makeGUI(self):
         """Make GUI elements."""
 
-        staticSizer = wx.StaticBoxSizer(wx.StaticBox(self, -1, ""), wx.HORIZONTAL)
+        staticSizer = mwx.staticBoxSizer(self, "", wx.HORIZONTAL)
 
         # make elements
         self.name_value = wx.TextCtrl(

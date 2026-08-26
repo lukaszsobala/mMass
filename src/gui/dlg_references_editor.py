@@ -145,7 +145,7 @@ class dlgReferencesEditor(wx.Dialog):
     def makeItemEditor(self):
         """Make items editor."""
 
-        mainSizer = wx.StaticBoxSizer(wx.StaticBox(self, -1, ""), wx.VERTICAL)
+        mainSizer = mwx.staticBoxSizer(self, "", wx.VERTICAL)
 
         # make elements
         itemDescription_label = wx.StaticText(self, -1, "Description:")
@@ -650,7 +650,7 @@ class dlgGroupName(wx.Dialog):
     def makeGUI(self):
         """Make GUI elements."""
 
-        staticSizer = wx.StaticBoxSizer(wx.StaticBox(self, -1, ""), wx.HORIZONTAL)
+        staticSizer = mwx.staticBoxSizer(self, "", wx.HORIZONTAL)
 
         # make elements
         self.name_value = wx.TextCtrl(
