@@ -50,6 +50,25 @@ from .dlg_notation import dlgNotation
 # PEAKLIST PANEL
 # --------------
 
+# every column the peaklist can show, in its default order: the header shown
+# for it and how its cells are aligned. config.main["peaklistColumns"] names
+# the ones to show, in the order the user has put them in.
+PEAKLIST_COLUMNS = {
+    "mz": ("m/z", wx.LIST_FORMAT_RIGHT),
+    "ai": ("a.i.", wx.LIST_FORMAT_RIGHT),
+    "int": ("int.", wx.LIST_FORMAT_RIGHT),
+    "base": ("base", wx.LIST_FORMAT_RIGHT),
+    "rel": ("r. int.", wx.LIST_FORMAT_RIGHT),
+    "sn": ("s/n", wx.LIST_FORMAT_RIGHT),
+    "z": ("z", wx.LIST_FORMAT_RIGHT),
+    "mass": ("mass", wx.LIST_FORMAT_RIGHT),
+    "envarea": ("env. area", wx.LIST_FORMAT_RIGHT),
+    "envint": ("sum. env. int.", wx.LIST_FORMAT_RIGHT),
+    "fwhm": ("fwhm", wx.LIST_FORMAT_RIGHT),
+    "resol": ("resol.", wx.LIST_FORMAT_RIGHT),
+    "group": ("group", wx.LIST_FORMAT_LEFT),
+}
+
 
 class panelPeaklist(wx.Panel):
     """Make peaklist panel."""
@@ -75,6 +94,16 @@ class panelPeaklist(wx.Panel):
         # the peaklist is replaced and the old index no longer points anywhere.
         self._selectedMz = None
         self._ignore_selection_events = False
+        # widest fit seen for each peaklist column (keyed by header text), so
+        # the columns keep the same width for every open document instead of
+        # re-fitting -- and jumping -- each time the shown spectrum changes
+        self._peakListColumnWidths = {}
+        # columns the user has dragged to a width of their own; those widths
+        # are kept as they are instead of being re-fitted to the data
+        self._peakListColumnsManual = set()
+        self._peakListColumnDigits = None
+        # names of the columns currently shown, in the order they are shown in
+        self.peakListColumnNames = []
 
         # make GUI
         self.makeGUI()
@@ -247,13 +276,13 @@ class panelPeaklist(wx.Panel):
         font = wx.SystemSettings.GetFont(wx.SYS_DEFAULT_GUI_FONT)
         font.SetPointSize(font.GetPointSize() - 2)
         self.peakList.SetFont(font)
-        self.peakList.setSecondarySortColumn(0)
         self.peakList.setAltColour(mwx.LISTCTRL_ALTCOLOUR)
 
         self.peakList.applyTheme()
 
         # set events
         self.peakList.Bind(wx.EVT_LIST_COL_RIGHT_CLICK, self.onColumnRMU)
+        self.peakList.Bind(wx.EVT_LIST_COL_END_DRAG, self.onColumnResized)
         self.peakList.Bind(wx.EVT_LIST_ITEM_SELECTED, self.onItemSelected)
         self.peakList.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self.onItemActivated)
         self.peakList.Bind(wx.EVT_KEY_DOWN, self.onListKey)
@@ -262,6 +291,9 @@ class panelPeaklist(wx.Panel):
             self.peakList.Bind(wx.EVT_RIGHT_UP, self.onItemRMU)
         else:
             self.peakList.Bind(wx.EVT_LIST_ITEM_RIGHT_CLICK, self.onItemRMU)
+
+        # let the user drag the headers to reorder the columns
+        self.peakList.enableColumnReorder(self.onColumnReordered)
 
         # make columns
         self.makePeakListColumns()
@@ -275,67 +307,37 @@ class panelPeaklist(wx.Panel):
     def makePeakListColumns(self):
         """Make peaklist columns according to config."""
 
+        # deleting the columns resets which one the list is sorted by, so
+        # remember it and sort by the same data again afterwards
+        sortedName = None
+        sortColumn = self.peakList.getSortColumn()
+        if 0 <= sortColumn < len(self.peakListColumnNames):
+            sortedName = self.peakListColumnNames[sortColumn]
+
         # delete current columns
         self.peakList.deleteColumns()
 
+        # the columns to show, in the order the user has them; anything the
+        # display does not know about (an older or hand-edited config) is
+        # ignored here and everywhere else the peaklist walks the config
+        self.peakListColumnNames = [
+            name for name in config.main["peaklistColumns"] if name in PEAKLIST_COLUMNS
+        ]
+
         # add new columns
-        x = 0
-        for column in config.main["peaklistColumns"]:
+        for x, name in enumerate(self.peakListColumnNames):
+            label, alignment = PEAKLIST_COLUMNS[name]
+            self.peakList.InsertColumn(x, label, alignment)
 
-            if column == "mz":
-                self.peakList.InsertColumn(x, "m/z", wx.LIST_FORMAT_RIGHT)
-                x += 1
+        if sortedName in self.peakListColumnNames:
+            self.peakList.setSortColumn(self.peakListColumnNames.index(sortedName))
 
-            elif column == "ai":
-                self.peakList.InsertColumn(x, "a.i.", wx.LIST_FORMAT_RIGHT)
-                x += 1
-
-            elif column == "int":
-                self.peakList.InsertColumn(x, "int.", wx.LIST_FORMAT_RIGHT)
-                x += 1
-
-            elif column == "envarea":
-                self.peakList.InsertColumn(x, "env. area", wx.LIST_FORMAT_RIGHT)
-                x += 1
-
-            elif column == "envint":
-                self.peakList.InsertColumn(x, "sum. env. int.", wx.LIST_FORMAT_RIGHT)
-                x += 1
-
-            elif column == "base":
-                self.peakList.InsertColumn(x, "base", wx.LIST_FORMAT_RIGHT)
-                x += 1
-
-            elif column == "rel":
-                self.peakList.InsertColumn(x, "r. int.", wx.LIST_FORMAT_RIGHT)
-                x += 1
-
-            elif column == "sn":
-                self.peakList.InsertColumn(x, "s/n", wx.LIST_FORMAT_RIGHT)
-                x += 1
-
-            elif column == "z":
-                self.peakList.InsertColumn(x, "z", wx.LIST_FORMAT_RIGHT)
-                x += 1
-
-            elif column == "mass":
-                self.peakList.InsertColumn(x, "mass", wx.LIST_FORMAT_RIGHT)
-                x += 1
-
-            elif column == "fwhm":
-                self.peakList.InsertColumn(x, "fwhm", wx.LIST_FORMAT_RIGHT)
-                x += 1
-
-            elif column == "resol":
-                self.peakList.InsertColumn(x, "resol.", wx.LIST_FORMAT_RIGHT)
-                x += 1
-
-            elif column == "group":
-                self.peakList.InsertColumn(x, "group", wx.LIST_FORMAT_LEFT)
-                x += 1
-
-            else:
-                continue
+        # break sorting ties on m/z, wherever the user has dragged that column
+        # to -- and not at all while it is hidden
+        if "mz" in self.peakListColumnNames:
+            self.peakList.setSecondarySortColumn(self.peakListColumnNames.index("mz"))
+        else:
+            self.peakList.setSecondarySortColumn(None)
 
         self._autosizePeakListColumns()
 
@@ -1377,43 +1379,108 @@ class panelPeaklist(wx.Panel):
 
     # ----
 
-    def _autosizePeakListColumns(self):
-        """Autosize every column to fit its content and header.
+    def onColumnReordered(self, fromIndex, toIndex):
+        """Move a column the user has dragged to a new place."""
 
-        This mirrors the native "double-click the column border" behaviour
-        (wx.LIST_AUTOSIZE) rather than imposing any hardcoded width, so the
-        columns always shrink/grow to exactly fit the data. Users can still
-        drag a column to a custom width; it resets to the fitted width on the
-        next peaklist refresh.
+        names = self.peakListColumnNames
+        if not 0 <= fromIndex < len(names) or fromIndex == toIndex:
+            return
+
+        order = names[:]
+        order.insert(toIndex, order.pop(fromIndex))
+
+        # anything the display does not know about is kept, out of the way at
+        # the end, rather than silently dropped from the config
+        config.main["peaklistColumns"] = order + [
+            name
+            for name in config.main["peaklistColumns"]
+            if name not in PEAKLIST_COLUMNS
+        ]
+
+        # rebuilds the columns in the new order; the sorted column, the
+        # column widths and the peaks themselves all follow
+        self.updatePeaklistColumns()
+
+    # ----
+
+    def onColumnResized(self, evt):
+        """Remember a column width the user has set by dragging its border."""
+
+        evt.Skip()
+
+        # the control applies the new width only once this handler returns
+        wx.CallAfter(self._rememberColumnWidth, evt.GetColumn())
+
+    # ----
+
+    def _rememberColumnWidth(self, colIndex):
+        """Pin one column to its current width.
+
+        The width replaces the fitted one for that column in every document,
+        and survives switching spectra, until the columns are re-fitted.
+        """
+
+        if not self.peakList or not 0 <= colIndex < self.peakList.GetColumnCount():
+            return
+
+        name = self.peakList.GetColumn(colIndex).GetText()
+        self._peakListColumnWidths[name] = self.peakList.GetColumnWidth(colIndex)
+        self._peakListColumnsManual.add(name)
+
+    # ----
+
+    def _autosizePeakListColumns(self):
+        """Fit every column to the data it shows.
+
+        The width is the native "double-click the column border" measurement
+        (wx.LIST_AUTOSIZE), which fits the cell contents only -- the header
+        text is deliberately not a floor, so a long header such as
+        "sum. env. int." does not force a column far wider than its numbers.
+        A column holding no values at all would collapse to nothing though, so
+        each one keeps room for a few characters (never more than its header
+        needs), enough to stay visible and grabbable.
+
+        The fitted width is not applied on its own: each column keeps the
+        widest fit seen so far across every document shown in this session, so
+        the columns stay put when the user switches spectra instead of
+        re-fitting to each one. A column the user has dragged keeps that width
+        as-is everywhere, without being re-fitted. All of it is dropped when
+        the displayed precision changes, since the old widths then mean
+        nothing.
         """
 
         columnCount = self.peakList.GetColumnCount()
-        if columnCount == 0:
+        if columnCount == 0 or self.peakList.GetItemCount() == 0:
+            # nothing to measure: keep the widths already in place (the shared
+            # widths from the other documents, or the initial defaults)
             return
 
-        hasRows = self.peakList.GetItemCount() > 0
+        digits = (config.main["mzDigits"], config.main["intDigits"])
+        if digits != self._peakListColumnDigits:
+            self._peakListColumnDigits = digits
+            self._peakListColumnWidths = {}
+            self._peakListColumnsManual = set()
 
-        if hasRows:
-            # Pure content autosize, identical to double-clicking the column
-            # border. No header floor or padding, otherwise a later double-click
-            # would shrink the column further than this and the two would
-            # disagree.
-            for colIndex in range(columnCount):
-                self.peakList.SetColumnWidth(colIndex, wx.LIST_AUTOSIZE)
-            return
-
-        # No rows: wx.LIST_AUTOSIZE collapses to nothing, so fit the header
-        # text instead. Measure it ourselves rather than via
-        # wx.LIST_AUTOSIZE_USEHEADER, which on wxMSW stretches the *last* column
-        # to fill the remaining list width.
         dc = wx.ScreenDC()
         dc.SetFont(self.peakList.GetFont())
         padding = dc.GetTextExtent("MM")[0]
+        emptyColumnWidth = dc.GetTextExtent("00000")[0]
+
         for colIndex in range(columnCount):
-            headerText = self.peakList.GetColumn(colIndex).GetText()
-            self.peakList.SetColumnWidth(
-                colIndex, dc.GetTextExtent(headerText)[0] + padding
+            name = self.peakList.GetColumn(colIndex).GetText()
+
+            if name in self._peakListColumnsManual:
+                self.peakList.SetColumnWidth(colIndex, self._peakListColumnWidths[name])
+                continue
+
+            self.peakList.SetColumnWidth(colIndex, wx.LIST_AUTOSIZE)
+            width = max(
+                self.peakList.GetColumnWidth(colIndex),
+                self._peakListColumnWidths.get(name, 0),
+                min(dc.GetTextExtent(name)[0] + padding, emptyColumnWidth),
             )
+            self._peakListColumnWidths[name] = width
+            self.peakList.SetColumnWidth(colIndex, width)
 
     # ----
 

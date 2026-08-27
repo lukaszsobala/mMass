@@ -88,6 +88,12 @@ LISTCTRL_NO_SPACE = 0
 LISTCTRL_SPACE = 0
 LISTCTRL_ALTCOLOUR = None
 LISTCTRL_SORT = 1
+# how far the pointer must travel with the left button held down before a
+# press on a column header stops being a sort click and becomes a column drag
+LISTCTRL_REORDER_THRESHOLD = 6
+# pointer distance to a column border that belongs to the resize handle; a
+# press that close to one is left to the header's own resizing
+LISTCTRL_REORDER_BORDER = 5
 
 DOCTREE_COLOUR = (255, 255, 255)
 # Dark counterpart, kept in step with the _DARK_BG the peak list and the plot
@@ -1486,6 +1492,14 @@ class sortListCtrl(wx.ListCtrl):
         self._getItemTextFn = None
         self._getItemAttrFn = None
 
+        # column reordering (see enableColumnReorder)
+        self._reorderCallback = None
+        self._reorderColumn = None
+        self._reorderStartX = 0
+        self._reorderTarget = None
+        self._reorderCaptured = False
+        self._reorderOverlay = None
+
         # set events
         self.Bind(wx.EVT_LIST_COL_CLICK, self._onColClick, self)
 
@@ -1650,6 +1664,22 @@ class sortListCtrl(wx.ListCtrl):
 
     # ----
 
+    def getSortColumn(self):
+        """Get the column the list is sorted by."""
+        return self._currentColumn
+
+    # ----
+
+    def setSortColumn(self, col):
+        """Set the column the list is sorted by, without sorting it now.
+
+        Used to follow a column that has moved, so that the next sort still
+        sorts by the same data.
+        """
+        self._currentColumn = col
+
+    # ----
+
     def setDataMap(self, data):
         """Set data."""
         self._data = data
@@ -1765,6 +1795,293 @@ class sortListCtrl(wx.ListCtrl):
 
         # sort
         self._sort(col, direction)
+
+    # ----
+
+    def enableColumnReorder(self, callback):
+        """Let the user reorder the columns by dragging their headers.
+
+        A plain click still sorts; the press only becomes a drag once the
+        pointer has moved LISTCTRL_REORDER_THRESHOLD pixels, and a press on a
+        column border is left to the header's own resizing. On drop,
+        *callback* is called with the column's old and new positions -- the
+        control does not move anything itself, since the caller owns the
+        column order (it is what makes the columns in the first place).
+
+        Returns False where the platform gives no access to the header, in
+        which case the columns simply stay in the order they were made.
+        """
+
+        self._reorderCallback = callback
+
+        header = self._headerWindow()
+        if header is None:
+            # no header window to watch: the native wxMSW control has one of
+            # its own, which can do the dragging itself
+            return self._enableNativeColumnReorder()
+
+        header.Bind(wx.EVT_LEFT_DOWN, self._onHeaderLeftDown)
+        header.Bind(wx.EVT_MOTION, self._onHeaderMotion)
+        header.Bind(wx.EVT_LEFT_UP, self._onHeaderLeftUp)
+        header.Bind(wx.EVT_MOUSE_CAPTURE_LOST, self._onHeaderCaptureLost)
+
+        return True
+
+    # ----
+
+    def _enableNativeColumnReorder(self):
+        """Let the native wxMSW header do the dragging.
+
+        Windows reorders the columns itself once LVS_EX_HEADERDRAGDROP is on,
+        and tells nobody -- it just starts showing them in a different order.
+        So the new order is picked up when the events go quiet and handed to
+        the callback like any other move, which rebuilds the columns in that
+        order for real and puts this one back to normal.
+        """
+
+        if wx.Platform != "__WXMSW__" or not self.HasColumnOrderSupport():
+            return False
+
+        LVM_SETEXTENDEDLISTVIEWSTYLE = 0x1000 + 54
+        LVS_EX_HEADERDRAGDROP = 0x0010
+
+        try:
+            import ctypes
+
+            ctypes.windll.user32.SendMessageW(
+                self.GetHandle(),
+                LVM_SETEXTENDEDLISTVIEWSTYLE,
+                LVS_EX_HEADERDRAGDROP,
+                LVS_EX_HEADERDRAGDROP,
+            )
+        except Exception:
+            return False
+
+        self.Bind(wx.EVT_IDLE, self._onNativeReorderIdle)
+
+        return True
+
+    # ----
+
+    def _onNativeReorderIdle(self, evt):
+        """Notice a column the native header has been dragged elsewhere."""
+
+        evt.Skip()
+
+        try:
+            order = list(self.GetColumnsOrder())
+        except Exception:
+            return
+
+        # the columns are shown in the order they were made in, so anything
+        # else means the header moved one of them
+        if order == sorted(order):
+            return
+
+        first = min(x for x in range(len(order)) if order[x] != x)
+        last = max(x for x in range(len(order)) if order[x] != x)
+        moved = order[first : last + 1]
+
+        # everything between the two ends is the same columns rotated by one,
+        # in whichever direction the dragged column travelled
+        if moved == list(range(first + 1, last + 1)) + [first]:
+            self._reorderCallback(first, last)
+        elif moved == [last] + list(range(first, last)):
+            self._reorderCallback(last, first)
+
+    # ----
+
+    def _headerWindow(self):
+        """Get the window the column headers are drawn on, if there is one.
+
+        The generic control (wxGTK, wxOSX) keeps the headers in a child window
+        next to the one holding the items; the native wxMSW control draws them
+        in a header control of its own that is not a wxWindow.
+        """
+
+        main = self.GetMainWindow()
+        for child in self.GetChildren():
+            if child is not main and child.GetPosition()[1] == 0:
+                return child
+
+        return None
+
+    # ----
+
+    def _columnEdges(self):
+        """Get the x of every column border, first column's left edge first.
+
+        Measured in client coordinates, so the list is shifted along with the
+        columns when the control is scrolled sideways.
+        """
+
+        origin = 0
+        if self.GetItemCount():
+            rect = wx.Rect()
+            if self.GetSubItemRect(0, 0, rect, wx.LIST_RECT_BOUNDS):
+                origin = rect.x
+
+        edges = [origin]
+        for colIndex in range(self.GetColumnCount()):
+            edges.append(edges[-1] + self.GetColumnWidth(colIndex))
+
+        return edges
+
+    # ----
+
+    def _onHeaderLeftDown(self, evt):
+        """Arm a possible column drag."""
+
+        self._reorderColumn = None
+        edges = self._columnEdges()
+        x = evt.GetX()
+
+        # a press on a border resizes, so leave those alone
+        for edge in edges[1:]:
+            if abs(x - edge) <= LISTCTRL_REORDER_BORDER:
+                evt.Skip()
+                return
+
+        for colIndex in range(self.GetColumnCount()):
+            if edges[colIndex] <= x < edges[colIndex + 1]:
+                self._reorderColumn = colIndex
+                self._reorderStartX = x
+                # the header sorts on the press, not on the release, which
+                # would sort every single time a column is dragged. So the
+                # press is held back here and the sort is sent on release
+                # instead, once it is clear the press was only a click.
+                return
+
+        evt.Skip()
+
+    # ----
+
+    def _onHeaderMotion(self, evt):
+        """Start or follow a column drag."""
+
+        if self._reorderColumn is None or not evt.LeftIsDown():
+            evt.Skip()
+            return
+
+        header = evt.GetEventObject()
+
+        # a press turns into a drag only once the pointer has really moved,
+        # otherwise a slightly shaky click would never sort
+        if self._reorderTarget is None:
+            if abs(evt.GetX() - self._reorderStartX) < LISTCTRL_REORDER_THRESHOLD:
+                evt.Skip()
+                return
+
+            if wx.Window.GetCapture() is None:
+                header.CaptureMouse()
+                self._reorderCaptured = True
+
+            header.SetCursor(wx.Cursor(wx.CURSOR_SIZING))
+
+        self._reorderTarget = self._insertionPoint(evt.GetX())
+        self._drawInsertionMark(header)
+
+    # ----
+
+    def _onHeaderLeftUp(self, evt):
+        """Drop a dragged column, or sort by a column that was only clicked."""
+
+        column, dragged = self._reorderColumn, self._reorderTarget is not None
+        target = self._insertionPoint(evt.GetX()) if dragged else None
+        self._endColumnReorder(evt.GetEventObject())
+
+        # the press was on a border and resized the column
+        if column is None:
+            evt.Skip()
+            return
+
+        if not dragged:
+            self._sendColumnClick(column)
+            return
+
+        # target is the gap the column is dropped into, so dropping it back
+        # into either of its own gaps changes nothing
+        if target not in (column, column + 1):
+            if target > column:
+                target -= 1
+            # rebuilding the columns from inside their own mouse handler is
+            # asking for trouble, so let this event finish first
+            wx.CallAfter(self._reorderCallback, column, target)
+
+    # ----
+
+    def _sendColumnClick(self, col):
+        """Sort by a column, as clicking its header normally would."""
+
+        evt = wx.ListEvent(wx.wxEVT_LIST_COL_CLICK, self.GetId())
+        evt.SetEventObject(self)
+        evt.SetColumn(col)
+        self.GetEventHandler().ProcessEvent(evt)
+
+    # ----
+
+    def _onHeaderCaptureLost(self, evt):
+        """Give up the drag (another window took the mouse)."""
+
+        self._reorderCaptured = False
+        self._endColumnReorder(evt.GetEventObject())
+
+    # ----
+
+    def _insertionPoint(self, x):
+        """Get the gap between columns the pointer is currently over.
+
+        Numbered like slice positions: 0 is before the first column, one past
+        the last column is after them all.
+        """
+
+        edges = self._columnEdges()
+        for colIndex in range(self.GetColumnCount()):
+            if x < (edges[colIndex] + edges[colIndex + 1]) / 2:
+                return colIndex
+
+        return self.GetColumnCount()
+
+    # ----
+
+    def _drawInsertionMark(self, header):
+        """Show where the dragged column would land."""
+
+        if self._reorderTarget is None:
+            return
+
+        if self._reorderOverlay is None:
+            self._reorderOverlay = wx.Overlay()
+
+        edges = self._columnEdges()
+        x = min(max(edges[self._reorderTarget], 1), header.GetSize()[0] - 2)
+
+        dc = wx.ClientDC(header)
+        odc = wx.DCOverlay(self._reorderOverlay, dc)
+        odc.Clear()
+        dc.SetPen(wx.Pen(wx.SystemSettings.GetColour(wx.SYS_COLOUR_HIGHLIGHT), 2))
+        dc.DrawLine(x, 0, x, header.GetSize()[1])
+        del odc
+
+    # ----
+
+    def _endColumnReorder(self, header):
+        """Clear the drag state and everything it drew."""
+
+        if self._reorderTarget is not None and header is not None:
+            dc = wx.ClientDC(header)
+            odc = wx.DCOverlay(self._reorderOverlay, dc)
+            odc.Clear()
+            del odc
+            self._reorderOverlay.Reset()
+            header.SetCursor(wx.NullCursor)
+
+        if self._reorderCaptured and header is not None and header.HasCapture():
+            header.ReleaseMouse()
+
+        self._reorderCaptured = False
+        self._reorderColumn = None
+        self._reorderTarget = None
 
     # ----
 
