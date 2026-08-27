@@ -2498,16 +2498,6 @@ def _writeFileAtomically(path, data):
 # ----
 
 
-def _escape(text):
-    """Clear special characters such as <> etc."""
-
-    text = text.strip()
-    search = ("&", '"', "'", "<", ">")
-    replace = ("&amp;", "&quot;", "&apos;", "&lt;", "&gt;")
-    for x, item in enumerate(search):
-        text = text.replace(item, replace[x])
-
-    return text
 
 
 # ----

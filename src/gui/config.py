@@ -211,7 +211,12 @@ else:
             try:
                 if os.path.exists(legacy_confdir):
                     for filename in os.listdir(legacy_confdir):
-                        if not filename.lower().endswith(".xml"):
+                        # Both formats: a user who pinned MMASS_CONFIG_DIR at
+                        # the install directory (the documented way to share a
+                        # config between machines) already has .json files
+                        # there, and skipping them would silently hand them a
+                        # default profile the first time they unset it.
+                        if not filename.lower().endswith((".xml", ".json")):
                             continue
                         source = os.path.join(legacy_confdir, filename)
                         target = os.path.join(userconf, filename)
@@ -1480,19 +1485,6 @@ def _getParams(sectionTag, section):
 # ----
 
 
-def _escape(text):
-    """Escape XML special characters such as <> etc.
-
-    Deliberately does not strip(): values like main["lastDir"] are real
-    filesystem paths, where leading/trailing whitespace is significant.
-    """
-
-    search = ("&", '"', "'", "<", ">")
-    replace = ("&amp;", "&quot;", "&apos;", "&lt;", "&gt;")
-    for x, item in enumerate(search):
-        text = text.replace(item, replace[x])
-
-    return text
 
 
 # ----

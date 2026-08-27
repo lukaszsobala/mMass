@@ -49,7 +49,11 @@ Section "Install"
   InitPluginsDir
   CreateDirectory "$PLUGINSDIR\mmass_user_configs"
 
-  ; Preserve user-customized XML files across reinstalls/upgrades.
+  ; Preserve user-customized config files across reinstalls/upgrades.
+  ; Both formats: libraries are JSON since 7.0, but an install that has not
+  ; been launched since the upgrade still holds the pre-7.0 XML.
+  IfFileExists "$INSTDIR\gui\configs\*.json" 0 +2
+  CopyFiles /SILENT "$INSTDIR\gui\configs\*.json" "$PLUGINSDIR\mmass_user_configs"
   IfFileExists "$INSTDIR\gui\configs\*.xml" 0 +2
   CopyFiles /SILENT "$INSTDIR\gui\configs\*.xml" "$PLUGINSDIR\mmass_user_configs"
 
@@ -61,7 +65,9 @@ Section "Install"
   SetOutPath "$INSTDIR"
   File /r "${SOURCE_DIR}\*.*"
 
-  ; Restore preserved XML files so installer defaults do not overwrite user edits.
+  ; Restore preserved files so installer defaults do not overwrite user edits.
+  IfFileExists "$PLUGINSDIR\mmass_user_configs\*.json" 0 +2
+  CopyFiles /SILENT "$PLUGINSDIR\mmass_user_configs\*.json" "$INSTDIR\gui\configs"
   IfFileExists "$PLUGINSDIR\mmass_user_configs\*.xml" 0 +2
   CopyFiles /SILENT "$PLUGINSDIR\mmass_user_configs\*.xml" "$INSTDIR\gui\configs"
 
@@ -96,7 +102,7 @@ Function LaunchApp
   Exec '"$WINDIR\explorer.exe" "$INSTDIR\mMass.exe"'
 FunctionEnd
 
-Section /o "Remove user XML configuration (%APPDATA%\mMass\*.xml)" un.RemoveUserConfig
+Section /o "Remove user configuration (%APPDATA%\mMass)" un.RemoveUserConfig
   StrCpy $RemoveUserConfigs "1"
 SectionEnd
 
@@ -110,9 +116,11 @@ Section "Uninstall"
   Delete "$SMPROGRAMS\${APP_NAME}\Uninstall mMass.lnk"
   RMDir "$SMPROGRAMS\${APP_NAME}"
 
-  ; Keep legacy install-local XML files by moving them to user AppData.
+  ; Keep legacy install-local config files by moving them to user AppData.
   StrCmp $RemoveUserConfigs "1" skip_legacy_config_migrate
   CreateDirectory "$0"
+  IfFileExists "$INSTDIR\gui\configs\*.json" 0 +2
+  CopyFiles /SILENT "$INSTDIR\gui\configs\*.json" "$0"
   IfFileExists "$INSTDIR\gui\configs\*.xml" 0 skip_legacy_config_migrate
   CopyFiles /SILENT "$INSTDIR\gui\configs\*.xml" "$0"
 
@@ -125,7 +133,10 @@ skip_legacy_config_migrate:
   Goto skip_user_config_delete
 
 remove_user_config_done:
+  Delete "$0\*.json"
   Delete "$0\*.xml"
+  Delete "$0\*.migrated"
+  Delete "$0\*.corrupt"
   RMDir "$0"
 
 skip_user_config_delete:

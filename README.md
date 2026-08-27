@@ -77,6 +77,35 @@ The packaged `.app` / `.dmg` build also works, but note:
   the mounted `.dmg`) — running from the read-only image triggers Gatekeeper *app
   translocation*, which can prevent the window from appearing.
 
+### Configuration files
+
+Settings and libraries are JSON, stored per user:
+
+| Platform | Location |
+| --- | --- |
+| Linux / BSD | `$XDG_CONFIG_HOME/mmass` (usually `~/.config/mmass`) |
+| macOS | `~/Library/Application Support/mMass` |
+| Windows | `%APPDATA%\mMass` |
+
+`config.json` holds settings; the seven libraries (`monomers`, `modifications`,
+`enzymes`, `presets`, `references`, `compounds`, `mascot`) sit beside it. Set
+`MMASS_CONFIG_DIR` to override the location on any platform — useful for a
+portable install, or to point a second machine at a shared directory.
+
+Releases before 7.0 used XML. Each file is migrated once, automatically, on
+first launch: the values are rewritten as JSON and the original is renamed to
+`<name>.xml.migrated` rather than deleted, so nothing is lost and you can roll
+back by removing the `.json` and dropping the `.migrated` suffix.
+
+If you keep a config file symlinked at a shared location (a partition mounted
+from another OS, a network drive), migration writes the JSON next to the link
+target and leaves a symlink in the config directory, so the sharing survives.
+The original XML on the share is left untouched, so another machine still
+running an older mMass keeps working.
+
+The compound and reference library editors import either format, so libraries
+shared by other mMass users still load whether they are XML or JSON.
+
 ### High-DPI scaling
 
 The UI scales itself to your display automatically (Windows, MacOS, GNOME and KDE on
@@ -111,12 +140,12 @@ python packaging/windows/build_windows_installer.py
 
 Installer output is written to `build/installer/windows/`.
 
-On Windows, runtime user configuration XML files are stored in
-`%APPDATA%\\mMass` (with automatic migration from legacy install-local
-`gui\\configs` files on first run).
+On Windows, runtime user configuration is stored in `%APPDATA%\mMass` (with
+automatic migration from legacy install-local `gui\configs` files on first
+run).
 
-During uninstall, user XML config is kept by default. The uninstaller offers an
-optional checkbox to remove `%APPDATA%\\mMass\\*.xml`.
+During uninstall, user config is kept by default. The uninstaller offers an
+optional checkbox to remove `%APPDATA%\mMass`.
 
 ### macOS app and disk image
 
