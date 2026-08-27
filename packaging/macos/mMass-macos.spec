@@ -2,7 +2,6 @@ import os
 from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_data_files
-from PyInstaller.utils.hooks import collect_submodules
 
 
 PROJECT_ROOT = Path(SPECPATH).resolve().parents[1]
@@ -18,9 +17,27 @@ datas = [
 ]
 datas += collect_data_files("xdgenvpy")
 
+# Nothing to force in: PyInstaller's bundled hooks already collect numba and
+# llvmlite correctly. A blanket collect_submodules("numba") would additionally
+# pull in numba.tests, which imports pandas/matplotlib/pytest when they happen
+# to be present in the build environment -- making the bundle depend on what is
+# incidentally installed on the build machine.
 hiddenimports = []
-hiddenimports += collect_submodules("numba")
-hiddenimports += collect_submodules("scipy")
+
+# SciPy is not a runtime dependency (mspy.calculations grows its own local
+# maxima kernel); exclude it so a stray transitive import cannot drag ~70 MB of
+# DLLs and Python back into the bundle.
+#
+# Matplotlib is only there because pyopenms declares it: it is used solely by
+# pyopenms/plotting.py, which pyopenms/__init__.py never imports and which does
+# its matplotlib imports inside the plotting functions themselves. mMass calls
+# neither, so excluding it is safe -- verified by importing pyopenms and
+# constructing MSExperiment/FileHandler with matplotlib blocked.
+#
+# Note that pandas cannot be excluded the same way: pyopenms/__init__.py
+# imports ._dataframes unconditionally, and that module imports pandas at the
+# top level, so dropping pandas breaks "import pyopenms" outright.
+excludes = ["scipy", "matplotlib"]
 
 
 a = Analysis(
@@ -32,7 +49,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=excludes,
     noarchive=False,
 )
 pyz = PYZ(a.pure)

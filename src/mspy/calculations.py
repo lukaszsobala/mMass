@@ -1,6 +1,5 @@
 import numpy as np
 from numba import njit, prange
-from scipy.signal import find_peaks
 
 
 def signal_interpolate_x(x1, y1, x2, y2, y):
@@ -76,12 +75,41 @@ def signal_normalize(array):
     return out
 
 
-# Placeholders for more complex ones that will require Numba (Phase 3)
+@njit
+def _local_maxima_indices(y):
+    """Indices of the local maxima of a 1-D array.
+
+    Reproduces ``scipy.signal.find_peaks(y)`` called with no keyword arguments,
+    which is all this module ever needed it for: a sample is a maximum when it
+    is strictly higher than its two neighbours, a flat plateau counts once and
+    reports its middle sample, and the first and last samples can never be
+    maxima. Written out here so the Windows bundle does not have to carry the
+    ~70 MB of SciPy for this one function.
+    """
+
+    n = len(y)
+    out = np.empty(n // 2, np.int64)  # a maximum needs a gap: at most n//2 fit
+    found = 0
+
+    i = 1
+    i_max = n - 1
+    while i < i_max:
+        if y[i - 1] < y[i]:
+            # Walk over a plateau of equal samples, if there is one.
+            ahead = i + 1
+            while ahead < i_max and y[ahead] == y[i]:
+                ahead += 1
+            if y[ahead] < y[i]:
+                out[found] = (i + ahead - 1) // 2
+                found += 1
+                i = ahead
+        i += 1
+
+    return out[:found]
+
+
 def signal_local_maxima(array):
-    peaks, _ = find_peaks(array[:, 1])
-    # mMass local maxima C code handles interpolation? For now returning basic array slice
-    # This requires detailed porting of the custom algorithms
-    return array[peaks].tolist()
+    return array[_local_maxima_indices(np.ascontiguousarray(array[:, 1]))].tolist()
 
 
 def formula_composition(minimum, maximum, masses, loMass, hiMass, limit):

@@ -3,6 +3,13 @@
 Unicode true
 RequestExecutionLevel admin
 
+; NSIS defaults to zlib, which leaves roughly a third of the download on the
+; table for a bundle this size. /SOLID lets LZMA find matches across files --
+; it matters here because the payload is dominated by a few very large DLLs
+; (llvmlite's LLVM build alone is ~115 MB, and compresses to ~26 MB this way
+; against ~39 MB with deflate). Costs build time, not install time.
+SetCompressor /SOLID lzma
+
 !include "MUI2.nsh"
 
 !ifndef APP_VERSION
