@@ -684,11 +684,18 @@ class canvas(wx.Window):
         self._last_draw_time = now
 
         dc = wx.MemoryDC(self.plotBuffer)
-        immediate_paint = (
-            wx.Platform == "__WXGTK__"
-            and self.mouseEvent
-            in ("xShift", "yShift", "xScale", "yScale", "xPosBar", "yPosBar")
+
+        # These are the events that end in a full redraw of the whole buffer,
+        # rather than an overlay drawn on top of the last one.
+        immediate_paint = self.mouseEvent in (
+            "xShift",
+            "yShift",
+            "xScale",
+            "yScale",
+            "xPosBar",
+            "yPosBar",
         )
+        redrawn = False
 
         # guard against stacking multiple pending Refresh calls
         # For heavy drag redraws use immediate paint to avoid frame starvation
@@ -701,7 +708,13 @@ class canvas(wx.Window):
                 self.Refresh(False)
 
             wx.CallAfter(_do_refresh)
-        self.quickRefresh(dc)
+
+        # Restoring the clean buffer is what erases the previous overlay, so it
+        # is only worth doing for the events that draw one. A full redraw opens
+        # by clearing the buffer anyway, and blitting a screenful underneath it
+        # first is a wasted copy on every frame of a drag.
+        if not immediate_paint:
+            self.quickRefresh(dc)
 
         # draw cursor tracker if no event
         if not self.mouseEvent:
@@ -735,32 +748,46 @@ class canvas(wx.Window):
 
         # move x axis
         elif self.mouseEvent == "xShift":
-            self.shiftAxis("x", dc=dc)
+            redrawn = self.shiftAxis("x", dc=dc)
 
         # move y axis
         elif self.mouseEvent == "yShift":
-            self.shiftAxis("y", dc=dc)
+            redrawn = self.shiftAxis("y", dc=dc)
 
         # scale x axis
         elif self.mouseEvent == "xScale":
-            self.scaleAxis("x", dc=dc)
+            redrawn = self.scaleAxis("x", dc=dc)
 
         # scale y axis
         elif self.mouseEvent == "yScale":
-            self.scaleAxis("y", dc=dc)
+            redrawn = self.scaleAxis("y", dc=dc)
 
         # navigate via x position bar
         elif self.mouseEvent == "xPosBar":
-            self.movePositionBar("x", dc=dc)
+            redrawn = self.movePositionBar("x", dc=dc)
 
         # navigate via y position bar
         elif self.mouseEvent == "yPosBar":
-            self.movePositionBar("y", dc=dc)
+            redrawn = self.movePositionBar("y", dc=dc)
 
-        # On Linux/GTK especially, deferred paint events can be starved by
-        # continuous motion events. Force paint for drag/axis-scale frames so
-        # users see intermediate frames while moving the mouse.
+        # Deferred paint events can be starved by continuous motion events --
+        # on GTK because motion outruns idle time, on MSW because WM_PAINT
+        # ranks below mouse input in the message queue. Force the paint for
+        # drag/axis-scale frames so users see intermediate frames while moving
+        # the mouse.
         if immediate_paint:
+            # The drag was refused (a limit reached, a bar not there): nothing
+            # was drawn, so put the last clean frame back and let the overlay-
+            # free buffer stand.
+            if not redrawn:
+                self.quickRefresh(dc)
+
+            # The paint below runs synchronously and reads plotBuffer. wxMSW
+            # cannot blit from a bitmap that is still selected into another DC
+            # and hands back a blank one instead -- that is what used to make
+            # the spectrum vanish mid-drag on Windows -- so release it first.
+            dc.SelectObject(wx.NullBitmap)
+
             self.Refresh(False)
             self.Update()
 
@@ -2760,11 +2787,11 @@ class canvas(wx.Window):
     # ----
 
     def shiftAxis(self, axis, dc=None):
-        """Shift plot while dragging"""
+        """Shift plot while dragging; True when the plot was redrawn."""
 
         # skip y shift symmetric
         if axis == "y" and self.properties["ySymmetry"]:
-            return
+            return False
 
         # get coordionations
         minX, maxX = self.getCurrentXRange()
@@ -2785,9 +2812,9 @@ class canvas(wx.Window):
         # check limits
         if self.properties["checkLimits"]:
             if axis == "x" and (minX < rangeXmin or maxX > rangeXmax):
-                return
+                return False
             if axis == "y" and (minY < rangeYmin or maxY > rangeYmax):
-                return
+                return False
 
         # autoscale Y
         if self.properties["autoScaleY"] and axis == "x":
@@ -2795,19 +2822,20 @@ class canvas(wx.Window):
 
         # redraw plot
         self.draw(self.lastDraw[0], (minX, maxX), (minY, maxY), dc=dc)
+        return True
 
     # ----
 
     def movePositionBar(self, axis, dc=None):
-        """Move plot view to follow a click/drag on the position bar."""
+        """Follow a click/drag on the position bar; True when it redrew."""
 
         if axis == "x":
             if not self.xPosBarBox:
-                return
+                return False
             bx, by, bw, bh = self.xPosBarBox
             rangeMin, rangeMax = self.getMaxXRange(absolute=True)
             if bw <= 0 or rangeMax == rangeMin:
-                return
+                return False
 
             # map cursor along the bar to a target center position
             frac = (self.cursorPosition[2] - bx) / bw
@@ -2835,14 +2863,15 @@ class canvas(wx.Window):
                 minY, maxY = self.getMaxYRange(minX, maxX)
 
             self.draw(self.lastDraw[0], (minX, maxX), (minY, maxY), dc=dc)
+            return True
 
         elif axis == "y":
             if not self.yPosBarBox or self.properties["ySymmetry"]:
-                return
+                return False
             bx, by, bw, bh = self.yPosBarBox
             rangeMin, rangeMax = self.getMaxYRange(absolute=True)
             if bh <= 0 or rangeMax == rangeMin:
-                return
+                return False
 
             # bar maps top -> maxY, bottom -> minY
             frac = (self.cursorPosition[3] - by) / bh
@@ -2866,11 +2895,14 @@ class canvas(wx.Window):
 
             minX, maxX = self.getCurrentXRange()
             self.draw(self.lastDraw[0], (minX, maxX), (minY, maxY), dc=dc)
+            return True
+
+        return False
 
     # ----
 
     def scaleAxis(self, axis, dc=None):
-        """Scale plot while dragging"""
+        """Scale plot while dragging; True when the plot was redrawn."""
 
         # get coordination
         minX, maxX = self.getCurrentXRange()
@@ -2911,6 +2943,7 @@ class canvas(wx.Window):
 
         # redraw plot
         self.draw(self.lastDraw[0], (minX, maxX), (minY, maxY), dc=dc)
+        return True
 
     # ----
 

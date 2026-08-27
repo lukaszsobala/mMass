@@ -309,12 +309,32 @@ class container:
         bgr = labels[0][3]["labelBgr"]
         bgrColour = labels[0][3]["labelBgrColour"]
 
-        dc.SetFont(_scaleFont(font, printerScale["fonts"]))
+        scaledFont = _scaleFont(font, printerScale["fonts"])
+        dc.SetFont(scaledFont)
         dc.SetTextForeground(colour)
         dc.SetTextBackground(bgrColour)
 
         if bgr:
             dc.SetBackgroundMode(_WX_BRUSHSTYLE_SOLID)
+
+        # The badge cache only applies to the on-screen buffer; an SVG or
+        # printer DC has to keep its labels as real text. Everything that can
+        # change how a badge looks goes into the key, which is rebuilt only
+        # when one of those actually changes -- per label it is a tuple concat.
+        cacheable = isinstance(dc, wx.MemoryDC)
+        scale = dc.GetContentScaleFactor() if cacheable else 1.0
+
+        def keyBase():
+            if not cacheable or not bgr:
+                return None
+            return (
+                scaledFont.GetNativeFontInfoDesc(),
+                tuple(colour),
+                tuple(bgrColour),
+                scale,
+            )
+
+        badgeBase = keyBase()
 
         # draw labels
         occupied = []
@@ -333,11 +353,14 @@ class container:
                 # check pen
                 if properties["labelFont"] != font:
                     font = properties["labelFont"]
-                    dc.SetFont(_scaleFont(font, printerScale["fonts"]))
+                    scaledFont = _scaleFont(font, printerScale["fonts"])
+                    dc.SetFont(scaledFont)
+                    badgeBase = keyBase()
 
                 if properties["labelColour"] != colour:
                     colour = properties["labelColour"]
                     dc.SetTextForeground(colour)
+                    badgeBase = keyBase()
 
                 # if properties['labelBgrColour'] != bgrColour:
                 #    bgrColour = properties['labelBgrColour']
@@ -349,6 +372,7 @@ class container:
                         dc.SetBackgroundMode(_WX_BRUSHSTYLE_SOLID)
                     else:
                         dc.SetBackgroundMode(_WX_BRUSHSTYLE_TRANSPARENT)
+                    badgeBase = keyBase()
 
                 # set angle
                 angle = properties["labelAngle"]
@@ -356,7 +380,22 @@ class container:
                     angle = -90
 
                 # draw label
-                dc.DrawRotatedText(text, int(textCoords[0]), int(textCoords[1]), angle)
+                badge = None
+                if badgeBase is not None and angle in _LABEL_ANGLES:
+                    badge = badgeBase + (angle,)
+
+                _drawLabel(
+                    dc,
+                    badge,
+                    text,
+                    int(textCoords[0]),
+                    int(textCoords[1]),
+                    angle,
+                    scaledFont,
+                    colour,
+                    bgrColour,
+                    scale,
+                )
                 occupied.append(textCoords)
 
         dc.SetBackgroundMode(_WX_BRUSHSTYLE_TRANSPARENT)
@@ -1671,7 +1710,21 @@ class spectrum:
 
         # draw lines
         if len(self.spectrumScaled) > 0:
-            if not is_vector and wx.Platform == "__WXMSW__" and width > 1:
+            # On screen, vertices landing on pixels the trace already covers can
+            # be dropped: the curve reaches the toolkit with a fraction of the
+            # points and looks the same. This is not platform-specific -- every
+            # backend pays per vertex -- but it must not touch a vector file,
+            # where the exported curve has to keep every point it was given.
+            dense = not is_vector and len(self.spectrumScaled) > 1500
+            points = (
+                _compress_screen_polyline(self.spectrumScaled)
+                if dense
+                else self.spectrumScaled
+            )
+
+            if len(points) < 2:
+                pass
+            elif not is_vector and wx.Platform == "__WXMSW__" and width > 1:
                 # On wxMSW a pen width >= 2 forces GDI onto its slow
                 # geometric-pen path (joins/caps computed per vertex), which
                 # makes panning/zooming a dense spectrum extremely sluggish.
@@ -1682,27 +1735,21 @@ class spectrum:
                 lo = -(width // 2)
                 for dx in range(lo, lo + width):
                     for dy in range(lo, lo + width):
-                        dc.DrawLines(self.spectrumScaled, dx, dy)
-            elif (
-                not is_vector
-                and wx.Platform == "__WXGTK__"
-                and len(self.spectrumScaled) > 1500
-            ):
+                        dc.DrawLines(points, dx, dy)
+            elif dense and wx.Platform == "__WXGTK__":
                 # wxGTK can stutter on highly jagged, dense polylines because
                 # join-heavy path stroking is expensive. DrawLineList renders
                 # the same curve as independent segments and is smoother there.
                 dc.SetPen(wx.Pen(colour, width, style))
-                points = _compress_screen_polyline(self.spectrumScaled)
-                if len(points) >= 2:
-                    segments = numpy.empty((len(points) - 1, 4), dtype=numpy.int32)
-                    segments[:, 0] = points[:-1, 0]
-                    segments[:, 1] = points[:-1, 1]
-                    segments[:, 2] = points[1:, 0]
-                    segments[:, 3] = points[1:, 1]
-                    dc.DrawLineList(segments)
+                segments = numpy.empty((len(points) - 1, 4), dtype=numpy.int32)
+                segments[:, 0] = points[:-1, 0]
+                segments[:, 1] = points[:-1, 1]
+                segments[:, 2] = points[1:, 0]
+                segments[:, 3] = points[1:, 1]
+                dc.DrawLineList(segments)
             else:
                 dc.SetPen(wx.Pen(colour, width, style))
-                dc.DrawLines(self.spectrumScaled)
+                dc.DrawLines(points)
 
         # set pen for points
         dc.SetPen(wx.Pen(colour, width, _WX_PENSTYLE_SOLID))
@@ -2022,6 +2069,92 @@ def _textExtent(dc, deviceKey, text):
         extent = _textExtents[key] = dc.GetTextExtent(text).Get()
 
     return extent
+
+
+# ----
+
+
+# Pre-rendered label badges, keyed by everything that can change how one looks.
+# wxDC.DrawRotatedText builds a rotated font on every call -- on wxMSW that is
+# a CreateFontIndirect/DeleteObject pair per label -- and a dense spectrum
+# draws hundreds of the same handful of labels frame after frame. Painting each
+# one once into a small bitmap and blitting it thereafter measures about twenty
+# times faster, and the badge is opaque so the blit is an exact substitute.
+_LABEL_BITMAP_LIMIT = 4000
+_labelBitmaps = {}
+
+# offset of the badge's top-left corner from the anchor wxDC.DrawRotatedText
+# rotates about, and the anchor to use when painting the badge, both as
+# multiples of the unrotated text width and height
+_LABEL_ANGLES = {
+    #        badge size    top-left offset      anchor within badge
+    0: (lambda w, h: (w, h), lambda w, h: (0, 0), lambda w, h: (0, 0)),
+    90: (lambda w, h: (h, w), lambda w, h: (0, -w), lambda w, h: (0, w)),
+    -90: (lambda w, h: (h, w), lambda w, h: (-h, 0), lambda w, h: (h, 0)),
+}
+
+
+def _labelBadge(dc, key, text, angle, font, colour, bgrColour, scale):
+    """Badge bitmap for *text* plus its offset from the anchor point.
+
+    Painted once and remembered, so the hot path is a dict lookup and a blit --
+    no text measuring, no font building.
+    """
+
+    badge = _labelBitmaps.get(key)
+    if badge is not None:
+        return badge
+
+    textWidth, textHeight = dc.GetTextExtent(text)
+    if textWidth <= 0 or textHeight <= 0:
+        return None
+
+    size, offset, anchor = _LABEL_ANGLES[angle]
+    width, height = size(textWidth, textHeight)
+    anchorX, anchorY = anchor(textWidth, textHeight)
+
+    # matched to the destination so the blit stays 1:1 on HiDPI, where the plot
+    # buffer holds device pixels but is drawn into in logical coordinates
+    bitmap = wx.Bitmap()
+    bitmap.CreateWithDIPSize((width, height), scale, depth=24)
+
+    memory = wx.MemoryDC(bitmap)
+    memory.SetBackground(wx.Brush(bgrColour, _WX_BRUSHSTYLE_SOLID))
+    memory.Clear()
+    memory.SetFont(font)
+    memory.SetTextForeground(colour)
+    memory.SetBackgroundMode(_WX_BRUSHSTYLE_TRANSPARENT)
+    memory.DrawRotatedText(text, anchorX, anchorY, angle)
+    memory.SelectObject(wx.NullBitmap)
+
+    if len(_labelBitmaps) > _LABEL_BITMAP_LIMIT:
+        _labelBitmaps.clear()
+
+    offsetX, offsetY = offset(textWidth, textHeight)
+    badge = _labelBitmaps[key] = (bitmap, offsetX, offsetY)
+
+    return badge
+
+
+def _drawLabel(dc, badgeKey, text, x, y, angle, font, colour, bgrColour, scale):
+    """Draw one peak label, through the badge cache when there is one.
+
+    *badgeKey* is None for the cases the cache cannot stand in for: a
+    transparent label (the badge has no mask), an angle other than flat or
+    upright, and any device other than the screen buffer -- an SVG or printer
+    DC has to keep its labels as text rather than as pasted pixels.
+    """
+
+    if badgeKey is not None:
+        badge = _labelBadge(
+            dc, badgeKey + (text,), text, angle, font, colour, bgrColour, scale
+        )
+        if badge is not None:
+            bitmap, offsetX, offsetY = badge
+            dc.DrawBitmap(bitmap, x + offsetX, y + offsetY, False)
+            return
+
+    dc.DrawRotatedText(text, x, y, angle)
 
 
 # ----
