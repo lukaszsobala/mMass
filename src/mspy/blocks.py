@@ -2397,6 +2397,13 @@ def _writeFileAtomically(path, data):
     reader only ever sees the old file or the complete new one.
     """
 
+    # Resolve symlinks first: os.replace() onto a symlink would replace the
+    # LINK with a regular file, silently detaching a config the user
+    # deliberately pointed at shared or external storage. Writing through to
+    # the link target keeps that setup intact, matching what a plain open()
+    # used to do.
+    path = os.path.realpath(path)
+
     directory = os.path.dirname(os.path.abspath(path))
     handle, tmppath = tempfile.mkstemp(
         dir=directory, prefix=".%s." % os.path.basename(path), suffix=".tmp"

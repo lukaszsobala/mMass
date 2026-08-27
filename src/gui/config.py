@@ -20,6 +20,7 @@
 import sys
 import os
 import copy
+import json
 import tempfile
 import xml.dom.minidom
 from importlib import resources
@@ -85,6 +86,13 @@ def write_file_atomically(path, data):
     Windows, so readers only ever see the old file or the complete new one.
     """
 
+    # Resolve symlinks first: os.replace() onto a symlink would replace the
+    # LINK with a regular file, silently detaching a config the user
+    # deliberately pointed at shared or external storage. Writing through to
+    # the link target keeps that setup intact, matching what a plain open()
+    # used to do.
+    path = os.path.realpath(path)
+
     directory = os.path.dirname(os.path.abspath(path))
     handle, tmppath = tempfile.mkstemp(
         dir=directory, prefix=".%s." % os.path.basename(path), suffix=".tmp"
@@ -145,8 +153,20 @@ nightbuild = ""
 # SET CONFIG FOLDER
 # -----------------
 
+# An explicit override wins on every platform. Used by the test suite so a run
+# can never read or migrate the developer's own settings, and useful for a
+# portable install that keeps its config beside the program.
+_config_dir_override = os.environ.get("MMASS_CONFIG_DIR")
+
+if _config_dir_override:
+    confdir = os.path.expanduser(_config_dir_override)
+    try:
+        os.makedirs(confdir, exist_ok=True)
+    except Exception:
+        pass
+
 # set config folder for MAC OS X
-if sys.platform == "darwin":
+elif sys.platform == "darwin":
     confdir = get_default_config_source_dir()
     support = os.path.expanduser("~/Library/Application Support/")
     userconf = os.path.join(support, "mMass")
@@ -901,14 +921,20 @@ class _suspendAutoSave(object):
         return False
 
 
-def loadConfig(path=os.path.join(confdir, "config.xml")):  # noqa: B008
-    """Parse config XML and get data."""
+def loadLegacyConfigXML(path):
+    """Read a pre-7.0 config.xml into the live sections.
+
+    Retained for the one-way migration to config.json (and for a user who
+    restores an old profile years from now). Nothing writes this format any
+    more -- see saveConfig() for the current one.
+    """
 
     with _suspendAutoSave():
-        _loadConfig(path)
+        _loadLegacyConfigXML(path)
+        _validateConfig()
 
 
-def _loadConfig(path):
+def _loadLegacyConfigXML(path):
     """Parse config XML and get data."""
 
     # parse XML
@@ -1200,1223 +1226,235 @@ def _loadConfig(path):
 # ----
 
 
-def saveConfig(path=os.path.join(confdir, "config.xml")):  # noqa: B008
-    """Make and save config XML."""
+# Settings that are deliberately NOT persisted, as dotted paths. Two kinds:
+#
+#   * code-owned constants -- service URLs and HTML report templates. The
+#     in-code value must win on every launch; persisting them would pin a
+#     user's config to whatever shipped when they first ran the app, so they
+#     would never pick up a corrected URL or template on upgrade.
+#   * dead keys -- read somewhere (or nowhere) but never written by any GUI
+#     control, so there is no user choice to remember.
+#
+# This list is the authority: the serializer skips exactly these and writes
+# everything else, so a newly added setting is persisted automatically rather
+# than having to be hand-added to a writer. tests/test_config_drift.py asserts
+# the list still matches the code.
+NOT_PERSISTED = frozenset(
+    {
+        # code-owned constants
+        "main.latestVersionUrl",
+        "massToFormula.PubChemScript",
+        "massToFormula.ChemSpiderScript",
+        "massToFormula.METLINScript",
+        "massToFormula.HMDBScript",
+        "massToFormula.LipidMAPSScript",
+        "sequence.digest.listTemplateAmino",
+        "sequence.digest.listTemplateCustom",
+        "sequence.digest.matchTemplateAmino",
+        "sequence.digest.matchTemplateCustom",
+        "sequence.fragment.listTemplateAmino",
+        "sequence.fragment.listTemplateCustom",
+        "sequence.fragment.matchTemplateAmino",
+        "sequence.fragment.matchTemplateCustom",
+        "sequence.search.listTemplateAmino",
+        "sequence.search.listTemplateCustom",
+        # dead keys: no GUI control writes these
+        "main.unlockGUI",
+        "main.dataPrecision",
+        "processing.peakpicking.monoisotopic",
+        "massDefectPlot.xAxis",
+    }
+)
 
-    buff = '<?xml version="1.0" encoding="utf-8" ?>\n'
-    buff += '<mMassConfig version="1.0">\n\n'
-
-    # main
-    buff += "  <main>\n"
-    buff += '    <param name="appWidth" value="%d" type="int" />\n' % (main["appWidth"])
-    buff += '    <param name="appHeight" value="%d" type="int" />\n' % (
-        main["appHeight"]
-    )
-    buff += '    <param name="appMaximized" value="%d" type="int" />\n' % (
-        bool(main["appMaximized"])
-    )
-    buff += '    <param name="layout" value="%s" type="str" />\n' % (
-        _escape(main["layout"])
-    )
-    buff += '    <param name="documentsWidth" value="%d" type="int" />\n' % (
-        main["documentsWidth"]
-    )
-    buff += '    <param name="documentsHeight" value="%d" type="int" />\n' % (
-        main["documentsHeight"]
-    )
-    buff += '    <param name="peaklistWidth" value="%d" type="int" />\n' % (
-        main["peaklistWidth"]
-    )
-    buff += '    <param name="peaklistHeight" value="%d" type="int" />\n' % (
-        main["peaklistHeight"]
-    )
-    buff += '    <param name="reverseScrolling" value="%d" type="int" />\n' % (
-        bool(main["reverseScrolling"])
-    )
-    buff += '    <param name="macListCtrlGeneric" value="%d" type="int" />\n' % (
-        bool(main["macListCtrlGeneric"])
-    )
-    buff += '    <param name="cursorInfo" value="%s" type="str" />\n' % (
-        ";".join(main["cursorInfo"])
-    )
-    buff += '    <param name="peaklistColumns" value="%s" type="str" />\n' % (
-        ";".join(main["peaklistColumns"])
-    )
-    buff += '    <param name="mzDigits" value="%d" type="int" />\n' % (main["mzDigits"])
-    buff += '    <param name="intDigits" value="%d" type="int" />\n' % (
-        main["intDigits"]
-    )
-    buff += '    <param name="ppmDigits" value="%d" type="int" />\n' % (
-        main["ppmDigits"]
-    )
-    buff += '    <param name="chargeDigits" value="%d" type="int" />\n' % (
-        main["chargeDigits"]
-    )
-    buff += '    <param name="lastDir" value="%s" type="unicode" />\n' % (
-        _escape(main["lastDir"])
-    )
-    buff += '    <param name="lastSeqDir" value="%s" type="unicode" />\n' % (
-        _escape(main["lastSeqDir"])
-    )
-    buff += '    <param name="errorUnits" value="%s" type="str" />\n' % (
-        main["errorUnits"]
-    )
-    buff += '    <param name="printQuality" value="%d" type="int" />\n' % (
-        main["printQuality"]
-    )
-    buff += '    <param name="useServer" value="%d" type="int" />\n' % (
-        bool(main["useServer"])
-    )
-    buff += '    <param name="serverPort" value="%d" type="int" />\n' % (
-        main["serverPort"]
-    )
-    buff += '    <param name="updatesEnabled" value="%d" type="int" />\n' % (
-        bool(main["updatesEnabled"])
-    )
-    buff += '    <param name="updatesChecked" value="%s" type="str" />\n' % (
-        main["updatesChecked"]
-    )
-    buff += '    <param name="updatesCurrent" value="%s" type="str" />\n' % (
-        main["updatesCurrent"]
-    )
-    buff += '    <param name="updatesAvailable" value="%s" type="str" />\n' % (
-        main["updatesAvailable"]
-    )
-    buff += '    <param name="updatesSkipped" value="%s" type="str" />\n' % (
-        main["updatesSkipped"]
-    )
-    buff += "  </main>\n\n"
-
-    # recent files
-    buff += "  <recent>\n"
-    for item in recent:
-        buff += '    <path value="%s" />\n' % (_escape(item))
-    buff += "  </recent>\n\n"
-
-    # colours
-    buff += "  <colours>\n"
-    for item in colours:
-        buff += '    <colour value="%02x%02x%02x" />\n' % tuple(item)
-    buff += "  </colours>\n\n"
-
-    # export
-    buff += "  <export>\n"
-    buff += '    <param name="imageWidth" value="%.1f" type="float" />\n' % (
-        export["imageWidth"]
-    )
-    buff += '    <param name="imageHeight" value="%.1f" type="float" />\n' % (
-        export["imageHeight"]
-    )
-    buff += '    <param name="imageUnits" value="%s" type="str" />\n' % (
-        export["imageUnits"]
-    )
-    buff += '    <param name="imageResolution" value="%d" type="int" />\n' % (
-        export["imageResolution"]
-    )
-    buff += '    <param name="imageFontsScale" value="%d" type="int" />\n' % (
-        export["imageFontsScale"]
-    )
-    buff += '    <param name="imageDrawingsScale" value="%d" type="int" />\n' % (
-        export["imageDrawingsScale"]
-    )
-    buff += '    <param name="imageFormat" value="%s" type="str" />\n' % (
-        export["imageFormat"]
-    )
-    buff += '    <param name="peaklistColumns" value="%s" type="str" />\n' % (
-        ";".join(export["peaklistColumns"])
-    )
-    buff += '    <param name="peaklistFormat" value="%s" type="str" />\n' % (
-        export["peaklistFormat"]
-    )
-    buff += '    <param name="peaklistSeparator" value="%s" type="str" />\n' % (
-        export["peaklistSeparator"]
-    )
-    buff += '    <param name="spectrumSeparator" value="%s" type="str" />\n' % (
-        export["spectrumSeparator"]
-    )
-    buff += '    <param name="spectrumFormat" value="%s" type="str" />\n' % (
-        export["spectrumFormat"]
-    )
-    buff += "  </export>\n\n"
-
-    # spectrum
-    buff += "  <spectrum>\n"
-    buff += '    <param name="xLabel" value="%s" type="unicode" />\n' % (
-        _escape(spectrum["xLabel"])
-    )
-    buff += '    <param name="yLabel" value="%s" type="unicode" />\n' % (
-        _escape(spectrum["yLabel"])
-    )
-    buff += '    <param name="showGrid" value="%d" type="int" />\n' % (
-        bool(spectrum["showGrid"])
-    )
-    buff += '    <param name="showMinorTicks" value="%d" type="int" />\n' % (
-        bool(spectrum["showMinorTicks"])
-    )
-    buff += '    <param name="showLegend" value="%d" type="int" />\n' % (
-        bool(spectrum["showLegend"])
-    )
-    buff += '    <param name="showPosBars" value="%d" type="int" />\n' % (
-        bool(spectrum["showPosBars"])
-    )
-    buff += '    <param name="showGel" value="%d" type="int" />\n' % (
-        bool(spectrum["showGel"])
-    )
-    buff += '    <param name="showGelLegend" value="%d" type="int" />\n' % (
-        bool(spectrum["showGelLegend"])
-    )
-    buff += '    <param name="showTracker" value="%d" type="int" />\n' % (
-        bool(spectrum["showTracker"])
-    )
-    buff += '    <param name="showNotations" value="%d" type="int" />\n' % (
-        bool(spectrum["showNotations"])
-    )
-    buff += '    <param name="showDataPoints" value="%d" type="int" />\n' % (
-        bool(spectrum["showDataPoints"])
-    )
-    buff += '    <param name="showLabels" value="%d" type="int" />\n' % (
-        bool(spectrum["showLabels"])
-    )
-    buff += '    <param name="showAllLabels" value="%d" type="int" />\n' % (
-        bool(spectrum["showAllLabels"])
-    )
-    buff += '    <param name="showTicks" value="%d" type="int" />\n' % (
-        bool(spectrum["showTicks"])
-    )
-    buff += '    <param name="showCursorImage" value="%d" type="int" />\n' % (
-        bool(spectrum["showCursorImage"])
-    )
-    buff += '    <param name="posBarSize" value="%d" type="int" />\n' % (
-        spectrum["posBarSize"]
-    )
-    buff += '    <param name="gelHeight" value="%d" type="int" />\n' % (
-        spectrum["gelHeight"]
-    )
-    buff += '    <param name="autoscale" value="%d" type="int" />\n' % (
-        bool(spectrum["autoscale"])
-    )
-    buff += '    <param name="overlapLabels" value="%d" type="int" />\n' % (
-        bool(spectrum["overlapLabels"])
-    )
-    buff += '    <param name="checkLimits" value="%d" type="int" />\n' % (
-        bool(spectrum["checkLimits"])
-    )
-    buff += '    <param name="labelAngle" value="%d" type="int" />\n' % (
-        spectrum["labelAngle"]
-    )
-    buff += '    <param name="labelCharge" value="%d" type="int" />\n' % (
-        bool(spectrum["labelCharge"])
-    )
-    buff += '    <param name="labelGroup" value="%d" type="int" />\n' % (
-        bool(spectrum["labelGroup"])
-    )
-    buff += '    <param name="labelBgr" value="%d" type="int" />\n' % (
-        bool(spectrum["labelBgr"])
-    )
-    buff += '    <param name="labelFontSize" value="%d" type="int" />\n' % (
-        spectrum["labelFontSize"]
-    )
-    buff += '    <param name="axisFontSize" value="%d" type="int" />\n' % (
-        spectrum["axisFontSize"]
-    )
-    buff += '    <param name="tickColour" value="%02x%02x%02x" type="str" />\n' % tuple(
-        spectrum["tickColour"]
-    )
-    buff += (
-        '    <param name="tmpSpectrumColour" value="%02x%02x%02x" type="str" />\n'
-        % tuple(spectrum["tmpSpectrumColour"])
-    )
-    buff += (
-        '    <param name="notationMarksColour" value="%02x%02x%02x" type="str" />\n'
-        % tuple(spectrum["notationMarksColour"])
-    )
-    buff += '    <param name="notationMaxLength" value="%d" type="int" />\n' % (
-        spectrum["notationMaxLength"]
-    )
-    buff += '    <param name="notationMarks" value="%d" type="int" />\n' % (
-        bool(spectrum["notationMarks"])
-    )
-    buff += '    <param name="notationLabels" value="%d" type="int" />\n' % (
-        bool(spectrum["notationLabels"])
-    )
-    buff += '    <param name="notationMZ" value="%d" type="int" />\n' % (
-        bool(spectrum["notationMZ"])
-    )
-    buff += '    <param name="filterSize" value="%f" type="float" />\n' % (
-        spectrum["filterSize"]
-    )
-    buff += '    <param name="normalize" value="%d" type="int" />\n' % (
-        bool(spectrum["normalize"])
-    )
-    buff += "  </spectrum>\n\n"
-
-    # match
-    buff += "  <match>\n"
-    buff += '    <param name="tolerance" value="%f" type="float" />\n' % (
-        match["tolerance"]
-    )
-    buff += '    <param name="units" value="%s" type="str" />\n' % (match["units"])
-    buff += '    <param name="ignoreCharge" value="%d" type="int" />\n' % (
-        bool(match["ignoreCharge"])
-    )
-    buff += '    <param name="filterAnnotations" value="%d" type="int" />\n' % (
-        bool(match["filterAnnotations"])
-    )
-    buff += '    <param name="filterMatches" value="%d" type="int" />\n' % (
-        bool(match["filterMatches"])
-    )
-    buff += '    <param name="filterUnselected" value="%d" type="int" />\n' % (
-        bool(match["filterUnselected"])
-    )
-    buff += '    <param name="filterIsotopes" value="%d" type="int" />\n' % (
-        bool(match["filterIsotopes"])
-    )
-    buff += '    <param name="filterUnknown" value="%d" type="int" />\n' % (
-        bool(match["filterUnknown"])
-    )
-    buff += "  </match>\n\n"
-
-    # processing
-    buff += "  <processing>\n"
-    buff += "    <math>\n"
-    buff += '      <param name="operation" value="%s" type="str" />\n' % (
-        processing["math"]["operation"]
-    )
-    buff += '      <param name="multiplier" value="%f" type="float" />\n' % (
-        processing["math"]["multiplier"]
-    )
-    buff += '      <param name="preservePeaks" value="%d" type="int" />\n' % (
-        bool(processing["math"]["preservePeaks"])
-    )
-    buff += "    </math>\n"
-    buff += "    <crop>\n"
-    buff += '      <param name="lowMass" value="%d" type="int" />\n' % (
-        processing["crop"]["lowMass"]
-    )
-    buff += '      <param name="highMass" value="%d" type="int" />\n' % (
-        processing["crop"]["highMass"]
-    )
-    buff += "    </crop>\n"
-    buff += "    <baseline>\n"
-    buff += '      <param name="precision" value="%d" type="int" />\n' % (
-        processing["baseline"]["precision"]
-    )
-    buff += '      <param name="offset" value="%f" type="float" />\n' % (
-        processing["baseline"]["offset"]
-    )
-    buff += '      <param name="allowNegative" value="%d" type="int" />\n' % (
-        processing["baseline"]["allowNegative"]
-    )
-    buff += '      <param name="preservePeaks" value="%d" type="int" />\n' % (
-        bool(processing["baseline"]["preservePeaks"])
-    )
-    buff += "    </baseline>\n"
-    buff += "    <smoothing>\n"
-    buff += '      <param name="method" value="%s" type="str" />\n' % (
-        processing["smoothing"]["method"]
-    )
-    buff += '      <param name="windowSize" value="%f" type="float" />\n' % (
-        processing["smoothing"]["windowSize"]
-    )
-    buff += '      <param name="cycles" value="%d" type="int" />\n' % (
-        processing["smoothing"]["cycles"]
-    )
-    buff += '      <param name="preservePeaks" value="%d" type="int" />\n' % (
-        bool(processing["smoothing"]["preservePeaks"])
-    )
-    buff += "    </smoothing>\n"
-    buff += "    <peakpicking>\n"
-    buff += '      <param name="snThreshold" value="%f" type="float" />\n' % (
-        processing["peakpicking"]["snThreshold"]
-    )
-    buff += '      <param name="absIntThreshold" value="%f" type="float" />\n' % (
-        processing["peakpicking"]["absIntThreshold"]
-    )
-    buff += '      <param name="relIntThreshold" value="%f" type="float" />\n' % (
-        processing["peakpicking"]["relIntThreshold"]
-    )
-    buff += '      <param name="pickingHeight" value="%f" type="float" />\n' % (
-        processing["peakpicking"]["pickingHeight"]
-    )
-    buff += '      <param name="baseline" value="%d" type="int" />\n' % (
-        bool(processing["peakpicking"]["baseline"])
-    )
-    buff += '      <param name="smoothing" value="%d" type="int" />\n' % (
-        bool(processing["peakpicking"]["smoothing"])
-    )
-    buff += '      <param name="deisotoping" value="%d" type="int" />\n' % (
-        bool(processing["peakpicking"]["deisotoping"])
-    )
-    buff += '      <param name="removeShoulders" value="%d" type="int" />\n' % (
-        bool(processing["peakpicking"]["removeShoulders"])
-    )
-    buff += '      <param name="averagineType" value="%s" type="str" />\n' % (
-        processing["peakpicking"]["averagineType"]
-    )
-    buff += "    </peakpicking>\n"
-    buff += "    <deisotoping>\n"
-    buff += '      <param name="maxCharge" value="%d" type="int" />\n' % (
-        processing["deisotoping"]["maxCharge"]
-    )
-    buff += '      <param name="massTolerance" value="%f" type="float" />\n' % (
-        processing["deisotoping"]["massTolerance"]
-    )
-    buff += '      <param name="intTolerance" value="%f" type="float" />\n' % (
-        processing["deisotoping"]["intTolerance"]
-    )
-    buff += '      <param name="removeIsotopes" value="%d" type="int" />\n' % (
-        bool(processing["deisotoping"]["removeIsotopes"])
-    )
-    buff += '      <param name="removeUnknown" value="%d" type="int" />\n' % (
-        bool(processing["deisotoping"]["removeUnknown"])
-    )
-    buff += '      <param name="labelEnvelope" value="%s" type="str" />\n' % (
-        processing["deisotoping"]["labelEnvelope"]
-    )
-    buff += '      <param name="envelopeIntensity" value="%s" type="str" />\n' % (
-        processing["deisotoping"]["envelopeIntensity"]
-    )
-    buff += '      <param name="envelopeNonIdeality" value="%f" type="float" />\n' % (
-        processing["deisotoping"]["envelopeNonIdeality"]
-    )
-    buff += '      <param name="setAsMonoisotopic" value="%d" type="int" />\n' % (
-        bool(processing["deisotoping"]["setAsMonoisotopic"])
-    )
-    buff += '      <param name="convertToEnvelopes" value="%d" type="int" />\n' % (
-        bool(processing["deisotoping"].get("convertToEnvelopes", 0))
-    )
-    buff += '      <param name="isotopeShift" value="%f" type="float" />\n' % (
-        processing["deisotoping"]["isotopeShift"]
-    )
-    buff += "    </deisotoping>\n"
-    buff += "    <deconvolution>\n"
-    buff += '      <param name="massType" value="%d" type="int" />\n' % (
-        processing["deconvolution"]["massType"]
-    )
-    buff += '      <param name="groupWindow" value="%f" type="float" />\n' % (
-        processing["deconvolution"]["groupWindow"]
-    )
-    buff += '      <param name="groupPeaks" value="%d" type="int" />\n' % (
-        bool(processing["deconvolution"]["groupPeaks"])
-    )
-    buff += '      <param name="forceGroupWindow" value="%d" type="int" />\n' % (
-        bool(processing["deconvolution"]["forceGroupWindow"])
-    )
-    buff += "    </deconvolution>\n"
-    buff += "    <batch>\n"
-    buff += '      <param name="math" value="%d" type="int" />\n' % (
-        bool(processing["batch"]["math"])
-    )
-    buff += '      <param name="crop" value="%d" type="int" />\n' % (
-        bool(processing["batch"]["crop"])
-    )
-    buff += '      <param name="baseline" value="%d" type="int" />\n' % (
-        bool(processing["batch"]["baseline"])
-    )
-    buff += '      <param name="smoothing" value="%d" type="int" />\n' % (
-        bool(processing["batch"]["smoothing"])
-    )
-    buff += '      <param name="peakpicking" value="%d" type="int" />\n' % (
-        bool(processing["batch"]["peakpicking"])
-    )
-    buff += '      <param name="deisotoping" value="%d" type="int" />\n' % (
-        bool(processing["batch"]["deisotoping"])
-    )
-    buff += '      <param name="deconvolution" value="%d" type="int" />\n' % (
-        bool(processing["batch"]["deconvolution"])
-    )
-    buff += '      <param name="stepOrder" value="%s" type="str" />\n' % (
-        ";".join(processing["batch"]["stepOrder"])
-    )
-    buff += "    </batch>\n"
-    buff += "  </processing>\n\n"
-
-    # calibration
-    buff += "  <calibration>\n"
-    buff += '    <param name="fitting" value="%s" type="str" />\n' % (
-        calibration["fitting"]
-    )
-    buff += '    <param name="tolerance" value="%f" type="float" />\n' % (
-        calibration["tolerance"]
-    )
-    buff += '    <param name="units" value="%s" type="str" />\n' % (
-        calibration["units"]
-    )
-    buff += '    <param name="statCutOff" value="%d" type="int" />\n' % (
-        calibration["statCutOff"]
-    )
-    buff += "  </calibration>\n\n"
-
-    # sequence
-    buff += "  <sequence>\n"
-    buff += "    <editor>\n"
-    buff += '      <param name="gridSize" value="%d" type="int" />\n' % (
-        sequence["editor"]["gridSize"]
-    )
-    buff += "    </editor>\n"
-    buff += "    <digest>\n"
-    buff += '      <param name="maxMods" value="%d" type="int" />\n' % (
-        sequence["digest"]["maxMods"]
-    )
-    buff += '      <param name="maxCharge" value="%d" type="int" />\n' % (
-        sequence["digest"]["maxCharge"]
-    )
-    buff += '      <param name="massType" value="%d" type="int" />\n' % (
-        sequence["digest"]["massType"]
-    )
-    buff += '      <param name="enzyme" value="%s" type="unicode" />\n' % (
-        _escape(sequence["digest"]["enzyme"])
-    )
-    buff += '      <param name="miscl" value="%d" type="int" />\n' % (
-        sequence["digest"]["miscl"]
-    )
-    buff += '      <param name="lowMass" value="%d" type="int" />\n' % (
-        sequence["digest"]["lowMass"]
-    )
-    buff += '      <param name="highMass" value="%d" type="int" />\n' % (
-        sequence["digest"]["highMass"]
-    )
-    buff += '      <param name="retainPos" value="%d" type="int" />\n' % (
-        bool(sequence["digest"]["retainPos"])
-    )
-    buff += '      <param name="allowMods" value="%d" type="int" />\n' % (
-        bool(sequence["digest"]["allowMods"])
-    )
-    buff += "    </digest>\n"
-    buff += "    <fragment>\n"
-    buff += '      <param name="maxMods" value="%d" type="int" />\n' % (
-        sequence["fragment"]["maxMods"]
-    )
-    buff += '      <param name="maxCharge" value="%d" type="int" />\n' % (
-        sequence["fragment"]["maxCharge"]
-    )
-    buff += '      <param name="massType" value="%d" type="int" />\n' % (
-        sequence["fragment"]["massType"]
-    )
-    buff += '      <param name="fragments" value="%s" type="str" />\n' % (
-        ";".join(sequence["fragment"]["fragments"])
-    )
-    buff += '      <param name="maxLosses" value="%d" type="int" />\n' % (
-        sequence["fragment"]["maxLosses"]
-    )
-    buff += '      <param name="filterFragments" value="%d" type="int" />\n' % (
-        bool(sequence["fragment"]["filterFragments"])
-    )
-    buff += "    </fragment>\n"
-    buff += "    <search>\n"
-    buff += '      <param name="maxMods" value="%d" type="int" />\n' % (
-        sequence["search"]["maxMods"]
-    )
-    buff += '      <param name="charge" value="%d" type="int" />\n' % (
-        sequence["search"]["charge"]
-    )
-    buff += '      <param name="massType" value="%d" type="int" />\n' % (
-        sequence["search"]["massType"]
-    )
-    buff += '      <param name="enzyme" value="%s" type="unicode" />\n' % (
-        _escape(sequence["search"]["enzyme"])
-    )
-    buff += '      <param name="semiSpecific" value="%d" type="int" />\n' % (
-        bool(sequence["search"]["semiSpecific"])
-    )
-    buff += '      <param name="tolerance" value="%f" type="float" />\n' % (
-        sequence["search"]["tolerance"]
-    )
-    buff += '      <param name="units" value="%s" type="str" />\n' % (
-        sequence["search"]["units"]
-    )
-    buff += '      <param name="retainPos" value="%d" type="int" />\n' % (
-        bool(sequence["search"]["retainPos"])
-    )
-    buff += '      <param name="mass" value="%f" type="float" />\n' % (
-        sequence["search"]["mass"]
-    )
-    buff += "    </search>\n"
-    buff += "  </sequence>\n\n"
-
-    # mass calculator
-    buff += "  <massCalculator>\n"
-    buff += '    <param name="ionseriesAgent" value="%s" type="str" />\n' % (
-        massCalculator["ionseriesAgent"]
-    )
-    buff += '    <param name="ionseriesAgentCharge" value="%d" type="int" />\n' % (
-        massCalculator["ionseriesAgentCharge"]
-    )
-    buff += '    <param name="ionseriesPolarity" value="%d" type="int" />\n' % (
-        massCalculator["ionseriesPolarity"]
-    )
-    buff += '    <param name="patternFwhm" value="%f" type="float" />\n' % (
-        massCalculator["patternFwhm"]
-    )
-    buff += '    <param name="patternThreshold" value="%f" type="float" />\n' % (
-        massCalculator["patternThreshold"]
-    )
-    buff += '    <param name="patternShowPeaks" value="%d" type="int" />\n' % (
-        bool(massCalculator["patternShowPeaks"])
-    )
-    buff += '    <param name="patternPeakShape" value="%s" type="unicode" />\n' % (
-        _escape(massCalculator["patternPeakShape"])
-    )
-    buff += '    <param name="patternIntensity" value="%f" type="float" />\n' % (
-        massCalculator["patternIntensity"]
-    )
-    buff += '    <param name="patternBaseline" value="%f" type="float" />\n' % (
-        massCalculator["patternBaseline"]
-    )
-    buff += '    <param name="patternShift" value="%f" type="float" />\n' % (
-        massCalculator["patternShift"]
-    )
-    buff += "  </massCalculator>\n\n"
-
-    # mass to formula
-    buff += "  <massToFormula>\n"
-    buff += '    <param name="countLimit" value="%d" type="int" />\n' % (
-        massToFormula["countLimit"]
-    )
-    buff += '    <param name="massLimit" value="%d" type="int" />\n' % (
-        massToFormula["massLimit"]
-    )
-    buff += '    <param name="charge" value="%d" type="int" />\n' % (
-        massToFormula["charge"]
-    )
-    buff += '    <param name="ionization" value="%s" type="str" />\n' % (
-        massToFormula["ionization"]
-    )
-    buff += '    <param name="tolerance" value="%f" type="float" />\n' % (
-        massToFormula["tolerance"]
-    )
-    buff += '    <param name="units" value="%s" type="str" />\n' % (
-        massToFormula["units"]
-    )
-    buff += '    <param name="formulaMin" value="%s" type="str" />\n' % (
-        massToFormula["formulaMin"]
-    )
-    buff += '    <param name="formulaMax" value="%s" type="str" />\n' % (
-        massToFormula["formulaMax"]
-    )
-    buff += '    <param name="autoCHNO" value="%d" type="int" />\n' % (
-        bool(massToFormula["autoCHNO"])
-    )
-    buff += '    <param name="checkPattern" value="%d" type="int" />\n' % (
-        bool(massToFormula["checkPattern"])
-    )
-    buff += '    <param name="rules" value="%s" type="str" />\n' % (
-        ";".join(massToFormula["rules"])
-    )
-    buff += '    <param name="HCMin" value="%f" type="float" />\n' % (
-        massToFormula["HCMin"]
-    )
-    buff += '    <param name="HCMax" value="%f" type="float" />\n' % (
-        massToFormula["HCMax"]
-    )
-    buff += '    <param name="NCMax" value="%f" type="float" />\n' % (
-        massToFormula["NCMax"]
-    )
-    buff += '    <param name="OCMax" value="%f" type="float" />\n' % (
-        massToFormula["OCMax"]
-    )
-    buff += '    <param name="PCMax" value="%f" type="float" />\n' % (
-        massToFormula["PCMax"]
-    )
-    buff += '    <param name="SCMax" value="%f" type="float" />\n' % (
-        massToFormula["SCMax"]
-    )
-    buff += '    <param name="RDBEMin" value="%f" type="float" />\n' % (
-        massToFormula["RDBEMin"]
-    )
-    buff += '    <param name="RDBEMax" value="%f" type="float" />\n' % (
-        massToFormula["RDBEMax"]
-    )
-    buff += "  </massToFormula>\n\n"
-
-    # mass defect plot
-    buff += "  <massDefectPlot>\n"
-    buff += '    <param name="yAxis" value="%s" type="str" />\n' % (
-        massDefectPlot["yAxis"]
-    )
-    buff += '    <param name="nominalMass" value="%s" type="str" />\n' % (
-        massDefectPlot["nominalMass"]
-    )
-    buff += '    <param name="kendrickFormula" value="%s" type="str" />\n' % (
-        massDefectPlot["kendrickFormula"]
-    )
-    buff += '    <param name="relIntCutoff" value="%f" type="float" />\n' % (
-        massDefectPlot["relIntCutoff"]
-    )
-    buff += '    <param name="removeIsotopes" value="%d" type="int" />\n' % (
-        bool(massDefectPlot["removeIsotopes"])
-    )
-    buff += '    <param name="ignoreCharge" value="%d" type="int" />\n' % (
-        bool(massDefectPlot["ignoreCharge"])
-    )
-    buff += '    <param name="showNotations" value="%d" type="int" />\n' % (
-        bool(massDefectPlot["showNotations"])
-    )
-    buff += '    <param name="showAllDocuments" value="%d" type="int" />\n' % (
-        bool(massDefectPlot["showAllDocuments"])
-    )
-    buff += "  </massDefectPlot>\n\n"
-
-    # compounds search
-    buff += "  <compoundsSearch>\n"
-    buff += '    <param name="massType" value="%d" type="int" />\n' % (
-        compoundsSearch["massType"]
-    )
-    buff += '    <param name="maxCharge" value="%d" type="int" />\n' % (
-        compoundsSearch["maxCharge"]
-    )
-    buff += '    <param name="radicals" value="%d" type="int" />\n' % (
-        bool(compoundsSearch["radicals"])
-    )
-    buff += '    <param name="adducts" value="%s" type="str" />\n' % (
-        ";".join(compoundsSearch["adducts"])
-    )
-    buff += "  </compoundsSearch>\n\n"
-
-    # peak differences
-    buff += "  <peakDifferences>\n"
-    buff += '    <param name="aminoacids" value="%d" type="int" />\n' % (
-        bool(peakDifferences["aminoacids"])
-    )
-    buff += '    <param name="dipeptides" value="%d" type="int" />\n' % (
-        bool(peakDifferences["dipeptides"])
-    )
-    buff += '    <param name="sugars" value="%d" type="int" />\n' % (
-        bool(peakDifferences["sugars"])
-    )
-    buff += '    <param name="permesugars" value="%d" type="int" />\n' % (
-        bool(peakDifferences["permesugars"])
-    )
-    buff += '    <param name="tolerance" value="%f" type="float" />\n' % (
-        peakDifferences["tolerance"]
-    )
-    buff += '    <param name="massType" value="%d" type="int" />\n' % (
-        peakDifferences["massType"]
-    )
-    buff += '    <param name="consolidate" value="%d" type="int" />\n' % (
-        bool(peakDifferences["consolidate"])
-    )
-    buff += "  </peakDifferences>\n\n"
-
-    # compare peaklists
-    buff += "  <comparePeaklists>\n"
-    buff += '    <param name="tolerance" value="%f" type="float" />\n' % (
-        comparePeaklists["tolerance"]
-    )
-    buff += '    <param name="units" value="%s" type="str" />\n' % (
-        comparePeaklists["units"]
-    )
-    buff += '    <param name="ignoreCharge" value="%d" type="int" />\n' % (
-        bool(comparePeaklists["ignoreCharge"])
-    )
-    buff += '    <param name="ratioCheck" value="%d" type="int" />\n' % (
-        bool(comparePeaklists["ratioCheck"])
-    )
-    buff += '    <param name="ratioDirection" value="%d" type="int" />\n' % (
-        comparePeaklists["ratioDirection"]
-    )
-    buff += '    <param name="ratioThreshold" value="%f" type="float" />\n' % (
-        comparePeaklists["ratioThreshold"]
-    )
-    buff += '    <param name="alignmentStats" value="%s" type="str" />\n' % (
-        ";".join(comparePeaklists["alignmentStats"])
-    )
-    buff += '    <param name="alignmentColumns" value="%s" type="str" />\n' % (
-        ";".join(comparePeaklists["alignmentColumns"])
-    )
-    buff += '    <param name="alignmentDuplicates" value="%s" type="str" />\n' % (
-        comparePeaklists["alignmentDuplicates"]
-    )
-    buff += '    <param name="alignmentSeparator" value="%s" type="str" />\n' % (
-        comparePeaklists["alignmentSeparator"]
-    )
-    buff += '    <param name="compare" value="%s" type="str" />\n' % (
-        comparePeaklists["compare"]
-    )
-    buff += "  </comparePeaklists>\n\n"
-
-    # spectrum generator
-    buff += "  <spectrumGenerator>\n"
-    buff += '    <param name="fwhm" value="%f" type="float" />\n' % (
-        spectrumGenerator["fwhm"]
-    )
-    buff += '    <param name="points" value="%d" type="int" />\n' % (
-        spectrumGenerator["points"]
-    )
-    buff += '    <param name="noise" value="%f" type="float" />\n' % (
-        spectrumGenerator["noise"]
-    )
-    buff += '    <param name="forceFwhm" value="%d" type="int" />\n' % (
-        bool(spectrumGenerator["forceFwhm"])
-    )
-    buff += '    <param name="peakShape" value="%s" type="unicode" />\n' % (
-        _escape(spectrumGenerator["peakShape"])
-    )
-    buff += '    <param name="showPeaks" value="%d" type="int" />\n' % (
-        bool(spectrumGenerator["showPeaks"])
-    )
-    buff += '    <param name="showOverlay" value="%d" type="int" />\n' % (
-        bool(spectrumGenerator["showOverlay"])
-    )
-    buff += '    <param name="showFlipped" value="%d" type="int" />\n' % (
-        bool(spectrumGenerator["showFlipped"])
-    )
-    buff += "  </spectrumGenerator>\n\n"
-
-    # envelope fit
-    buff += "  <envelopeFit>\n"
-    buff += '    <param name="fit" value="%s" type="str" />\n' % (envelopeFit["fit"])
-    buff += '    <param name="fwhm" value="%f" type="float" />\n' % (
-        envelopeFit["fwhm"]
-    )
-    buff += '    <param name="forceFwhm" value="%d" type="int" />\n' % (
-        bool(envelopeFit["forceFwhm"])
-    )
-    buff += '    <param name="peakShape" value="%s" type="unicode" />\n' % (
-        _escape(envelopeFit["peakShape"])
-    )
-    buff += '    <param name="autoAlign" value="%d" type="int" />\n' % (
-        bool(envelopeFit["autoAlign"])
-    )
-    buff += '    <param name="relThreshold" value="%f" type="float" />\n' % (
-        envelopeFit["relThreshold"]
-    )
-    buff += '    <param name="loss" value="%s" type="unicode" />\n' % (
-        _escape(envelopeFit["loss"])
-    )
-    buff += '    <param name="gain" value="%s" type="unicode" />\n' % (
-        _escape(envelopeFit["gain"])
-    )
-    buff += '    <param name="scaleMin" value="%d" type="int" />\n' % (
-        envelopeFit["scaleMin"]
-    )
-    buff += '    <param name="scaleMax" value="%d" type="int" />\n' % (
-        envelopeFit["scaleMax"]
-    )
-    buff += "  </envelopeFit>\n\n"
-
-    # mascot
-    buff += "  <mascot>\n"
-    buff += "    <common>\n"
-    buff += '      <param name="server" value="%s" type="unicode" />\n' % (
-        _escape(mascot["common"]["server"])
-    )
-    buff += '      <param name="searchType" value="%s" type="str" />\n' % (
-        mascot["common"]["searchType"]
-    )
-    buff += '      <param name="userName" value="%s" type="unicode" />\n' % (
-        _escape(mascot["common"]["userName"])
-    )
-    buff += '      <param name="userEmail" value="%s" type="unicode" />\n' % (
-        _escape(mascot["common"]["userEmail"])
-    )
-    buff += '      <param name="filterAnnotations" value="%d" type="int" />\n' % (
-        bool(mascot["common"]["filterAnnotations"])
-    )
-    buff += '      <param name="filterMatches" value="%d" type="int" />\n' % (
-        bool(mascot["common"]["filterMatches"])
-    )
-    buff += '      <param name="filterUnselected" value="%d" type="int" />\n' % (
-        bool(mascot["common"]["filterUnselected"])
-    )
-    buff += '      <param name="filterIsotopes" value="%d" type="int" />\n' % (
-        bool(mascot["common"]["filterIsotopes"])
-    )
-    buff += '      <param name="filterUnknown" value="%d" type="int" />\n' % (
-        bool(mascot["common"]["filterUnknown"])
-    )
-    buff += '      <param name="title" value="%s" type="unicode" />\n' % (
-        _escape(mascot["common"]["title"])
-    )
-    buff += "    </common>\n"
-    buff += "    <pmf>\n"
-    buff += '      <param name="database" value="%s" type="unicode" />\n' % (
-        mascot["pmf"]["database"]
-    )
-    buff += '      <param name="taxonomy" value="%s" type="unicode" />\n' % (
-        mascot["pmf"]["taxonomy"]
-    )
-    buff += '      <param name="enzyme" value="%s" type="unicode" />\n' % (
-        mascot["pmf"]["enzyme"]
-    )
-    buff += '      <param name="miscleavages" value="%s" type="unicode" />\n' % (
-        mascot["pmf"]["miscleavages"]
-    )
-    buff += '      <param name="fixedMods" value="%s" type="unicode" />\n' % (
-        ";".join(mascot["pmf"]["fixedMods"])
-    )
-    buff += '      <param name="variableMods" value="%s" type="unicode" />\n' % (
-        ";".join(mascot["pmf"]["variableMods"])
-    )
-    buff += '      <param name="hiddenMods" value="%d" type="int" />\n' % (
-        bool(mascot["pmf"]["hiddenMods"])
-    )
-    buff += '      <param name="proteinMass" value="%s" type="unicode" />\n' % (
-        mascot["pmf"]["proteinMass"]
-    )
-    buff += '      <param name="peptideTol" value="%s" type="unicode" />\n' % (
-        mascot["pmf"]["peptideTol"]
-    )
-    buff += '      <param name="peptideTolUnits" value="%s" type="unicode" />\n' % (
-        mascot["pmf"]["peptideTolUnits"]
-    )
-    buff += '      <param name="massType" value="%s" type="unicode" />\n' % (
-        mascot["pmf"]["massType"]
-    )
-    buff += '      <param name="charge" value="%s" type="unicode" />\n' % (
-        mascot["pmf"]["charge"]
-    )
-    buff += '      <param name="decoy" value="%d" type="int" />\n' % (
-        bool(mascot["pmf"]["decoy"])
-    )
-    buff += '      <param name="report" value="%s" type="unicode" />\n' % (
-        mascot["pmf"]["report"]
-    )
-    buff += "    </pmf>\n"
-    buff += "    <sq>\n"
-    buff += '      <param name="database" value="%s" type="unicode" />\n' % (
-        mascot["sq"]["database"]
-    )
-    buff += '      <param name="taxonomy" value="%s" type="unicode" />\n' % (
-        mascot["sq"]["taxonomy"]
-    )
-    buff += '      <param name="enzyme" value="%s" type="unicode" />\n' % (
-        mascot["sq"]["enzyme"]
-    )
-    buff += '      <param name="miscleavages" value="%s" type="unicode" />\n' % (
-        mascot["sq"]["miscleavages"]
-    )
-    buff += '      <param name="fixedMods" value="%s" type="unicode" />\n' % (
-        ";".join(mascot["sq"]["fixedMods"])
-    )
-    buff += '      <param name="variableMods" value="%s" type="unicode" />\n' % (
-        ";".join(mascot["sq"]["variableMods"])
-    )
-    buff += '      <param name="hiddenMods" value="%d" type="int" />\n' % (
-        bool(mascot["sq"]["hiddenMods"])
-    )
-    buff += '      <param name="peptideTol" value="%s" type="unicode" />\n' % (
-        mascot["sq"]["peptideTol"]
-    )
-    buff += '      <param name="peptideTolUnits" value="%s" type="unicode" />\n' % (
-        mascot["sq"]["peptideTolUnits"]
-    )
-    buff += '      <param name="msmsTol" value="%s" type="unicode" />\n' % (
-        mascot["sq"]["msmsTol"]
-    )
-    buff += '      <param name="msmsTolUnits" value="%s" type="unicode" />\n' % (
-        mascot["sq"]["msmsTolUnits"]
-    )
-    buff += '      <param name="massType" value="%s" type="unicode" />\n' % (
-        mascot["sq"]["massType"]
-    )
-    buff += '      <param name="charge" value="%s" type="unicode" />\n' % (
-        mascot["sq"]["charge"]
-    )
-    buff += '      <param name="instrument" value="%s" type="unicode" />\n' % (
-        mascot["sq"]["instrument"]
-    )
-    buff += '      <param name="quantitation" value="%s" type="unicode" />\n' % (
-        mascot["sq"]["quantitation"]
-    )
-    buff += '      <param name="decoy" value="%d" type="int" />\n' % (
-        bool(mascot["sq"]["decoy"])
-    )
-    buff += '      <param name="report" value="%s" type="unicode" />\n' % (
-        mascot["sq"]["report"]
-    )
-    buff += "    </sq>\n"
-    buff += "    <mis>\n"
-    buff += '      <param name="database" value="%s" type="unicode" />\n' % (
-        mascot["mis"]["database"]
-    )
-    buff += '      <param name="taxonomy" value="%s" type="unicode" />\n' % (
-        mascot["mis"]["taxonomy"]
-    )
-    buff += '      <param name="enzyme" value="%s" type="unicode" />\n' % (
-        mascot["mis"]["enzyme"]
-    )
-    buff += '      <param name="miscleavages" value="%s" type="unicode" />\n' % (
-        mascot["mis"]["miscleavages"]
-    )
-    buff += '      <param name="fixedMods" value="%s" type="unicode" />\n' % (
-        ";".join(mascot["mis"]["fixedMods"])
-    )
-    buff += '      <param name="variableMods" value="%s" type="unicode" />\n' % (
-        ";".join(mascot["mis"]["variableMods"])
-    )
-    buff += '      <param name="hiddenMods" value="%d" type="int" />\n' % (
-        bool(mascot["mis"]["hiddenMods"])
-    )
-    buff += '      <param name="peptideTol" value="%s" type="unicode" />\n' % (
-        mascot["mis"]["peptideTol"]
-    )
-    buff += '      <param name="peptideTolUnits" value="%s" type="unicode" />\n' % (
-        mascot["mis"]["peptideTolUnits"]
-    )
-    buff += '      <param name="msmsTol" value="%s" type="unicode" />\n' % (
-        mascot["mis"]["msmsTol"]
-    )
-    buff += '      <param name="msmsTolUnits" value="%s" type="unicode" />\n' % (
-        mascot["mis"]["msmsTolUnits"]
-    )
-    buff += '      <param name="massType" value="%s" type="unicode" />\n' % (
-        mascot["mis"]["massType"]
-    )
-    buff += '      <param name="charge" value="%s" type="unicode" />\n' % (
-        mascot["mis"]["charge"]
-    )
-    buff += '      <param name="instrument" value="%s" type="unicode" />\n' % (
-        mascot["mis"]["instrument"]
-    )
-    buff += '      <param name="quantitation" value="%s" type="unicode" />\n' % (
-        mascot["mis"]["quantitation"]
-    )
-    buff += '      <param name="errorTolerant" value="%d" type="int" />\n' % (
-        bool(mascot["mis"]["errorTolerant"])
-    )
-    buff += '      <param name="decoy" value="%d" type="int" />\n' % (
-        bool(mascot["mis"]["decoy"])
-    )
-    buff += '      <param name="report" value="%s" type="unicode" />\n' % (
-        mascot["mis"]["report"]
-    )
-    buff += '      <param name="peptideMass" value="%s" type="unicode" />\n' % (
-        mascot["mis"]["peptideMass"]
-    )
-    buff += "    </mis>\n"
-    buff += "  </mascot>\n\n"
-
-    # profound
-    buff += "  <profound>\n"
-    buff += '    <param name="script" value="%s" type="unicode" />\n' % (
-        _escape(profound["script"])
-    )
-    buff += '    <param name="database" value="%s" type="unicode" />\n' % (
-        profound["database"]
-    )
-    buff += '    <param name="taxonomy" value="%s" type="unicode" />\n' % (
-        profound["taxonomy"]
-    )
-    buff += '    <param name="enzyme" value="%s" type="unicode" />\n' % (
-        profound["enzyme"]
-    )
-    buff += '    <param name="miscleavages" value="%s" type="unicode" />\n' % (
-        profound["miscleavages"]
-    )
-    buff += '    <param name="fixedMods" value="%s" type="unicode" />\n' % (
-        ";".join(profound["fixedMods"])
-    )
-    buff += '    <param name="variableMods" value="%s" type="unicode" />\n' % (
-        ";".join(profound["variableMods"])
-    )
-    buff += '    <param name="proteinMassLow" value="%f" type="float" />\n' % (
-        profound["proteinMassLow"]
-    )
-    buff += '    <param name="proteinMassHigh" value="%f" type="float" />\n' % (
-        profound["proteinMassHigh"]
-    )
-    buff += '    <param name="proteinPILow" value="%d" type="int" />\n' % (
-        profound["proteinPILow"]
-    )
-    buff += '    <param name="proteinPIHigh" value="%d" type="int" />\n' % (
-        profound["proteinPIHigh"]
-    )
-    buff += '    <param name="peptideTol" value="%f" type="float" />\n' % (
-        profound["peptideTol"]
-    )
-    buff += '    <param name="peptideTolUnits" value="%s" type="unicode" />\n' % (
-        profound["peptideTolUnits"]
-    )
-    buff += '    <param name="massType" value="%s" type="unicode" />\n' % (
-        profound["massType"]
-    )
-    buff += '    <param name="charge" value="%s" type="unicode" />\n' % (
-        profound["charge"]
-    )
-    buff += '    <param name="ranking" value="%s" type="unicode" />\n' % (
-        profound["ranking"]
-    )
-    buff += '    <param name="expectation" value="%f" type="float" />\n' % (
-        profound["expectation"]
-    )
-    buff += '    <param name="candidates" value="%d" type="int" />\n' % (
-        profound["candidates"]
-    )
-    buff += '    <param name="filterAnnotations" value="%d" type="int" />\n' % (
-        bool(profound["filterAnnotations"])
-    )
-    buff += '    <param name="filterMatches" value="%d" type="int" />\n' % (
-        bool(profound["filterMatches"])
-    )
-    buff += '    <param name="filterUnselected" value="%d" type="int" />\n' % (
-        bool(profound["filterUnselected"])
-    )
-    buff += '    <param name="filterIsotopes" value="%d" type="int" />\n' % (
-        bool(profound["filterIsotopes"])
-    )
-    buff += '    <param name="filterUnknown" value="%d" type="int" />\n' % (
-        bool(profound["filterUnknown"])
-    )
-    buff += '    <param name="title" value="%s" type="unicode" />\n' % (
-        _escape(profound["title"])
-    )
-    buff += "  </profound>\n\n"
-
-    # protein prospector
-    buff += "  <prospector>\n"
-    buff += "    <common>\n"
-    buff += '      <param name="script" value="%s" type="unicode" />\n' % (
-        _escape(prospector["common"]["script"])
-    )
-    buff += '      <param name="searchType" value="%s" type="str" />\n' % (
-        prospector["common"]["searchType"]
-    )
-    buff += '      <param name="filterAnnotations" value="%d" type="int" />\n' % (
-        bool(prospector["common"]["filterAnnotations"])
-    )
-    buff += '      <param name="filterMatches" value="%d" type="int" />\n' % (
-        bool(prospector["common"]["filterMatches"])
-    )
-    buff += '      <param name="filterUnselected" value="%d" type="int" />\n' % (
-        bool(prospector["common"]["filterUnselected"])
-    )
-    buff += '      <param name="filterIsotopes" value="%d" type="int" />\n' % (
-        bool(prospector["common"]["filterIsotopes"])
-    )
-    buff += '      <param name="filterUnknown" value="%d" type="int" />\n' % (
-        bool(prospector["common"]["filterUnknown"])
-    )
-    buff += '      <param name="title" value="%s" type="unicode" />\n' % (
-        _escape(prospector["common"]["title"])
-    )
-    buff += "    </common>\n"
-    buff += "    <msfit>\n"
-    buff += '      <param name="database" value="%s" type="unicode" />\n' % (
-        prospector["msfit"]["database"]
-    )
-    buff += '      <param name="taxonomy" value="%s" type="unicode" />\n' % (
-        prospector["msfit"]["taxonomy"]
-    )
-    buff += '      <param name="enzyme" value="%s" type="unicode" />\n' % (
-        prospector["msfit"]["enzyme"]
-    )
-    buff += '      <param name="miscleavages" value="%s" type="unicode" />\n' % (
-        prospector["msfit"]["miscleavages"]
-    )
-    buff += '      <param name="fixedMods" value="%s" type="unicode" />\n' % (
-        ";".join(prospector["msfit"]["fixedMods"])
-    )
-    buff += '      <param name="variableMods" value="%s" type="unicode" />\n' % (
-        ";".join(prospector["msfit"]["variableMods"])
-    )
-    buff += '      <param name="proteinMassLow" value="%s" type="unicode" />\n' % (
-        prospector["msfit"]["proteinMassLow"]
-    )
-    buff += '      <param name="proteinMassHigh" value="%s" type="unicode" />\n' % (
-        prospector["msfit"]["proteinMassHigh"]
-    )
-    buff += '      <param name="proteinPILow" value="%s" type="unicode" />\n' % (
-        prospector["msfit"]["proteinPILow"]
-    )
-    buff += '      <param name="proteinPIHigh" value="%s" type="unicode" />\n' % (
-        prospector["msfit"]["proteinPIHigh"]
-    )
-    buff += '      <param name="peptideTol" value="%s" type="unicode" />\n' % (
-        prospector["msfit"]["peptideTol"]
-    )
-    buff += '      <param name="peptideTolUnits" value="%s" type="unicode" />\n' % (
-        prospector["msfit"]["peptideTolUnits"]
-    )
-    buff += '      <param name="massType" value="%s" type="unicode" />\n' % (
-        prospector["msfit"]["massType"]
-    )
-    buff += '      <param name="instrument" value="%s" type="unicode" />\n' % (
-        prospector["msfit"]["instrument"]
-    )
-    buff += '      <param name="minMatches" value="%s" type="unicode" />\n' % (
-        prospector["msfit"]["minMatches"]
-    )
-    buff += '      <param name="maxMods" value="%s" type="unicode" />\n' % (
-        prospector["msfit"]["maxMods"]
-    )
-    buff += '      <param name="report" value="%s" type="unicode" />\n' % (
-        prospector["msfit"]["report"]
-    )
-    buff += '      <param name="pfactor" value="%s" type="unicode" />\n' % (
-        prospector["msfit"]["pfactor"]
-    )
-    buff += "    </msfit>\n"
-    buff += "    <mstag>\n"
-    buff += '      <param name="database" value="%s" type="unicode" />\n' % (
-        prospector["mstag"]["database"]
-    )
-    buff += '      <param name="taxonomy" value="%s" type="unicode" />\n' % (
-        prospector["mstag"]["taxonomy"]
-    )
-    buff += '      <param name="enzyme" value="%s" type="unicode" />\n' % (
-        prospector["mstag"]["enzyme"]
-    )
-    buff += '      <param name="miscleavages" value="%s" type="unicode" />\n' % (
-        prospector["mstag"]["miscleavages"]
-    )
-    buff += '      <param name="fixedMods" value="%s" type="unicode" />\n' % (
-        ";".join(prospector["mstag"]["fixedMods"])
-    )
-    buff += '      <param name="variableMods" value="%s" type="unicode" />\n' % (
-        ";".join(prospector["mstag"]["variableMods"])
-    )
-    buff += '      <param name="peptideTol" value="%s" type="unicode" />\n' % (
-        prospector["mstag"]["peptideTol"]
-    )
-    buff += '      <param name="peptideTolUnits" value="%s" type="unicode" />\n' % (
-        prospector["mstag"]["peptideTolUnits"]
-    )
-    buff += '      <param name="peptideCharge" value="%s" type="unicode" />\n' % (
-        prospector["mstag"]["peptideCharge"]
-    )
-    buff += '      <param name="msmsTol" value="%s" type="unicode" />\n' % (
-        prospector["mstag"]["msmsTol"]
-    )
-    buff += '      <param name="msmsTolUnits" value="%s" type="unicode" />\n' % (
-        prospector["mstag"]["msmsTolUnits"]
-    )
-    buff += '      <param name="massType" value="%s" type="unicode" />\n' % (
-        prospector["mstag"]["massType"]
-    )
-    buff += '      <param name="instrument" value="%s" type="unicode" />\n' % (
-        prospector["mstag"]["instrument"]
-    )
-    buff += '      <param name="maxMods" value="%s" type="unicode" />\n' % (
-        prospector["mstag"]["maxMods"]
-    )
-    buff += '      <param name="report" value="%s" type="unicode" />\n' % (
-        prospector["mstag"]["report"]
-    )
-    buff += '      <param name="peptideMass" value="%s" type="unicode" />\n' % (
-        prospector["mstag"]["peptideMass"]
-    )
-    buff += "    </mstag>\n"
-    buff += "  </prospector>\n\n"
-
-    # links (managed links always come from the defaults, so don't persist
-    # them; this also purges any stale values from an existing config)
-    buff += "  <links>\n"
-    for name in links:
-        if not isManagedLink(name):
-            buff += '    <link name="%s" value="%s" />\n' % (
-                _escape(name),
-                _escape(links[name]),
-            )
-    buff += "  </links>\n\n"
-
-    buff += "</mMassConfig>"
-
-    # save config file
-    return write_file_atomically(path, buff.encode("utf-8"))
+# bumped only when a change needs a migration step in _upgradeConfigData()
+CONFIG_SCHEMA_VERSION = 2
 
 
-# ----
+def saveConfig(path=None):
+    """Serialize the config sections to JSON."""
+
+    if path is None:
+        path = getConfigPath()
+
+    data = {"schemaVersion": CONFIG_SCHEMA_VERSION}
+    for name in _CONFIG_SECTIONS:
+        section = globals()[name]
+        if name == "links":
+            # managed links are forced to the code default on every launch, so
+            # only the user's own additions are worth storing
+            data[name] = {
+                key: value for key, value in section.items() if not isManagedLink(key)
+            }
+        else:
+            data[name] = _stripExcluded(_plainCopy(section), name)
+
+    try:
+        encoded = json.dumps(data, indent=2, sort_keys=False, ensure_ascii=False)
+    except (TypeError, ValueError):
+        return False
+
+    return write_file_atomically(path, (encoded + "\n").encode("utf-8"))
+
+
+def _stripExcluded(node, prefix):
+    """Drop NOT_PERSISTED leaves from a plain copy of a section."""
+
+    if not isinstance(node, dict):
+        return node
+
+    return {
+        key: _stripExcluded(value, "%s.%s" % (prefix, key))
+        for key, value in node.items()
+        if "%s.%s" % (prefix, key) not in NOT_PERSISTED
+    }
+
+
+def loadConfig(path=None):
+    """Read a JSON config and merge it over the in-code defaults."""
+
+    if path is None:
+        path = getConfigPath()
+
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    if not isinstance(data, dict):
+        raise ValueError("config root must be a JSON object")
+
+    with _suspendAutoSave():
+        _upgradeConfigData(data)
+        _applySections(data)
+        _validateConfig()
+
+
+def _applySections(data):
+    """Overlay a loaded payload onto the live sections."""
+
+    for name in _CONFIG_SECTIONS:
+        if name not in data:
+            continue
+        loaded = data[name]
+        target = globals()[name]
+
+        if isinstance(target, list):
+            if isinstance(loaded, list):
+                target[:] = loaded
+        elif name == "links":
+            # links the user added are not in the defaults, so the usual
+            # "keys absent from target are dropped" rule would discard them
+            if isinstance(loaded, dict):
+                for key, value in loaded.items():
+                    if isinstance(value, str) and not isManagedLink(key):
+                        target[key] = value
+        elif isinstance(loaded, dict):
+            _mergeSection(target, loaded, name)
+
+
+def _upgradeConfigData(data):
+    """Bring an older on-disk payload up to CONFIG_SCHEMA_VERSION in place.
+
+    Nothing to do yet -- schema 2 is the first JSON revision. Later format
+    changes chain their fix-ups here, keyed off the stored schemaVersion, so a
+    config written by any earlier release still loads.
+    """
+
+    return data
+
+
+def _mergeSection(target, loaded, prefix):
+    """Overlay loaded values onto target, keyed by the defaults already there.
+
+    Keys absent from `loaded` keep their default, so settings added in a later
+    release appear automatically. Keys absent from `target` are dropped -- a
+    stale key from an older release does not linger.
+    """
+
+    for key, value in loaded.items():
+        if key not in target:
+            continue
+        path = "%s.%s" % (prefix, key)
+        if path in NOT_PERSISTED:
+            continue
+
+        current = target[key]
+        if isinstance(current, dict):
+            if isinstance(value, dict):
+                _mergeSection(current, value, path)
+        elif isinstance(current, list):
+            if isinstance(value, list):
+                target[key] = value
+        else:
+            coerced = _coerce(value, current)
+            if coerced is not _UNSET:
+                target[key] = coerced
+
+
+_UNSET = object()
+
+
+def _coerce(value, default):
+    """Cast a loaded value to the kind of its default, or reject it.
+
+    JSON round-trips types faithfully, so this mostly matters for values
+    carried over from the XML format (which stored several numbers as strings)
+    and for a hand-edited file.
+
+    Numbers are never narrowed: plenty of settings declare an int default but
+    hold a float once the user edits them -- processing.math.multiplier and
+    massCalculator.patternShift among them -- so coercing to the default's
+    exact type would quietly truncate 2.5 to 2.
+    """
+
+    if isinstance(default, bool):
+        if isinstance(value, (bool, int, float)):
+            return bool(value)
+        return _UNSET
+
+    if isinstance(default, (int, float)):
+        if isinstance(value, bool):
+            return int(value)
+        if isinstance(value, (int, float)):
+            return value
+        if isinstance(value, str):
+            try:
+                return int(value)
+            except ValueError:
+                pass
+            try:
+                return float(value)
+            except ValueError:
+                return _UNSET
+        return _UNSET
+
+    if isinstance(default, str):
+        # several fields ("" meaning unset, a number once the user fills them
+        # in) are str/number unions; keep numbers readable as text
+        if isinstance(value, bool):
+            return _UNSET
+        if isinstance(value, (int, float)):
+            return str(value)
+        if isinstance(value, str):
+            return value
+        return _UNSET
+
+    return value if type(value) is type(default) else _UNSET
+
+
+def _validateConfig():
+    """Clamp loaded values that the pipeline requires to be in range."""
+
+    deisotoping = processing["deisotoping"]
+    deisotoping["envelopeNonIdeality"] = min(
+        max(deisotoping["envelopeNonIdeality"], 0.0), 1.0
+    )
+
+    if processing["peakpicking"]["averagineType"] not in (
+        "protein",
+        "carbohydrate",
+        "lipid",
+    ):
+        processing["peakpicking"]["averagineType"] = "protein"
+
 
 
 def _getParams(sectionTag, section):
@@ -2460,13 +1498,27 @@ def _escape(text):
 # ----
 
 
+CONFIG_FILENAME = "config.json"
+LEGACY_CONFIG_FILENAME = "config.xml"
+
+
+def getConfigPath():
+    """Path of the user's settings file."""
+
+    return os.path.join(confdir, CONFIG_FILENAME)
+
+
 def _is_bundled_config_path(path):
-    """Return True when path points at the bundled template config.xml."""
+    """Return True when path points inside the bundled defaults directory.
+
+    confdir falls back to the bundled configs/ directory when no user config
+    directory can be created; a settings file written there is a build
+    artifact, not user state, and must never be treated as one.
+    """
 
     try:
-        return os.path.abspath(path) == os.path.abspath(
-            get_default_config_source_path("config.xml")
-        )
+        bundled = os.path.abspath(get_default_config_source_dir())
+        return os.path.abspath(os.path.dirname(path)) == bundled
     except Exception:
         return False
 
@@ -2544,36 +1596,90 @@ def _restoreSectionsUnsafe(snapshot):
                 target[key] = saved[key]
 
 
+def migrateLegacyConfigXML():
+    """One-way migration of a pre-7.0 config.xml to config.json.
+
+    Runs once: reads the old file with the legacy XML reader, writes the same
+    values back out as JSON, then renames the XML aside rather than deleting
+    it, so a user can still recover from it if anything looks wrong. Returns
+    True when a migration actually happened.
+    """
+
+    legacy = os.path.join(confdir, LEGACY_CONFIG_FILENAME)
+    if os.path.exists(getConfigPath()) or not os.path.exists(legacy):
+        return False
+    if _is_bundled_config_path(legacy):
+        return False
+
+    defaults = _snapshotSections()
+    try:
+        loadLegacyConfigXML(legacy)
+    except Exception as exc:
+        _restoreSections(defaults)
+        sys.stderr.write(
+            "mMass: could not migrate %s (%s); starting from default settings.\n"
+            % (legacy, exc)
+        )
+        return False
+
+    # The XML writer emitted several numeric fields as type="unicode", so the
+    # legacy reader hands them back as strings. Re-apply everything through the
+    # same merge the JSON loader uses, so a migrated file is typed exactly like
+    # one written by saveConfig rather than carrying the old strings forward.
+    carried = _snapshotSections()
+    _restoreSections(defaults)
+    with _suspendAutoSave():
+        _applySections(carried)
+        _validateConfig()
+
+    if not saveConfig():
+        # leave the XML untouched so the next launch can try again
+        sys.stderr.write("mMass: could not write %s\n" % getConfigPath())
+        return False
+
+    try:
+        os.replace(legacy, legacy + ".migrated")
+    except OSError:
+        pass
+
+    sys.stderr.write(
+        "mMass: settings migrated from %s to %s\n" % (legacy, getConfigPath())
+    )
+    return True
+
+
 def _initialize_runtime_config():
-    """Load user config if present, otherwise keep in-code defaults."""
+    """Load the user's settings, otherwise keep the in-code defaults."""
 
-    path = os.path.join(confdir, "config.xml")
+    path = getConfigPath()
 
-    # Use Python defaults as the canonical defaults source.
-    if os.path.exists(path) and not _is_bundled_config_path(path):
-        snapshot = _snapshotSections()
-        try:
-            loadConfig(path)
-            return
-        except Exception as exc:
-            # A truncated or otherwise unparseable config.xml raises here --
-            # ExpatError, which is not an OSError, so it used to escape all the
-            # way out of `import gui.config` and stop the app from starting at
-            # all, with no way to recover from inside the GUI. Roll back any
-            # partially applied section, keep the bad file for the user to
-            # inspect, and carry on with the in-code defaults.
-            _restoreSections(snapshot)
-            damaged = path + ".corrupt"
+    if not _is_bundled_config_path(path):
+        migrateLegacyConfigXML()
+
+        if os.path.exists(path):
+            snapshot = _snapshotSections()
             try:
-                os.replace(path, damaged)
-            except OSError:
-                damaged = None
-            sys.stderr.write(
-                "mMass: could not read %s (%s); starting from default settings.\n"
-                % (path, exc)
-            )
-            if damaged:
-                sys.stderr.write("mMass: the unreadable file was kept as %s\n" % damaged)
+                loadConfig(path)
+                return
+            except Exception as exc:
+                # An unreadable settings file must never stop the app from
+                # starting. Roll back any partially applied section, keep the
+                # bad file for the user to inspect, and fall through to
+                # writing a fresh one from the in-code defaults.
+                _restoreSections(snapshot)
+                damaged = path + ".corrupt"
+                try:
+                    os.replace(path, damaged)
+                except OSError:
+                    damaged = None
+                sys.stderr.write(
+                    "mMass: could not read %s (%s); starting from default settings.\n"
+                    % (path, exc)
+                )
+                if damaged:
+                    sys.stderr.write(
+                        "mMass: the unreadable file was kept as %s\n" % damaged
+                    )
 
     # Best effort persistence; read-only locations should still run with defaults.
     try:
@@ -2612,8 +1718,8 @@ replacements = ConfigDict(replacements)
 
 # Defaults policy:
 # - In-code dictionaries in this module are the single source of default values.
-# - config.xml in confdir is user runtime state persisted between launches.
-# - Do not reintroduce bundled config.xml as a second defaults definition.
+# - config.json in confdir is user runtime state persisted between launches.
+# - Do not reintroduce a bundled settings file as a second defaults definition.
 try:
     _initialize_runtime_config()
 except Exception:

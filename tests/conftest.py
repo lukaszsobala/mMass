@@ -12,6 +12,16 @@ compilation cache.
 """
 
 import os
+import tempfile
+
+# Point gui.config at a throwaway directory before any test module imports it.
+# Importing gui.config runs the startup path -- which, since 7.0, migrates a
+# legacy config.xml to config.json -- so without this a test run would read and
+# rewrite the developer's own settings. conftest is imported before the test
+# modules, so this lands in time.
+os.environ.setdefault(
+    "MMASS_CONFIG_DIR", tempfile.mkdtemp(prefix="mmass-test-config-")
+)
 
 import pytest
 
