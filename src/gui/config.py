@@ -1532,6 +1532,61 @@ def getLegacyLibraryPath(name):
     return os.path.join(confdir, name + ".xml")
 
 
+def _resolveMigrationTarget(localPath, legacyPath):
+    """Decide where a migrated file goes, honouring a symlinked legacy file.
+
+    A user who symlinks e.g. references.xml at a shared location -- a partition
+    mounted from another OS, a network drive -- is saying "keep this file over
+    there". Writing the migrated JSON into the config directory instead would
+    quietly end the sharing: nothing is lost, but edits stop crossing over and
+    the divergence is only noticed much later.
+
+    Returns (writePath, linkPath). linkPath is None when no symlink is
+    involved; otherwise the JSON belongs next to the link target and a symlink
+    to it is left in the config directory.
+    """
+
+    if not os.path.islink(legacyPath):
+        return localPath, None
+
+    try:
+        shared = os.path.join(
+            os.path.dirname(os.path.realpath(legacyPath)),
+            os.path.basename(localPath),
+        )
+    except OSError:
+        return localPath, None
+
+    return shared, localPath
+
+
+def _placeMigrationLink(linkPath, writePath):
+    """Point the config directory at a migrated file kept elsewhere."""
+
+    if linkPath is None or os.path.abspath(linkPath) == os.path.abspath(writePath):
+        return True
+
+    try:
+        if os.path.lexists(linkPath):
+            os.unlink(linkPath)
+        os.symlink(writePath, linkPath)
+        return True
+    except (OSError, NotImplementedError, AttributeError):
+        # Windows refuses symlinks without Developer Mode or elevation. Fall
+        # back to a plain copy so the app still starts; the two sides simply
+        # stop tracking each other until the user re-links them.
+        try:
+            with open(writePath, "rb") as src, open(linkPath, "wb") as dst:
+                dst.write(src.read())
+            sys.stderr.write(
+                "mMass: could not symlink %s to %s; copied it instead, so the "
+                "two locations will no longer stay in sync\n" % (linkPath, writePath)
+            )
+            return True
+        except OSError:
+            return False
+
+
 def migrateLegacyLibrary(name, readXML, saveJSON):
     """One-way migration of one pre-7.0 library XML to JSON.
 
@@ -1540,10 +1595,12 @@ def migrateLegacyLibrary(name, readXML, saveJSON):
     migration actually happened.
     """
 
-    target = getLibraryPath(name)
+    local = getLibraryPath(name)
     legacy = getLegacyLibraryPath(name)
-    if os.path.exists(target) or not os.path.exists(legacy):
+    if os.path.lexists(local) or not os.path.exists(legacy):
         return False
+
+    target, link = _resolveMigrationTarget(local, legacy)
 
     try:
         readXML(legacy)
@@ -1551,10 +1608,21 @@ def migrateLegacyLibrary(name, readXML, saveJSON):
         sys.stderr.write("mMass: could not migrate %s (%s)\n" % (legacy, exc))
         return False
 
-    if not saveJSON(target):
+    if os.path.exists(target):
+        # the shared location was already migrated, most likely by the same
+        # library being opened from another machine -- adopt it rather than
+        # overwriting whatever it now holds
+        sys.stderr.write("mMass: adopting already-migrated %s\n" % target)
+    elif not saveJSON(target):
         sys.stderr.write("mMass: could not write %s\n" % target)
         return False
 
+    if not _placeMigrationLink(link, target):
+        sys.stderr.write("mMass: could not link %s to %s\n" % (link, target))
+        return False
+
+    # renames the symlink itself, never the file it points at: another machine
+    # still running an older mMass keeps its XML
     try:
         os.replace(legacy, legacy + ".migrated")
     except OSError:
@@ -1661,11 +1729,14 @@ def migrateLegacyConfigXML():
     True when a migration actually happened.
     """
 
+    local = getConfigPath()
     legacy = os.path.join(confdir, LEGACY_CONFIG_FILENAME)
-    if os.path.exists(getConfigPath()) or not os.path.exists(legacy):
+    if os.path.lexists(local) or not os.path.exists(legacy):
         return False
     if _is_bundled_config_path(legacy):
         return False
+
+    target, link = _resolveMigrationTarget(local, legacy)
 
     defaults = _snapshotSections()
     try:
@@ -1688,9 +1759,13 @@ def migrateLegacyConfigXML():
         _applySections(carried)
         _validateConfig()
 
-    if not saveConfig():
+    if not saveConfig(target):
         # leave the XML untouched so the next launch can try again
-        sys.stderr.write("mMass: could not write %s\n" % getConfigPath())
+        sys.stderr.write("mMass: could not write %s\n" % target)
+        return False
+
+    if not _placeMigrationLink(link, target):
+        sys.stderr.write("mMass: could not link %s to %s\n" % (link, target))
         return False
 
     try:
@@ -1698,9 +1773,7 @@ def migrateLegacyConfigXML():
     except OSError:
         pass
 
-    sys.stderr.write(
-        "mMass: settings migrated from %s to %s\n" % (legacy, getConfigPath())
-    )
+    sys.stderr.write("mMass: settings migrated from %s to %s\n" % (legacy, target))
     return True
 
 

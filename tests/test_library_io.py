@@ -292,3 +292,89 @@ def test_migration_keeps_the_internal_amino_acids(tmp_path, libs_modules, monkey
     }
     assert internal_after == internal_before, "migration dropped internal residues"
     assert "ZzOld" in mspy.monomers, "the user's own monomer must be carried over"
+
+
+def test_migration_keeps_a_symlinked_library_shared(tmp_path, libs_modules, monkeypatch):
+    """A library symlinked at a shared location must stay there after migrating.
+
+    Users share one library between two machines or OSes by symlinking it at a
+    mounted partition or network drive. Writing the migrated JSON into the
+    config directory instead would silently end the sharing.
+    """
+
+    config, libs = libs_modules
+    shared = tmp_path / "shared"
+    confdir = tmp_path / "conf"
+    shared.mkdir()
+    confdir.mkdir()
+
+    (shared / "monomers.xml").write_text(LEGACY_MONOMERS_XML)
+    (confdir / "monomers.xml").symlink_to(shared / "monomers.xml")
+    monkeypatch.setattr(config, "confdir", str(confdir))
+
+    assert config.migrateLegacyLibrary(
+        "monomers", libs._XML_LOADERS["monomers"], mspy.saveMonomers
+    )
+
+    assert (shared / "monomers.json").is_file(), "JSON must land beside the link target"
+    assert (confdir / "monomers.json").is_symlink(), "config dir must keep a link"
+    assert os.path.realpath(str(confdir / "monomers.json")) == os.path.realpath(
+        str(shared / "monomers.json")
+    )
+
+    # the shared XML is left alone: another machine may still run an older mMass
+    assert (shared / "monomers.xml").is_file()
+    assert not (shared / "monomers.xml.migrated").exists()
+    # only the local link is renamed aside
+    assert (confdir / "monomers.xml.migrated").is_symlink()
+
+
+def test_migration_adopts_an_already_migrated_shared_library(
+    tmp_path, libs_modules, monkeypatch
+):
+    """The second machine to migrate must adopt the shared JSON, not overwrite it."""
+
+    config, libs = libs_modules
+    shared = tmp_path / "shared"
+    confdir = tmp_path / "conf"
+    shared.mkdir()
+    confdir.mkdir()
+
+    (shared / "monomers.xml").write_text(LEGACY_MONOMERS_XML)
+    existing = '{"schemaVersion": 1, "monomers": {"FromOtherMachine": {"abbr": "FromOtherMachine", "name": "n", "formula": "C2H3NO", "category": "Custom", "losses": []}}}'
+    (shared / "monomers.json").write_text(existing)
+    (confdir / "monomers.xml").symlink_to(shared / "monomers.xml")
+    monkeypatch.setattr(config, "confdir", str(confdir))
+
+    assert config.migrateLegacyLibrary(
+        "monomers", libs._XML_LOADERS["monomers"], mspy.saveMonomers
+    )
+
+    assert json.loads((shared / "monomers.json").read_text()) == json.loads(existing), (
+        "the shared library was overwritten instead of adopted"
+    )
+    assert (confdir / "monomers.json").is_symlink()
+
+
+def test_writes_reach_a_symlinked_shared_library(tmp_path, libs_modules):
+    """Saving through the config-dir symlink must update the shared file."""
+
+    config, libs = libs_modules
+    shared = tmp_path / "shared"
+    confdir = tmp_path / "conf"
+    shared.mkdir()
+    confdir.mkdir()
+
+    target = shared / "references.json"
+    target.write_text('{"schemaVersion": 1, "references": {}}')
+    link = confdir / "references.json"
+    link.symlink_to(target)
+
+    libs.references["ZzShared"] = [("marker", 555.5)]
+    try:
+        assert libs.saveReferences(str(link))
+    finally:
+        libs.references.pop("ZzShared", None)
+
+    assert link.is_symlink(), "the symlink was replaced by a regular file"
+    assert "ZzShared" in json.loads(target.read_text())["references"]
