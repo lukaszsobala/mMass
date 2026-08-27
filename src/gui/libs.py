@@ -1029,12 +1029,7 @@ def savePresets(path=os.path.join(config.confdir, "presets.xml")):  # noqa: B008
     buff += "</mMassPresets>"
 
     # save config file
-    try:
-        with open(path, "wb") as f:
-            f.write(buff.encode("utf-8"))
-        return True
-    except Exception:
-        return False
+    return config.write_file_atomically(path, buff.encode("utf-8"))
 
 
 # ----
@@ -1058,12 +1053,7 @@ def saveReferences(path=os.path.join(config.confdir, "references.xml")):  # noqa
     buff += "</mMassReferenceMasses>"
 
     # save config file
-    try:
-        with open(path, "wb") as f:
-            f.write(buff.encode("utf-8"))
-        return True
-    except Exception:
-        return False
+    return config.write_file_atomically(path, buff.encode("utf-8"))
 
 
 # ----
@@ -1088,12 +1078,7 @@ def saveCompounds(path=os.path.join(config.confdir, "compounds.xml")):  # noqa: 
     buff += "</mMassCompounds>"
 
     # save config file
-    try:
-        with open(path, "wb") as f:
-            f.write(buff.encode("utf-8"))
-        return True
-    except Exception:
-        return False
+    return config.write_file_atomically(path, buff.encode("utf-8"))
 
 
 # ----
@@ -1133,12 +1118,7 @@ def saveMascot(path=os.path.join(config.confdir, "mascot.xml")):  # noqa: B008
     buff += "</mMassMascot>"
 
     # save config file
-    try:
-        with open(path, "wb") as f:
-            f.write(buff.encode("utf-8"))
-        return True
-    except Exception:
-        return False
+    return config.write_file_atomically(path, buff.encode("utf-8"))
 
 
 # ----

@@ -20,6 +20,7 @@
 import sys
 import os
 import copy
+import tempfile
 import xml.dom.minidom
 from importlib import resources
 from typing import SupportsIndex
@@ -64,6 +65,50 @@ def copy_default_config_file(filename, destination):
             dst.write(src.read())
         return True
     except Exception:
+        return False
+
+
+def _currentUmask():
+    """Read the process umask without leaving it changed."""
+
+    mask = os.umask(0)
+    os.umask(mask)
+    return mask
+
+
+def write_file_atomically(path, data):
+    """Write bytes to path via a temp file in the same dir, then os.replace().
+
+    A truncating in-place write leaves a half-written file behind if the
+    process dies or the disk fills mid-write; for config.xml that means the
+    next launch cannot parse it. os.replace() is atomic on POSIX and on
+    Windows, so readers only ever see the old file or the complete new one.
+    """
+
+    directory = os.path.dirname(os.path.abspath(path))
+    handle, tmppath = tempfile.mkstemp(
+        dir=directory, prefix=".%s." % os.path.basename(path), suffix=".tmp"
+    )
+    try:
+        with os.fdopen(handle, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+
+        # mkstemp() always creates 0600; keep whatever mode the file already
+        # had, or fall back to the usual umask-derived mode for a new one
+        try:
+            os.chmod(tmppath, os.stat(path).st_mode & 0o7777)
+        except OSError:
+            os.chmod(tmppath, 0o666 & ~_currentUmask())
+
+        os.replace(tmppath, path)
+        return True
+    except Exception:
+        try:
+            os.unlink(tmppath)
+        except OSError:
+            pass
         return False
 
 
@@ -833,7 +878,37 @@ replacements = {
 # -------------------------
 
 
+class _suspendAutoSave(object):
+    """Pause config autosave for the duration of a bulk update.
+
+    loadConfig() fills sections in field by field, and several values are only
+    normalized after the raw string has been assigned (hex "rrggbb" -> [r,g,b],
+    ";"-joined text -> list). With autosave live, the first such assignment
+    fires saveConfig() over a half-converted section, which raises. Startup
+    happens to be safe because autosave is still off, but any later reload
+    would hit it.
+    """
+
+    def __enter__(self):
+        global _auto_save_enabled
+        self._previous = _auto_save_enabled
+        _auto_save_enabled = False
+        return self
+
+    def __exit__(self, *exc_info):
+        global _auto_save_enabled
+        _auto_save_enabled = self._previous
+        return False
+
+
 def loadConfig(path=os.path.join(confdir, "config.xml")):  # noqa: B008
+    """Parse config XML and get data."""
+
+    with _suspendAutoSave():
+        _loadConfig(path)
+
+
+def _loadConfig(path):
     """Parse config XML and get data."""
 
     # parse XML
@@ -909,6 +984,10 @@ def loadConfig(path=os.path.join(confdir, "config.xml")):  # noqa: B008
     processingTags = document.getElementsByTagName("processing")
     if processingTags:
 
+        mathTags = processingTags[0].getElementsByTagName("math")
+        if mathTags:
+            _getParams(mathTags[0], processing["math"])
+
         cropTags = processingTags[0].getElementsByTagName("crop")
         if cropTags:
             _getParams(cropTags[0], processing["crop"])
@@ -953,6 +1032,17 @@ def loadConfig(path=os.path.join(confdir, "config.xml")):  # noqa: B008
         deconvolutionTags = processingTags[0].getElementsByTagName("deconvolution")
         if deconvolutionTags:
             _getParams(deconvolutionTags[0], processing["deconvolution"])
+
+        batchTags = processingTags[0].getElementsByTagName("batch")
+        if batchTags:
+            _getParams(batchTags[0], processing["batch"])
+
+            if not isinstance(processing["batch"]["stepOrder"], list):
+                processing["batch"]["stepOrder"] = [
+                    step
+                    for step in processing["batch"]["stepOrder"].split(";")
+                    if step
+                ]
 
     # calibration
     calibrationTags = document.getElementsByTagName("calibration")
@@ -1355,6 +1445,9 @@ def saveConfig(path=os.path.join(confdir, "config.xml")):  # noqa: B008
     buff += '    <param name="filterSize" value="%f" type="float" />\n' % (
         spectrum["filterSize"]
     )
+    buff += '    <param name="normalize" value="%d" type="int" />\n' % (
+        bool(spectrum["normalize"])
+    )
     buff += "  </spectrum>\n\n"
 
     # match
@@ -1385,6 +1478,17 @@ def saveConfig(path=os.path.join(confdir, "config.xml")):  # noqa: B008
 
     # processing
     buff += "  <processing>\n"
+    buff += "    <math>\n"
+    buff += '      <param name="operation" value="%s" type="str" />\n' % (
+        processing["math"]["operation"]
+    )
+    buff += '      <param name="multiplier" value="%f" type="float" />\n' % (
+        processing["math"]["multiplier"]
+    )
+    buff += '      <param name="preservePeaks" value="%d" type="int" />\n' % (
+        bool(processing["math"]["preservePeaks"])
+    )
+    buff += "    </math>\n"
     buff += "    <crop>\n"
     buff += '      <param name="lowMass" value="%d" type="int" />\n' % (
         processing["crop"]["lowMass"]
@@ -1403,6 +1507,9 @@ def saveConfig(path=os.path.join(confdir, "config.xml")):  # noqa: B008
     buff += '      <param name="allowNegative" value="%d" type="int" />\n' % (
         processing["baseline"]["allowNegative"]
     )
+    buff += '      <param name="preservePeaks" value="%d" type="int" />\n' % (
+        bool(processing["baseline"]["preservePeaks"])
+    )
     buff += "    </baseline>\n"
     buff += "    <smoothing>\n"
     buff += '      <param name="method" value="%s" type="str" />\n' % (
@@ -1413,6 +1520,9 @@ def saveConfig(path=os.path.join(confdir, "config.xml")):  # noqa: B008
     )
     buff += '      <param name="cycles" value="%d" type="int" />\n' % (
         processing["smoothing"]["cycles"]
+    )
+    buff += '      <param name="preservePeaks" value="%d" type="int" />\n' % (
+        bool(processing["smoothing"]["preservePeaks"])
     )
     buff += "    </smoothing>\n"
     buff += "    <peakpicking>\n"
@@ -1475,6 +1585,9 @@ def saveConfig(path=os.path.join(confdir, "config.xml")):  # noqa: B008
     buff += '      <param name="convertToEnvelopes" value="%d" type="int" />\n' % (
         bool(processing["deisotoping"].get("convertToEnvelopes", 0))
     )
+    buff += '      <param name="isotopeShift" value="%f" type="float" />\n' % (
+        processing["deisotoping"]["isotopeShift"]
+    )
     buff += "    </deisotoping>\n"
     buff += "    <deconvolution>\n"
     buff += '      <param name="massType" value="%d" type="int" />\n' % (
@@ -1511,6 +1624,9 @@ def saveConfig(path=os.path.join(confdir, "config.xml")):  # noqa: B008
     )
     buff += '      <param name="deconvolution" value="%d" type="int" />\n' % (
         bool(processing["batch"]["deconvolution"])
+    )
+    buff += '      <param name="stepOrder" value="%s" type="str" />\n' % (
+        ";".join(processing["batch"]["stepOrder"])
     )
     buff += "    </batch>\n"
     buff += "  </processing>\n\n"
@@ -1612,6 +1728,9 @@ def saveConfig(path=os.path.join(confdir, "config.xml")):  # noqa: B008
     buff += '      <param name="retainPos" value="%d" type="int" />\n' % (
         bool(sequence["search"]["retainPos"])
     )
+    buff += '      <param name="mass" value="%f" type="float" />\n' % (
+        sequence["search"]["mass"]
+    )
     buff += "    </search>\n"
     buff += "  </sequence>\n\n"
 
@@ -1637,6 +1756,15 @@ def saveConfig(path=os.path.join(confdir, "config.xml")):  # noqa: B008
     )
     buff += '    <param name="patternPeakShape" value="%s" type="unicode" />\n' % (
         _escape(massCalculator["patternPeakShape"])
+    )
+    buff += '    <param name="patternIntensity" value="%f" type="float" />\n' % (
+        massCalculator["patternIntensity"]
+    )
+    buff += '    <param name="patternBaseline" value="%f" type="float" />\n' % (
+        massCalculator["patternBaseline"]
+    )
+    buff += '    <param name="patternShift" value="%f" type="float" />\n' % (
+        massCalculator["patternShift"]
     )
     buff += "  </massCalculator>\n\n"
 
@@ -1724,6 +1852,9 @@ def saveConfig(path=os.path.join(confdir, "config.xml")):  # noqa: B008
     buff += '    <param name="showNotations" value="%d" type="int" />\n' % (
         bool(massDefectPlot["showNotations"])
     )
+    buff += '    <param name="showAllDocuments" value="%d" type="int" />\n' % (
+        bool(massDefectPlot["showAllDocuments"])
+    )
     buff += "  </massDefectPlot>\n\n"
 
     # compounds search
@@ -1799,6 +1930,9 @@ def saveConfig(path=os.path.join(confdir, "config.xml")):  # noqa: B008
     buff += '    <param name="alignmentSeparator" value="%s" type="str" />\n' % (
         comparePeaklists["alignmentSeparator"]
     )
+    buff += '    <param name="compare" value="%s" type="str" />\n' % (
+        comparePeaklists["compare"]
+    )
     buff += "  </comparePeaklists>\n\n"
 
     # spectrum generator
@@ -1824,6 +1958,9 @@ def saveConfig(path=os.path.join(confdir, "config.xml")):  # noqa: B008
     buff += '    <param name="showOverlay" value="%d" type="int" />\n' % (
         bool(spectrumGenerator["showOverlay"])
     )
+    buff += '    <param name="showFlipped" value="%d" type="int" />\n' % (
+        bool(spectrumGenerator["showFlipped"])
+    )
     buff += "  </spectrumGenerator>\n\n"
 
     # envelope fit
@@ -1843,6 +1980,18 @@ def saveConfig(path=os.path.join(confdir, "config.xml")):  # noqa: B008
     )
     buff += '    <param name="relThreshold" value="%f" type="float" />\n' % (
         envelopeFit["relThreshold"]
+    )
+    buff += '    <param name="loss" value="%s" type="unicode" />\n' % (
+        _escape(envelopeFit["loss"])
+    )
+    buff += '    <param name="gain" value="%s" type="unicode" />\n' % (
+        _escape(envelopeFit["gain"])
+    )
+    buff += '    <param name="scaleMin" value="%d" type="int" />\n' % (
+        envelopeFit["scaleMin"]
+    )
+    buff += '    <param name="scaleMax" value="%d" type="int" />\n' % (
+        envelopeFit["scaleMax"]
     )
     buff += "  </envelopeFit>\n\n"
 
@@ -1875,6 +2024,9 @@ def saveConfig(path=os.path.join(confdir, "config.xml")):  # noqa: B008
     )
     buff += '      <param name="filterUnknown" value="%d" type="int" />\n' % (
         bool(mascot["common"]["filterUnknown"])
+    )
+    buff += '      <param name="title" value="%s" type="unicode" />\n' % (
+        _escape(mascot["common"]["title"])
     )
     buff += "    </common>\n"
     buff += "    <pmf>\n"
@@ -2029,6 +2181,9 @@ def saveConfig(path=os.path.join(confdir, "config.xml")):  # noqa: B008
     buff += '      <param name="report" value="%s" type="unicode" />\n' % (
         mascot["mis"]["report"]
     )
+    buff += '      <param name="peptideMass" value="%s" type="unicode" />\n' % (
+        mascot["mis"]["peptideMass"]
+    )
     buff += "    </mis>\n"
     buff += "  </mascot>\n\n"
 
@@ -2103,6 +2258,9 @@ def saveConfig(path=os.path.join(confdir, "config.xml")):  # noqa: B008
     buff += '    <param name="filterUnknown" value="%d" type="int" />\n' % (
         bool(profound["filterUnknown"])
     )
+    buff += '    <param name="title" value="%s" type="unicode" />\n' % (
+        _escape(profound["title"])
+    )
     buff += "  </profound>\n\n"
 
     # protein prospector
@@ -2128,6 +2286,9 @@ def saveConfig(path=os.path.join(confdir, "config.xml")):  # noqa: B008
     )
     buff += '      <param name="filterUnknown" value="%d" type="int" />\n' % (
         bool(prospector["common"]["filterUnknown"])
+    )
+    buff += '      <param name="title" value="%s" type="unicode" />\n' % (
+        _escape(prospector["common"]["title"])
     )
     buff += "    </common>\n"
     buff += "    <msfit>\n"
@@ -2232,6 +2393,9 @@ def saveConfig(path=os.path.join(confdir, "config.xml")):  # noqa: B008
     buff += '      <param name="report" value="%s" type="unicode" />\n' % (
         prospector["mstag"]["report"]
     )
+    buff += '      <param name="peptideMass" value="%s" type="unicode" />\n' % (
+        prospector["mstag"]["peptideMass"]
+    )
     buff += "    </mstag>\n"
     buff += "  </prospector>\n\n"
 
@@ -2249,12 +2413,7 @@ def saveConfig(path=os.path.join(confdir, "config.xml")):  # noqa: B008
     buff += "</mMassConfig>"
 
     # save config file
-    try:
-        with open(path, "wb") as f:
-            f.write(buff.encode("utf-8"))
-        return True
-    except Exception:
-        return False
+    return write_file_atomically(path, buff.encode("utf-8"))
 
 
 # ----
@@ -2284,9 +2443,12 @@ def _getParams(sectionTag, section):
 
 
 def _escape(text):
-    """Clear special characters such as <> etc."""
+    """Escape XML special characters such as <> etc.
 
-    text = text.strip()
+    Deliberately does not strip(): values like main["lastDir"] are real
+    filesystem paths, where leading/trailing whitespace is significant.
+    """
+
     search = ("&", '"', "'", "<", ">")
     replace = ("&amp;", "&quot;", "&apos;", "&lt;", "&gt;")
     for x, item in enumerate(search):
@@ -2309,6 +2471,79 @@ def _is_bundled_config_path(path):
         return False
 
 
+# every module-level container loadConfig() may write into, so a failed load
+# can be rolled back to the in-code defaults
+_CONFIG_SECTIONS = (
+    "main",
+    "recent",
+    "colours",
+    "export",
+    "spectrum",
+    "match",
+    "processing",
+    "calibration",
+    "sequence",
+    "massCalculator",
+    "massfilter",
+    "massToFormula",
+    "massDefectPlot",
+    "compoundsSearch",
+    "peakDifferences",
+    "comparePeaklists",
+    "spectrumGenerator",
+    "envelopeFit",
+    "mascot",
+    "profound",
+    "prospector",
+    "links",
+    "replacements",
+)
+
+
+def _plainCopy(value):
+    """Copy a config tree into plain dict/list containers.
+
+    Deliberately not copy.deepcopy(): deepcopying a ConfigDict rebuilds it
+    through the overridden __setitem__, which fires an autosave per key -- a
+    few hundred full rewrites of config.xml for a single snapshot. Plain
+    containers also make the snapshot inert, so nothing it holds can trigger a
+    save later; _restoreSections() puts the values back through __setitem__,
+    which re-wraps them as ConfigDict/ConfigList.
+    """
+
+    if isinstance(value, dict):
+        return {key: _plainCopy(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_plainCopy(item) for item in value]
+    return value
+
+
+def _snapshotSections():
+    """Copy every config section so a failed load can be undone."""
+
+    return {name: _plainCopy(globals()[name]) for name in _CONFIG_SECTIONS}
+
+
+def _restoreSections(snapshot):
+    """Put the sections back exactly as _snapshotSections() found them."""
+
+    with _suspendAutoSave():
+        _restoreSectionsUnsafe(snapshot)
+
+
+def _restoreSectionsUnsafe(snapshot):
+    for name, saved in snapshot.items():
+        target = globals()[name]
+        if isinstance(target, list):
+            target[:] = saved
+        else:
+            target.clear()
+            # go through __setitem__ so nested containers are re-wrapped as
+            # ConfigDict/ConfigList rather than plain dict/list
+            for key in saved:
+                target[key] = saved[key]
+
+
 def _initialize_runtime_config():
     """Load user config if present, otherwise keep in-code defaults."""
 
@@ -2316,8 +2551,29 @@ def _initialize_runtime_config():
 
     # Use Python defaults as the canonical defaults source.
     if os.path.exists(path) and not _is_bundled_config_path(path):
-        loadConfig(path)
-        return
+        snapshot = _snapshotSections()
+        try:
+            loadConfig(path)
+            return
+        except Exception as exc:
+            # A truncated or otherwise unparseable config.xml raises here --
+            # ExpatError, which is not an OSError, so it used to escape all the
+            # way out of `import gui.config` and stop the app from starting at
+            # all, with no way to recover from inside the GUI. Roll back any
+            # partially applied section, keep the bad file for the user to
+            # inspect, and carry on with the in-code defaults.
+            _restoreSections(snapshot)
+            damaged = path + ".corrupt"
+            try:
+                os.replace(path, damaged)
+            except OSError:
+                damaged = None
+            sys.stderr.write(
+                "mMass: could not read %s (%s); starting from default settings.\n"
+                % (path, exc)
+            )
+            if damaged:
+                sys.stderr.write("mMass: the unreadable file was kept as %s\n" % damaged)
 
     # Best effort persistence; read-only locations should still run with defaults.
     try:
@@ -2360,7 +2616,8 @@ replacements = ConfigDict(replacements)
 # - Do not reintroduce bundled config.xml as a second defaults definition.
 try:
     _initialize_runtime_config()
-except IOError:
+except Exception:
+    # never let config persistence stop the application from starting
     pass
 
 _auto_save_enabled = True

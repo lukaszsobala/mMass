@@ -16,7 +16,9 @@
 # -------------------------------------------------------------------------
 
 # load libs
+import os
 import os.path
+import tempfile
 import xml.dom.minidom
 
 # load objects
@@ -2307,12 +2309,7 @@ def saveMonomers(path=os.path.join(blocksdir, "monomers.xml")):  # noqa: B008
     buff += "</mspyMonomers>"
 
     # save monomers file
-    try:
-        with open(path, "wb") as f:
-            f.write(buff.encode("utf-8"))
-        return True
-    except Exception:
-        return False
+    return _writeFileAtomically(path, buff.encode("utf-8"))
 
 
 # ----
@@ -2345,12 +2342,7 @@ def saveEnzymes(path=os.path.join(blocksdir, "enzymes.xml")):  # noqa: B008
     buff += "</mspyEnzymes>"
 
     # save enzymes file
-    try:
-        with open(path, "wb") as f:
-            f.write(buff.encode("utf-8"))
-        return True
-    except Exception:
-        return False
+    return _writeFileAtomically(path, buff.encode("utf-8"))
 
 
 # ----
@@ -2383,11 +2375,52 @@ def saveModifications(path=os.path.join(blocksdir, "modifications.xml")):  # noq
     buff += "</mspyModifications>"
 
     # save modifications file
+    return _writeFileAtomically(path, buff.encode("utf-8"))
+
+
+# ----
+
+
+def _currentUmask():
+    """Read the process umask without leaving it changed."""
+
+    mask = os.umask(0)
+    os.umask(mask)
+    return mask
+
+
+def _writeFileAtomically(path, data):
+    """Write bytes via a temp file in the same dir, then os.replace().
+
+    A truncating in-place write leaves a half-written library behind if the
+    process dies mid-write; os.replace() is atomic on POSIX and Windows, so a
+    reader only ever sees the old file or the complete new one.
+    """
+
+    directory = os.path.dirname(os.path.abspath(path))
+    handle, tmppath = tempfile.mkstemp(
+        dir=directory, prefix=".%s." % os.path.basename(path), suffix=".tmp"
+    )
     try:
-        with open(path, "wb") as f:
-            f.write(buff.encode("utf-8"))
+        with os.fdopen(handle, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+
+        # mkstemp() always creates 0600; keep whatever mode the file already
+        # had, or fall back to the usual umask-derived mode for a new one
+        try:
+            os.chmod(tmppath, os.stat(path).st_mode & 0o7777)
+        except OSError:
+            os.chmod(tmppath, 0o666 & ~_currentUmask())
+
+        os.replace(tmppath, path)
         return True
     except Exception:
+        try:
+            os.unlink(tmppath)
+        except OSError:
+            pass
         return False
 
 
