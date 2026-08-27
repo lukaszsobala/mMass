@@ -16,6 +16,7 @@
 # -------------------------------------------------------------------------
 
 # load libs
+import json
 import os.path
 import xml.dom.minidom
 import copy
@@ -24,40 +25,64 @@ import copy
 from . import config
 import mspy
 
-# ENSURE DEFAULT LIBS ARE AVAILABLE IN USER CONFIG DIRECTORY
-# ----------------------------------------------------------
-for item in (
-    "monomers.xml",
-    "modifications.xml",
-    "enzymes.xml",
-    "presets.xml",
-    "references.xml",
-    "compounds.xml",
-    "mascot.xml",
-):
-    if not os.path.exists(os.path.join(config.confdir, item)):
-        config.copy_default_config_file(item, os.path.join(config.confdir, item))
+# MIGRATE PRE-7.0 XML LIBRARIES, THEN SEED ANY THAT ARE STILL MISSING
+# -------------------------------------------------------------------
+# Migration runs before seeding so a user's own edits are carried over rather
+# than being masked by a freshly copied default.
+
+# clear=False on purpose: mspy defines its libraries in code, and saveMonomers
+# deliberately omits the "_InternalAA" residues that digestion and
+# fragmentation depend on. Clearing here would drop them, and they would never
+# come back from the migrated file. The replace= flags mirror what the pre-7.0
+# startup used, so a migrated library merges exactly as it did before.
+_XML_LOADERS = {
+    "monomers": lambda path: mspy.loadMonomersXML(path, clear=False, replace=False),
+    "modifications": lambda path: mspy.loadModificationsXML(
+        path, clear=False, replace=True
+    ),
+    "enzymes": lambda path: mspy.loadEnzymesXML(path, clear=False, replace=True),
+}
+
+_JSON_SAVERS = {
+    "monomers": mspy.saveMonomers,
+    "modifications": mspy.saveModifications,
+    "enzymes": mspy.saveEnzymes,
+}
+
+for _name in ("monomers", "modifications", "enzymes"):
+    try:
+        config.migrateLegacyLibrary(_name, _XML_LOADERS[_name], _JSON_SAVERS[_name])
+    except Exception:
+        pass
+
+# Only the three mspy libraries are seeded here. The gui-side libraries
+# (presets, references, compounds, mascot) are migrated and seeded further
+# down, once their loaders are defined -- seeding them now would create the
+# .json from the bundled default and make their migration a no-op, silently
+# discarding the user's own library.
+for _name in ("monomers", "modifications", "enzymes"):
+    _target = config.getLibraryPath(_name)
+    if not os.path.exists(_target):
+        config.copy_default_config_file(_name + ".json", _target)
 
 
 # LOAD USER'S LIBS INTO MSPY
 # --------------------------
 
 try:
-    mspy.loadMonomers(os.path.join(config.confdir, "monomers.xml"), clear=False)
+    mspy.loadMonomers(config.getLibraryPath("monomers"), clear=False)
 except Exception:
-    mspy.saveMonomers(os.path.join(config.confdir, "monomers.xml"))
+    mspy.saveMonomers(config.getLibraryPath("monomers"))
 
 try:
-    mspy.loadModifications(
-        os.path.join(config.confdir, "modifications.xml"), clear=False
-    )
+    mspy.loadModifications(config.getLibraryPath("modifications"), clear=False)
 except Exception:
-    mspy.saveModifications(os.path.join(config.confdir, "modifications.xml"))
+    mspy.saveModifications(config.getLibraryPath("modifications"))
 
 try:
-    mspy.loadEnzymes(os.path.join(config.confdir, "enzymes.xml"), clear=False)
+    mspy.loadEnzymes(config.getLibraryPath("enzymes"), clear=False)
 except Exception:
-    mspy.saveEnzymes(os.path.join(config.confdir, "enzymes.xml"))
+    mspy.saveEnzymes(config.getLibraryPath("enzymes"))
 
 
 # INIT DEFAULT VALUES
@@ -573,8 +598,8 @@ mascot = {
 # --------------
 
 
-def loadPresets(
-    path=os.path.join(config.confdir, "presets.xml"), clear=True, replace=True  # noqa: B008
+def loadPresetsXML(
+    path=config.getLegacyLibraryPath("presets"), clear=True, replace=True  # noqa: B008
 ):
     """Parse processing presets XML and get data."""
 
@@ -698,7 +723,7 @@ def loadPresets(
 # ----
 
 
-def loadReferences(path=os.path.join(config.confdir, "references.xml"), clear=True):  # noqa: B008
+def loadReferencesXML(path=config.getLegacyLibraryPath("references"), clear=True):  # noqa: B008
     """Parse calibration references XML and get data."""
 
     container = {}
@@ -730,7 +755,7 @@ def loadReferences(path=os.path.join(config.confdir, "references.xml"), clear=Tr
 # ----
 
 
-def loadCompounds(path=os.path.join(config.confdir, "compounds.xml"), clear=True):  # noqa: B008
+def loadCompoundsXML(path=config.getLegacyLibraryPath("compounds"), clear=True):  # noqa: B008
     """Parse compounds XML and get data."""
 
     container = {}
@@ -766,8 +791,8 @@ def loadCompounds(path=os.path.join(config.confdir, "compounds.xml"), clear=True
 # ----
 
 
-def loadMascot(
-    path=os.path.join(config.confdir, "mascot.xml"), clear=True, replace=True  # noqa: B008
+def loadMascotXML(
+    path=config.getLegacyLibraryPath("mascot"), clear=True, replace=True  # noqa: B008
 ):
     """Parse mascot servers XML and get data."""
 
@@ -845,322 +870,282 @@ def _getNodeText(node):
 # --------------
 
 
-def savePresets(path=os.path.join(config.confdir, "presets.xml")):  # noqa: B008
-    """Make and save presets XML."""
+def savePresets(path=None):
+    """Serialize the presets library to JSON."""
 
-    buff = '<?xml version="1.0" encoding="utf-8" ?>\n'
-    buff += '<mMassPresets version="1.0">\n\n'
+    if path is None:
+        path = config.getLibraryPath("presets")
 
-    # operator presets
-    buff += "  <operator>\n\n"
-    for name in sorted(presets["operator"].keys()):
-        item = presets["operator"][name]
-        buff += '    <presets name="%s">\n' % (_escape(name))
-        buff += '      <param name="operator" value="%s" type="unicode" />\n' % (
-            _escape(item["operator"])
-        )
-        buff += '      <param name="contact" value="%s" type="unicode" />\n' % (
-            _escape(item["contact"])
-        )
-        buff += '      <param name="institution" value="%s" type="unicode" />\n' % (
-            _escape(item["institution"])
-        )
-        buff += '      <param name="instrument" value="%s" type="unicode" />\n' % (
-            _escape(item["instrument"])
-        )
-        buff += "    </presets>\n\n"
-    buff += "  </operator>\n\n"
+    data = {
+        "operator": {
+            name: dict(item) for name, item in sorted(presets["operator"].items())
+        },
+        "processing": {
+            name: config._plainCopy(item)
+            for name, item in sorted(presets["processing"].items())
+        },
+        "modifications": {
+            name: [list(mod) for mod in item]
+            for name, item in sorted(presets["modifications"].items())
+        },
+        "fragments": {
+            name: list(item) for name, item in sorted(presets["fragments"].items())
+        },
+    }
 
-    # processing presets
-    buff += "  <processing>\n\n"
-    for name in sorted(presets["processing"].keys()):
-        item = presets["processing"][name]
-        buff += '    <presets name="%s">\n' % (_escape(name))
-        buff += "      <crop>\n"
-        buff += '        <param name="lowMass" value="%d" type="int" />\n' % (
-            item["crop"]["lowMass"]
-        )
-        buff += '        <param name="highMass" value="%d" type="int" />\n' % (
-            item["crop"]["highMass"]
-        )
-        buff += "      </crop>\n"
-        buff += "      <baseline>\n"
-        buff += '        <param name="precision" value="%d" type="int" />\n' % (
-            item["baseline"]["precision"]
-        )
-        buff += '        <param name="offset" value="%f" type="float" />\n' % (
-            item["baseline"]["offset"]
-        )
-        buff += "      </baseline>\n"
-        buff += "      <smoothing>\n"
-        buff += '        <param name="method" value="%s" type="str" />\n' % (
-            item["smoothing"]["method"]
-        )
-        buff += '        <param name="windowSize" value="%f" type="float" />\n' % (
-            item["smoothing"]["windowSize"]
-        )
-        buff += '        <param name="cycles" value="%d" type="int" />\n' % (
-            item["smoothing"]["cycles"]
-        )
-        buff += "      </smoothing>\n"
-        buff += "      <peakpicking>\n"
-        buff += '        <param name="snThreshold" value="%f" type="float" />\n' % (
-            item["peakpicking"]["snThreshold"]
-        )
-        buff += '        <param name="absIntThreshold" value="%f" type="float" />\n' % (
-            item["peakpicking"]["absIntThreshold"]
-        )
-        buff += '        <param name="relIntThreshold" value="%f" type="float" />\n' % (
-            item["peakpicking"]["relIntThreshold"]
-        )
-        buff += '        <param name="pickingHeight" value="%f" type="float" />\n' % (
-            item["peakpicking"]["pickingHeight"]
-        )
-        buff += '        <param name="baseline" value="%d" type="int" />\n' % (
-            bool(item["peakpicking"]["baseline"])
-        )
-        buff += '        <param name="smoothing" value="%d" type="int" />\n' % (
-            bool(item["peakpicking"]["smoothing"])
-        )
-        buff += '        <param name="deisotoping" value="%d" type="int" />\n' % (
-            bool(item["peakpicking"]["deisotoping"])
-        )
-        buff += '        <param name="removeShoulders" value="%d" type="int" />\n' % (
-            bool(item["peakpicking"]["removeShoulders"])
-        )
-        buff += '        <param name="averagineType" value="%s" type="str" />\n' % (
-            item["peakpicking"].get("averagineType", "protein")
-        )
-        buff += "      </peakpicking>\n"
-        buff += "      <deisotoping>\n"
-        buff += '        <param name="maxCharge" value="%d" type="int" />\n' % (
-            item["deisotoping"]["maxCharge"]
-        )
-        buff += '        <param name="massTolerance" value="%f" type="float" />\n' % (
-            item["deisotoping"]["massTolerance"]
-        )
-        buff += '        <param name="intTolerance" value="%f" type="float" />\n' % (
-            item["deisotoping"]["intTolerance"]
-        )
-        buff += '        <param name="isotopeShift" value="%f" type="float" />\n' % (
-            item["deisotoping"]["isotopeShift"]
-        )
-        buff += '        <param name="removeIsotopes" value="%d" type="int" />\n' % (
-            bool(item["deisotoping"]["removeIsotopes"])
-        )
-        buff += '        <param name="removeUnknown" value="%d" type="int" />\n' % (
-            bool(item["deisotoping"]["removeUnknown"])
-        )
-        buff += '        <param name="labelEnvelope" value="%s" type="str" />\n' % (
-            item["deisotoping"]["labelEnvelope"]
-        )
-        buff += '        <param name="envelopeIntensity" value="%s" type="str" />\n' % (
-            item["deisotoping"]["envelopeIntensity"]
-        )
-        buff += '        <param name="setAsMonoisotopic" value="%d" type="int" />\n' % (
-            bool(item["deisotoping"]["setAsMonoisotopic"])
-        )
-        buff += '        <param name="convertToEnvelopes" value="%d" type="int" />\n' % (
-            bool(item["deisotoping"].get("convertToEnvelopes", 0))
-        )
-        buff += "      </deisotoping>\n"
-        buff += "      <deconvolution>\n"
-        buff += '        <param name="massType" value="%d" type="int" />\n' % (
-            item["deconvolution"]["massType"]
-        )
-        buff += '        <param name="groupWindow" value="%f" type="float" />\n' % (
-            item["deconvolution"]["groupWindow"]
-        )
-        buff += '        <param name="groupPeaks" value="%d" type="int" />\n' % (
-            bool(item["deconvolution"]["groupPeaks"])
-        )
-        buff += '        <param name="forceGroupWindow" value="%d" type="int" />\n' % (
-            bool(item["deconvolution"]["forceGroupWindow"])
-        )
-        buff += "      </deconvolution>\n"
-        buff += "      <batch>\n"
-        buff += '        <param name="math" value="%d" type="int" />\n' % (
-            bool(item["batch"]["math"])
-        )
-        buff += '        <param name="crop" value="%d" type="int" />\n' % (
-            bool(item["batch"]["crop"])
-        )
-        buff += '        <param name="baseline" value="%d" type="int" />\n' % (
-            bool(item["batch"]["baseline"])
-        )
-        buff += '        <param name="smoothing" value="%d" type="int" />\n' % (
-            bool(item["batch"]["smoothing"])
-        )
-        buff += '        <param name="peakpicking" value="%d" type="int" />\n' % (
-            bool(item["batch"]["peakpicking"])
-        )
-        buff += '        <param name="deisotoping" value="%d" type="int" />\n' % (
-            bool(item["batch"]["deisotoping"])
-        )
-        buff += '        <param name="deconvolution" value="%d" type="int" />\n' % (
-            bool(item["batch"]["deconvolution"])
-        )
-        buff += "      </batch>\n"
-        buff += "    </presets>\n\n"
-    buff += "  </processing>\n\n"
+    return _writeJSON(path, {"schemaVersion": 1, "presets": data})
 
-    # modifications presets
-    buff += "  <modifications>\n\n"
-    for name in sorted(presets["modifications"].keys()):
-        buff += '    <presets name="%s">\n' % (_escape(name))
-        for mod in presets["modifications"][name]:
-            buff += '      <modification name="%s" position="%s" type="%s" />\n' % (
-                mod[0],
-                mod[1],
-                mod[2],
-            )
-        buff += "    </presets>\n\n"
-    buff += "  </modifications>\n\n"
 
-    # fragments presets
-    buff += "  <fragments>\n\n"
-    for name in sorted(presets["fragments"].keys()):
-        buff += '    <presets name="%s">\n' % (_escape(name))
-        for fragment in presets["fragments"][name]:
-            buff += '      <fragment name="%s" />\n' % (fragment)
-        buff += "    </presets>\n\n"
-    buff += "  </fragments>\n\n"
+def loadPresets(path=None, clear=True, replace=True):
+    """Read a JSON presets library."""
 
-    buff += "</mMassPresets>"
+    if path is None:
+        path = config.getLibraryPath("presets")
 
-    # save config file
-    try:
-        with open(path, "wb") as f:
-            f.write(buff.encode("utf-8"))
-        return True
-    except Exception:
-        return False
+    data = _readJSON(path, "presets")
+    container = {}
+
+    operator = data.get("operator")
+    if isinstance(operator, dict):
+        container["operator"] = {}
+        for name, item in operator.items():
+            entry = {"operator": "", "contact": "", "institution": "", "instrument": ""}
+            if isinstance(item, dict):
+                for key in entry:
+                    if isinstance(item.get(key), str):
+                        entry[key] = item[key]
+            container["operator"][name] = entry
+
+    processing = data.get("processing")
+    if isinstance(processing, dict):
+        container["processing"] = {}
+        for name, item in processing.items():
+            merged = copy.deepcopy(config.processing)
+            if isinstance(item, dict):
+                config._mergeSection(merged, item, "processing")
+            container["processing"][name] = merged
+
+    modifications = data.get("modifications")
+    if isinstance(modifications, dict):
+        container["modifications"] = {
+            name: [list(mod) for mod in item if isinstance(mod, (list, tuple))]
+            for name, item in modifications.items()
+            if isinstance(item, list)
+        }
+
+    fragments = data.get("fragments")
+    if isinstance(fragments, dict):
+        container["fragments"] = {
+            name: [str(f) for f in item]
+            for name, item in fragments.items()
+            if isinstance(item, list)
+        }
+
+    for group in container:
+        if container[group] and clear:
+            presets[group].clear()
+        for key in container[group]:
+            if replace or key not in presets[group]:
+                presets[group][key] = container[group][key]
 
 
 # ----
 
 
-def saveReferences(path=os.path.join(config.confdir, "references.xml")):  # noqa: B008
-    """Make and save calibration references XML."""
+def saveReferences(path=None):
+    """Serialize the calibration references library to JSON."""
 
-    buff = '<?xml version="1.0" encoding="utf-8" ?>\n'
-    buff += '<mMassReferenceMasses version="1.0">\n\n'
+    if path is None:
+        path = config.getLibraryPath("references")
 
-    for group in sorted(references.keys()):
-        buff += '  <group name="%s">\n' % (_escape(group))
-        for ref in references[group]:
-            buff += '    <reference name="%s" mass="%f" />\n' % (
-                _escape(ref[0]),
-                ref[1],
-            )
-        buff += "  </group>\n\n"
+    data = {
+        group: [[ref[0], float(ref[1])] for ref in references[group]]
+        for group in sorted(references.keys())
+    }
 
-    buff += "</mMassReferenceMasses>"
+    return _writeJSON(path, {"schemaVersion": 1, "references": data})
 
-    # save config file
-    try:
-        with open(path, "wb") as f:
-            f.write(buff.encode("utf-8"))
-        return True
-    except Exception:
-        return False
+
+def loadReferences(path=None, clear=True):
+    """Read a JSON calibration references library."""
+
+    if path is None:
+        path = config.getLibraryPath("references")
+
+    container = {}
+    for group, items in _readJSON(path, "references").items():
+        if not isinstance(items, list):
+            continue
+        entries = []
+        for ref in items:
+            if isinstance(ref, (list, tuple)) and len(ref) >= 2:
+                try:
+                    entries.append((str(ref[0]), float(ref[1])))
+                except (TypeError, ValueError):
+                    pass
+        container[group] = entries
+
+    if container and clear:
+        references.clear()
+    for group in container:
+        references[group] = container[group]
 
 
 # ----
 
 
-def saveCompounds(path=os.path.join(config.confdir, "compounds.xml")):  # noqa: B008
-    """Make and save compounds XML."""
+def saveCompounds(path=None):
+    """Serialize the compounds library to JSON."""
 
-    buff = '<?xml version="1.0" encoding="utf-8" ?>\n'
-    buff += '<mMassCompounds version="1.0">\n\n'
+    if path is None:
+        path = config.getLibraryPath("compounds")
 
+    data = {}
     for group in sorted(compounds.keys()):
-        buff += '  <group name="%s">\n' % (_escape(group))
-        for name, compound in sorted(compounds[group].items()):
-            buff += '    <compound name="%s" formula="%s">%s</compound>\n' % (
-                _escape(name),
-                compound.expression,
-                _escape(compound.description),
-            )
-        buff += "  </group>\n\n"
+        data[group] = {
+            name: {
+                "formula": compound.expression,
+                "description": compound.description,
+            }
+            for name, compound in sorted(compounds[group].items())
+        }
 
-    buff += "</mMassCompounds>"
+    return _writeJSON(path, {"schemaVersion": 1, "compounds": data})
 
-    # save config file
+
+def loadCompounds(path=None, clear=True):
+    """Read a JSON compounds library."""
+
+    if path is None:
+        path = config.getLibraryPath("compounds")
+
+    container = {}
+    for group, items in _readJSON(path, "compounds").items():
+        if not isinstance(items, dict):
+            continue
+        container[group] = {}
+        for name, item in items.items():
+            if not isinstance(item, dict):
+                continue
+            try:
+                compound = mspy.compound(item.get("formula", ""))
+                compound.description = item.get("description", "")
+                container[group][name] = compound
+            except Exception:
+                pass
+
+    if container and clear:
+        compounds.clear()
+    for group in container:
+        compounds[group] = container[group]
+
+
+# ----
+
+
+_MASCOT_SERVER_DEFAULTS = {
+    "protocol": "http",
+    "host": "",
+    "path": "/",
+    "search": "cgi/nph-mascot.exe",
+    "results": "cgi/master_results.pl",
+    "export": "cgi/export_dat_2.pl",
+    "params": "cgi/get_params.pl",
+}
+
+
+def saveMascot(path=None):
+    """Serialize the Mascot server library to JSON."""
+
+    if path is None:
+        path = config.getLibraryPath("mascot")
+
+    data = {
+        name: {key: mascot[name].get(key, default) for key, default in _MASCOT_SERVER_DEFAULTS.items()}
+        for name in sorted(mascot.keys())
+    }
+
+    return _writeJSON(path, {"schemaVersion": 1, "mascot": data})
+
+
+def loadMascot(path=None, clear=True, replace=True):
+    """Read a JSON Mascot server library."""
+
+    if path is None:
+        path = config.getLibraryPath("mascot")
+
+    container = {}
+    for name, item in _readJSON(path, "mascot").items():
+        if not isinstance(item, dict):
+            continue
+        entry = dict(_MASCOT_SERVER_DEFAULTS)
+        for key in entry:
+            if isinstance(item.get(key), str):
+                entry[key] = item[key]
+        container[name] = entry
+
+    if container and clear:
+        mascot.clear()
+    for name in container:
+        if replace or name not in mascot:
+            mascot[name] = container[name]
+
+
+# ----
+
+
+def _readJSON(path, section):
+    """Return one section of a library file."""
+
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    if not isinstance(data, dict):
+        raise ValueError("%s: root must be a JSON object" % path)
+
+    entries = data.get(section)
+    if not isinstance(entries, dict):
+        raise ValueError("%s: missing '%s' object" % (path, section))
+
+    return entries
+
+
+def _writeJSON(path, data):
+    """Serialize a library payload atomically."""
+
     try:
-        with open(path, "wb") as f:
-            f.write(buff.encode("utf-8"))
-        return True
-    except Exception:
+        encoded = json.dumps(data, indent=2, ensure_ascii=False)
+    except (TypeError, ValueError):
         return False
 
+    return config.write_file_atomically(path, (encoded + "\n").encode("utf-8"))
+
 
 # ----
 
 
-def saveMascot(path=os.path.join(config.confdir, "mascot.xml")):  # noqa: B008
-    """Make and save mascot servers XML."""
 
-    buff = '<?xml version="1.0" encoding="utf-8" ?>\n'
-    buff += '<mMassMascot version="1.0">\n\n'
 
-    for name in sorted(mascot.keys()):
-        buff += '   <server name="%s">\n' % (_escape(name))
-        buff += '     <param name="protocol" value="%s" type="unicode" />\n' % (
-            _escape(mascot[name]["protocol"])
-        )
-        buff += '     <param name="host" value="%s" type="unicode" />\n' % (
-            _escape(mascot[name]["host"])
-        )
-        buff += '     <param name="path" value="%s" type="unicode" />\n' % (
-            _escape(mascot[name]["path"])
-        )
-        buff += '     <param name="search" value="%s" type="unicode" />\n' % (
-            _escape(mascot[name]["search"])
-        )
-        buff += '     <param name="results" value="%s" type="unicode" />\n' % (
-            _escape(mascot[name]["results"])
-        )
-        buff += '     <param name="export" value="%s" type="unicode" />\n' % (
-            _escape(mascot[name]["export"])
-        )
-        buff += '     <param name="params" value="%s" type="unicode" />\n' % (
-            _escape(mascot[name]["params"])
-        )
-        buff += "   </server>\n\n"
+# ----
 
-    buff += "</mMassMascot>"
 
-    # save config file
+# MIGRATE AND LOAD GUI LIBS
+# -------------------------
+
+for _name, _readXML, _saveJSON in (
+    ("presets", lambda path: loadPresetsXML(path, clear=True), savePresets),
+    ("references", lambda path: loadReferencesXML(path, clear=True), saveReferences),
+    ("compounds", lambda path: loadCompoundsXML(path, clear=True), saveCompounds),
+    ("mascot", lambda path: loadMascotXML(path, clear=True), saveMascot),
+):
     try:
-        with open(path, "wb") as f:
-            f.write(buff.encode("utf-8"))
-        return True
+        config.migrateLegacyLibrary(_name, _readXML, _saveJSON)
     except Exception:
-        return False
-
-
-# ----
-
-
-def _escape(text):
-    """Clear special characters such as <> etc."""
-
-    text = text.strip()
-    search = ("&", '"', "'", "<", ">")
-    replace = ("&amp;", "&quot;", "&apos;", "&lt;", "&gt;")
-    for x, item in enumerate(search):
-        text = text.replace(item, replace[x])
-
-    return text
-
-
-# ----
-
-
-# LOAD LIBS
-# ---------
+        pass
+    if not os.path.exists(config.getLibraryPath(_name)):
+        config.copy_default_config_file(
+            _name + ".json", config.getLibraryPath(_name)
+        )
 
 try:
     loadPresets()

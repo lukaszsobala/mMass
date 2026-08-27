@@ -48,7 +48,7 @@ where = ["src"]
 include = ["gui", "gui.*", "mspy", "mspy.*", "mmass_app", "mmass_app.*"]
 
 [tool.setuptools.package-data]
-gui = ["configs/*.xml"]
+gui = ["configs/*.json"]
 
 # installed to <prefix>/share/mMass, where main_frame.getUserGuidePath() looks
 # for it (Help > User's Guide)

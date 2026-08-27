@@ -18,6 +18,7 @@
 # load libs
 import wx
 import copy
+import json
 import xml.dom.minidom
 from typing import Any
 
@@ -241,10 +242,10 @@ class dlgCompoundsEditor(wx.Dialog):
     # ----
 
     def onImport(self, evt):
-        """Import items from xml library."""
+        """Import items from a compound library file."""
 
         # show open file dialog
-        wildcard = "Library files|*.xml;*.XML"
+        wildcard = "Library files|*.json;*.JSON;*.xml;*.XML"
         dlg = wx.FileDialog(
             self,
             "Import Library",
@@ -259,7 +260,7 @@ class dlgCompoundsEditor(wx.Dialog):
             return
 
         # read data
-        importedItems = self.readLibraryXML(path)
+        importedItems = self.readLibrary(path)
         if importedItems is False:
             wx.Bell()
             dlg = mwx.dlgMessage(
@@ -643,8 +644,50 @@ class dlgCompoundsEditor(wx.Dialog):
 
     # ----
 
+    def readLibrary(self, path):
+        """Read a compound library, in either the JSON or the legacy XML form."""
+
+        compounds = self.readLibraryJSON(path)
+        if compounds is not False:
+            return compounds
+        return self.readLibraryXML(path)
+
+    # ----
+
+    def readLibraryJSON(self, path):
+        """Read a JSON compound library."""
+
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            groups = data["compounds"]
+        except Exception:
+            return False
+
+        if not isinstance(groups, dict):
+            return False
+
+        compounds = {}
+        for group, items in groups.items():
+            if not isinstance(items, dict):
+                continue
+            compounds[group] = {}
+            for name, item in items.items():
+                if not isinstance(item, dict):
+                    continue
+                try:
+                    compound: Any = mspy.compound(item.get("formula", ""))
+                    compound.description = item.get("description", "")
+                    compounds[group][name] = compound
+                except Exception:
+                    pass
+
+        return compounds
+
+    # ----
+
     def readLibraryXML(self, path):
-        """Read xml library."""
+        """Read legacy xml library."""
 
         compounds = {}
 

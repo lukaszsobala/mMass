@@ -1,0 +1,3827 @@
+{
+  "schemaVersion": 1,
+  "monomers": {
+    "1Me-Trp": {
+      "abbr": "1Me-Trp",
+      "name": "N1-methyl-tryptophan",
+      "formula": "C12H12N2O",
+      "category": "Unknown",
+      "losses": []
+    },
+    "2Dh-Mabu": {
+      "abbr": "2Dh-Mabu",
+      "name": "2-methylamino-2-dehydro-butyric acid",
+      "formula": "C5H7NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "2Me-3Me-pGlu": {
+      "abbr": "2Me-3Me-pGlu",
+      "name": "2,3-dimethyl-pyroglutamic acid",
+      "formula": "C7H9NO2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "2OMe-Rha": {
+      "abbr": "2OMe-Rha",
+      "name": "O-methyl-L-rhamnose",
+      "formula": "C7H12O4",
+      "category": "CS",
+      "losses": []
+    },
+    "3Me-4Me-Gln": {
+      "abbr": "3Me-4Me-Gln",
+      "name": "3,4-dimethyl-glutamine",
+      "formula": "C7H12N2O2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "3Me-Glu": {
+      "abbr": "3Me-Glu",
+      "name": "3-methyl-glutamic acid",
+      "formula": "C6H9NO3",
+      "category": "NRPS",
+      "losses": []
+    },
+    "3Me-Hty": {
+      "abbr": "3Me-Hty",
+      "name": "3-methyl-homotyrosine",
+      "formula": "C11H13NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "3Me-Phe": {
+      "abbr": "3Me-Phe",
+      "name": "3-methyl-phenylalanine",
+      "formula": "C10H11NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "3Me-Pro": {
+      "abbr": "3Me-Pro",
+      "name": "3-methyl-proline",
+      "formula": "C6H9NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "3NO2-Tyr": {
+      "abbr": "3NO2-Tyr",
+      "name": "3-nitro-tyrosine",
+      "formula": "C9H8N2O4",
+      "category": "NRPS",
+      "losses": []
+    },
+    "3OH-5Me-Pro": {
+      "abbr": "3OH-5Me-Pro",
+      "name": "3-hydroxy-5-methyl-proline",
+      "formula": "C6H9NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "3OH-Pro": {
+      "abbr": "3OH-Pro",
+      "name": "3-hydroxy-proline",
+      "formula": "C5H7NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "3d-NMe-Bmt": {
+      "abbr": "3d-NMe-Bmt",
+      "name": "3-desoxy-methyl-4-butenyl-4-methyl-threonine",
+      "formula": "C10H17NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "4Cl-Thr": {
+      "abbr": "4Cl-Thr",
+      "name": "4-chloro-threonine",
+      "formula": "C4H6ClNO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "4Me-D-Hva": {
+      "abbr": "4Me-D-Hva",
+      "name": "4-methyl-D-2-hydroxy-valeric acid",
+      "formula": "C6H10O2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "4Me-Pro": {
+      "abbr": "4Me-Pro",
+      "name": "4-methyl-proline",
+      "formula": "C6H9NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "4OH-D-Ph-Lac": {
+      "abbr": "4OH-D-Ph-Lac",
+      "name": "4-hydroxy-D-phenyl-lactate",
+      "formula": "C9H8O3",
+      "category": "NRPS",
+      "losses": []
+    },
+    "4OH-Pro": {
+      "abbr": "4OH-Pro",
+      "name": "4-hydroxy-proline",
+      "formula": "C5H7NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "4OH-Thr": {
+      "abbr": "4OH-Thr",
+      "name": "4-hydroxy-threonine",
+      "formula": "C4H7NO3",
+      "category": "NRPS",
+      "losses": []
+    },
+    "4oxo-5Me-Pro": {
+      "abbr": "4oxo-5Me-Pro",
+      "name": "4-oxo-5-methyl-proline",
+      "formula": "C6H7NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "4oxo-Hpr": {
+      "abbr": "4oxo-Hpr",
+      "name": "4-oxo-homoproline",
+      "formula": "C6H7NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "4oxo-Pro": {
+      "abbr": "4oxo-Pro",
+      "name": "4-oxo-proline",
+      "formula": "C5H5NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "4oxo-Van": {
+      "abbr": "4oxo-Van",
+      "name": "4-oxo-vancosamine",
+      "formula": "C7H11NO2",
+      "category": "CS",
+      "losses": []
+    },
+    "5Me-Pro": {
+      "abbr": "5Me-Pro",
+      "name": "5-methyl-proline",
+      "formula": "C6H9NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "5OH-Cap": {
+      "abbr": "5OH-Cap",
+      "name": "5-hydroxy-capreomycidine",
+      "formula": "C6H10N4O2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "ADMAdda": {
+      "abbr": "ADMAdda",
+      "name": "O-acetyl-O-demethyl-Adda.",
+      "formula": "C21H27NO3",
+      "category": "PKS",
+      "losses": []
+    },
+    "Aad": {
+      "abbr": "Aad",
+      "name": "2-amino-adipic acid",
+      "formula": "C6H9NO3",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Abu": {
+      "abbr": "Abu",
+      "name": "2-amino-butyric acid",
+      "formula": "C4H7NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Ac-Aib": {
+      "abbr": "Ac-Aib",
+      "name": "N-acetyl-2-amino-isobutyric acid",
+      "formula": "C6H9NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Ac-Ival": {
+      "abbr": "Ac-Ival",
+      "name": "N-acetyl-isovaline",
+      "formula": "C7H11NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Ac-OH-Orn": {
+      "abbr": "Ac-OH-Orn",
+      "name": "N-acetyl-hydroxy-ornithine",
+      "formula": "C7H12N2O3",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Ac-Phe": {
+      "abbr": "Ac-Phe",
+      "name": "N-acetyl-phenylalanine",
+      "formula": "C11H11NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Ac-Ser": {
+      "abbr": "Ac-Ser",
+      "name": "O-acetyl-serine",
+      "formula": "C5H7NO3",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Ac-Trp": {
+      "abbr": "Ac-Trp",
+      "name": "N-acetyl-tryptophan",
+      "formula": "C13H12N2O2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Ac-Val": {
+      "abbr": "Ac-Val",
+      "name": "N-acetyl-valine",
+      "formula": "C7H11NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Aca": {
+      "abbr": "Aca",
+      "name": "anticapsin",
+      "formula": "C9H11NO3",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Aco": {
+      "abbr": "Aco",
+      "name": "L-acosamine",
+      "formula": "C6H11NO2",
+      "category": "CS",
+      "losses": []
+    },
+    "Act": {
+      "abbr": "Act",
+      "name": "L-actinosamine",
+      "formula": "C7H13NO2",
+      "category": "CS",
+      "losses": []
+    },
+    "Adda": {
+      "abbr": "Adda",
+      "name": "3-amino-9-methoxy-2,6,8-trimethyl-10-phenyldeca-4,6-dienoic acid",
+      "formula": "C20H27NO2",
+      "category": "PKS",
+      "losses": [
+        "C9H11O"
+      ]
+    },
+    "Agdha": {
+      "abbr": "Agdha",
+      "name": "4-amino-7-guanidino-2,3-dihydroxy-heptanoic acid",
+      "formula": "C8H16N4O3",
+      "category": "Other",
+      "losses": []
+    },
+    "Ahad": {
+      "abbr": "Ahad",
+      "name": "alpha-amino-hydroxy-adipic acid",
+      "formula": "C6H9NO4",
+      "category": "Unknown",
+      "losses": []
+    },
+    "Ahda": {
+      "abbr": "Ahda",
+      "name": "b-amino-a-hydroxy-decanoic acid",
+      "formula": "C10H19NO2",
+      "category": "PKS",
+      "losses": [
+        "C7H15"
+      ]
+    },
+    "Ahp": {
+      "abbr": "Ahp",
+      "name": "3-amino-6-hydroxy-2-piperidone",
+      "formula": "C9H14N2O4",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Ahv": {
+      "abbr": "Ahv",
+      "name": "alpha-amino-hydroxy-phenyl-valeric acid",
+      "formula": "C11H13NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Aib": {
+      "abbr": "Aib",
+      "name": "2-amino-isobutyric acid",
+      "formula": "C4H7NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Ala": {
+      "abbr": "Ala",
+      "name": "alanine",
+      "formula": "C3H5NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Ala-Thz": {
+      "abbr": "Ala-Thz",
+      "name": "alanine-thiazole",
+      "formula": "C6H6N2OS",
+      "category": "Unknown",
+      "losses": []
+    },
+    "Amv": {
+      "abbr": "Amv",
+      "name": "alpha-amino-methoxy-phenyl-valeric acid",
+      "formula": "C12H15NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Apv": {
+      "abbr": "Apv",
+      "name": "alpha-amino-phenyl-valeric acid",
+      "formula": "C11H13NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Ara": {
+      "abbr": "Ara",
+      "name": "arabinose",
+      "formula": "C5H8O4",
+      "category": "CS",
+      "losses": []
+    },
+    "Arg": {
+      "abbr": "Arg",
+      "name": "arginine",
+      "formula": "C6H12N4O",
+      "category": "NRPS",
+      "losses": [
+        "NH3",
+        "CH5N3",
+        "CN2H2",
+        "CHN3H6"
+      ]
+    },
+    "Argal": {
+      "abbr": "Argal",
+      "name": "arginal",
+      "formula": "C6H12N4",
+      "category": "Unknown",
+      "losses": []
+    },
+    "Asn": {
+      "abbr": "Asn",
+      "name": "asparagine",
+      "formula": "C4H6N2O2",
+      "category": "NRPS",
+      "losses": [
+        "NH3"
+      ]
+    },
+    "Asp": {
+      "abbr": "Asp",
+      "name": "aspartic Acid",
+      "formula": "C4H5NO3",
+      "category": "NRPS",
+      "losses": [
+        "H2O"
+      ]
+    },
+    "Azd": {
+      "abbr": "Azd",
+      "name": "aziridine-dicarboxylic acid",
+      "formula": "C4H3NO3",
+      "category": "Unknown",
+      "losses": []
+    },
+    "Bmt": {
+      "abbr": "Bmt",
+      "name": "4-butenyl-4-methyl-threonine",
+      "formula": "C9H15NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Br-OH-Trp": {
+      "abbr": "Br-OH-Trp",
+      "name": "2-bromo-5-hydroxy-tryptophan",
+      "formula": "C11H9BrN2O2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "Br-Phe": {
+      "abbr": "Br-Phe",
+      "name": "bromo-phenylalanine",
+      "formula": "C9H8BrNO",
+      "category": "Unknown",
+      "losses": []
+    },
+    "Br-Trp": {
+      "abbr": "Br-Trp",
+      "name": "5-bromo-tryptophan",
+      "formula": "C11H9BrN2O",
+      "category": "Unknown",
+      "losses": []
+    },
+    "Br-Tyr": {
+      "abbr": "Br-Tyr",
+      "name": "bromo-tyrosine",
+      "formula": "C9H8BrNO2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "Bz": {
+      "abbr": "Bz",
+      "name": "benzoic acid",
+      "formula": "C7H4O",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C10:0": {
+      "abbr": "C10:0",
+      "name": "decanoic acid",
+      "formula": "C10H18O",
+      "category": "FAS",
+      "losses": []
+    },
+    "C10:0-Me(2)-OH(3)": {
+      "abbr": "C10:0-Me(2)-OH(3)",
+      "name": "3-hydroxy-2-methyl-decanoic acid",
+      "formula": "C11H20O2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C10:0-Me(2.2.4)-OH(3)-OMe(7)": {
+      "abbr": "C10:0-Me(2.2.4)-OH(3)-OMe(7)",
+      "name": "3-hydroxy-2,2,4-trimethyl-7-methoxy-decanoic acid",
+      "formula": "C14H26O3",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C10:0-Me(2.2.4)-OH(3.7)": {
+      "abbr": "C10:0-Me(2.2.4)-OH(3.7)",
+      "name": "3-hydroxy-2,2,4-trimethyl-7-hydroxy-decanoic acid",
+      "formula": "C13H24O3",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C10:0-Me(2.4)-oxo(9)": {
+      "abbr": "C10:0-Me(2.4)-oxo(9)",
+      "name": "9-oxo-2,4-dimethyl-decanoic acid",
+      "formula": "C12H20O2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C10:0-Me(4)-OH(3)": {
+      "abbr": "C10:0-Me(4)-OH(3)",
+      "name": "3-hydroxy-4-methyl-decanoic acid",
+      "formula": "C11H20O2",
+      "category": "FAS",
+      "losses": []
+    },
+    "C10:0-NH2(2)-Ep(9)-oxo(8)": {
+      "abbr": "C10:0-NH2(2)-Ep(9)-oxo(8)",
+      "name": "2-amino-9,10-epoxi-8-oxo-decanoic acid",
+      "formula": "C10H15NO3",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C10:0-NH2(2)-oxo(8)": {
+      "abbr": "C10:0-NH2(2)-oxo(8)",
+      "name": "2-amino-8-oxo-decanoic acid",
+      "formula": "C10H17NO2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C10:0-OH(3)": {
+      "abbr": "C10:0-OH(3)",
+      "name": "3-hydroxy-decanoic acid",
+      "formula": "C10H18O2",
+      "category": "FAS",
+      "losses": []
+    },
+    "C10:0-OH(8)-NH2(2)": {
+      "abbr": "C10:0-OH(8)-NH2(2)",
+      "name": "8-hydroxy-2-amino-decanoic acid",
+      "formula": "C10H19NO2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C10:0-OH(9)-NH2(2)": {
+      "abbr": "C10:0-OH(9)-NH2(2)",
+      "name": "9-hydroxy-2-amino-decanoic acid",
+      "formula": "C10H19NO2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C10:0-OH(9)-NH2(2)-oxo(8)": {
+      "abbr": "C10:0-OH(9)-NH2(2)-oxo(8)",
+      "name": "9-hydroxy-2-amino-8-oxo-decanoic acid",
+      "formula": "C10H17NO3",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C10:0:1(9)-Me(2.4)": {
+      "abbr": "C10:0:1(9)-Me(2.4)",
+      "name": "2,4-dimethyl-dec-9-ynoic acid",
+      "formula": "C12H18O",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C10:2(7.9)-OH(2.4.5)-NH2(3)-ePh(10)": {
+      "abbr": "C10:2(7.9)-OH(2.4.5)-NH2(3)-ePh(10)",
+      "name": "3-amino-10-(p-ethoxyphenyl)-2,4,5-trihydroxy-deca-7,9-dienoic acid",
+      "formula": "C18H23NO5",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C11:0-Me(2)-OH(3)": {
+      "abbr": "C11:0-Me(2)-OH(3)",
+      "name": "3-hydroxy-2-methyl-undecanoic acid",
+      "formula": "C12H22O2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C11:0-OH(3)": {
+      "abbr": "C11:0-OH(3)",
+      "name": "3-hydroxy-undecanoic acid",
+      "formula": "C11H20O2",
+      "category": "FAS",
+      "losses": []
+    },
+    "C11:2(t2.t8)-Me(2.6.8)-OH(5.7)": {
+      "abbr": "C11:2(t2.t8)-Me(2.6.8)-OH(5.7)",
+      "name": "2,6,8-trimethyl-5,7-dihydroxy-trans2,trans8-undecenoic acid",
+      "formula": "C14H22O3",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C12:0": {
+      "abbr": "C12:0",
+      "name": "dodecanoic acid",
+      "formula": "C12H22O",
+      "category": "FAS",
+      "losses": []
+    },
+    "C12:0-OH(3)": {
+      "abbr": "C12:0-OH(3)",
+      "name": "3-hydroxy-dodecanoic acid",
+      "formula": "C12H22O2",
+      "category": "FAS",
+      "losses": []
+    },
+    "C12:1(11)-Me(6)-OH(2.4.5)-NH2(3)-mPhe(11)": {
+      "abbr": "C12:1(11)-Me(6)-OH(2.4.5)-NH2(3)-mPhe(11)",
+      "name": "3-amino-6-methyl-12-(p-methoxyphenyl)-2,4,5-trihydroxydodec-11-enoic acid",
+      "formula": "C20H29NO5",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C12:1(5)": {
+      "abbr": "C12:1(5)",
+      "name": "2-methyl-5-dodecenoic acid",
+      "formula": "C12H20O",
+      "category": "FAS",
+      "losses": []
+    },
+    "C12:1(5)-OH(3)": {
+      "abbr": "C12:1(5)-OH(3)",
+      "name": "3-hydroxy-5-dodecenoic acid",
+      "formula": "C12H20O2",
+      "category": "FAS",
+      "losses": []
+    },
+    "C12:3(7.9.11)-Me(6)-OH(2.4.5)-NH2(3)-Ph(12)": {
+      "abbr": "C12:3(7.9.11)-Me(6)-OH(2.4.5)-NH2(3)-Ph(12)",
+      "name": "3-amino-6-methyl-12-phenyl-2,4,5-trihydroxy-dodeca-7,9,11-trienoic acid",
+      "formula": "C19H23NO4",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C12:3(7.9.11)-Me(6.10)-OH(2.4.5)-NH2(3)-Ph(12)": {
+      "abbr": "C12:3(7.9.11)-Me(6.10)-OH(2.4.5)-NH2(3)-Ph(12)",
+      "name": "3-amino-6,10-dimethyl-12-phenyl-2,4,5-trihydroxy-dodeca-7,9,11-trienoic acid",
+      "formula": "C20H25NO4",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C13:0-NH2(3)": {
+      "abbr": "C13:0-NH2(3)",
+      "name": "3-amino-tridecanoic acid",
+      "formula": "C13H25NO",
+      "category": "FAS",
+      "losses": []
+    },
+    "C13:0-OH(3)": {
+      "abbr": "C13:0-OH(3)",
+      "name": "3-hydroxy-tridecanoic acid",
+      "formula": "C13H24O2",
+      "category": "FAS",
+      "losses": []
+    },
+    "C13:2(t4.t6)-OH(2.3)": {
+      "abbr": "C13:2(t4.t6)-OH(2.3)",
+      "name": "2,3-dihydroxy-trans4,trans6-tridecenoic acid",
+      "formula": "C13H20O3",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C14:0": {
+      "abbr": "C14:0",
+      "name": "tetradecanoic acid",
+      "formula": "C14H26O",
+      "category": "FAS",
+      "losses": []
+    },
+    "C14:0-NH2(3)": {
+      "abbr": "C14:0-NH2(3)",
+      "name": "3-amino-tetradecanoic acid",
+      "formula": "C14H27NO",
+      "category": "FAS",
+      "losses": []
+    },
+    "C14:0-OH(3)": {
+      "abbr": "C14:0-OH(3)",
+      "name": "3-hydroxy-tetradecanoic acid",
+      "formula": "C14H26O2",
+      "category": "FAS",
+      "losses": []
+    },
+    "C14:0-OH(3.4)": {
+      "abbr": "C14:0-OH(3.4)",
+      "name": "3,4-dihydroxy-tetradecanoic acid",
+      "formula": "C14H26O3",
+      "category": "FAS",
+      "losses": []
+    },
+    "C14:1(7)": {
+      "abbr": "C14:1(7)",
+      "name": "7-tetradecenoic acid",
+      "formula": "C14H24O",
+      "category": "FAS",
+      "losses": []
+    },
+    "C14:2(t4.t6)-OH(2.3)": {
+      "abbr": "C14:2(t4.t6)-OH(2.3)",
+      "name": "2,3-dihydroxy-trans4,trans6-tetradecenoic acid",
+      "formula": "C14H22O3",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C15:0-NH2(3)": {
+      "abbr": "C15:0-NH2(3)",
+      "name": "3-amino-pentadecanoic acid",
+      "formula": "C15H29NO",
+      "category": "FAS",
+      "losses": []
+    },
+    "C15:0-OH(3)": {
+      "abbr": "C15:0-OH(3)",
+      "name": "3-hydroxy-pentadecanoic acid",
+      "formula": "C15H28O2",
+      "category": "FAS",
+      "losses": []
+    },
+    "C15:2(t4.t6)-OH(2.3)": {
+      "abbr": "C15:2(t4.t6)-OH(2.3)",
+      "name": "2,3-dihydroxy-trans4,trans6-pentadecenoic acid",
+      "formula": "C15H24O3",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C16:0": {
+      "abbr": "C16:0",
+      "name": "hexadecanoic acid",
+      "formula": "C16H30O",
+      "category": "FAS",
+      "losses": []
+    },
+    "C16:0-NH2(3)": {
+      "abbr": "C16:0-NH2(3)",
+      "name": "3-amino-hexadecanoic acid",
+      "formula": "C16H31NO",
+      "category": "FAS",
+      "losses": []
+    },
+    "C16:0-OH(3)": {
+      "abbr": "C16:0-OH(3)",
+      "name": "3-hydroxy-hexadecanoic acid",
+      "formula": "C16H30O2",
+      "category": "FAS",
+      "losses": []
+    },
+    "C16:0-OH(3.4)": {
+      "abbr": "C16:0-OH(3.4)",
+      "name": "3,4-dihydroxy-hexadecanoic acid",
+      "formula": "C16H30O3",
+      "category": "FAS",
+      "losses": []
+    },
+    "C16:1(7)": {
+      "abbr": "C16:1(7)",
+      "name": "7-hexadecenoic acid",
+      "formula": "C16H28O",
+      "category": "FAS",
+      "losses": []
+    },
+    "C16:1(9)": {
+      "abbr": "C16:1(9)",
+      "name": "9-hexadecenoic acid",
+      "formula": "C16H28O",
+      "category": "FAS",
+      "losses": []
+    },
+    "C16:1(9)-OH(3)": {
+      "abbr": "C16:1(9)-OH(3)",
+      "name": "3-hydroxy-9-hexadecenoic acid",
+      "formula": "C16H28O2",
+      "category": "FAS",
+      "losses": []
+    },
+    "C18:1(9)": {
+      "abbr": "C18:1(9)",
+      "name": "9-octadecenoic acid",
+      "formula": "C18H32O",
+      "category": "FAS",
+      "losses": []
+    },
+    "C18:1(9)-OH(3)": {
+      "abbr": "C18:1(9)-OH(3)",
+      "name": "3-hydroxy-9-octadecenoic acid",
+      "formula": "C18H32O2",
+      "category": "FAS",
+      "losses": []
+    },
+    "C4:0": {
+      "abbr": "C4:0",
+      "name": "butanoic acid",
+      "formula": "C4H6O",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C4:0-Me(2)": {
+      "abbr": "C4:0-Me(2)",
+      "name": "2-methyl-butanoic acid",
+      "formula": "C5H8O",
+      "category": "FAS",
+      "losses": []
+    },
+    "C4:0-OH(2)-Ep(3)": {
+      "abbr": "C4:0-OH(2)-Ep(3)",
+      "name": "2-hydroxy-3-epoxy-butanoic acid",
+      "formula": "C4H4O3",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C4:0-OH(2.3)": {
+      "abbr": "C4:0-OH(2.3)",
+      "name": "2,3-dihydroxy-butanoic acid",
+      "formula": "C4H6O3",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C4:0-OH(2.3)-Cl(4)": {
+      "abbr": "C4:0-OH(2.3)-Cl(4)",
+      "name": "2,3-dihydroxy-4-chloro-butanoic acid",
+      "formula": "C4H5ClO3",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C4:0-OH(2.3.4)": {
+      "abbr": "C4:0-OH(2.3.4)",
+      "name": "2,3,4-trihydroxy-butanoic acid",
+      "formula": "C4H6O4",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C4:0-OH(3)": {
+      "abbr": "C4:0-OH(3)",
+      "name": "3-hydroxybutanoic acid",
+      "formula": "C4H6O2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C4:1(3)-OH(2)": {
+      "abbr": "C4:1(3)-OH(2)",
+      "name": "2-hydroxy-3-butenoic acid",
+      "formula": "C4H4O2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C5:0-NH2(3)": {
+      "abbr": "C5:0-NH2(3)",
+      "name": "3-amino-pentanoic acid",
+      "formula": "C5H9NO",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C6:0": {
+      "abbr": "C6:0",
+      "name": "hexanoic acid",
+      "formula": "C6H10O",
+      "category": "FAS",
+      "losses": []
+    },
+    "C6:0-Ep(2)": {
+      "abbr": "C6:0-Ep(2)",
+      "name": "2-epoxy-hexanoic acid",
+      "formula": "C6H8O2",
+      "category": "FAS",
+      "losses": []
+    },
+    "C6:0-Me(2)-NH2(3)": {
+      "abbr": "C6:0-Me(2)-NH2(3)",
+      "name": "2-methyl-3-amino-hexadecanoic acid",
+      "formula": "C7H13NO",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C6:0-Me(2.2)-OH(3)": {
+      "abbr": "C6:0-Me(2.2)-OH(3)",
+      "name": "2,2-dimethyl-3-hydroxy-hexanoic acid",
+      "formula": "C8H14O2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C6:0-Me(5.5)-oxo(2)": {
+      "abbr": "C6:0-Me(5.5)-oxo(2)",
+      "name": "5,5-dimethyl-2-oxo-hexanoic acid",
+      "formula": "C8H12O2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C6:0-OH(3)": {
+      "abbr": "C6:0-OH(3)",
+      "name": "3-hydroxy-hexanoic acid",
+      "formula": "C6H10O2",
+      "category": "FAS",
+      "losses": []
+    },
+    "C6:0-OH(3.5)-NH2(4)": {
+      "abbr": "C6:0-OH(3.5)-NH2(4)",
+      "name": "3.5-hydroxy-4-amino-hexadecanoic acid",
+      "formula": "C6H11NO3",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C6:0-OMe(3)": {
+      "abbr": "C6:0-OMe(3)",
+      "name": "3-methoxy-hexanoic acid",
+      "formula": "C7H12O2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C6:2(t2.t4)": {
+      "abbr": "C6:2(t2.t4)",
+      "name": "trans2,trans4-dihexaneic acid",
+      "formula": "C6H6O",
+      "category": "PKS",
+      "losses": []
+    },
+    "C7:0": {
+      "abbr": "C7:0",
+      "name": "heptanoic acid",
+      "formula": "C7H12O",
+      "category": "FAS",
+      "losses": []
+    },
+    "C7:0-Me(2)-OH(3)": {
+      "abbr": "C7:0-Me(2)-OH(3)",
+      "name": "3-hydroxy-2-methyl-heptanoic acid",
+      "formula": "C8H14O2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C7:0-OH(3)": {
+      "abbr": "C7:0-OH(3)",
+      "name": "3-hydroxy-heptanoic acid",
+      "formula": "C7H12O2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C8:0": {
+      "abbr": "C8:0",
+      "name": "otanoic acid",
+      "formula": "C8H14O",
+      "category": "FAS",
+      "losses": []
+    },
+    "C8:0-Me(2.2)-OH(3)": {
+      "abbr": "C8:0-Me(2.2)-OH(3)",
+      "name": "2,2-dimethyl-3-hydroxy-octanoic acid",
+      "formula": "C10H18O2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C8:0-Me(4)-OH(3)": {
+      "abbr": "C8:0-Me(4)-OH(3)",
+      "name": "4-methyl-3-hydroxy-octanoic acid",
+      "formula": "C9H16O2",
+      "category": "FAS",
+      "losses": []
+    },
+    "C8:0-OH(3)": {
+      "abbr": "C8:0-OH(3)",
+      "name": "3-hydroxy-octanoic acid",
+      "formula": "C8H14O2",
+      "category": "FAS",
+      "losses": []
+    },
+    "C8:0:1(7)": {
+      "abbr": "C8:0:1(7)",
+      "name": "oct-7-ynoic acid",
+      "formula": "C8H10O",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C8:0:1(7)-Me(2)": {
+      "abbr": "C8:0:1(7)-Me(2)",
+      "name": "2-methyl-act-7-ynoic acid",
+      "formula": "C9H12O",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C8:0:1(7)-Me(2)-NH2(3)": {
+      "abbr": "C8:0:1(7)-Me(2)-NH2(3)",
+      "name": "3-amino-2-methyl-oct-7-ynoic acid",
+      "formula": "C9H13NO",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C8:0:1(7)-Me(2)-OH(3)": {
+      "abbr": "C8:0:1(7)-Me(2)-OH(3)",
+      "name": "2-methyl-3-hydroxy-7-octynoic acid",
+      "formula": "C9H12O2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C8:0:1(7)-Me(2.2)-OH(3)": {
+      "abbr": "C8:0:1(7)-Me(2.2)-OH(3)",
+      "name": "2,2-dimethyl-3-hydroxy-7-octynoic acid",
+      "formula": "C10H14O2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C8:1(7)-Me(2.2)-OH(3)": {
+      "abbr": "C8:1(7)-Me(2.2)-OH(3)",
+      "name": "2,2-dimethyl-3-hydroxy-7-octenoic acid",
+      "formula": "C10H16O2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C8:1(7)-OH(2.4.5)-NH2(3)-Ph(8)": {
+      "abbr": "C8:1(7)-OH(2.4.5)-NH2(3)-Ph(8)",
+      "name": "3-amino-8-phenyl-2.4.5-trihydroxy-oct-7-enoic acid",
+      "formula": "C14H17NO4",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C8:2(2.t4)": {
+      "abbr": "C8:2(2.t4)",
+      "name": "2,trans4-octenoic acid",
+      "formula": "C8H10O",
+      "category": "FAS",
+      "losses": []
+    },
+    "C8:2(5.7)-Me(6)-OH(4)-NH2(3)-Ph(8)": {
+      "abbr": "C8:2(5.7)-Me(6)-OH(4)-NH2(3)-Ph(8)",
+      "name": "3-amino-4-hydroxy-6-methyl-8-phenyl-5,7-octadienoic acid",
+      "formula": "C15H17NO2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C8:2(5.7)-Me(6)-OH(4)-NH2(3)-brPh(8)": {
+      "abbr": "C8:2(5.7)-Me(6)-OH(4)-NH2(3)-brPh(8)",
+      "name": "3-amino-4-hydroxy-6-methyl-8-(p-bromophenyl)-5,7-octadienoic acid",
+      "formula": "C15H16BrNO2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C8:3(t2.t4.t6)": {
+      "abbr": "C8:3(t2.t4.t6)",
+      "name": "trans2,trans4,trans6-trioctaneic acid",
+      "formula": "C8H8O",
+      "category": "PKS",
+      "losses": []
+    },
+    "C9:0": {
+      "abbr": "C9:0",
+      "name": "nonanoic acid",
+      "formula": "C9H16O",
+      "category": "FAS",
+      "losses": []
+    },
+    "C9:0-Me(2)-OH(3)": {
+      "abbr": "C9:0-Me(2)-OH(3)",
+      "name": "3-hydroxy-2-methyl-nonanoic acid",
+      "formula": "C10H18O2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C9:0-OH(3)": {
+      "abbr": "C9:0-OH(3)",
+      "name": "3-hydroxy-nonanoic acid",
+      "formula": "C9H16O2",
+      "category": "FAS",
+      "losses": []
+    },
+    "C9:1(4)-Me(2.4.6)-OH(8)": {
+      "abbr": "C9:1(4)-Me(2.4.6)-OH(8)",
+      "name": "8-hydroxy-2,4,6-trimethyl-4-nonenoic acid",
+      "formula": "C12H20O2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C9:1(8)-Me(2)": {
+      "abbr": "C9:1(8)-Me(2)",
+      "name": "2-methyl-8-noneic acid",
+      "formula": "C10H16O",
+      "category": "Unknown",
+      "losses": []
+    },
+    "C9:1(Me4)-Me(2.4.6)-OH(8)-Oxo(5)": {
+      "abbr": "C9:1(Me4)-Me(2.4.6)-OH(8)-Oxo(5)",
+      "name": "5-oxo-8-hydroxy-2,4,6-trimethyl-4-nonaneic acid",
+      "formula": "C12H18O3",
+      "category": "Unknown",
+      "losses": []
+    },
+    "CFA": {
+      "abbr": "CFA",
+      "name": "coronafacic acid",
+      "formula": "C12H14O2",
+      "category": "PKS",
+      "losses": []
+    },
+    "CMA": {
+      "abbr": "CMA",
+      "name": "coronamic acid",
+      "formula": "C6H9NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "COOH-Qui": {
+      "abbr": "COOH-Qui",
+      "name": "2-carboxy-quinoxaline",
+      "formula": "C9H4N2O",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Cap": {
+      "abbr": "Cap",
+      "name": "capreomycidine",
+      "formula": "C6H10N4O",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Choi": {
+      "abbr": "Choi",
+      "name": "2-carboxy-6-hydroxy-octahydro-indole",
+      "formula": "C9H13NO2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "ChrA": {
+      "abbr": "ChrA",
+      "name": "azotobactins chromophore",
+      "formula": "C14H11N3O4",
+      "category": "NRPS",
+      "losses": []
+    },
+    "ChrAct": {
+      "abbr": "ChrAct",
+      "name": "actinomycin chromophore",
+      "formula": "C16H10N2O5",
+      "category": "Other",
+      "losses": []
+    },
+    "ChrD": {
+      "abbr": "ChrD",
+      "name": "5,6-dihydro-pyoverdin chromophore",
+      "formula": "C13H15N3O3",
+      "category": "NRPS",
+      "losses": []
+    },
+    "ChrI": {
+      "abbr": "ChrI",
+      "name": "iso-pyoverdin chromophore",
+      "formula": "C13H13N3O3",
+      "category": "NRPS",
+      "losses": []
+    },
+    "ChrP": {
+      "abbr": "ChrP",
+      "name": "pyoverdin chromophore",
+      "formula": "C13H13N3O3",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Cit": {
+      "abbr": "Cit",
+      "name": "citrulline",
+      "formula": "C6H11N3O2",
+      "category": "NRPS",
+      "losses": [
+        "HNCO"
+      ]
+    },
+    "Cl-Hpg": {
+      "abbr": "Cl-Hpg",
+      "name": "3-chloro-4-hydroxy-phenylglycine",
+      "formula": "C8H6ClNO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Cl-Ile": {
+      "abbr": "Cl-Ile",
+      "name": "chloro-isoleucine",
+      "formula": "C6H10ClNO",
+      "category": "Unknown",
+      "losses": []
+    },
+    "Cl-NMe-Tyr": {
+      "abbr": "Cl-NMe-Tyr",
+      "name": "chloro-N-methyl-tyrosine",
+      "formula": "C10H10ClNO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Cl-Tyr": {
+      "abbr": "Cl-Tyr",
+      "name": "chloro-tyrosine",
+      "formula": "C9H8ClNO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Cl2-Hpg": {
+      "abbr": "Cl2-Hpg",
+      "name": "3,5-dichloro-4-hydroxy-phenylglycine",
+      "formula": "C8H5Cl2NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Cl2-NMe-Leu": {
+      "abbr": "Cl2-NMe-Leu",
+      "name": "di-chloro-N-methyl-leucine",
+      "formula": "C7H11Cl2NO",
+      "category": "Unknown",
+      "losses": []
+    },
+    "Cl2-NMe-dhLeu": {
+      "abbr": "Cl2-NMe-dhLeu",
+      "name": "di-chloro-N-methyl-dehydro-leucine",
+      "formula": "C7H9Cl2NO",
+      "category": "Unknown",
+      "losses": []
+    },
+    "Cl2-Pro": {
+      "abbr": "Cl2-Pro",
+      "name": "3,4-dichloro-proline",
+      "formula": "C5H5Cl2NO",
+      "category": "Unknown",
+      "losses": []
+    },
+    "Cl3-2OH-NMe-Leu": {
+      "abbr": "Cl3-2OH-NMe-Leu",
+      "name": "tri-chloro-2-hydroxy-N-methyl-leucine",
+      "formula": "C7H10Cl3NO2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "Cl3-5OH-NMe-Leu": {
+      "abbr": "Cl3-5OH-NMe-Leu",
+      "name": "tri-chloro-5-hydroxy-N-methyl-leucine",
+      "formula": "C7H10Cl3NO2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "Cl3-NMe-Leu": {
+      "abbr": "Cl3-NMe-Leu",
+      "name": "tri-chloro-N-methyl-leucine",
+      "formula": "C7H10Cl3NO",
+      "category": "Unknown",
+      "losses": []
+    },
+    "Cl3-NMe-dhLeu": {
+      "abbr": "Cl3-NMe-dhLeu",
+      "name": "tri-chloro-N-methyl-dehydro-leucine",
+      "formula": "C7H8Cl3NO",
+      "category": "Unknown",
+      "losses": []
+    },
+    "Cys": {
+      "abbr": "Cys",
+      "name": "cysteine",
+      "formula": "C3H5NOS",
+      "category": "NRPS",
+      "losses": []
+    },
+    "CysA": {
+      "abbr": "CysA",
+      "name": "cysteic acid",
+      "formula": "C3H5NO4S",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-3OMe-Ala": {
+      "abbr": "D-3OMe-Ala",
+      "name": "D-3-methoxy-alanine",
+      "formula": "C4H7NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-4OH-Pro": {
+      "abbr": "D-4OH-Pro",
+      "name": "D-hydroxy-proline",
+      "formula": "C5H7NO2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "D-Abu": {
+      "abbr": "D-Abu",
+      "name": "D-2-amino-butyric acid",
+      "formula": "C4H7NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-Ac-OH-Orn": {
+      "abbr": "D-Ac-OH-Orn",
+      "name": "D-N-acetyl-hydroxy-ornithine",
+      "formula": "C7H12N2O3",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-Ala": {
+      "abbr": "D-Ala",
+      "name": "D-alanine",
+      "formula": "C3H5NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-Ara": {
+      "abbr": "D-Ara",
+      "name": "D-arabinose",
+      "formula": "C5H8O4",
+      "category": "CS",
+      "losses": []
+    },
+    "D-Arg": {
+      "abbr": "D-Arg",
+      "name": "D-arginine",
+      "formula": "C6H12N4O",
+      "category": "NRPS",
+      "losses": [
+        "NH3",
+        "CH5N3",
+        "CN2H2",
+        "CHN3H6"
+      ]
+    },
+    "D-Asn": {
+      "abbr": "D-Asn",
+      "name": "D-asparagine",
+      "formula": "C4H6N2O2",
+      "category": "NRPS",
+      "losses": [
+        "NH3"
+      ]
+    },
+    "D-Asp": {
+      "abbr": "D-Asp",
+      "name": "D-aspartic Acid",
+      "formula": "C4H5NO3",
+      "category": "NRPS",
+      "losses": [
+        "H2O"
+      ]
+    },
+    "D-Br-NMe-Tyr": {
+      "abbr": "D-Br-NMe-Tyr",
+      "name": "D-3-bromo-N-methyl-tyrosine",
+      "formula": "C10H10BrNO2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "D-COOH-Trp": {
+      "abbr": "D-COOH-Trp",
+      "name": "D-2-carboxy-tryptophan",
+      "formula": "C12H10N2O3",
+      "category": "Unknown",
+      "losses": []
+    },
+    "D-Cit": {
+      "abbr": "D-Cit",
+      "name": "D-citrulline",
+      "formula": "C6H11N3O2",
+      "category": "NRPS",
+      "losses": [
+        "HNCO"
+      ]
+    },
+    "D-Cl-CONH2-Trp": {
+      "abbr": "D-Cl-CONH2-Trp",
+      "name": "D-6-chloro-N2-formamido-tryptophan",
+      "formula": "C12H10ClN3O2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "D-Cl-NMe-Tyr": {
+      "abbr": "D-Cl-NMe-Tyr",
+      "name": "D-3-chloro-N-methyl-tyrosine",
+      "formula": "C10H10ClNO2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "D-Cl-OMe-Tyr": {
+      "abbr": "D-Cl-OMe-Tyr",
+      "name": "D-3-chloro-4-methoxy-tyrosine",
+      "formula": "C10H10ClNO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-Cl-Trp": {
+      "abbr": "D-Cl-Trp",
+      "name": "D-6?-chloro-tryptophan",
+      "formula": "C11H9ClN2O",
+      "category": "Unknown",
+      "losses": []
+    },
+    "D-Cys": {
+      "abbr": "D-Cys",
+      "name": "D-cysteine",
+      "formula": "C3H5NOS",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-CysA": {
+      "abbr": "D-CysA",
+      "name": "D-cysteic acid",
+      "formula": "C3H5NO4S",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-Dab": {
+      "abbr": "D-Dab",
+      "name": "D-2,4-diamino-butyric acid",
+      "formula": "C4H8N2O",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-Dbu": {
+      "abbr": "D-Dbu",
+      "name": "(2R,3R)-2,3-diamino-butyric acid",
+      "formula": "C4H8N2O",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-End": {
+      "abbr": "D-End",
+      "name": "D-enduracididine",
+      "formula": "C6H10N4O",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-F-ph-Gly": {
+      "abbr": "D-F-ph-Gly",
+      "name": "D-4-fluoro-phenyl-glycin",
+      "formula": "C8H6FNO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-Fo-OH-Orn": {
+      "abbr": "D-Fo-OH-Orn",
+      "name": "D-formyl-hydroxy-ornithine",
+      "formula": "C6H10N2O3",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-Gal": {
+      "abbr": "D-Gal",
+      "name": "D-galactose",
+      "formula": "C6H10O5",
+      "category": "CS",
+      "losses": []
+    },
+    "D-Glc": {
+      "abbr": "D-Glc",
+      "name": "D-glucose",
+      "formula": "C6H10O5",
+      "category": "CS",
+      "losses": []
+    },
+    "D-Gln": {
+      "abbr": "D-Gln",
+      "name": "D-glutamine",
+      "formula": "C5H8N2O2",
+      "category": "NRPS",
+      "losses": [
+        "NH3"
+      ]
+    },
+    "D-Glu": {
+      "abbr": "D-Glu",
+      "name": "D-glutamic acid",
+      "formula": "C5H7NO3",
+      "category": "NRPS",
+      "losses": [
+        "H2O"
+      ]
+    },
+    "D-Har": {
+      "abbr": "D-Har",
+      "name": "D-homoarginine",
+      "formula": "C7H10N4O2",
+      "category": "Unknown",
+      "losses": [
+        "NH3",
+        "CH5N3",
+        "CN2H2",
+        "CHN3H6"
+      ]
+    },
+    "D-Hiv": {
+      "abbr": "D-Hiv",
+      "name": "D-2-hydroxy-isovalerate",
+      "formula": "C5H8O2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-Hmp": {
+      "abbr": "D-Hmp",
+      "name": "D-2-hydroxy-3-methyl-pentanoic acid",
+      "formula": "C6H10O2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-Hpg": {
+      "abbr": "D-Hpg",
+      "name": "D-hydroxy-phenylglycine",
+      "formula": "C8H7NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-Hpr": {
+      "abbr": "D-Hpr",
+      "name": "D-homoproline",
+      "formula": "C6H9NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-Hse": {
+      "abbr": "D-Hse",
+      "name": "D-homoserine",
+      "formula": "C4H7NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-I-NMe-Tyr": {
+      "abbr": "D-I-NMe-Tyr",
+      "name": "D-3-iodo-N-methyl-tyrosine",
+      "formula": "C10H10INO2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "D-Ile": {
+      "abbr": "D-Ile",
+      "name": "D-isoleucine",
+      "formula": "C6H11NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-Ival": {
+      "abbr": "D-Ival",
+      "name": "D-isovaline",
+      "formula": "C5H9NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-Kyn": {
+      "abbr": "D-Kyn",
+      "name": "D-kynurenine",
+      "formula": "C10H10N2O2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-Lac": {
+      "abbr": "D-Lac",
+      "name": "D-lactic acid",
+      "formula": "C3H4O2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-Leu": {
+      "abbr": "D-Leu",
+      "name": "D-leucine",
+      "formula": "C6H11NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-Lys": {
+      "abbr": "D-Lys",
+      "name": "D-lysine",
+      "formula": "C6H12N2O",
+      "category": "NRPS",
+      "losses": [
+        "NH3"
+      ]
+    },
+    "D-Man": {
+      "abbr": "D-Man",
+      "name": "D-mannose",
+      "formula": "C6H10O5",
+      "category": "CS",
+      "losses": []
+    },
+    "D-MeO-Glu": {
+      "abbr": "D-MeO-Glu",
+      "name": "D-glutamic acid methyl-ester",
+      "formula": "C6H9NO3",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-N2Me-Asn": {
+      "abbr": "D-N2Me-Asn",
+      "name": "D-N2-methyl-asparagine",
+      "formula": "C5H8N2O2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-NFo-Ala": {
+      "abbr": "D-NFo-Ala",
+      "name": "D-N-formyl-alanine",
+      "formula": "C4H5NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-NMe-Leu": {
+      "abbr": "D-NMe-Leu",
+      "name": "D-N-methyl-leucine",
+      "formula": "C7H13NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-NMe-Nva": {
+      "abbr": "D-NMe-Nva",
+      "name": "D-N-methyl-norvaline",
+      "formula": "C6H11NO",
+      "category": "Unknown",
+      "losses": []
+    },
+    "D-NMe-OMe-Tyr": {
+      "abbr": "D-NMe-OMe-Tyr",
+      "name": "D-N,O-dimethyl-tyrosine",
+      "formula": "C11H13NO2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "D-NMe-Phe": {
+      "abbr": "D-NMe-Phe",
+      "name": "D-N-methyl-phenylalanine",
+      "formula": "C10H11NO",
+      "category": "Unknown",
+      "losses": []
+    },
+    "D-NMe-Ser": {
+      "abbr": "D-NMe-Ser",
+      "name": "N-methyl-D-serine",
+      "formula": "C4H7NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-NMe-Val": {
+      "abbr": "D-NMe-Val",
+      "name": "D-N-methyl-valine",
+      "formula": "C6H11NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-NMe-aIle": {
+      "abbr": "D-NMe-aIle",
+      "name": "D-N-methyl-allo-isoleucine",
+      "formula": "C7H13NO",
+      "category": "Unknown",
+      "losses": []
+    },
+    "D-Nva": {
+      "abbr": "D-Nva",
+      "name": "D-norvaline",
+      "formula": "C5H9NO",
+      "category": "Unknown",
+      "losses": []
+    },
+    "D-OH-Asn": {
+      "abbr": "D-OH-Asn",
+      "name": "D-hydroxy-asparagine",
+      "formula": "C4H6N2O3",
+      "category": "NRPS",
+      "losses": [
+        "H2O",
+        "NH3"
+      ]
+    },
+    "D-OH-Asp": {
+      "abbr": "D-OH-Asp",
+      "name": "D-hydroxy-aspartic acid",
+      "formula": "C4H5NO4",
+      "category": "NRPS",
+      "losses": [
+        "H2O"
+      ]
+    },
+    "D-OH-Orn": {
+      "abbr": "D-OH-Orn",
+      "name": "D-N5-hydroxy-ornithine",
+      "formula": "C5H10N2O2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-OH-cOrn": {
+      "abbr": "D-OH-cOrn",
+      "name": "D-hydroxy-cyclo-ornithine",
+      "formula": "C5H8N2O",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-OH-dHpg": {
+      "abbr": "D-OH-dHpg",
+      "name": "D-N-hydroxy-dehydro-hydroxy-phenylglycine",
+      "formula": "C8H5NO3",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-Orn": {
+      "abbr": "D-Orn",
+      "name": "D-ornithine",
+      "formula": "C5H10N2O",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-PO-Asn": {
+      "abbr": "D-PO-Asn",
+      "name": "D-phosphate-asparagine",
+      "formula": "C4H7N2O6P",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-Ph-Lac": {
+      "abbr": "D-Ph-Lac",
+      "name": "D-phenyl-lactate",
+      "formula": "C9H8O2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-Phe": {
+      "abbr": "D-Phe",
+      "name": "D-phenylalanine",
+      "formula": "C9H9NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-Pro": {
+      "abbr": "D-Pro",
+      "name": "D-proline",
+      "formula": "C5H7NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-Ser": {
+      "abbr": "D-Ser",
+      "name": "D-serine",
+      "formula": "C3H5NO2",
+      "category": "NRPS",
+      "losses": [
+        "H2O"
+      ]
+    },
+    "D-Thr": {
+      "abbr": "D-Thr",
+      "name": "D-threonine",
+      "formula": "C4H7NO2",
+      "category": "NRPS",
+      "losses": [
+        "H2O"
+      ]
+    },
+    "D-Trp": {
+      "abbr": "D-Trp",
+      "name": "D-tryptophan",
+      "formula": "C11H10N2O",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-Tyr": {
+      "abbr": "D-Tyr",
+      "name": "D-tyrosine",
+      "formula": "C9H9NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-Val": {
+      "abbr": "D-Val",
+      "name": "D-valine",
+      "formula": "C5H9NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-aIle": {
+      "abbr": "D-aIle",
+      "name": "D-allo-isoleucine",
+      "formula": "C6H11NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-aThr": {
+      "abbr": "D-aThr",
+      "name": "D-allo-threonine",
+      "formula": "C4H7NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-bMe-Asp": {
+      "abbr": "D-bMe-Asp",
+      "name": "D-beta-methyl-aspartic acid",
+      "formula": "C5H7NO3",
+      "category": "NRPS",
+      "losses": [
+        "H2O"
+      ]
+    },
+    "D-bMe-Gln": {
+      "abbr": "D-bMe-Gln",
+      "name": "D-beta-methyl-glutamine",
+      "formula": "C6H10N2O2",
+      "category": "NRPS",
+      "losses": [
+        "NH3"
+      ]
+    },
+    "D-bOH-Val": {
+      "abbr": "D-bOH-Val",
+      "name": "D-beta-hydroxy-valine",
+      "formula": "C5H9NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-bPhe": {
+      "abbr": "D-bPhe",
+      "name": "D-beta-phenylalanine",
+      "formula": "C9H9NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-ph-Gly": {
+      "abbr": "D-ph-Gly",
+      "name": "D-phenylglycine",
+      "formula": "C8H7NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "D-t-Leu": {
+      "abbr": "D-t-Leu",
+      "name": "D-tert-leucine",
+      "formula": "C6H11NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "DHMDA": {
+      "abbr": "DHMDA",
+      "name": "8,10-dimethyl-9-hydroxy-7-methoxy-tridecadienoic acid",
+      "formula": "C16H26O3",
+      "category": "Unknown",
+      "losses": []
+    },
+    "DHPT": {
+      "abbr": "DHPT",
+      "name": "dihydroxy-phenylthiazol group",
+      "formula": "C10H7NO3S",
+      "category": "NRPS",
+      "losses": []
+    },
+    "DMAdda": {
+      "abbr": "DMAdda",
+      "name": "O-demethyl-Adda",
+      "formula": "C19H25NO2",
+      "category": "PKS",
+      "losses": []
+    },
+    "DMOG": {
+      "abbr": "DMOG",
+      "name": "DHP-methyl-oxazolinyl group",
+      "formula": "C11H9NO4",
+      "category": "Other",
+      "losses": []
+    },
+    "Dab": {
+      "abbr": "Dab",
+      "name": "2,4-diamino-butyric acid",
+      "formula": "C4H8N2O",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Dap": {
+      "abbr": "Dap",
+      "name": "dolaproine",
+      "formula": "C9H15NO2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "Daz": {
+      "abbr": "Daz",
+      "name": "2,6-diamino-7-hydroxy-azelaic acid",
+      "formula": "C9H16N2O4",
+      "category": "Unknown",
+      "losses": []
+    },
+    "Dbu": {
+      "abbr": "Dbu",
+      "name": "(2S)-2,3-diamino-butyric acid",
+      "formula": "C4H8N2O",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Dhpg": {
+      "abbr": "Dhpg",
+      "name": "3,5-dihydroxy-phenylglycine",
+      "formula": "C8H7NO3",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Dil": {
+      "abbr": "Dil",
+      "name": "dola-isoleucine",
+      "formula": "C10H19NO2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "Doe": {
+      "abbr": "Doe",
+      "name": "dola-phenine",
+      "formula": "C11H10N2S",
+      "category": "Unknown",
+      "losses": []
+    },
+    "Dov": {
+      "abbr": "Dov",
+      "name": "dola-valine",
+      "formula": "C7H13NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Dpr": {
+      "abbr": "Dpr",
+      "name": "2,3-diamino-propionic acid",
+      "formula": "C3H6N2O",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Dpy": {
+      "abbr": "Dpy",
+      "name": "dola-pyrrolidone",
+      "formula": "C12H11NO",
+      "category": "Unknown",
+      "losses": []
+    },
+    "End": {
+      "abbr": "End",
+      "name": "enduracididine",
+      "formula": "C6H10N4O",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Epoxy-HMP-octenOOH": {
+      "abbr": "Epoxy-HMP-octenOOH",
+      "name": "7,8-expoxy-5-hydroxy-6-methyl-8-phenyl-2-octenoic acid",
+      "formula": "C15H16O3",
+      "category": "PKS",
+      "losses": [
+        "C8H7O",
+        "C10H11O"
+      ]
+    },
+    "Ere": {
+      "abbr": "Ere",
+      "name": "L-eremosamine",
+      "formula": "C7H13NO2",
+      "category": "CS",
+      "losses": []
+    },
+    "Et-Nva": {
+      "abbr": "Et-Nva",
+      "name": "alpha-ethyl-norvaline",
+      "formula": "C7H13NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Eta": {
+      "abbr": "Eta",
+      "name": "ethanolamine",
+      "formula": "C2H5N",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Fo-OH-Orn": {
+      "abbr": "Fo-OH-Orn",
+      "name": "N6-formyl-hydroxy-ornithine",
+      "formula": "C6H10N2O3",
+      "category": "NRPS",
+      "losses": []
+    },
+    "GSpd": {
+      "abbr": "GSpd",
+      "name": "guanyl-spermidine",
+      "formula": "C8H19N5",
+      "category": "Unknown",
+      "losses": []
+    },
+    "Glc": {
+      "abbr": "Glc",
+      "name": "L-glucose",
+      "formula": "C6H10O5",
+      "category": "CS",
+      "losses": []
+    },
+    "Gln": {
+      "abbr": "Gln",
+      "name": "glutamine",
+      "formula": "C5H8N2O2",
+      "category": "NRPS",
+      "losses": [
+        "NH3"
+      ]
+    },
+    "Glu": {
+      "abbr": "Glu",
+      "name": "glutamic acid",
+      "formula": "C5H7NO3",
+      "category": "NRPS",
+      "losses": [
+        "H2O"
+      ]
+    },
+    "Gly": {
+      "abbr": "Gly",
+      "name": "glycine",
+      "formula": "C2H3NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Hap": {
+      "abbr": "Hap",
+      "name": "hydrox-yacetyl-propionyl",
+      "formula": "C5H6O3",
+      "category": "Unknown",
+      "losses": []
+    },
+    "Har": {
+      "abbr": "Har",
+      "name": "homo-arginine",
+      "formula": "C7H14N4O",
+      "category": "NRPS",
+      "losses": [
+        "NH3",
+        "CH5N3",
+        "CN2H2",
+        "CHN3H6"
+      ]
+    },
+    "Hil": {
+      "abbr": "Hil",
+      "name": "homo-isoleucine",
+      "formula": "C7H13NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Hip": {
+      "abbr": "Hip",
+      "name": "hydroxy-isovaleryl-propionyl",
+      "formula": "C8H12O3",
+      "category": "Unknown",
+      "losses": []
+    },
+    "His": {
+      "abbr": "His",
+      "name": "histidine",
+      "formula": "C6H7N3O",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Hiv": {
+      "abbr": "Hiv",
+      "name": "2-hydroxy-isovalerate",
+      "formula": "C5H8O2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Hmp": {
+      "abbr": "Hmp",
+      "name": "2-hydroxy-3-methyl-pentanoic acid",
+      "formula": "C6H10O2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Hpa": {
+      "abbr": "Hpa",
+      "name": "hydroxy-picolinic acid",
+      "formula": "C6H3NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Hpg": {
+      "abbr": "Hpg",
+      "name": "hydroxy-phenylglycine",
+      "formula": "C8H7NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Hph": {
+      "abbr": "Hph",
+      "name": "homo-phenylalanine",
+      "formula": "C10H11NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Hpoe": {
+      "abbr": "Hpoe",
+      "name": "2-hydroxy-phenyl-2-oxo-ethanoic acid",
+      "formula": "C8H4O3",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Hpr": {
+      "abbr": "Hpr",
+      "name": "homo-proline",
+      "formula": "C6H9NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Hse": {
+      "abbr": "Hse",
+      "name": "homo-serine",
+      "formula": "C4H7NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "HseL": {
+      "abbr": "HseL",
+      "name": "homo-serine lactone",
+      "formula": "C4H5NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Hty": {
+      "abbr": "Hty",
+      "name": "homo-tyrosine",
+      "formula": "C10H11NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Hysp": {
+      "abbr": "Hysp",
+      "name": "hydroxy-secbutyl-acetyl-propionyl",
+      "formula": "C9H14O3",
+      "category": "Unknown",
+      "losses": []
+    },
+    "Ibu": {
+      "abbr": "Ibu",
+      "name": "4-amino-2,2-dimethyl-3-oxo-pentanoic acid",
+      "formula": "C7H11NO2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "Ile": {
+      "abbr": "Ile",
+      "name": "isoleucine",
+      "formula": "C6H11NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Ileol": {
+      "abbr": "Ileol",
+      "name": "isoleucinol ",
+      "formula": "C6H13N",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Iser": {
+      "abbr": "Iser",
+      "name": "isoserine",
+      "formula": "C3H5NO2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "Ist": {
+      "abbr": "Ist",
+      "name": "isostatine",
+      "formula": "C8H15NO2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "Ival": {
+      "abbr": "Ival",
+      "name": "isovaline",
+      "formula": "C5H9NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Ivalol": {
+      "abbr": "Ivalol",
+      "name": "isovalinol",
+      "formula": "C5H11N",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Kyn": {
+      "abbr": "Kyn",
+      "name": "kynurenine",
+      "formula": "C10H10N2O2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "L-Dbu": {
+      "abbr": "L-Dbu",
+      "name": "(2S,3S)-2,3-diamino-butyric acid",
+      "formula": "C4H8N2O",
+      "category": "NRPS",
+      "losses": []
+    },
+    "L-Leu-COOH": {
+      "abbr": "L-Leu-COOH",
+      "name": "L-leucic acid",
+      "formula": "C6H10O2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Lac": {
+      "abbr": "Lac",
+      "name": "lactic acid",
+      "formula": "C3H4O2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Leu": {
+      "abbr": "Leu",
+      "name": "leucine",
+      "formula": "C6H11NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Leuol": {
+      "abbr": "Leuol",
+      "name": "leucinol",
+      "formula": "C6H13N",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Lys": {
+      "abbr": "Lys",
+      "name": "lysine",
+      "formula": "C6H12N2O",
+      "category": "NRPS",
+      "losses": [
+        "NH3"
+      ]
+    },
+    "Lyx": {
+      "abbr": "Lyx",
+      "name": "lyxose",
+      "formula": "C5H8O4",
+      "category": "CS",
+      "losses": []
+    },
+    "MCP": {
+      "abbr": "MCP",
+      "name": "N-methyl-chloro-pyrrole",
+      "formula": "C6H4ClNO",
+      "category": "Unknown",
+      "losses": []
+    },
+    "Mab": {
+      "abbr": "Mab",
+      "name": "2-methyl-3-amino-butanoic acid",
+      "formula": "C5H9NO",
+      "category": "Unknown",
+      "losses": []
+    },
+    "Map": {
+      "abbr": "Map",
+      "name": "2-methyl-3-amino-pentanoic acid",
+      "formula": "C6H11NO",
+      "category": "Unknown",
+      "losses": []
+    },
+    "MdCP": {
+      "abbr": "MdCP",
+      "name": "N-methyl-dichloro-pyrrole-2-carboxylic acid",
+      "formula": "C6H3Cl2NO",
+      "category": "Unknown",
+      "losses": []
+    },
+    "Me-AOA": {
+      "abbr": "Me-AOA",
+      "name": "methyl-2-amino-octanoic acid",
+      "formula": "C9H17NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Me-Suc": {
+      "abbr": "Me-Suc",
+      "name": "methyl-succinimide",
+      "formula": "C5H5NO",
+      "category": "PKS",
+      "losses": []
+    },
+    "Me-Vaa": {
+      "abbr": "Me-Vaa",
+      "name": "3-methyl-valeric acid",
+      "formula": "C6H10O",
+      "category": "Unknown",
+      "losses": []
+    },
+    "Me-bAla": {
+      "abbr": "Me-bAla",
+      "name": "methyl-beta-alanine",
+      "formula": "C4H7NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Me2-Bmt": {
+      "abbr": "Me2-Bmt",
+      "name": "4-butenyl-4-methyl-N,4-methyl-threonine",
+      "formula": "C11H19NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "MeO-D-Glu": {
+      "abbr": "MeO-D-Glu",
+      "name": "D-glutamic acid methyl-ester",
+      "formula": "C6H9NO3",
+      "category": "NRPS",
+      "losses": []
+    },
+    "MeO-Glu": {
+      "abbr": "MeO-Glu",
+      "name": "glutamic acid methyl-ester",
+      "formula": "C6H9NO3",
+      "category": "NRPS",
+      "losses": []
+    },
+    "MeOx-Ile": {
+      "abbr": "MeOx-Ile",
+      "name": "methyl-oxazoline-isoleucine",
+      "formula": "C11H18N2O",
+      "category": "Unknown",
+      "losses": []
+    },
+    "Met": {
+      "abbr": "Met",
+      "name": "methionine",
+      "formula": "C5H9NOS",
+      "category": "NRPS",
+      "losses": []
+    },
+    "N-OH-Hta": {
+      "abbr": "N-OH-Hta",
+      "name": "N-hydroxy-histamine",
+      "formula": "C6H12N2O",
+      "category": "NRPS",
+      "losses": []
+    },
+    "N1-COOH-bhTrp": {
+      "abbr": "N1-COOH-bhTrp",
+      "name": "N1-carboxy-bichomo-tryptophan",
+      "formula": "C14H14N2O3",
+      "category": "Unknown",
+      "losses": []
+    },
+    "N2Me-Asn": {
+      "abbr": "N2Me-Asn",
+      "name": "N2-methyl-asparagine",
+      "formula": "C5H8N2O2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "N2Me-bOH-Asn": {
+      "abbr": "N2Me-bOH-Asn",
+      "name": "beta-hydroxy-N2-methyl-asparagine",
+      "formula": "C5H8N2O3",
+      "category": "NRPS",
+      "losses": []
+    },
+    "NAc-Dpr": {
+      "abbr": "NAc-Dpr",
+      "name": "N1-acetyl-2,3-diamino-propionic acid",
+      "formula": "C5H8N2O2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "NAc-Fo-OH-Orn": {
+      "abbr": "NAc-Fo-OH-Orn",
+      "name": "N-acetyl-N6-formyl-N6-hydroxy-ornithine",
+      "formula": "C8H12N2O4",
+      "category": "Unknown",
+      "losses": []
+    },
+    "NAc-Leu": {
+      "abbr": "NAc-Leu",
+      "name": "N-acetyl-leucine",
+      "formula": "C8H13NO2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "NFo-Ala": {
+      "abbr": "NFo-Ala",
+      "name": "N-formyl-alanine",
+      "formula": "C4H5NO2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "NFo-D-Abu": {
+      "abbr": "NFo-D-Abu",
+      "name": "N-formyl-D-amino-byric acid",
+      "formula": "C5H7NO2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "NFo-Dpr": {
+      "abbr": "NFo-Dpr",
+      "name": "N1-formyl-2,3-diamino-propionic acid",
+      "formula": "C4H6N2O2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "NFo-Gln": {
+      "abbr": "NFo-Gln",
+      "name": "N-formyl-glutamine",
+      "formula": "C6H8N2O3",
+      "category": "NRPS",
+      "losses": []
+    },
+    "NFo-Ile": {
+      "abbr": "NFo-Ile",
+      "name": "N-formyl-isoleucine",
+      "formula": "C7H11NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "NFo-Iser": {
+      "abbr": "NFo-Iser",
+      "name": "N-formyl-isoserine",
+      "formula": "C4H5NO3",
+      "category": "Unknown",
+      "losses": []
+    },
+    "NFo-Leu": {
+      "abbr": "NFo-Leu",
+      "name": "N-formyl-leucine",
+      "formula": "C7H11NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "NFo-Pro": {
+      "abbr": "NFo-Pro",
+      "name": "N-Formyl-proline",
+      "formula": "C6H7NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "NFo-Val": {
+      "abbr": "NFo-Val",
+      "name": "N-formyl-valine",
+      "formula": "C6H9NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "NH2-diCH3-hex": {
+      "abbr": "NH2-diCH3-hex",
+      "name": "2-amino-3,5-dimethyl-hex-4-enoic acid",
+      "formula": "C8H13NO",
+      "category": "Unknown",
+      "losses": []
+    },
+    "NMe-Ala": {
+      "abbr": "NMe-Ala",
+      "name": "N-methyl-alanine",
+      "formula": "C4H7NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "NMe-Asn": {
+      "abbr": "NMe-Asn",
+      "name": "N-methyl-asparagine",
+      "formula": "C5H8N2O2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "NMe-Bmt": {
+      "abbr": "NMe-Bmt",
+      "name": "N-methyl-4-butenyl-4-methyl-threonine",
+      "formula": "C10H17NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "NMe-Br-Trp": {
+      "abbr": "NMe-Br-Trp",
+      "name": "N-methyl-2-bromo-tryptophan",
+      "formula": "C12H11BrN2O",
+      "category": "NRPS",
+      "losses": []
+    },
+    "NMe-Cl-OH-Trp": {
+      "abbr": "NMe-Cl-OH-Trp",
+      "name": "N-methyl-6-chloro-5-hydroxy-tryptophan",
+      "formula": "C12H11ClN2O2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "NMe-Cl-Trp": {
+      "abbr": "NMe-Cl-Trp",
+      "name": "N-methyl-6-chloro-tryptophan",
+      "formula": "C12H11ClN2O",
+      "category": "Unknown",
+      "losses": []
+    },
+    "NMe-Cys": {
+      "abbr": "NMe-Cys",
+      "name": "N-methyl-cysteine",
+      "formula": "C4H7NOS",
+      "category": "NRPS",
+      "losses": []
+    },
+    "NMe-Dha": {
+      "abbr": "NMe-Dha",
+      "name": "N-methyl-dehydro-alanine",
+      "formula": "C4H5NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "NMe-Gln": {
+      "abbr": "NMe-Gln",
+      "name": "N-methyl-glutamine",
+      "formula": "C6H10N2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "NMe-Gly": {
+      "abbr": "NMe-Gly",
+      "name": "N-methyl-glycine",
+      "formula": "C3H5NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "NMe-Gly-Thz": {
+      "abbr": "NMe-Gly-Thz",
+      "name": "N-methyl-glycine-thiazole",
+      "formula": "C5H6N2S",
+      "category": "Unknown",
+      "losses": []
+    },
+    "NMe-Hpg": {
+      "abbr": "NMe-Hpg",
+      "name": "N-methyl-hydroxy-phenylglycine",
+      "formula": "C9H9NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "NMe-Hty": {
+      "abbr": "NMe-Hty",
+      "name": "N-methyl-homotyrosine",
+      "formula": "C11H13NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "NMe-Ile": {
+      "abbr": "NMe-Ile",
+      "name": "N-methyl-isoleucine",
+      "formula": "C7H13NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "NMe-Lan": {
+      "abbr": "NMe-Lan",
+      "name": "N-methyl-lanthionine",
+      "formula": "C6H10N2O4S",
+      "category": "NRPS",
+      "losses": []
+    },
+    "NMe-Leu": {
+      "abbr": "NMe-Leu",
+      "name": "N-methyl-leucine",
+      "formula": "C7H13NO",
+      "category": "NRPS",
+      "losses": [
+        "H2O"
+      ]
+    },
+    "NMe-Me2A-Phe": {
+      "abbr": "NMe-Me2A-Phe",
+      "name": "N-methyl-4-dimethyl-amino-phenylalanine",
+      "formula": "C12H16N2O",
+      "category": "NRPS",
+      "losses": []
+    },
+    "NMe-MeA-Phe": {
+      "abbr": "NMe-MeA-Phe",
+      "name": "N-methyl-4-methyl-amino-phenylalanine",
+      "formula": "C11H14N2O",
+      "category": "NRPS",
+      "losses": []
+    },
+    "NMe-OH-Ile": {
+      "abbr": "NMe-OH-Ile",
+      "name": "N-methyl-hydroxy-isoleucine",
+      "formula": "C7H13NO2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "NMe-OH-Leu": {
+      "abbr": "NMe-OH-Leu",
+      "name": "N-methyl-hydroxy-leucine",
+      "formula": "C7H13NO2",
+      "category": "Unknown",
+      "losses": [
+        "H2O"
+      ]
+    },
+    "NMe-OH-Trp": {
+      "abbr": "NMe-OH-Trp",
+      "name": "N-methyl-5-hydroxy-tryptophan",
+      "formula": "C12H12N2O2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "NMe-OMe-Ile": {
+      "abbr": "NMe-OMe-Ile",
+      "name": "N,O-dimethyl-isoleucine",
+      "formula": "C8H15NO",
+      "category": "Unknown",
+      "losses": []
+    },
+    "NMe-OMe-Tyr": {
+      "abbr": "NMe-OMe-Tyr",
+      "name": "N,O-dimethyl-tyrosine",
+      "formula": "C11H13NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "NMe-OMe-TyrC": {
+      "abbr": "NMe-OMe-TyrC",
+      "name": "N,O-dimethyl-tyrosine-carboxamid",
+      "formula": "C11H14N2O",
+      "category": "Unknown",
+      "losses": []
+    },
+    "NMe-Ph-Gly": {
+      "abbr": "NMe-Ph-Gly",
+      "name": "N-methyl-phenylglycine",
+      "formula": "C9H9NO",
+      "category": "Unknown",
+      "losses": []
+    },
+    "NMe-Phe": {
+      "abbr": "NMe-Phe",
+      "name": "N-methyl-phenylalanine",
+      "formula": "C10H11NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "NMe-Ser": {
+      "abbr": "NMe-Ser",
+      "name": "N-methyl-serine",
+      "formula": "C4H7NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "NMe-Thr": {
+      "abbr": "NMe-Thr",
+      "name": "N-methyl-threonine",
+      "formula": "C5H9NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "NMe-Tyr": {
+      "abbr": "NMe-Tyr",
+      "name": "N-methyl-tyrosine",
+      "formula": "C10H11NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "NMe-Val": {
+      "abbr": "NMe-Val",
+      "name": "N-methyl-valine",
+      "formula": "C6H11NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "NMe-aIle": {
+      "abbr": "NMe-aIle",
+      "name": "N-methyl-allo-soleucine",
+      "formula": "C7H13NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "NMe-bAla": {
+      "abbr": "NMe-bAla",
+      "name": "N-methyl-beta-alanine",
+      "formula": "C4H7NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "NMe-bMe-Leu": {
+      "abbr": "NMe-bMe-Leu",
+      "name": "N,beta-dimethyl-leucine",
+      "formula": "C8H15NO",
+      "category": "Unknown",
+      "losses": []
+    },
+    "NMe-dPhe": {
+      "abbr": "NMe-dPhe",
+      "name": "N-methyl-2,3-dehydro-phenylalanine",
+      "formula": "C10H9NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "NMe-hv-Val": {
+      "abbr": "NMe-hv-Val",
+      "name": "N-methyl-homo-vinylogous-valine",
+      "formula": "C9H15NO",
+      "category": "Unknown",
+      "losses": []
+    },
+    "NOMe-Ac-D-Phe": {
+      "abbr": "NOMe-Ac-D-Phe",
+      "name": "N-methoxy-acetyl-D-phenylalanine",
+      "formula": "C12H13NO3",
+      "category": "Unknown",
+      "losses": []
+    },
+    "NOMe-Ac-Val": {
+      "abbr": "NOMe-Ac-Val",
+      "name": "N-methoxy-acetyl-valine",
+      "formula": "C8H13NO3",
+      "category": "Unknown",
+      "losses": []
+    },
+    "NSPD": {
+      "abbr": "NSPD",
+      "name": "norspermidine",
+      "formula": "C6H15N3",
+      "category": "Other",
+      "losses": []
+    },
+    "NdMe-Ala": {
+      "abbr": "NdMe-Ala",
+      "name": "N-dimethyl-alanine",
+      "formula": "C5H9NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "NdMe-Leu": {
+      "abbr": "NdMe-Leu",
+      "name": "N-dimethyl-leucine",
+      "formula": "C8H15NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Nst": {
+      "abbr": "Nst",
+      "name": "norstatine",
+      "formula": "C7H13NO2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "NtMe-Leu": {
+      "abbr": "NtMe-Leu",
+      "name": "N-trimethyl-leucine",
+      "formula": "C9H18NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Nva": {
+      "abbr": "Nva",
+      "name": "norvaline",
+      "formula": "C5H9NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "O-Met": {
+      "abbr": "O-Met",
+      "name": "methionine-S-oxide",
+      "formula": "C5H9NO2S",
+      "category": "NRPS",
+      "losses": []
+    },
+    "O2-Met": {
+      "abbr": "O2-Met",
+      "name": "methionine-sulfone",
+      "formula": "C5H9NO3S",
+      "category": "NRPS",
+      "losses": []
+    },
+    "OAc-Leuol": {
+      "abbr": "OAc-Leuol",
+      "name": "O-acetyl-leucinol",
+      "formula": "C8H15NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "OH-4Abu": {
+      "abbr": "OH-4Abu",
+      "name": "4-amino-3-hydroxy-butyric acid",
+      "formula": "C4H7NO2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "OH-Asn": {
+      "abbr": "OH-Asn",
+      "name": "hydroxy-asparagine",
+      "formula": "C4H6N2O3",
+      "category": "NRPS",
+      "losses": [
+        "H2O",
+        "NH3"
+      ]
+    },
+    "OH-Asp": {
+      "abbr": "OH-Asp",
+      "name": "hydroxy-aspartic acid",
+      "formula": "C4H5NO4",
+      "category": "NRPS",
+      "losses": [
+        "H2O"
+      ]
+    },
+    "OH-His": {
+      "abbr": "OH-His",
+      "name": "hydroxy-histidine",
+      "formula": "C6H7N3O2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "OH-Orn": {
+      "abbr": "OH-Orn",
+      "name": "N5-hydroxy-ornithine",
+      "formula": "C5H10N2O2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "OH-Pyr": {
+      "abbr": "OH-Pyr",
+      "name": "hydroxy-pyrrolidone",
+      "formula": "C4H5NO",
+      "category": "Unknown",
+      "losses": []
+    },
+    "OH-Trp": {
+      "abbr": "OH-Trp",
+      "name": "5-hydroxy-tryptophan",
+      "formula": "C11H10N2O2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "OH-bLys": {
+      "abbr": "OH-bLys",
+      "name": "hydroxy-beta-lysine",
+      "formula": "C5H10N2O2",
+      "category": "NRPS",
+      "losses": [
+        "H2O",
+        "NH3"
+      ]
+    },
+    "OH-cOrn": {
+      "abbr": "OH-cOrn",
+      "name": "hydroxy-cyclo-ornithine",
+      "formula": "C5H8N2O",
+      "category": "NRPS",
+      "losses": []
+    },
+    "OH-dHpg": {
+      "abbr": "OH-dHpg",
+      "name": "N-hydroxy-dehydro-hydroxy-phenylglycine",
+      "formula": "C8H5NO3",
+      "category": "NRPS",
+      "losses": []
+    },
+    "OMe-Asp": {
+      "abbr": "OMe-Asp",
+      "name": "methoxy-aspartic acid",
+      "formula": "C5H7NO4",
+      "category": "NRPS",
+      "losses": []
+    },
+    "OMe-Thr": {
+      "abbr": "OMe-Thr",
+      "name": "O-methyl-threonine",
+      "formula": "C5H9NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "OMe-Trp": {
+      "abbr": "OMe-Trp",
+      "name": "methoxy-tryptophan",
+      "formula": "C12H12N2O2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "OMe-bAla-Thz": {
+      "abbr": "OMe-bAla-Thz",
+      "name": "1-methoxy-beta-alanine-thiazole",
+      "formula": "C7H8N2OS",
+      "category": "NRPS",
+      "losses": []
+    },
+    "OSu-Hmp": {
+      "abbr": "OSu-Hmp",
+      "name": "O-sulfate-2-hydroxy-3-methyl-pentanoic acid",
+      "formula": "C6H10O5S",
+      "category": "Unknown",
+      "losses": []
+    },
+    "Oli": {
+      "abbr": "Oli",
+      "name": "L-olivose",
+      "formula": "C6H12O3",
+      "category": "CS",
+      "losses": []
+    },
+    "Orn": {
+      "abbr": "Orn",
+      "name": "ornithine",
+      "formula": "C5H10N2O",
+      "category": "NRPS",
+      "losses": []
+    },
+    "PALOA": {
+      "abbr": "PALOA",
+      "name": "propenoyl-alanyl-oxazole acid",
+      "formula": "C8H8N2O2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "PAOA": {
+      "abbr": "PAOA",
+      "name": "propenoyl-2-amino-butanoyl-oxazole acid",
+      "formula": "C9H10N2O2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "PMST": {
+      "abbr": "PMST",
+      "name": "propenoyl-O-methyl-serinyl-thiazole acid",
+      "formula": "C9H10N2O2S",
+      "category": "Unknown",
+      "losses": []
+    },
+    "PT": {
+      "abbr": "PT",
+      "name": "phosphinothricin",
+      "formula": "C5H10NO3P",
+      "category": "NRPS",
+      "losses": []
+    },
+    "PTTA": {
+      "abbr": "PTTA",
+      "name": "4-propenoyl-2-tyrosyl-thiazole acid",
+      "formula": "C14H12N2O2S",
+      "category": "Unknown",
+      "losses": []
+    },
+    "Pda": {
+      "abbr": "Pda",
+      "name": "pentanedioic acid",
+      "formula": "C5H6O3",
+      "category": "Unknown",
+      "losses": []
+    },
+    "Ph-Gly": {
+      "abbr": "Ph-Gly",
+      "name": "phenylglycine",
+      "formula": "C8H7NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Ph-Lac": {
+      "abbr": "Ph-Lac",
+      "name": "phenyllactate",
+      "formula": "C9H8O2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "Ph-Ser": {
+      "abbr": "Ph-Ser",
+      "name": "phenylserine",
+      "formula": "C9H9NO2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "Pha": {
+      "abbr": "Pha",
+      "name": "phenylacetic acid",
+      "formula": "C8H6O",
+      "category": "Unknown",
+      "losses": []
+    },
+    "Phe": {
+      "abbr": "Phe",
+      "name": "phenylalanine",
+      "formula": "C9H9NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Phe-Thz": {
+      "abbr": "Phe-Thz",
+      "name": "thiazolyl-phenylalanine",
+      "formula": "C12H10N2OS",
+      "category": "Unknown",
+      "losses": []
+    },
+    "Pheol": {
+      "abbr": "Pheol",
+      "name": "phenylalaninol",
+      "formula": "C9H11N",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Pro": {
+      "abbr": "Pro",
+      "name": "proline",
+      "formula": "C5H7NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Pro-Thz": {
+      "abbr": "Pro-Thz",
+      "name": "proline-thiazole",
+      "formula": "C8H8N2OS",
+      "category": "Unknown",
+      "losses": []
+    },
+    "ProC": {
+      "abbr": "ProC",
+      "name": "proline-carboxamid",
+      "formula": "C5H8N2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Put": {
+      "abbr": "Put",
+      "name": "putrescine",
+      "formula": "C4H10N2",
+      "category": "Other",
+      "losses": []
+    },
+    "Pya": {
+      "abbr": "Pya",
+      "name": "pyruvate",
+      "formula": "C3H2O2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "Pyr": {
+      "abbr": "Pyr",
+      "name": "pyrrolidone",
+      "formula": "C4H5N",
+      "category": "Unknown",
+      "losses": []
+    },
+    "Rha": {
+      "abbr": "Rha",
+      "name": "L-rhamnose",
+      "formula": "C6H10O4",
+      "category": "CS",
+      "losses": []
+    },
+    "Ria": {
+      "abbr": "Ria",
+      "name": "L-ristosamine",
+      "formula": "C6H11NO2",
+      "category": "CS",
+      "losses": []
+    },
+    "Ser": {
+      "abbr": "Ser",
+      "name": "serine",
+      "formula": "C3H5NO2",
+      "category": "NRPS",
+      "losses": [
+        "H2O"
+      ]
+    },
+    "Serol": {
+      "abbr": "Serol",
+      "name": "serinol",
+      "formula": "C3H7NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Spd": {
+      "abbr": "Spd",
+      "name": "spermidine",
+      "formula": "C7H17N3",
+      "category": "Unknown",
+      "losses": []
+    },
+    "Sta": {
+      "abbr": "Sta",
+      "name": "statine",
+      "formula": "C8H15NO2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "Thr": {
+      "abbr": "Thr",
+      "name": "threonine",
+      "formula": "C4H7NO2",
+      "category": "NRPS",
+      "losses": [
+        "H2O"
+      ]
+    },
+    "Trp": {
+      "abbr": "Trp",
+      "name": "tryptophan",
+      "formula": "C11H10N2O",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Trpol": {
+      "abbr": "Trpol",
+      "name": "tryptophanol",
+      "formula": "C11H12N2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Tyr": {
+      "abbr": "Tyr",
+      "name": "tyrosine",
+      "formula": "C9H9NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "U4oxo-Van": {
+      "abbr": "U4oxo-Van",
+      "name": "ureido-4-oxo-vancosamine",
+      "formula": "C8H12N2O3",
+      "category": "CS",
+      "losses": []
+    },
+    "Val": {
+      "abbr": "Val",
+      "name": "valine",
+      "formula": "C5H9NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Valol": {
+      "abbr": "Valol",
+      "name": "valinol",
+      "formula": "C5H11N",
+      "category": "NRPS",
+      "losses": []
+    },
+    "Van": {
+      "abbr": "Van",
+      "name": "L-vancosamine",
+      "formula": "C7H13NO2",
+      "category": "CS",
+      "losses": []
+    },
+    "aC10:0": {
+      "abbr": "aC10:0",
+      "name": "7-methyl-nonanoic acid",
+      "formula": "C10H18O",
+      "category": "FAS",
+      "losses": []
+    },
+    "aC11:0": {
+      "abbr": "aC11:0",
+      "name": "8-methyl-decanoic acid",
+      "formula": "C11H20O",
+      "category": "FAS",
+      "losses": []
+    },
+    "aC11:2(4.6)-Me(2.6)-OH(2.3)": {
+      "abbr": "aC11:2(4.6)-Me(2.6)-OH(2.3)",
+      "name": "2,3-dihydroxy-2,6,8-trimethyl-deca-(4Z,6E)-dienoic acid",
+      "formula": "C13H20O3",
+      "category": "Unknown",
+      "losses": []
+    },
+    "aC13:0": {
+      "abbr": "aC13:0",
+      "name": "10-methyl-dodecanoic acid",
+      "formula": "C13H24O",
+      "category": "FAS",
+      "losses": []
+    },
+    "aC13:0-OH(3)": {
+      "abbr": "aC13:0-OH(3)",
+      "name": "3-hydroxy-10-methyl-dodecanoic acid",
+      "formula": "C13H24O2",
+      "category": "FAS",
+      "losses": []
+    },
+    "aC13:1(3)": {
+      "abbr": "aC13:1(3)",
+      "name": "10-methyl-3-dodecenoic acid",
+      "formula": "C13H22O",
+      "category": "FAS",
+      "losses": []
+    },
+    "aC13:2(2.t4)": {
+      "abbr": "aC13:2(2.t4)",
+      "name": "10-methyl-2,trans4-dodecenoic acid",
+      "formula": "C13H20O",
+      "category": "FAS",
+      "losses": []
+    },
+    "aC15:0": {
+      "abbr": "aC15:0",
+      "name": "12-methyl-tetradecanoic acid",
+      "formula": "C15H28O",
+      "category": "FAS",
+      "losses": []
+    },
+    "aC15:0-NH2(3)": {
+      "abbr": "aC15:0-NH2(3)",
+      "name": "3-amino-12-methyl-tetradecanoic acid",
+      "formula": "C15H29NO",
+      "category": "FAS",
+      "losses": []
+    },
+    "aC15:0-OH(3)": {
+      "abbr": "aC15:0-OH(3)",
+      "name": "3-hydroxy-12-methyl-tetradecanoic acid",
+      "formula": "C15H28O2",
+      "category": "FAS",
+      "losses": []
+    },
+    "aC15:1(3)": {
+      "abbr": "aC15:1(3)",
+      "name": "12-methyl-3-tetradecenoic acid",
+      "formula": "C15H26O",
+      "category": "FAS",
+      "losses": []
+    },
+    "aC17:0-NH2(3)": {
+      "abbr": "aC17:0-NH2(3)",
+      "name": "3-amino-14-methyl-hexadecanoic acid",
+      "formula": "C17H33NO",
+      "category": "FAS",
+      "losses": []
+    },
+    "aC17:0-OH(3)": {
+      "abbr": "aC17:0-OH(3)",
+      "name": "3-hydroxy-14-methyl-hexadecanoic acid",
+      "formula": "C17H32O2",
+      "category": "FAS",
+      "losses": []
+    },
+    "aC6:0-OH(2.3)": {
+      "abbr": "aC6:0-OH(2.3)",
+      "name": "2,3-dihydroxy-3-methyl-pentanoic acid",
+      "formula": "C6H10O3",
+      "category": "FAS",
+      "losses": []
+    },
+    "aC9:0": {
+      "abbr": "aC9:0",
+      "name": "6-methyl-octanoic acid",
+      "formula": "C9H16O",
+      "category": "FAS",
+      "losses": []
+    },
+    "aC9:0-OH(2)-NH2(3)": {
+      "abbr": "aC9:0-OH(2)-NH2(3)",
+      "name": "alpha-hydroxy-6-methyl-3-amino-octanoic acid",
+      "formula": "C9H17NO2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "aC9:0-OH(3)": {
+      "abbr": "aC9:0-OH(3)",
+      "name": "3-hydroxy-6-methyl-octanoic acid",
+      "formula": "C9H16O2",
+      "category": "FAS",
+      "losses": []
+    },
+    "aFo-Gly": {
+      "abbr": "aFo-Gly",
+      "name": "alpha-formyl-glycine",
+      "formula": "C3H3NO2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "aIle": {
+      "abbr": "aIle",
+      "name": "allo-isoleucine",
+      "formula": "C6H11NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "aMe-Cys": {
+      "abbr": "aMe-Cys",
+      "name": "alpha-methyl-cysteine",
+      "formula": "C4H7NOS",
+      "category": "NRPS",
+      "losses": []
+    },
+    "aThr": {
+      "abbr": "aThr",
+      "name": "allo-threonine",
+      "formula": "C4H7NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "b-OMe-Phe": {
+      "abbr": "b-OMe-Phe",
+      "name": "b-methoxy-phenylalanine",
+      "formula": "C10H11NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "bAla": {
+      "abbr": "bAla",
+      "name": "beta-alanine",
+      "formula": "C3H5NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "bD-Gal": {
+      "abbr": "bD-Gal",
+      "name": "beta-D-galactose",
+      "formula": "C6H10O5",
+      "category": "CS",
+      "losses": []
+    },
+    "bLys": {
+      "abbr": "bLys",
+      "name": "beta-lysine",
+      "formula": "C6H12N2O",
+      "category": "NRPS",
+      "losses": [
+        "NH3"
+      ]
+    },
+    "bMe-Asn": {
+      "abbr": "bMe-Asn",
+      "name": "beta-methyl-asparagine",
+      "formula": "C5H8N2O2",
+      "category": "NRPS",
+      "losses": [
+        "NH3"
+      ]
+    },
+    "bMe-Asp": {
+      "abbr": "bMe-Asp",
+      "name": "beta-methyl-aspartic acid",
+      "formula": "C5H7NO3",
+      "category": "NRPS",
+      "losses": []
+    },
+    "bMe-Br-Phe": {
+      "abbr": "bMe-Br-Phe",
+      "name": "beta-methyl-bromo-phenylalanine",
+      "formula": "C10H10BrNO",
+      "category": "Unknown",
+      "losses": []
+    },
+    "bMe-Ile": {
+      "abbr": "bMe-Ile",
+      "name": "beta-methyl-isoleucine",
+      "formula": "C7H13NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "bOH-Br-Phe": {
+      "abbr": "bOH-Br-Phe",
+      "name": "beta-hydroxy-bromo-phenylalanine",
+      "formula": "C9H8BrNO2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "bOH-Cl-Tyr": {
+      "abbr": "bOH-Cl-Tyr",
+      "name": "beta-hydroxy-chloro-tyrosine",
+      "formula": "C9H8ClNO3",
+      "category": "NRPS",
+      "losses": []
+    },
+    "bOH-Gln": {
+      "abbr": "bOH-Gln",
+      "name": "beta-hydroxy-glutamine",
+      "formula": "C5H8N2O3",
+      "category": "NRPS",
+      "losses": [
+        "H2O",
+        "NH3"
+      ]
+    },
+    "bOH-NMe-Phe": {
+      "abbr": "bOH-NMe-Phe",
+      "name": "beta-hydroxy-N-methyl-phenylalanine",
+      "formula": "C10H11NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "bOH-NMe-Val": {
+      "abbr": "bOH-NMe-Val",
+      "name": "beta-hydroxy-N-methyl-valine",
+      "formula": "C6H11NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "bOH-Tyr": {
+      "abbr": "bOH-Tyr",
+      "name": "beta-hydroxy-tyrosine",
+      "formula": "C9H9NO3",
+      "category": "NRPS",
+      "losses": []
+    },
+    "bOH-Val": {
+      "abbr": "bOH-Val",
+      "name": "beta-hydroxy-valine",
+      "formula": "C5H9NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "bOMe-Asp": {
+      "abbr": "bOMe-Asp",
+      "name": "beta-methoxy-aspartic acid",
+      "formula": "C5H7NO3",
+      "category": "Unknown",
+      "losses": []
+    },
+    "bOMe-Tyr": {
+      "abbr": "bOMe-Tyr",
+      "name": "beta-methoxy-tyrosine",
+      "formula": "C10H11NO3",
+      "category": "Unknown",
+      "losses": []
+    },
+    "bPhe": {
+      "abbr": "bPhe",
+      "name": "beta-phenylalanine",
+      "formula": "C9H9NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "bTyr": {
+      "abbr": "bTyr",
+      "name": "beta-tyrosine",
+      "formula": "C9H9NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "bU-dAla": {
+      "abbr": "bU-dAla",
+      "name": "beta-ureido-dehydro-alanine",
+      "formula": "C4H5N3O2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "bbMe-NMe-Trp": {
+      "abbr": "bbMe-NMe-Trp",
+      "name": "beta,beta,N-trimethyl-tryptophan",
+      "formula": "C14H16N2O",
+      "category": "Unknown",
+      "losses": []
+    },
+    "bbMe2-O-Met": {
+      "abbr": "bbMe2-O-Met",
+      "name": "beta,beta-dimethyl-methionine-S-oxide",
+      "formula": "C7H13NO2S",
+      "category": "NRPS",
+      "losses": []
+    },
+    "bbNMe-NMe-Trp": {
+      "abbr": "bbNMe-NMe-Trp",
+      "name": "beta,beta,N1,N-tetramethyl-tryptophan",
+      "formula": "C15H18N2O",
+      "category": "Unknown",
+      "losses": []
+    },
+    "ck-Arg": {
+      "abbr": "ck-Arg",
+      "name": "cyclo alpha-keto-arginine",
+      "formula": "C7H10N4O",
+      "category": "Unknown",
+      "losses": []
+    },
+    "dDap": {
+      "abbr": "dDap",
+      "name": "O-desmethyl-dolaproine",
+      "formula": "C8H13NO2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "dDil": {
+      "abbr": "dDil",
+      "name": "N-desmethyl-dolaisoleuine",
+      "formula": "C9H17NO2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "dPyr": {
+      "abbr": "dPyr",
+      "name": "dehydro-pyrrolidone",
+      "formula": "C6H6N2O2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "dh-Ala": {
+      "abbr": "dh-Ala",
+      "name": "dehydro-alanine",
+      "formula": "C3H3NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "dh-Trp": {
+      "abbr": "dh-Trp",
+      "name": "2,3-dehydro-tryptophan",
+      "formula": "C11H8N2O",
+      "category": "NRPS",
+      "losses": []
+    },
+    "dhAbu": {
+      "abbr": "dhAbu",
+      "name": "2,3-dehydro-2-amino-butyric acid",
+      "formula": "C4H5NO",
+      "category": "Other",
+      "losses": []
+    },
+    "dhCys": {
+      "abbr": "dhCys",
+      "name": "dehydro-cysteine",
+      "formula": "C3H3NOS",
+      "category": "NRPS",
+      "losses": []
+    },
+    "diMe-Cys": {
+      "abbr": "diMe-Cys",
+      "name": "N,S-dimethyl-cysteine",
+      "formula": "C5H9NOS",
+      "category": "NRPS",
+      "losses": []
+    },
+    "diMe-aIle": {
+      "abbr": "diMe-aIle",
+      "name": "N,gamma-allo-isoleucine",
+      "formula": "C8H15NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "diMe-epoxprop-OH-Trp": {
+      "abbr": "diMe-epoxprop-OH-Trp",
+      "name": "N-(1,1-dimethyl-2,3-epoxy-propan)-b-hydroxy-tryptophan",
+      "formula": "C16H18N2O3",
+      "category": "Unknown",
+      "losses": [
+        "H2O"
+      ]
+    },
+    "diMe-pren-OH-Trp": {
+      "abbr": "diMe-pren-OH-Trp",
+      "name": "N-(1,1-dimethyl-2,3-propen)-b-hydroxy-tryptophan",
+      "formula": "C16H18N2O2",
+      "category": "Unknown",
+      "losses": [
+        "H2O"
+      ]
+    },
+    "diOH-Arg": {
+      "abbr": "diOH-Arg",
+      "name": "3,4-dihydroxy-arginine",
+      "formula": "C6H12N4O3",
+      "category": "Unknown",
+      "losses": []
+    },
+    "diOH-Bz": {
+      "abbr": "diOH-Bz",
+      "name": "2,3-dihydroxy-benzoic acid",
+      "formula": "C7H4O3",
+      "category": "NRPS",
+      "losses": []
+    },
+    "diOH-Phe": {
+      "abbr": "diOH-Phe",
+      "name": "3,4-dihydroxy-phenylalanine",
+      "formula": "C9H9NO3",
+      "category": "Unknown",
+      "losses": []
+    },
+    "dv-Tyr": {
+      "abbr": "dv-Tyr",
+      "name": "dehydro-vinylogous-tyrosine",
+      "formula": "C11H9NO2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "e-Tyr": {
+      "abbr": "e-Tyr",
+      "name": "ethylene-inserted-tyrosine",
+      "formula": "C11H13NO2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "gOH-NMe-Val": {
+      "abbr": "gOH-NMe-Val",
+      "name": "gama-hydroxy-N-methyl-valine",
+      "formula": "C6H11NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "gSer": {
+      "abbr": "gSer",
+      "name": "alpha-guanidino-serine",
+      "formula": "C3H6N4O2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "hk-Arg": {
+      "abbr": "hk-Arg",
+      "name": "hydrated alpha-keto-arginine",
+      "formula": "C7H14N4O2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "iC10:0": {
+      "abbr": "iC10:0",
+      "name": "8-methyl-nonanoic acid",
+      "formula": "C10H18O",
+      "category": "FAS",
+      "losses": []
+    },
+    "iC10:2(2.t4)": {
+      "abbr": "iC10:2(2.t4)",
+      "name": "2,trans4-8-methyl-noneoic acid",
+      "formula": "C10H14O",
+      "category": "FAS",
+      "losses": []
+    },
+    "iC11:0": {
+      "abbr": "iC11:0",
+      "name": "9-methyl-decanoic acid",
+      "formula": "C11H20O",
+      "category": "FAS",
+      "losses": []
+    },
+    "iC11:0-OH(3)": {
+      "abbr": "iC11:0-OH(3)",
+      "name": "3-hydroxy-9-methyl-decanoic acid",
+      "formula": "C11H20O2",
+      "category": "FAS",
+      "losses": []
+    },
+    "iC12:0": {
+      "abbr": "iC12:0",
+      "name": "10-methyl-undecanoic acid",
+      "formula": "C12H22O",
+      "category": "FAS",
+      "losses": []
+    },
+    "iC12:0-OH(3)": {
+      "abbr": "iC12:0-OH(3)",
+      "name": "3-hydroxy-10-methyl-undecanoic acid",
+      "formula": "C12H22O2",
+      "category": "FAS",
+      "losses": []
+    },
+    "iC12:2(2.t4)": {
+      "abbr": "iC12:2(2.t4)",
+      "name": "10-methyl-2,trans4-undecanoic acid",
+      "formula": "C12H18O",
+      "category": "FAS",
+      "losses": []
+    },
+    "iC13:0": {
+      "abbr": "iC13:0",
+      "name": "11-methyl-dodecanoic acid",
+      "formula": "C13H24O",
+      "category": "FAS",
+      "losses": []
+    },
+    "iC13:0-OH(3)": {
+      "abbr": "iC13:0-OH(3)",
+      "name": "3-hydroxy-11-methyl-dodecanoic acid",
+      "formula": "C13H24O2",
+      "category": "FAS",
+      "losses": []
+    },
+    "iC13:1(3)": {
+      "abbr": "iC13:1(3)",
+      "name": "11-methyl-3-dodecenoic acid",
+      "formula": "C13H22O",
+      "category": "FAS",
+      "losses": []
+    },
+    "iC14:0": {
+      "abbr": "iC14:0",
+      "name": "12-methyl-tridecanoic acid",
+      "formula": "C14H26O",
+      "category": "FAS",
+      "losses": []
+    },
+    "iC14:0-NH2(3)": {
+      "abbr": "iC14:0-NH2(3)",
+      "name": "3-amino-12-methyl-tridecanoic acid",
+      "formula": "C14H27NO",
+      "category": "FAS",
+      "losses": []
+    },
+    "iC14:0-OH(3)": {
+      "abbr": "iC14:0-OH(3)",
+      "name": "3-hydroxy-12-methyl-tridecanoic acid",
+      "formula": "C14H26O2",
+      "category": "FAS",
+      "losses": []
+    },
+    "iC14:1(3)": {
+      "abbr": "iC14:1(3)",
+      "name": "12-methyl-3-tridecenoic acid",
+      "formula": "C14H24O",
+      "category": "FAS",
+      "losses": []
+    },
+    "iC15:0-NH2(3)": {
+      "abbr": "iC15:0-NH2(3)",
+      "name": "3-amino-13-methyl-tetradecanoic acid",
+      "formula": "C15H29NO",
+      "category": "FAS",
+      "losses": []
+    },
+    "iC15:0-OH(3)": {
+      "abbr": "iC15:0-OH(3)",
+      "name": "3-hydroxy-13-methyl-tetradecanoic acid",
+      "formula": "C15H28O2",
+      "category": "FAS",
+      "losses": []
+    },
+    "iC16:0-NH2(3)": {
+      "abbr": "iC16:0-NH2(3)",
+      "name": "3-amino-14-methyl-pentadecanoic acid",
+      "formula": "C16H31NO",
+      "category": "FAS",
+      "losses": []
+    },
+    "iC16:0-OH(3)": {
+      "abbr": "iC16:0-OH(3)",
+      "name": "3-hydroxy-14-methyl-pentadecanoic acid",
+      "formula": "C16H30O2",
+      "category": "FAS",
+      "losses": []
+    },
+    "iC17:0-NH2(3)": {
+      "abbr": "iC17:0-NH2(3)",
+      "name": "3-amino-15-methyl-hexadecanoic acid",
+      "formula": "C17H33NO",
+      "category": "FAS",
+      "losses": []
+    },
+    "iC17:0-OH(3)": {
+      "abbr": "iC17:0-OH(3)",
+      "name": "3-hydroxy-15-methyl-hexadecanoic acid",
+      "formula": "C17H32O2",
+      "category": "FAS",
+      "losses": []
+    },
+    "iC5:0-OH(2)-CA(4)": {
+      "abbr": "iC5:0-OH(2)-CA(4)",
+      "name": "2-hydroxy-3-methyl-butanedioic acid",
+      "formula": "C5H6O4",
+      "category": "Unknown",
+      "losses": []
+    },
+    "iC5:0-OH(2.3)": {
+      "abbr": "iC5:0-OH(2.3)",
+      "name": "2,3-dihydroxy-3-methyl-butanoic acid",
+      "formula": "C5H8O3",
+      "category": "Unknown",
+      "losses": []
+    },
+    "iC5:0-OH(2.4)": {
+      "abbr": "iC5:0-OH(2.4)",
+      "name": "2,4-dihydroxy-3-methyl-butanoic acid",
+      "formula": "C5H8O3",
+      "category": "Unknown",
+      "losses": []
+    },
+    "iC7:0": {
+      "abbr": "iC7:0",
+      "name": "5-methyl-hexanoic acid",
+      "formula": "C7H12O",
+      "category": "FAS",
+      "losses": []
+    },
+    "iC8:0": {
+      "abbr": "iC8:0",
+      "name": "6-methyl-heptanoic acid",
+      "formula": "C8H14O",
+      "category": "FAS",
+      "losses": []
+    },
+    "iC8:0-Me(2.4)-OH(3)": {
+      "abbr": "iC8:0-Me(2.4)-OH(3)",
+      "name": "2,4,6-trimethyl-3-hydroxy-heptanoic acid",
+      "formula": "C10H18O2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "iC9:0": {
+      "abbr": "iC9:0",
+      "name": "7-methyl-octanoic acid",
+      "formula": "C9H16O",
+      "category": "FAS",
+      "losses": []
+    },
+    "iC9:0-OH(3)": {
+      "abbr": "iC9:0-OH(3)",
+      "name": "3-hydroxy-7-methyl-octanoic acid",
+      "formula": "C9H16O2",
+      "category": "FAS",
+      "losses": []
+    },
+    "iC9:2(2.t4)": {
+      "abbr": "iC9:2(2.t4)",
+      "name": "2,trans4-7-methyl-octenoic acid",
+      "formula": "C9H12O",
+      "category": "FAS",
+      "losses": []
+    },
+    "k-Arg": {
+      "abbr": "k-Arg",
+      "name": "alpha-keto-arginine",
+      "formula": "C7H12N4O2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "k-Leu": {
+      "abbr": "k-Leu",
+      "name": "keto-leucine",
+      "formula": "C6H8O2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "norCMA": {
+      "abbr": "norCMA",
+      "name": "norcoronamic acid",
+      "formula": "C5H7NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "pGlu": {
+      "abbr": "pGlu",
+      "name": "pyroglutamic acid",
+      "formula": "C5H5NO2",
+      "category": "NRPS",
+      "losses": []
+    },
+    "pOH-Bz": {
+      "abbr": "pOH-Bz",
+      "name": "para-hydroxy-benzoic acid",
+      "formula": "C7H4O2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "pTrp": {
+      "abbr": "pTrp",
+      "name": "phototryptophan",
+      "formula": "C11H10N2O2",
+      "category": "Unknown",
+      "losses": []
+    },
+    "t-Leu": {
+      "abbr": "t-Leu",
+      "name": "tert-Leu",
+      "formula": "C6H11NO",
+      "category": "NRPS",
+      "losses": []
+    },
+    "v-Arg": {
+      "abbr": "v-Arg",
+      "name": "vinylogous arginine",
+      "formula": "C8H14N4O",
+      "category": "Unknown",
+      "losses": []
+    },
+    "v-OH-Tyr": {
+      "abbr": "v-OH-Tyr",
+      "name": "vinylogous hydroxy-tyrosine",
+      "formula": "C11H11NO3",
+      "category": "Unknown",
+      "losses": []
+    },
+    "v-Tyr": {
+      "abbr": "v-Tyr",
+      "name": "vinylogous tyrosine",
+      "formula": "C11H11NO2",
+      "category": "Unknown",
+      "losses": []
+    }
+  }
+}

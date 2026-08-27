@@ -1,0 +1,501 @@
+{
+  "schemaVersion": 1,
+  "presets": {
+    "operator": {},
+    "processing": {
+      "ESI-ICR Peptides": {
+        "math": {
+          "operation": "normalize",
+          "multiplier": 1,
+          "preservePeaks": 1
+        },
+        "crop": {
+          "lowMass": 200,
+          "highMass": 4000
+        },
+        "baseline": {
+          "precision": 15,
+          "offset": 0.25,
+          "allowNegative": 0,
+          "preservePeaks": 1
+        },
+        "smoothing": {
+          "method": "SG",
+          "windowSize": 0.05,
+          "cycles": 1,
+          "preservePeaks": 1
+        },
+        "peakpicking": {
+          "snThreshold": 4.0,
+          "absIntThreshold": 0.0,
+          "relIntThreshold": 0.001,
+          "pickingHeight": 0.9,
+          "baseline": 1,
+          "smoothing": 0,
+          "deisotoping": 1,
+          "monoisotopic": 0,
+          "removeShoulders": 1,
+          "averagineType": "protein"
+        },
+        "deisotoping": {
+          "maxCharge": 5,
+          "massTolerance": 0.005,
+          "intTolerance": 0.5,
+          "isotopeShift": 0.0,
+          "removeIsotopes": 1,
+          "removeUnknown": 1,
+          "labelEnvelope": "1st",
+          "envelopeIntensity": "maximum",
+          "envelopeNonIdeality": 0.4,
+          "setAsMonoisotopic": 1,
+          "convertToEnvelopes": 1
+        },
+        "deconvolution": {
+          "massType": 0,
+          "groupWindow": 0.001,
+          "groupPeaks": 1,
+          "forceGroupWindow": 0
+        },
+        "batch": {
+          "math": 0,
+          "crop": 0,
+          "baseline": 0,
+          "smoothing": 0,
+          "peakpicking": 0,
+          "deisotoping": 0,
+          "deconvolution": 0,
+          "stepOrder": [
+            "smoothing",
+            "baseline",
+            "math",
+            "peakpicking",
+            "crop",
+            "deisotoping",
+            "deconvolution"
+          ]
+        }
+      },
+      "MALDI-ICR Low Mass": {
+        "math": {
+          "operation": "normalize",
+          "multiplier": 1,
+          "preservePeaks": 1
+        },
+        "crop": {
+          "lowMass": 200,
+          "highMass": 1500
+        },
+        "baseline": {
+          "precision": 15,
+          "offset": 0.25,
+          "allowNegative": 0,
+          "preservePeaks": 1
+        },
+        "smoothing": {
+          "method": "SG",
+          "windowSize": 0.05,
+          "cycles": 1,
+          "preservePeaks": 1
+        },
+        "peakpicking": {
+          "snThreshold": 6.0,
+          "absIntThreshold": 0.0,
+          "relIntThreshold": 0.001,
+          "pickingHeight": 0.9,
+          "baseline": 1,
+          "smoothing": 0,
+          "deisotoping": 1,
+          "monoisotopic": 0,
+          "removeShoulders": 1,
+          "averagineType": "protein"
+        },
+        "deisotoping": {
+          "maxCharge": 1,
+          "massTolerance": 0.02,
+          "intTolerance": 0.7,
+          "isotopeShift": 0.0,
+          "removeIsotopes": 1,
+          "removeUnknown": 1,
+          "labelEnvelope": "1st",
+          "envelopeIntensity": "maximum",
+          "envelopeNonIdeality": 0.4,
+          "setAsMonoisotopic": 1,
+          "convertToEnvelopes": 1
+        },
+        "deconvolution": {
+          "massType": 0,
+          "groupWindow": 0.001,
+          "groupPeaks": 1,
+          "forceGroupWindow": 0
+        },
+        "batch": {
+          "math": 0,
+          "crop": 0,
+          "baseline": 0,
+          "smoothing": 0,
+          "peakpicking": 0,
+          "deisotoping": 0,
+          "deconvolution": 0,
+          "stepOrder": [
+            "smoothing",
+            "baseline",
+            "math",
+            "peakpicking",
+            "crop",
+            "deisotoping",
+            "deconvolution"
+          ]
+        }
+      },
+      "MALDI-ICR Peptides": {
+        "math": {
+          "operation": "normalize",
+          "multiplier": 1,
+          "preservePeaks": 1
+        },
+        "crop": {
+          "lowMass": 750,
+          "highMass": 4000
+        },
+        "baseline": {
+          "precision": 15,
+          "offset": 0.25,
+          "allowNegative": 0,
+          "preservePeaks": 1
+        },
+        "smoothing": {
+          "method": "SG",
+          "windowSize": 0.05,
+          "cycles": 1,
+          "preservePeaks": 1
+        },
+        "peakpicking": {
+          "snThreshold": 4.0,
+          "absIntThreshold": 0.0,
+          "relIntThreshold": 0.001,
+          "pickingHeight": 0.9,
+          "baseline": 1,
+          "smoothing": 0,
+          "deisotoping": 1,
+          "monoisotopic": 0,
+          "removeShoulders": 1,
+          "averagineType": "protein"
+        },
+        "deisotoping": {
+          "maxCharge": 1,
+          "massTolerance": 0.02,
+          "intTolerance": 0.5,
+          "isotopeShift": 0.0,
+          "removeIsotopes": 1,
+          "removeUnknown": 1,
+          "labelEnvelope": "1st",
+          "envelopeIntensity": "maximum",
+          "envelopeNonIdeality": 0.4,
+          "setAsMonoisotopic": 1,
+          "convertToEnvelopes": 1
+        },
+        "deconvolution": {
+          "massType": 0,
+          "groupWindow": 0.001,
+          "groupPeaks": 1,
+          "forceGroupWindow": 0
+        },
+        "batch": {
+          "math": 0,
+          "crop": 0,
+          "baseline": 0,
+          "smoothing": 0,
+          "peakpicking": 0,
+          "deisotoping": 0,
+          "deconvolution": 0,
+          "stepOrder": [
+            "smoothing",
+            "baseline",
+            "math",
+            "peakpicking",
+            "crop",
+            "deisotoping",
+            "deconvolution"
+          ]
+        }
+      },
+      "MALDI-TOF PSD": {
+        "math": {
+          "operation": "normalize",
+          "multiplier": 1,
+          "preservePeaks": 1
+        },
+        "crop": {
+          "lowMass": 0,
+          "highMass": 4000
+        },
+        "baseline": {
+          "precision": 20,
+          "offset": 0.25,
+          "allowNegative": 0,
+          "preservePeaks": 1
+        },
+        "smoothing": {
+          "method": "SG",
+          "windowSize": 0.25,
+          "cycles": 2,
+          "preservePeaks": 1
+        },
+        "peakpicking": {
+          "snThreshold": 3.0,
+          "absIntThreshold": 0.0,
+          "relIntThreshold": 0.005,
+          "pickingHeight": 0.75,
+          "baseline": 1,
+          "smoothing": 1,
+          "deisotoping": 1,
+          "monoisotopic": 0,
+          "removeShoulders": 0,
+          "averagineType": "protein"
+        },
+        "deisotoping": {
+          "maxCharge": 1,
+          "massTolerance": 0.2,
+          "intTolerance": 0.5,
+          "isotopeShift": 0.0,
+          "removeIsotopes": 1,
+          "removeUnknown": 0,
+          "labelEnvelope": "1st",
+          "envelopeIntensity": "maximum",
+          "envelopeNonIdeality": 0.4,
+          "setAsMonoisotopic": 1,
+          "convertToEnvelopes": 1
+        },
+        "deconvolution": {
+          "massType": 0,
+          "groupWindow": 0.1,
+          "groupPeaks": 1,
+          "forceGroupWindow": 0
+        },
+        "batch": {
+          "math": 0,
+          "crop": 0,
+          "baseline": 0,
+          "smoothing": 0,
+          "peakpicking": 0,
+          "deisotoping": 0,
+          "deconvolution": 0,
+          "stepOrder": [
+            "smoothing",
+            "baseline",
+            "math",
+            "peakpicking",
+            "crop",
+            "deisotoping",
+            "deconvolution"
+          ]
+        }
+      },
+      "MALDI-TOF Peptides": {
+        "math": {
+          "operation": "normalize",
+          "multiplier": 1,
+          "preservePeaks": 1
+        },
+        "crop": {
+          "lowMass": 750,
+          "highMass": 4000
+        },
+        "baseline": {
+          "precision": 15,
+          "offset": 0.25,
+          "allowNegative": 0,
+          "preservePeaks": 1
+        },
+        "smoothing": {
+          "method": "SG",
+          "windowSize": 0.2,
+          "cycles": 2,
+          "preservePeaks": 1
+        },
+        "peakpicking": {
+          "snThreshold": 3.5,
+          "absIntThreshold": 0.0,
+          "relIntThreshold": 0.005,
+          "pickingHeight": 0.75,
+          "baseline": 1,
+          "smoothing": 1,
+          "deisotoping": 1,
+          "monoisotopic": 0,
+          "removeShoulders": 0,
+          "averagineType": "protein"
+        },
+        "deisotoping": {
+          "maxCharge": 1,
+          "massTolerance": 0.15,
+          "intTolerance": 0.5,
+          "isotopeShift": 0.0,
+          "removeIsotopes": 1,
+          "removeUnknown": 1,
+          "labelEnvelope": "1st",
+          "envelopeIntensity": "maximum",
+          "envelopeNonIdeality": 0.4,
+          "setAsMonoisotopic": 1,
+          "convertToEnvelopes": 1
+        },
+        "deconvolution": {
+          "massType": 0,
+          "groupWindow": 0.05,
+          "groupPeaks": 1,
+          "forceGroupWindow": 0
+        },
+        "batch": {
+          "math": 0,
+          "crop": 0,
+          "baseline": 0,
+          "smoothing": 0,
+          "peakpicking": 0,
+          "deisotoping": 0,
+          "deconvolution": 0,
+          "stepOrder": [
+            "smoothing",
+            "baseline",
+            "math",
+            "peakpicking",
+            "crop",
+            "deisotoping",
+            "deconvolution"
+          ]
+        }
+      },
+      "MALDI-TOF Proteins 5-20 kDa": {
+        "math": {
+          "operation": "normalize",
+          "multiplier": 1,
+          "preservePeaks": 1
+        },
+        "crop": {
+          "lowMass": 5000,
+          "highMass": 20000
+        },
+        "baseline": {
+          "precision": 20,
+          "offset": 0.25,
+          "allowNegative": 0,
+          "preservePeaks": 1
+        },
+        "smoothing": {
+          "method": "MA",
+          "windowSize": 5.0,
+          "cycles": 2,
+          "preservePeaks": 1
+        },
+        "peakpicking": {
+          "snThreshold": 2.5,
+          "absIntThreshold": 0.0,
+          "relIntThreshold": 0.01,
+          "pickingHeight": 0.75,
+          "baseline": 1,
+          "smoothing": 1,
+          "deisotoping": 0,
+          "monoisotopic": 0,
+          "removeShoulders": 0,
+          "averagineType": "protein"
+        },
+        "deisotoping": {
+          "maxCharge": 1,
+          "massTolerance": 0.1,
+          "intTolerance": 0.5,
+          "isotopeShift": 0.0,
+          "removeIsotopes": 0,
+          "removeUnknown": 0,
+          "labelEnvelope": "1st",
+          "envelopeIntensity": "maximum",
+          "envelopeNonIdeality": 0.4,
+          "setAsMonoisotopic": 0,
+          "convertToEnvelopes": 1
+        },
+        "deconvolution": {
+          "massType": 1,
+          "groupWindow": 2.5,
+          "groupPeaks": 1,
+          "forceGroupWindow": 0
+        },
+        "batch": {
+          "math": 0,
+          "crop": 0,
+          "baseline": 0,
+          "smoothing": 0,
+          "peakpicking": 0,
+          "deisotoping": 0,
+          "deconvolution": 0,
+          "stepOrder": [
+            "smoothing",
+            "baseline",
+            "math",
+            "peakpicking",
+            "crop",
+            "deisotoping",
+            "deconvolution"
+          ]
+        }
+      }
+    },
+    "modifications": {
+      "-None-": [],
+      "Carbamidomethyl (C)": [
+        [
+          "Carbamidomethyl",
+          "C",
+          "f"
+        ]
+      ],
+      "N-Formyl Met": [
+        [
+          "FormylMet",
+          "0",
+          "v"
+        ]
+      ],
+      "Oxidation (MW)": [
+        [
+          "Oxidation",
+          "M",
+          "v"
+        ],
+        [
+          "Oxidation",
+          "W",
+          "v"
+        ]
+      ]
+    },
+    "fragments": {
+      "-None-": [],
+      "CID": [
+        "b",
+        "y",
+        "-NH3",
+        "-H2O"
+      ],
+      "ECD/ETD": [
+        "c",
+        "y"
+      ],
+      "ISD": [
+        "a",
+        "c",
+        "y"
+      ],
+      "Ladder-C": [
+        "c-ladder"
+      ],
+      "Ladder-N": [
+        "n-ladder"
+      ],
+      "PSD": [
+        "a",
+        "b",
+        "y",
+        "-NH3",
+        "-H2O",
+        "im"
+      ]
+    }
+  }
+}

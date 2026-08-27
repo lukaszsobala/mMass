@@ -16,7 +16,10 @@
 # -------------------------------------------------------------------------
 
 # load libs
+import json
+import os
 import os.path
+import tempfile
 import xml.dom.minidom
 
 # load objects
@@ -2120,7 +2123,7 @@ modifications = {
 # --------------
 
 
-def loadMonomers(
+def loadMonomersXML(
     path=os.path.join(blocksdir, "monomers.xml"), clear=False, replace=False  # noqa: B008
 ):
     """Parse monomers XML and get data."""
@@ -2162,7 +2165,7 @@ def loadMonomers(
 # ----
 
 
-def loadEnzymes(path=os.path.join(blocksdir, "enzymes.xml"), clear=False, replace=True):  # noqa: B008
+def loadEnzymesXML(path=os.path.join(blocksdir, "enzymes.xml"), clear=False, replace=True):  # noqa: B008
     """Parse enzymes XML and get data."""
 
     container = {}
@@ -2212,7 +2215,7 @@ def loadEnzymes(path=os.path.join(blocksdir, "enzymes.xml"), clear=False, replac
 # ----
 
 
-def loadModifications(
+def loadModificationsXML(
     path=os.path.join(blocksdir, "modifications.xml"), clear=False, replace=True  # noqa: B008
 ):
     """Parse modifications XML and get data."""
@@ -2282,128 +2285,219 @@ def _getNodeText(node):
 # --------------
 
 
-def saveMonomers(path=os.path.join(blocksdir, "monomers.xml")):  # noqa: B008
-    """Make and save monomers XML."""
+def saveMonomers(path=os.path.join(blocksdir, "monomers.json")):  # noqa: B008
+    """Serialize the monomer library to JSON."""
 
-    # make monomers xml
-    buff = '<?xml version="1.0" encoding="utf-8" ?>\n'
-    buff += '<mspyMonomers version="1.0">\n'
+    data = {}
+    for abbr in sorted(monomers.keys()):
+        item = monomers[abbr]
+        if item.category == "_InternalAA":
+            continue
+        data[abbr] = {
+            "abbr": item.abbr,
+            "name": item.name,
+            "formula": item.formula,
+            "category": item.category,
+            "losses": list(item.losses),
+        }
 
-    abbrs = list(monomers.keys())
-    abbrs.sort()
-    for abbr in abbrs:
-        if monomers[abbr].category != "_InternalAA":
-            buff += (
-                '  <monomer abbr="%s" name="%s" formula="%s" category="%s" losses="%s" />\n'
-                % (
-                    monomers[abbr].abbr,
-                    monomers[abbr].name,
-                    monomers[abbr].formula,
-                    monomers[abbr].category,
-                    ";".join(monomers[abbr].losses),
-                )
-            )
+    return _writeJSON(path, {"schemaVersion": 1, "monomers": data})
 
-    buff += "</mspyMonomers>"
 
-    # save monomers file
+def loadMonomers(
+    path=os.path.join(blocksdir, "monomers.json"), clear=False, replace=False  # noqa: B008
+):
+    """Read a JSON monomer library."""
+
+    container = {}
+    for abbr, item in _readJSON(path, "monomers").items():
+        container[abbr] = monomer(
+            abbr=item.get("abbr", abbr),
+            formula=item.get("formula", ""),
+            losses=list(item.get("losses", [])),
+            name=item.get("name", ""),
+            category=item.get("category", ""),
+        )
+
+    _updateLibrary(monomers, container, clear, replace)
+
+
+# ----
+
+
+def saveEnzymes(path=os.path.join(blocksdir, "enzymes.json")):  # noqa: B008
+    """Serialize the enzyme library to JSON."""
+
+    data = {}
+    for name in sorted(enzymes.keys()):
+        item = enzymes[name]
+        data[name] = {
+            "name": item.name,
+            "expression": item.expression,
+            "nTermFormula": item.nTermFormula,
+            "cTermFormula": item.cTermFormula,
+            "modsBefore": bool(item.modsBefore),
+            "modsAfter": bool(item.modsAfter),
+        }
+
+    return _writeJSON(path, {"schemaVersion": 1, "enzymes": data})
+
+
+def loadEnzymes(
+    path=os.path.join(blocksdir, "enzymes.json"), clear=False, replace=True  # noqa: B008
+):
+    """Read a JSON enzyme library."""
+
+    container = {}
+    for name, item in _readJSON(path, "enzymes").items():
+        container[name] = enzyme(
+            name=item.get("name", name),
+            expression=item.get("expression", ""),
+            nTermFormula=item.get("nTermFormula", ""),
+            cTermFormula=item.get("cTermFormula", ""),
+            modsBefore=bool(item.get("modsBefore", True)),
+            modsAfter=bool(item.get("modsAfter", True)),
+        )
+
+    _updateLibrary(enzymes, container, clear, replace)
+
+
+# ----
+
+
+def saveModifications(path=os.path.join(blocksdir, "modifications.json")):  # noqa: B008
+    """Serialize the modification library to JSON."""
+
+    data = {}
+    for name in sorted(modifications.keys()):
+        item = modifications[name]
+        data[name] = {
+            "name": item.name,
+            "gainFormula": item.gainFormula,
+            "lossFormula": item.lossFormula,
+            "aminoSpecifity": item.aminoSpecifity,
+            "termSpecifity": item.termSpecifity,
+            "description": item.description,
+        }
+
+    return _writeJSON(path, {"schemaVersion": 1, "modifications": data})
+
+
+def loadModifications(
+    path=os.path.join(blocksdir, "modifications.json"), clear=False, replace=True  # noqa: B008
+):
+    """Read a JSON modification library."""
+
+    container = {}
+    for name, item in _readJSON(path, "modifications").items():
+        container[name] = modification(
+            name=item.get("name", name),
+            gainFormula=item.get("gainFormula", ""),
+            lossFormula=item.get("lossFormula", ""),
+            aminoSpecifity=item.get("aminoSpecifity", ""),
+            termSpecifity=item.get("termSpecifity", ""),
+            description=item.get("description", ""),
+        )
+
+    _updateLibrary(modifications, container, clear, replace)
+
+
+# ----
+
+
+def _updateLibrary(library, container, clear, replace):
+    """Fold freshly parsed entries into a live library dict."""
+
+    if container and clear:
+        library.clear()
+    for key in container:
+        if replace or key not in library:
+            library[key] = container[key]
+
+
+def _readJSON(path, section):
+    """Return one section of a library file, or {} if it is not a dict."""
+
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    if not isinstance(data, dict):
+        raise ValueError("%s: root must be a JSON object" % path)
+
+    entries = data.get(section)
+    if not isinstance(entries, dict):
+        raise ValueError("%s: missing '%s' object" % (path, section))
+
+    return {k: v for k, v in entries.items() if isinstance(v, dict)}
+
+
+def _writeJSON(path, data):
+    """Serialize a library payload atomically."""
+
     try:
-        with open(path, "wb") as f:
-            f.write(buff.encode("utf-8"))
+        encoded = json.dumps(data, indent=2, ensure_ascii=False)
+    except (TypeError, ValueError):
+        return False
+
+    return _writeFileAtomically(path, (encoded + "\n").encode("utf-8"))
+
+
+# ----
+
+
+def _currentUmask():
+    """Read the process umask without leaving it changed."""
+
+    mask = os.umask(0)
+    os.umask(mask)
+    return mask
+
+
+def _writeFileAtomically(path, data):
+    """Write bytes via a temp file in the same dir, then os.replace().
+
+    A truncating in-place write leaves a half-written library behind if the
+    process dies mid-write; os.replace() is atomic on POSIX and Windows, so a
+    reader only ever sees the old file or the complete new one.
+    """
+
+    # Resolve symlinks first: os.replace() onto a symlink would replace the
+    # LINK with a regular file, silently detaching a config the user
+    # deliberately pointed at shared or external storage. Writing through to
+    # the link target keeps that setup intact, matching what a plain open()
+    # used to do.
+    path = os.path.realpath(path)
+
+    directory = os.path.dirname(os.path.abspath(path))
+    handle, tmppath = tempfile.mkstemp(
+        dir=directory, prefix=".%s." % os.path.basename(path), suffix=".tmp"
+    )
+    try:
+        with os.fdopen(handle, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+
+        # mkstemp() always creates 0600; keep whatever mode the file already
+        # had, or fall back to the usual umask-derived mode for a new one
+        try:
+            os.chmod(tmppath, os.stat(path).st_mode & 0o7777)
+        except OSError:
+            os.chmod(tmppath, 0o666 & ~_currentUmask())
+
+        os.replace(tmppath, path)
         return True
     except Exception:
+        try:
+            os.unlink(tmppath)
+        except OSError:
+            pass
         return False
 
 
 # ----
 
 
-def saveEnzymes(path=os.path.join(blocksdir, "enzymes.xml")):  # noqa: B008
-    """Make and save enzymes XML."""
-
-    # make enzymes xml
-    buff = '<?xml version="1.0" encoding="utf-8" ?>\n'
-    buff += '<mspyEnzymes version="1.0">\n'
-
-    names = list(enzymes.keys())
-    names.sort()
-    for name in names:
-        buff += '  <enzyme name="%s">\n' % (_escape(enzymes[name].name))
-        buff += "    <expression><![CDATA[%s]]></expression>\n" % (
-            enzymes[name].expression
-        )
-        buff += '    <formula nTerm="%s" cTerm="%s" />\n' % (
-            enzymes[name].nTermFormula,
-            enzymes[name].cTermFormula,
-        )
-        buff += '    <allowMods before="%s" after="%s" />\n' % (
-            int(enzymes[name].modsBefore),
-            int(enzymes[name].modsAfter),
-        )
-        buff += "  </enzyme>\n"
-
-    buff += "</mspyEnzymes>"
-
-    # save enzymes file
-    try:
-        with open(path, "wb") as f:
-            f.write(buff.encode("utf-8"))
-        return True
-    except Exception:
-        return False
-
-
-# ----
-
-
-def saveModifications(path=os.path.join(blocksdir, "modifications.xml")):  # noqa: B008
-    """Make and save modifications XML."""
-
-    # make modifications xml
-    buff = '<?xml version="1.0" encoding="utf-8" ?>\n'
-    buff += '<mspyModifications version="1.0">\n'
-
-    names = list(modifications.keys())
-    names.sort()
-    for name in names:
-        buff += '  <modification name="%s">\n' % (_escape(modifications[name].name))
-        buff += "    <description>%s</description>\n" % (
-            _escape(modifications[name].description)
-        )
-        buff += '    <formula gain="%s" loss="%s" />\n' % (
-            modifications[name].gainFormula,
-            modifications[name].lossFormula,
-        )
-        buff += '    <specifity amino="%s" terminus="%s" />\n' % (
-            modifications[name].aminoSpecifity,
-            modifications[name].termSpecifity,
-        )
-        buff += "  </modification>\n"
-
-    buff += "</mspyModifications>"
-
-    # save modifications file
-    try:
-        with open(path, "wb") as f:
-            f.write(buff.encode("utf-8"))
-        return True
-    except Exception:
-        return False
-
-
-# ----
-
-
-def _escape(text):
-    """Clear special characters such as <> etc."""
-
-    text = text.strip()
-    search = ("&", '"', "'", "<", ">")
-    replace = ("&amp;", "&quot;", "&apos;", "&lt;", "&gt;")
-    for x, item in enumerate(search):
-        text = text.replace(item, replace[x])
-
-    return text
 
 
 # ----

@@ -1,0 +1,1447 @@
+{
+  "schemaVersion": 1,
+  "references": {
+    "Big-Pig-Mix - MALDI Pos Mo": [
+      [
+        "4HCCA Cluster",
+        839.0974
+      ],
+      [
+        "4HCCA Cluster",
+        845.1054
+      ],
+      [
+        "4HCCA Cluster",
+        855.0714
+      ],
+      [
+        "4HCCA Cluster",
+        861.0794
+      ],
+      [
+        "4HCCA Cluster",
+        867.0874
+      ],
+      [
+        "4HCCA Cluster",
+        871.0453
+      ],
+      [
+        "4HCCA Cluster",
+        994.1555
+      ],
+      [
+        "4HCCA Cluster",
+        1036.0828
+      ],
+      [
+        "4HCCA Cluster",
+        1044.114
+      ],
+      [
+        "4HCCA Cluster",
+        1054.0933
+      ],
+      [
+        "4HCCA Cluster",
+        1225.1254
+      ],
+      [
+        "4HCCA Cluster",
+        1066.0959
+      ],
+      [
+        "4HCCA Cluster",
+        1060.0879
+      ],
+      [
+        "4HCCA Cluster",
+        568.1351
+      ],
+      [
+        "4HCCA Cluster",
+        606.0915
+      ],
+      [
+        "Bovine Casein a-S1",
+        742.4498
+      ],
+      [
+        "Bovine Casein a-S1",
+        1251.7096
+      ],
+      [
+        "Bovine Casein a-S1",
+        1267.7045
+      ],
+      [
+        "Bovine Casein a-S1",
+        1384.73
+      ],
+      [
+        "Bovine Serum Albumin (BSA)",
+        732.4654
+      ],
+      [
+        "Bovine Serum Albumin (BSA)",
+        1002.583
+      ],
+      [
+        "Bovine Serum Albumin (BSA)",
+        1305.7161
+      ],
+      [
+        "Bovine Serum Albumin (BSA)",
+        1399.6926
+      ],
+      [
+        "Bovine Serum Albumin (BSA)",
+        1439.8118
+      ],
+      [
+        "Bovine Serum Albumin (BSA)",
+        1443.642
+      ],
+      [
+        "Bovine Serum Albumin (BSA)",
+        1479.7954
+      ],
+      [
+        "Bovine Serum Albumin (BSA)",
+        1491.7518
+      ],
+      [
+        "Bovine Serum Albumin (BSA)",
+        1567.7427
+      ],
+      [
+        "Bovine Serum Albumin (BSA)",
+        1639.9378
+      ],
+      [
+        "Keratin",
+        704.3825
+      ],
+      [
+        "Keratin",
+        809.4403
+      ],
+      [
+        "Keratin",
+        995.5197
+      ],
+      [
+        "Keratin",
+        1000.5673
+      ],
+      [
+        "Keratin",
+        1003.5531
+      ],
+      [
+        "Keratin",
+        1036.5323
+      ],
+      [
+        "Keratin",
+        1065.4993
+      ],
+      [
+        "Keratin",
+        1129.6212
+      ],
+      [
+        "Keratin",
+        1141.5194
+      ],
+      [
+        "Keratin",
+        1262.5971
+      ],
+      [
+        "Keratin",
+        1278.5855
+      ],
+      [
+        "Keratin",
+        1301.6583
+      ],
+      [
+        "Keratin",
+        1315.6852
+      ],
+      [
+        "Keratin",
+        1340.6692
+      ],
+      [
+        "Keratin",
+        1344.6754
+      ],
+      [
+        "Keratin",
+        1350.6873
+      ],
+      [
+        "Keratin",
+        1390.6809
+      ],
+      [
+        "Keratin",
+        1418.7274
+      ],
+      [
+        "Keratin",
+        1419.7478
+      ],
+      [
+        "Keratin",
+        1442.8002
+      ],
+      [
+        "Keratin",
+        1453.8373
+      ],
+      [
+        "Keratin",
+        1476.8057
+      ],
+      [
+        "Keratin",
+        1549.6772
+      ],
+      [
+        "Keratin",
+        1599.8337
+      ],
+      [
+        "Keratin",
+        1792.8786
+      ],
+      [
+        "Keratin",
+        1797.0116
+      ],
+      [
+        "Keratin",
+        1837.9654
+      ],
+      [
+        "Keratin",
+        1847.8051
+      ],
+      [
+        "Keratin",
+        1851.9269
+      ],
+      [
+        "Keratin",
+        2082.9648
+      ],
+      [
+        "Keratin",
+        2109.0128
+      ],
+      [
+        "Keratin",
+        2171.0247
+      ],
+      [
+        "Keratin",
+        2184.1255
+      ],
+      [
+        "Keratin",
+        2240.1697
+      ],
+      [
+        "Keratin",
+        2329.1743
+      ],
+      [
+        "Keratin",
+        2564.3679
+      ],
+      [
+        "Keratin",
+        2581.1947
+      ],
+      [
+        "Keratin",
+        2705.1611
+      ],
+      [
+        "Keratin",
+        2746.4192
+      ],
+      [
+        "Keratin",
+        2872.3928
+      ],
+      [
+        "Keratin",
+        2902.4105
+      ],
+      [
+        "Keratin",
+        2904.3826
+      ],
+      [
+        "Keratin",
+        3223.2816
+      ],
+      [
+        "Keratin (Human)",
+        804.4098
+      ],
+      [
+        "Keratin (Human)",
+        807.3995
+      ],
+      [
+        "Keratin (Human)",
+        827.4298
+      ],
+      [
+        "Keratin (Human)",
+        827.4621
+      ],
+      [
+        "Keratin (Human)",
+        832.4887
+      ],
+      [
+        "Keratin (Human)",
+        848.4989
+      ],
+      [
+        "Keratin (Human)",
+        874.4993
+      ],
+      [
+        "Keratin (Human)",
+        881.4727
+      ],
+      [
+        "Keratin (Human)",
+        973.5313
+      ],
+      [
+        "Keratin (Human)",
+        1006.4297
+      ],
+      [
+        "Keratin (Human)",
+        1031.5983
+      ],
+      [
+        "Keratin (Human)",
+        1033.516
+      ],
+      [
+        "Keratin (Human)",
+        1037.5262
+      ],
+      [
+        "Keratin (Human)",
+        1060.5633
+      ],
+      [
+        "Keratin (Human)",
+        1064.6099
+      ],
+      [
+        "Keratin (Human)",
+        1066.6044
+      ],
+      [
+        "Keratin (Human)",
+        1071.6045
+      ],
+      [
+        "Keratin (Human)",
+        1082.5993
+      ],
+      [
+        "Keratin (Human)",
+        1090.531
+      ],
+      [
+        "Keratin (Human)",
+        1109.4898
+      ],
+      [
+        "Keratin (Human)",
+        1118.5086
+      ],
+      [
+        "Keratin (Human)",
+        1121.5837
+      ],
+      [
+        "Keratin (Human)",
+        1157.5909
+      ],
+      [
+        "Keratin (Human)",
+        1165.5848
+      ],
+      [
+        "Keratin (Human)",
+        1179.6004
+      ],
+      [
+        "Keratin (Human)",
+        1183.6157
+      ],
+      [
+        "Keratin (Human)",
+        1193.6161
+      ],
+      [
+        "Keratin (Human)",
+        1201.6171
+      ],
+      [
+        "Keratin (Human)",
+        1208.6157
+      ],
+      [
+        "Keratin (Human)",
+        1210.595
+      ],
+      [
+        "Keratin (Human)",
+        1232.5978
+      ],
+      [
+        "Keratin (Human)",
+        1234.679
+      ],
+      [
+        "Keratin (Human)",
+        1235.5287
+      ],
+      [
+        "Keratin (Human)",
+        1254.6073
+      ],
+      [
+        "Keratin (Human)",
+        1265.6372
+      ],
+      [
+        "Keratin (Human)",
+        1277.6332
+      ],
+      [
+        "Keratin (Human)",
+        1277.71
+      ],
+      [
+        "Keratin (Human)",
+        1278.6437
+      ],
+      [
+        "Keratin (Human)",
+        1300.5296
+      ],
+      [
+        "Keratin (Human)",
+        1302.7012
+      ],
+      [
+        "Keratin (Human)",
+        1302.7151
+      ],
+      [
+        "Keratin (Human)",
+        1307.6776
+      ],
+      [
+        "Keratin (Human)",
+        1308.6543
+      ],
+      [
+        "Keratin (Human)",
+        1316.5246
+      ],
+      [
+        "Keratin (Human)",
+        1320.5828
+      ],
+      [
+        "Keratin (Human)",
+        1323.6726
+      ],
+      [
+        "Keratin (Human)",
+        1323.6539
+      ],
+      [
+        "Keratin (Human)",
+        1329.6393
+      ],
+      [
+        "Keratin (Human)",
+        1336.7107
+      ],
+      [
+        "Keratin (Human)",
+        1357.6958
+      ],
+      [
+        "Keratin (Human)",
+        1357.7183
+      ],
+      [
+        "Keratin (Human)",
+        1365.6393
+      ],
+      [
+        "Keratin (Human)",
+        1371.7114
+      ],
+      [
+        "Keratin (Human)",
+        1374.6933
+      ],
+      [
+        "Keratin (Human)",
+        1381.6482
+      ],
+      [
+        "Keratin (Human)",
+        1383.6903
+      ],
+      [
+        "Keratin (Human)",
+        1393.7322
+      ],
+      [
+        "Keratin (Human)",
+        1410.7084
+      ],
+      [
+        "Keratin (Human)",
+        1419.7954
+      ],
+      [
+        "Keratin (Human)",
+        1434.77
+      ],
+      [
+        "Keratin (Human)",
+        1438.7437
+      ],
+      [
+        "Keratin (Human)",
+        1447.7751
+      ],
+      [
+        "Keratin (Human)",
+        1475.7489
+      ],
+      [
+        "Keratin (Human)",
+        1475.7853
+      ],
+      [
+        "Keratin (Human)",
+        1491.7438
+      ],
+      [
+        "Keratin (Human)",
+        1493.7343
+      ],
+      [
+        "Keratin (Human)",
+        1507.7387
+      ],
+      [
+        "Keratin (Human)",
+        1585.7584
+      ],
+      [
+        "Keratin (Human)",
+        1638.7657
+      ],
+      [
+        "Keratin (Human)",
+        1638.8598
+      ],
+      [
+        "Keratin (Human)",
+        1657.7929
+      ],
+      [
+        "Keratin (Human)",
+        1665.9044
+      ],
+      [
+        "Keratin (Human)",
+        1687.9701
+      ],
+      [
+        "Keratin (Human)",
+        1707.7721
+      ],
+      [
+        "Keratin (Human)",
+        1708.7132
+      ],
+      [
+        "Keratin (Human)",
+        1716.8511
+      ],
+      [
+        "Keratin (Human)",
+        1744.9228
+      ],
+      [
+        "Keratin (Human)",
+        1765.7347
+      ],
+      [
+        "Keratin (Human)",
+        1791.7277
+      ],
+      [
+        "Keratin (Human)",
+        1812.8583
+      ],
+      [
+        "Keratin (Human)",
+        1838.9144
+      ],
+      [
+        "Keratin (Human)",
+        1993.9767
+      ],
+      [
+        "Keratin (Human)",
+        1993.9825
+      ],
+      [
+        "Keratin (Human)",
+        2021.9887
+      ],
+      [
+        "Keratin (Human)",
+        2096.058
+      ],
+      [
+        "Keratin (Human)",
+        2150.0778
+      ],
+      [
+        "Keratin (Human)",
+        2286.1248
+      ],
+      [
+        "Keratin (Human)",
+        2367.2627
+      ],
+      [
+        "Keratin (Human)",
+        2383.9519
+      ],
+      [
+        "Keratin (Human)+Mox",
+        2399.9468
+      ],
+      [
+        "Keratin (Human)",
+        2399.0184
+      ],
+      [
+        "Keratin (Human)",
+        2501.0672
+      ],
+      [
+        "Keratin (Human)",
+        2501.2518
+      ],
+      [
+        "Keratin (Human)",
+        2510.1318
+      ],
+      [
+        "Keratin (Human)",
+        2566.2784
+      ],
+      [
+        "Keratin (Human)",
+        2584.2063
+      ],
+      [
+        "Keratin (Human)",
+        2932.5163
+      ],
+      [
+        "Keratin (Human)",
+        3312.3081
+      ],
+      [
+        "Keratin (Human), ion source fragment",
+        646.3519
+      ],
+      [
+        "Keratin (Human), ion source fragment",
+        863.4734
+      ],
+      [
+        "Keratin (Human), ion source fragment",
+        865.4778
+      ],
+      [
+        "Keratin (Human), ion-source fragment",
+        1399.7005
+      ],
+      [
+        "Porcine Trypsin",
+        571.3562
+      ],
+      [
+        "Porcine Trypsin",
+        672.4039
+      ],
+      [
+        "Porcine Trypsin",
+        672.4039
+      ],
+      [
+        "Porcine Trypsin",
+        743.441
+      ],
+      [
+        "Porcine Trypsin",
+        758.4155
+      ],
+      [
+        "Porcine Trypsin",
+        842.5094
+      ],
+      [
+        "Porcine Trypsin",
+        906.5043
+      ],
+      [
+        "Porcine Trypsin",
+        1045.5637
+      ],
+      [
+        "Porcine Trypsin",
+        1091.548
+      ],
+      [
+        "Porcine Trypsin",
+        1175.634
+      ],
+      [
+        "Porcine Trypsin",
+        1191.629
+      ],
+      [
+        "Porcine Trypsin",
+        1220.5906
+      ],
+      [
+        "Porcine Trypsin",
+        1493.5995
+      ],
+      [
+        "Porcine Trypsin",
+        1774.897
+      ],
+      [
+        "Porcine Trypsin",
+        2211.104
+      ],
+      [
+        "Porcine Trypsin",
+        2225.1197
+      ],
+      [
+        "Porcine Trypsin+Na",
+        2233.086
+      ],
+      [
+        "Porcine Trypsin",
+        2239.1353
+      ],
+      [
+        "Porcine Trypsin+K",
+        2249.0599
+      ],
+      [
+        "Porcine Trypsin",
+        2283.1802
+      ],
+      [
+        "Porcine Trypsin+Mox",
+        2299.1751
+      ],
+      [
+        "Porcine Trypsin+Na",
+        2305.16215
+      ],
+      [
+        "Porcine Trypsin - Methylated",
+        870.5407
+      ],
+      [
+        "Porcine Trypsin, Methylated",
+        1424.7645
+      ],
+      [
+        "Porcine Trypsin, Methylated",
+        1623.8853
+      ],
+      [
+        "Porcine Trypsin, Methylated",
+        1987.078
+      ],
+      [
+        "Porcine Trypsin, Methylated",
+        2003.0729
+      ],
+      [
+        "Porcine Trypsin, Methylated",
+        2297.1958
+      ],
+      [
+        "Porcine Trypsin, Methylated+Mox",
+        2313.1907
+      ],
+      [
+        "Porcine Trypsin, Methylated",
+        2564.1809
+      ],
+      [
+        "Porcine Trypsin, Methylated",
+        2707.4162
+      ],
+      [
+        "Porcine Trypsin, Methylated",
+        2720.3634
+      ],
+      [
+        "Porcine Trypsin, Methylated",
+        2748.3947
+      ],
+      [
+        "Porcine Trypsin, Methylated",
+        2807.3141
+      ],
+      [
+        "Porcine Trypsin, Methylated",
+        2914.5058
+      ],
+      [
+        "Porcine Trypsin, Methylated",
+        3346.6815
+      ],
+      [
+        "Porcine Trypsin, Methylated, Truncated",
+        1126.564
+      ],
+      [
+        "Porcine Trypsin, Truncated",
+        802.4305
+      ],
+      [
+        "Porcine Trypsin, Truncated",
+        1566.7394
+      ],
+      [
+        "Porcine Trypsin, Truncated",
+        1713.8079
+      ],
+      [
+        "Porcine Trypsin, Truncated",
+        2083.0091
+      ],
+      [
+        "Porcine Trypsin, Truncated, Methylated",
+        1940.9349
+      ]
+    ],
+    "DHB Clusters - MALDI Pos Mo": [
+      [
+        "DHB [M+H-H2O]+",
+        137.02332
+      ],
+      [
+        "DHB [M+H]+",
+        155.033885
+      ],
+      [
+        "DHB [M+Na-H2O]+",
+        159.005265
+      ],
+      [
+        "DHB [M+Na]+",
+        177.01583
+      ],
+      [
+        "DHB [M+K-H2O]+",
+        174.979202
+      ],
+      [
+        "DHB [M+K]+",
+        192.989767
+      ],
+      [
+        "DHB [2M+H-2H2O]+",
+        273.039364
+      ],
+      [
+        "DHB [2M+H-H2O]+",
+        291.049929
+      ],
+      [
+        "DHB [2M+H]+",
+        309.060494
+      ],
+      [
+        "DHB [2M+Na-2H2O]+",
+        295.021309
+      ],
+      [
+        "DHB [2M+Na-H2O]+",
+        313.031874
+      ],
+      [
+        "DHB [2M+Na]+",
+        331.042439
+      ],
+      [
+        "DHB [2M+K-H2O]+",
+        329.005811
+      ],
+      [
+        "DHB [2M+K]+",
+        347.016376
+      ],
+      [
+        "DHB [2M+K+Na-H2O]+",
+        351.995032
+      ],
+      [
+        "DHB [3M+H-3H2O]+",
+        409.055408
+      ],
+      [
+        "DHB [3M+H-H2O]+",
+        445.076538
+      ],
+      [
+        "DHB [3M+H]+",
+        463.087103
+      ],
+      [
+        "DHB [3M+Na-3H2O]+",
+        431.037353
+      ],
+      [
+        "DHB [3M+Na-H2O]+",
+        467.058483
+      ],
+      [
+        "DHB [3M+Na]+",
+        485.069048
+      ],
+      [
+        "DHB [3M+K-H2O]+",
+        483.03242
+      ],
+      [
+        "DHB [3M+K]+",
+        501.042985
+      ],
+      [
+        "DHB [3M+K+Na-H2O]+",
+        506.021641
+      ],
+      [
+        "DHB [4M+H-4H2O]+",
+        545.071452
+      ],
+      [
+        "DHB [4M+H-H2O]+",
+        599.103147
+      ],
+      [
+        "DHB [4M+H]+",
+        617.113712
+      ],
+      [
+        "DHB [4M+Na-4H2O]+",
+        567.053397
+      ],
+      [
+        "DHB [4M+Na-H2O]+",
+        621.085092
+      ],
+      [
+        "DHB [4M+Na]+",
+        639.095657
+      ],
+      [
+        "DHB [4M+K-H2O]+",
+        637.059029
+      ],
+      [
+        "DHB [4M+K]+",
+        655.069594
+      ],
+      [
+        "DHB [4M+K+Na-H2O]+",
+        660.04825
+      ],
+      [
+        "DHB [5M+H-5H2O]+",
+        681.087496
+      ],
+      [
+        "DHB [5M+H-H2O]+",
+        753.129756
+      ],
+      [
+        "DHB [5M+H]+",
+        771.140321
+      ],
+      [
+        "DHB [5M+Na-H2O]+",
+        775.111701
+      ],
+      [
+        "DHB [5M+Na]+",
+        793.122266
+      ],
+      [
+        "DHB [5M+K-H2O]+",
+        791.085638
+      ],
+      [
+        "DHB [5M+K]+",
+        809.096203
+      ],
+      [
+        "DHB [5M+K+Na-H2O]+",
+        814.074859
+      ],
+      [
+        "DHB [6M+H-6H2O]+",
+        817.10354
+      ],
+      [
+        "DHB [6M+H-H2O]+",
+        907.156365
+      ],
+      [
+        "DHB [6M+H]+",
+        925.16693
+      ],
+      [
+        "DHB [6M+Na-H2O]+",
+        929.13831
+      ],
+      [
+        "DHB [6M+Na]+",
+        947.148875
+      ],
+      [
+        "DHB [6M+K-H2O]+",
+        945.112247
+      ],
+      [
+        "DHB [6M+K]+",
+        963.122812
+      ],
+      [
+        "DHB [6M+K+Na-H2O]+",
+        968.101468
+      ],
+      [
+        "DHB [7M+H-7H2O]+",
+        953.119584
+      ],
+      [
+        "DHB [7M+H-H2O]+",
+        1061.182974
+      ],
+      [
+        "DHB [7M+H]+",
+        1079.193539
+      ],
+      [
+        "DHB [7M+Na-H2O]+",
+        1083.164919
+      ],
+      [
+        "DHB [7M+Na]+",
+        1101.175484
+      ],
+      [
+        "DHB [7M+K-H2O]+",
+        1099.138856
+      ],
+      [
+        "DHB [7M+K]+",
+        1117.149421
+      ],
+      [
+        "DHB [7M+K+Na-H2O]+",
+        1122.128077
+      ]
+    ],
+    "HCCA Clusters - MALDI Pos Mo": [
+      [
+        "HCCA [M+H-H2O]+",
+        172.039304
+      ],
+      [
+        "HCCA [M+H]+",
+        190.049869
+      ],
+      [
+        "HCCA [M+Na-H2O]+",
+        194.021249
+      ],
+      [
+        "HCCA [M+Na]+",
+        212.031814
+      ],
+      [
+        "HCCA [M+K-H2O]+",
+        209.995186
+      ],
+      [
+        "HCCA [M+K]+",
+        228.005751
+      ],
+      [
+        "HCCA [2M+H-H2O]+",
+        361.081897
+      ],
+      [
+        "HCCA [2M+H]+",
+        379.092462
+      ],
+      [
+        "HCCA [2M+Na-H2O]+",
+        383.063842
+      ],
+      [
+        "HCCA [2M+Na]+",
+        401.074407
+      ],
+      [
+        "HCCA [2M+K-H2O]+",
+        399.037779
+      ],
+      [
+        "HCCA [2M+K]+",
+        417.048344
+      ],
+      [
+        "HCCA [2M+K+Na-H2O]+",
+        422.027
+      ],
+      [
+        "HCCA [3M+H-H2O]+",
+        550.12449
+      ],
+      [
+        "HCCA [3M+H]+",
+        568.135055
+      ],
+      [
+        "HCCA [3M+Na-H2O]+",
+        572.106435
+      ],
+      [
+        "HCCA [3M+Na]+",
+        590.117
+      ],
+      [
+        "HCCA [3M+K-H2O]+",
+        588.080372
+      ],
+      [
+        "HCCA [3M+K]+",
+        606.090937
+      ],
+      [
+        "HCCA [3M+K+Na-H2O]+",
+        611.069593
+      ],
+      [
+        "HCCA [4M+H-H2O]+",
+        739.167083
+      ],
+      [
+        "HCCA [4M+H]+",
+        757.177648
+      ],
+      [
+        "HCCA [4M+Na-H2O]+",
+        761.149028
+      ],
+      [
+        "HCCA [4M+Na]+",
+        779.159593
+      ],
+      [
+        "HCCA [4M+K-H2O]+",
+        777.122965
+      ],
+      [
+        "HCCA [4M+K]+",
+        795.13353
+      ],
+      [
+        "HCCA [4M+K+Na-H2O]+",
+        800.112186
+      ],
+      [
+        "HCCA [5M+H-H2O]+",
+        928.209676
+      ],
+      [
+        "HCCA [5M+H]+",
+        946.220241
+      ],
+      [
+        "HCCA [5M+Na-H2O]+",
+        950.191621
+      ],
+      [
+        "HCCA [5M+Na]+",
+        968.202186
+      ],
+      [
+        "HCCA [5M+K-H2O]+",
+        966.165558
+      ],
+      [
+        "HCCA [5M+K]+",
+        984.176123
+      ],
+      [
+        "HCCA [5M+K+Na-H2O]+",
+        989.154779
+      ],
+      [
+        "HCCA [6M+H-H2O]+",
+        1117.252269
+      ],
+      [
+        "HCCA [6M+H]+",
+        1135.262834
+      ],
+      [
+        "HCCA [6M+Na-H2O]+",
+        1139.234214
+      ],
+      [
+        "HCCA [6M+Na]+",
+        1157.244779
+      ],
+      [
+        "HCCA [6M+K-H2O]+",
+        1155.208151
+      ],
+      [
+        "HCCA [6M+K]+",
+        1173.218716
+      ],
+      [
+        "HCCA [6M+K+Na-H2O]+",
+        1178.197372
+      ],
+      [
+        "HCCA [7M+H-H2O]+",
+        1306.294862
+      ],
+      [
+        "HCCA [7M+H]+",
+        1324.305427
+      ],
+      [
+        "HCCA [7M+Na-H2O]+",
+        1328.276807
+      ],
+      [
+        "HCCA [7M+Na]+",
+        1346.287372
+      ],
+      [
+        "HCCA [7M+K-H2O]+",
+        1344.250744
+      ],
+      [
+        "HCCA [7M+K]+",
+        1362.261309
+      ],
+      [
+        "HCCA [7M+K+Na-H2O]+",
+        1367.239965
+      ]
+    ],
+    "In-Gel (Trypsin) - MALDI Pos Mo": [
+      [
+        "Keratin 10 [M+H]+",
+        1165.5853
+      ],
+      [
+        "Keratin 1/II [M+H]+",
+        1179.601
+      ],
+      [
+        "Keratin 1/II [M+H]+",
+        1300.5302
+      ],
+      [
+        "Keratin 1/II [M+H]+",
+        1716.8517
+      ],
+      [
+        "Keratin 1/II [M+H]+",
+        1993.9767
+      ],
+      [
+        "Keratin 1 [M+H]+",
+        2383.952
+      ],
+      [
+        "Keratin 10 [M+H]+",
+        2825.4056
+      ],
+      [
+        "Trypsin (108-115) [M+H]+",
+        842.5094
+      ],
+      [
+        "Trypsin (209-216) [M+H]+",
+        906.5044
+      ],
+      [
+        "Trypsin (1-8) [M+H]+",
+        952.3894
+      ],
+      [
+        "Trypsin (148-157) [M+H]+",
+        1006.4874
+      ],
+      [
+        "Trypsin (98-107) [M+H]+",
+        1045.5637
+      ],
+      [
+        "Trypsin (134-147) [M+H]+",
+        1469.7305
+      ],
+      [
+        "Trypsin (58-72) [M+H]+",
+        1713.8084
+      ],
+      [
+        "Trypsin (217-231) [M+H]+",
+        1736.8425
+      ],
+      [
+        "Trypsin (116-133) [M+H]+",
+        1768.7993
+      ],
+      [
+        "Trypsin (62-77) [M+H]+",
+        1774.8975
+      ],
+      [
+        "Trypsin (58-76) [M+H]+",
+        2083.0096
+      ],
+      [
+        "Trypsin (158-178) [M+H]+",
+        2158.0307
+      ],
+      [
+        "Trypsin (58-77) [M+H]+",
+        2211.104
+      ],
+      [
+        "Trypsin (78-97) [M+H]+",
+        2283.1802
+      ],
+      [
+        "Trypsin (179-208) [M+H]+",
+        3013.3237
+      ]
+    ],
+    "Trypsin (Porcine) - MALDI Pos Mo": [
+      [
+        "Trypsin (108-115) [M+H]+",
+        842.5094
+      ],
+      [
+        "Trypsin (209-216) [M+H]+",
+        906.5044
+      ],
+      [
+        "Trypsin (1-8) [M+H]+",
+        952.3894
+      ],
+      [
+        "Trypsin (148-157) [M+H]+",
+        1006.4874
+      ],
+      [
+        "Trypsin (98-107) [M+H]+",
+        1045.5637
+      ],
+      [
+        "Trypsin (134-147) [M+H]+",
+        1469.7305
+      ],
+      [
+        "Trypsin (58-72) [M+H]+",
+        1713.8084
+      ],
+      [
+        "Trypsin (217-231) [M+H]+",
+        1736.8425
+      ],
+      [
+        "Trypsin (116-133) [M+H]+",
+        1768.7993
+      ],
+      [
+        "Trypsin (62-77) [M+H]+",
+        1774.8975
+      ],
+      [
+        "Trypsin (58-76) [M+H]+",
+        2083.0096
+      ],
+      [
+        "Trypsin (158-178) [M+H]+",
+        2158.0307
+      ],
+      [
+        "Trypsin (58-77) [M+H]+",
+        2211.104
+      ],
+      [
+        "Trypsin (78-97) [M+H]+",
+        2283.1802
+      ],
+      [
+        "Trypsin (179-208) [M+H]+",
+        3013.3237
+      ]
+    ]
+  }
+}
