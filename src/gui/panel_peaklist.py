@@ -75,6 +75,14 @@ class panelPeaklist(wx.Panel):
         # the peaklist is replaced and the old index no longer points anywhere.
         self._selectedMz = None
         self._ignore_selection_events = False
+        # widest fit seen for each peaklist column (keyed by header text), so
+        # the columns keep the same width for every open document instead of
+        # re-fitting -- and jumping -- each time the shown spectrum changes
+        self._peakListColumnWidths = {}
+        # columns the user has dragged to a width of their own; those widths
+        # are kept as they are instead of being re-fitted to the data
+        self._peakListColumnsManual = set()
+        self._peakListColumnDigits = None
 
         # make GUI
         self.makeGUI()
@@ -254,6 +262,7 @@ class panelPeaklist(wx.Panel):
 
         # set events
         self.peakList.Bind(wx.EVT_LIST_COL_RIGHT_CLICK, self.onColumnRMU)
+        self.peakList.Bind(wx.EVT_LIST_COL_END_DRAG, self.onColumnResized)
         self.peakList.Bind(wx.EVT_LIST_ITEM_SELECTED, self.onItemSelected)
         self.peakList.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self.onItemActivated)
         self.peakList.Bind(wx.EVT_KEY_DOWN, self.onListKey)
@@ -1377,43 +1386,84 @@ class panelPeaklist(wx.Panel):
 
     # ----
 
-    def _autosizePeakListColumns(self):
-        """Autosize every column to fit its content and header.
+    def onColumnResized(self, evt):
+        """Remember a column width the user has set by dragging its border."""
 
-        This mirrors the native "double-click the column border" behaviour
-        (wx.LIST_AUTOSIZE) rather than imposing any hardcoded width, so the
-        columns always shrink/grow to exactly fit the data. Users can still
-        drag a column to a custom width; it resets to the fitted width on the
-        next peaklist refresh.
+        evt.Skip()
+
+        # the control applies the new width only once this handler returns
+        wx.CallAfter(self._rememberColumnWidth, evt.GetColumn())
+
+    # ----
+
+    def _rememberColumnWidth(self, colIndex):
+        """Pin one column to its current width.
+
+        The width replaces the fitted one for that column in every document,
+        and survives switching spectra, until the columns are re-fitted.
+        """
+
+        if not self.peakList or not 0 <= colIndex < self.peakList.GetColumnCount():
+            return
+
+        name = self.peakList.GetColumn(colIndex).GetText()
+        self._peakListColumnWidths[name] = self.peakList.GetColumnWidth(colIndex)
+        self._peakListColumnsManual.add(name)
+
+    # ----
+
+    def _autosizePeakListColumns(self):
+        """Fit every column to the data it shows.
+
+        The width is the native "double-click the column border" measurement
+        (wx.LIST_AUTOSIZE), which fits the cell contents only -- the header
+        text is deliberately not a floor, so a long header such as
+        "sum. env. int." does not force a column far wider than its numbers.
+        A column holding no values at all would collapse to nothing though, so
+        each one keeps room for a few characters (never more than its header
+        needs), enough to stay visible and grabbable.
+
+        The fitted width is not applied on its own: each column keeps the
+        widest fit seen so far across every document shown in this session, so
+        the columns stay put when the user switches spectra instead of
+        re-fitting to each one. A column the user has dragged keeps that width
+        as-is everywhere, without being re-fitted. All of it is dropped when
+        the displayed precision changes, since the old widths then mean
+        nothing.
         """
 
         columnCount = self.peakList.GetColumnCount()
-        if columnCount == 0:
+        if columnCount == 0 or self.peakList.GetItemCount() == 0:
+            # nothing to measure: keep the widths already in place (the shared
+            # widths from the other documents, or the initial defaults)
             return
 
-        hasRows = self.peakList.GetItemCount() > 0
+        digits = (config.main["mzDigits"], config.main["intDigits"])
+        if digits != self._peakListColumnDigits:
+            self._peakListColumnDigits = digits
+            self._peakListColumnWidths = {}
+            self._peakListColumnsManual = set()
 
-        if hasRows:
-            # Pure content autosize, identical to double-clicking the column
-            # border. No header floor or padding, otherwise a later double-click
-            # would shrink the column further than this and the two would
-            # disagree.
-            for colIndex in range(columnCount):
-                self.peakList.SetColumnWidth(colIndex, wx.LIST_AUTOSIZE)
-            return
-
-        # No rows: wx.LIST_AUTOSIZE collapses to nothing, so fit the header
-        # text instead. Measure it ourselves rather than via
-        # wx.LIST_AUTOSIZE_USEHEADER, which on wxMSW stretches the *last* column
-        # to fill the remaining list width.
         dc = wx.ScreenDC()
         dc.SetFont(self.peakList.GetFont())
         padding = dc.GetTextExtent("MM")[0]
+        emptyColumnWidth = dc.GetTextExtent("00000")[0]
+
         for colIndex in range(columnCount):
-            headerText = self.peakList.GetColumn(colIndex).GetText()
-            self.peakList.SetColumnWidth(
-                colIndex, dc.GetTextExtent(headerText)[0] + padding
+            name = self.peakList.GetColumn(colIndex).GetText()
+
+            if name in self._peakListColumnsManual:
+                self.peakList.SetColumnWidth(colIndex, self._peakListColumnWidths[name])
+                continue
+
+            self.peakList.SetColumnWidth(colIndex, wx.LIST_AUTOSIZE)
+            width = max(
+                self.peakList.GetColumnWidth(colIndex),
+                self._peakListColumnWidths.get(name, 0),
+                min(dc.GetTextExtent(name)[0] + padding, emptyColumnWidth),
             )
+            self._peakListColumnWidths[name] = width
+            self.peakList.SetColumnWidth(colIndex, width)
 
     # ----
 
