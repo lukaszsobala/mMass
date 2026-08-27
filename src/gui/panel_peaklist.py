@@ -50,6 +50,25 @@ from .dlg_notation import dlgNotation
 # PEAKLIST PANEL
 # --------------
 
+# every column the peaklist can show, in its default order: the header shown
+# for it and how its cells are aligned. config.main["peaklistColumns"] names
+# the ones to show, in the order the user has put them in.
+PEAKLIST_COLUMNS = {
+    "mz": ("m/z", wx.LIST_FORMAT_RIGHT),
+    "ai": ("a.i.", wx.LIST_FORMAT_RIGHT),
+    "int": ("int.", wx.LIST_FORMAT_RIGHT),
+    "base": ("base", wx.LIST_FORMAT_RIGHT),
+    "rel": ("r. int.", wx.LIST_FORMAT_RIGHT),
+    "sn": ("s/n", wx.LIST_FORMAT_RIGHT),
+    "z": ("z", wx.LIST_FORMAT_RIGHT),
+    "mass": ("mass", wx.LIST_FORMAT_RIGHT),
+    "envarea": ("env. area", wx.LIST_FORMAT_RIGHT),
+    "envint": ("sum. env. int.", wx.LIST_FORMAT_RIGHT),
+    "fwhm": ("fwhm", wx.LIST_FORMAT_RIGHT),
+    "resol": ("resol.", wx.LIST_FORMAT_RIGHT),
+    "group": ("group", wx.LIST_FORMAT_LEFT),
+}
+
 
 class panelPeaklist(wx.Panel):
     """Make peaklist panel."""
@@ -83,6 +102,8 @@ class panelPeaklist(wx.Panel):
         # are kept as they are instead of being re-fitted to the data
         self._peakListColumnsManual = set()
         self._peakListColumnDigits = None
+        # names of the columns currently shown, in the order they are shown in
+        self.peakListColumnNames = []
 
         # make GUI
         self.makeGUI()
@@ -255,7 +276,6 @@ class panelPeaklist(wx.Panel):
         font = wx.SystemSettings.GetFont(wx.SYS_DEFAULT_GUI_FONT)
         font.SetPointSize(font.GetPointSize() - 2)
         self.peakList.SetFont(font)
-        self.peakList.setSecondarySortColumn(0)
         self.peakList.setAltColour(mwx.LISTCTRL_ALTCOLOUR)
 
         self.peakList.applyTheme()
@@ -272,6 +292,9 @@ class panelPeaklist(wx.Panel):
         else:
             self.peakList.Bind(wx.EVT_LIST_ITEM_RIGHT_CLICK, self.onItemRMU)
 
+        # let the user drag the headers to reorder the columns
+        self.peakList.enableColumnReorder(self.onColumnReordered)
+
         # make columns
         self.makePeakListColumns()
 
@@ -284,67 +307,37 @@ class panelPeaklist(wx.Panel):
     def makePeakListColumns(self):
         """Make peaklist columns according to config."""
 
+        # deleting the columns resets which one the list is sorted by, so
+        # remember it and sort by the same data again afterwards
+        sortedName = None
+        sortColumn = self.peakList.getSortColumn()
+        if 0 <= sortColumn < len(self.peakListColumnNames):
+            sortedName = self.peakListColumnNames[sortColumn]
+
         # delete current columns
         self.peakList.deleteColumns()
 
+        # the columns to show, in the order the user has them; anything the
+        # display does not know about (an older or hand-edited config) is
+        # ignored here and everywhere else the peaklist walks the config
+        self.peakListColumnNames = [
+            name for name in config.main["peaklistColumns"] if name in PEAKLIST_COLUMNS
+        ]
+
         # add new columns
-        x = 0
-        for column in config.main["peaklistColumns"]:
+        for x, name in enumerate(self.peakListColumnNames):
+            label, alignment = PEAKLIST_COLUMNS[name]
+            self.peakList.InsertColumn(x, label, alignment)
 
-            if column == "mz":
-                self.peakList.InsertColumn(x, "m/z", wx.LIST_FORMAT_RIGHT)
-                x += 1
+        if sortedName in self.peakListColumnNames:
+            self.peakList.setSortColumn(self.peakListColumnNames.index(sortedName))
 
-            elif column == "ai":
-                self.peakList.InsertColumn(x, "a.i.", wx.LIST_FORMAT_RIGHT)
-                x += 1
-
-            elif column == "int":
-                self.peakList.InsertColumn(x, "int.", wx.LIST_FORMAT_RIGHT)
-                x += 1
-
-            elif column == "envarea":
-                self.peakList.InsertColumn(x, "env. area", wx.LIST_FORMAT_RIGHT)
-                x += 1
-
-            elif column == "envint":
-                self.peakList.InsertColumn(x, "sum. env. int.", wx.LIST_FORMAT_RIGHT)
-                x += 1
-
-            elif column == "base":
-                self.peakList.InsertColumn(x, "base", wx.LIST_FORMAT_RIGHT)
-                x += 1
-
-            elif column == "rel":
-                self.peakList.InsertColumn(x, "r. int.", wx.LIST_FORMAT_RIGHT)
-                x += 1
-
-            elif column == "sn":
-                self.peakList.InsertColumn(x, "s/n", wx.LIST_FORMAT_RIGHT)
-                x += 1
-
-            elif column == "z":
-                self.peakList.InsertColumn(x, "z", wx.LIST_FORMAT_RIGHT)
-                x += 1
-
-            elif column == "mass":
-                self.peakList.InsertColumn(x, "mass", wx.LIST_FORMAT_RIGHT)
-                x += 1
-
-            elif column == "fwhm":
-                self.peakList.InsertColumn(x, "fwhm", wx.LIST_FORMAT_RIGHT)
-                x += 1
-
-            elif column == "resol":
-                self.peakList.InsertColumn(x, "resol.", wx.LIST_FORMAT_RIGHT)
-                x += 1
-
-            elif column == "group":
-                self.peakList.InsertColumn(x, "group", wx.LIST_FORMAT_LEFT)
-                x += 1
-
-            else:
-                continue
+        # break sorting ties on m/z, wherever the user has dragged that column
+        # to -- and not at all while it is hidden
+        if "mz" in self.peakListColumnNames:
+            self.peakList.setSecondarySortColumn(self.peakListColumnNames.index("mz"))
+        else:
+            self.peakList.setSecondarySortColumn(None)
 
         self._autosizePeakListColumns()
 
@@ -1383,6 +1376,30 @@ class panelPeaklist(wx.Panel):
         self.peakList.EnsureVisible(row)
         self._renderEnvelope(peak)
         self.updatePeakEditor(peak)
+
+    # ----
+
+    def onColumnReordered(self, fromIndex, toIndex):
+        """Move a column the user has dragged to a new place."""
+
+        names = self.peakListColumnNames
+        if not 0 <= fromIndex < len(names) or fromIndex == toIndex:
+            return
+
+        order = names[:]
+        order.insert(toIndex, order.pop(fromIndex))
+
+        # anything the display does not know about is kept, out of the way at
+        # the end, rather than silently dropped from the config
+        config.main["peaklistColumns"] = order + [
+            name
+            for name in config.main["peaklistColumns"]
+            if name not in PEAKLIST_COLUMNS
+        ]
+
+        # rebuilds the columns in the new order; the sorted column, the
+        # column widths and the peaks themselves all follow
+        self.updatePeaklistColumns()
 
     # ----
 

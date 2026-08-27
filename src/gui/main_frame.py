@@ -3580,43 +3580,26 @@ class mainFrame(wx.Frame):
             ID_viewPeaklistColumnGroup: "group",
         }
 
-        # change config
+        # change config, keeping the order the user has dragged the columns
+        # into; a column being shown again slots back in at its default place
+        # relative to the ones already there
         item = items[ID]
+        order = list(items.values())
         columns = config.main["peaklistColumns"][:]
-        if item in columns:
-            del columns[columns.index(item)]
-        else:
-            columns.append(item)
 
-        # ensure at least one item is present and right order
-        if len(columns) > 0:
-            config.main["peaklistColumns"] = []
-            if "mz" in columns:
-                config.main["peaklistColumns"].append("mz")
-            if "ai" in columns:
-                config.main["peaklistColumns"].append("ai")
-            if "int" in columns:
-                config.main["peaklistColumns"].append("int")
-            if "base" in columns:
-                config.main["peaklistColumns"].append("base")
-            if "rel" in columns:
-                config.main["peaklistColumns"].append("rel")
-            if "sn" in columns:
-                config.main["peaklistColumns"].append("sn")
-            if "z" in columns:
-                config.main["peaklistColumns"].append("z")
-            if "mass" in columns:
-                config.main["peaklistColumns"].append("mass")
-            if "envarea" in columns:
-                config.main["peaklistColumns"].append("envarea")
-            if "envint" in columns:
-                config.main["peaklistColumns"].append("envint")
-            if "fwhm" in columns:
-                config.main["peaklistColumns"].append("fwhm")
-            if "resol" in columns:
-                config.main["peaklistColumns"].append("resol")
-            if "group" in columns:
-                config.main["peaklistColumns"].append("group")
+        if item in columns:
+            columns.remove(item)
+        else:
+            position = len(columns)
+            for x, column in enumerate(columns):
+                if column in order and order.index(column) > order.index(item):
+                    position = x
+                    break
+            columns.insert(position, item)
+
+        # ensure at least one column is left
+        if columns:
+            config.main["peaklistColumns"] = columns
         else:
             wx.Bell()
 
