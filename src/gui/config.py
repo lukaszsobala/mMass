@@ -1508,6 +1508,62 @@ def getConfigPath():
     return os.path.join(confdir, CONFIG_FILENAME)
 
 
+# libraries shipped as bundled defaults and editable by the user
+LIBRARY_NAMES = (
+    "monomers",
+    "modifications",
+    "enzymes",
+    "presets",
+    "references",
+    "compounds",
+    "mascot",
+)
+
+
+def getLibraryPath(name):
+    """Path of a user library file."""
+
+    return os.path.join(confdir, name + ".json")
+
+
+def getLegacyLibraryPath(name):
+    """Path a pre-7.0 release would have used for the same library."""
+
+    return os.path.join(confdir, name + ".xml")
+
+
+def migrateLegacyLibrary(name, readXML, saveJSON):
+    """One-way migration of one pre-7.0 library XML to JSON.
+
+    Reads the old file with its legacy reader, writes the values back out as
+    JSON and renames the XML aside rather than deleting it. Returns True when a
+    migration actually happened.
+    """
+
+    target = getLibraryPath(name)
+    legacy = getLegacyLibraryPath(name)
+    if os.path.exists(target) or not os.path.exists(legacy):
+        return False
+
+    try:
+        readXML(legacy)
+    except Exception as exc:
+        sys.stderr.write("mMass: could not migrate %s (%s)\n" % (legacy, exc))
+        return False
+
+    if not saveJSON(target):
+        sys.stderr.write("mMass: could not write %s\n" % target)
+        return False
+
+    try:
+        os.replace(legacy, legacy + ".migrated")
+    except OSError:
+        pass
+
+    sys.stderr.write("mMass: library migrated from %s to %s\n" % (legacy, target))
+    return True
+
+
 def _is_bundled_config_path(path):
     """Return True when path points inside the bundled defaults directory.
 

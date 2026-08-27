@@ -1,0 +1,205 @@
+{
+  "schemaVersion": 1,
+  "enzymes": {
+    "Arg-C": {
+      "name": "Arg-C",
+      "expression": "",
+      "nTermFormula": "H",
+      "cTermFormula": "OH",
+      "modsBefore": false,
+      "modsAfter": true
+    },
+    "Asp-N": {
+      "name": "Asp-N",
+      "expression": "",
+      "nTermFormula": "H",
+      "cTermFormula": "OH",
+      "modsBefore": true,
+      "modsAfter": false
+    },
+    "Bromelain": {
+      "name": "Bromelain",
+      "expression": "",
+      "nTermFormula": "H",
+      "cTermFormula": "OH",
+      "modsBefore": false,
+      "modsAfter": true
+    },
+    "CNBr-HSerLac": {
+      "name": "CNBr-HSerLac",
+      "expression": "",
+      "nTermFormula": "H",
+      "cTermFormula": "O-1C-1H-3",
+      "modsBefore": false,
+      "modsAfter": true
+    },
+    "Cathepsin B": {
+      "name": "Cathepsin B",
+      "expression": "",
+      "nTermFormula": "H",
+      "cTermFormula": "OH",
+      "modsBefore": false,
+      "modsAfter": true
+    },
+    "Cathepsin D": {
+      "name": "Cathepsin D",
+      "expression": "",
+      "nTermFormula": "H",
+      "cTermFormula": "OH",
+      "modsBefore": false,
+      "modsAfter": true
+    },
+    "Cathepsin G": {
+      "name": "Cathepsin G",
+      "expression": "",
+      "nTermFormula": "H",
+      "cTermFormula": "OH",
+      "modsBefore": false,
+      "modsAfter": true
+    },
+    "Chymotrypsin": {
+      "name": "Chymotrypsin",
+      "expression": "",
+      "nTermFormula": "H",
+      "cTermFormula": "OH",
+      "modsBefore": false,
+      "modsAfter": true
+    },
+    "Clostripain": {
+      "name": "Clostripain",
+      "expression": "",
+      "nTermFormula": "H",
+      "cTermFormula": "OH",
+      "modsBefore": false,
+      "modsAfter": true
+    },
+    "Elastase": {
+      "name": "Elastase",
+      "expression": "",
+      "nTermFormula": "H",
+      "cTermFormula": "OH",
+      "modsBefore": false,
+      "modsAfter": true
+    },
+    "Glu-C Bic": {
+      "name": "Glu-C Bic",
+      "expression": "",
+      "nTermFormula": "H",
+      "cTermFormula": "OH",
+      "modsBefore": false,
+      "modsAfter": true
+    },
+    "Glu-C Phos": {
+      "name": "Glu-C Phos",
+      "expression": "",
+      "nTermFormula": "H",
+      "cTermFormula": "OH",
+      "modsBefore": false,
+      "modsAfter": true
+    },
+    "Hydroxylamine": {
+      "name": "Hydroxylamine",
+      "expression": "",
+      "nTermFormula": "H",
+      "cTermFormula": "OH",
+      "modsBefore": false,
+      "modsAfter": false
+    },
+    "Lys-C": {
+      "name": "Lys-C",
+      "expression": "",
+      "nTermFormula": "H",
+      "cTermFormula": "OH",
+      "modsBefore": false,
+      "modsAfter": true
+    },
+    "Lys-N": {
+      "name": "Lys-N",
+      "expression": "",
+      "nTermFormula": "H",
+      "cTermFormula": "OH",
+      "modsBefore": true,
+      "modsAfter": false
+    },
+    "Non-Specific": {
+      "name": "Non-Specific",
+      "expression": "",
+      "nTermFormula": "H",
+      "cTermFormula": "OH",
+      "modsBefore": true,
+      "modsAfter": true
+    },
+    "Papain": {
+      "name": "Papain",
+      "expression": "",
+      "nTermFormula": "H",
+      "cTermFormula": "OH",
+      "modsBefore": false,
+      "modsAfter": true
+    },
+    "Pepsin": {
+      "name": "Pepsin",
+      "expression": "",
+      "nTermFormula": "H",
+      "cTermFormula": "OH",
+      "modsBefore": false,
+      "modsAfter": true
+    },
+    "Proteinase K": {
+      "name": "Proteinase K",
+      "expression": "",
+      "nTermFormula": "H",
+      "cTermFormula": "OH",
+      "modsBefore": false,
+      "modsAfter": true
+    },
+    "Subtilisin": {
+      "name": "Subtilisin",
+      "expression": "",
+      "nTermFormula": "H",
+      "cTermFormula": "OH",
+      "modsBefore": false,
+      "modsAfter": true
+    },
+    "Thermolysin": {
+      "name": "Thermolysin",
+      "expression": "",
+      "nTermFormula": "H",
+      "cTermFormula": "OH",
+      "modsBefore": true,
+      "modsAfter": false
+    },
+    "TrypAspN": {
+      "name": "TrypAspN",
+      "expression": "",
+      "nTermFormula": "H",
+      "cTermFormula": "OH",
+      "modsBefore": false,
+      "modsAfter": false
+    },
+    "TrypChymo": {
+      "name": "TrypChymo",
+      "expression": "",
+      "nTermFormula": "H",
+      "cTermFormula": "OH",
+      "modsBefore": false,
+      "modsAfter": true
+    },
+    "Trypsin": {
+      "name": "Trypsin",
+      "expression": "",
+      "nTermFormula": "H",
+      "cTermFormula": "OH",
+      "modsBefore": false,
+      "modsAfter": true
+    },
+    "Trypsin/P": {
+      "name": "Trypsin/P",
+      "expression": "",
+      "nTermFormula": "H",
+      "cTermFormula": "OH",
+      "modsBefore": false,
+      "modsAfter": true
+    }
+  }
+}

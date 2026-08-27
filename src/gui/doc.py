@@ -1968,7 +1968,7 @@ class parseMSD:
                 abbr=abbr, formula=formula, losses=losses, name=name, category=category
             )
             mspy.monomers[abbr] = monomer
-            mspy.saveMonomers(os.path.join(config.confdir, "monomers.xml"))
+            mspy.saveMonomers(config.getLibraryPath("monomers"))
             return True
         except Exception:
             return False
@@ -1991,7 +1991,7 @@ class parseMSD:
                 aminoSpecifity=aminoSpecifity,
             )
             mspy.modifications[name] = modification
-            mspy.saveModifications(os.path.join(config.confdir, "modifications.xml"))
+            mspy.saveModifications(config.getLibraryPath("modifications"))
             return True
         except Exception:
             return False

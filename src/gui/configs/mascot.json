@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "mascot": {
+    "Matrix Science": {
+      "protocol": "http",
+      "host": "www.matrixscience.com",
+      "path": "/",
+      "search": "cgi/nph-mascot.exe",
+      "results": "cgi/master_results.pl",
+      "export": "cgi/export_dat_2.pl",
+      "params": "cgi/get_params.pl"
+    }
+  }
+}

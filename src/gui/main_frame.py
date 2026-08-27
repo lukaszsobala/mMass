@@ -5362,15 +5362,15 @@ class mainFrame(wx.Frame):
             self.tmpLibrarySaved = libs.saveCompounds()
         elif library == "modifications":
             self.tmpLibrarySaved = mspy.saveModifications(
-                os.path.join(config.confdir, "modifications.xml")
+                config.getLibraryPath("modifications")
             )
         elif library == "monomers":
             self.tmpLibrarySaved = mspy.saveMonomers(
-                os.path.join(config.confdir, "monomers.xml")
+                config.getLibraryPath("monomers")
             )
         elif library == "enzymes":
             self.tmpLibrarySaved = mspy.saveEnzymes(
-                os.path.join(config.confdir, "enzymes.xml")
+                config.getLibraryPath("enzymes")
             )
         elif library == "references":
             self.tmpLibrarySaved = libs.saveReferences()

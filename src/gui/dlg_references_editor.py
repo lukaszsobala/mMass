@@ -18,6 +18,7 @@
 # load libs
 import wx
 import copy
+import json
 import xml.dom.minidom
 from typing import Any
 
@@ -215,10 +216,10 @@ class dlgReferencesEditor(wx.Dialog):
     # ----
 
     def onImport(self, evt):
-        """Import items from xml library."""
+        """Import items from a reference library file."""
 
         # show open file dialog
-        wildcard = "Library files|*.xml;*.XML"
+        wildcard = "Library files|*.json;*.JSON;*.xml;*.XML"
         dlg = wx.FileDialog(
             self,
             "Import Library",
@@ -233,7 +234,7 @@ class dlgReferencesEditor(wx.Dialog):
             return
 
         # read data
-        importedItems = self.readLibraryXML(path)
+        importedItems = self.readLibrary(path)
         if importedItems is False:
             wx.Bell()
             dlg = mwx.dlgMessage(
@@ -574,8 +575,47 @@ class dlgReferencesEditor(wx.Dialog):
 
     # ----
 
+    def readLibrary(self, path):
+        """Read a reference library, in either the JSON or the legacy XML form."""
+
+        references = self.readLibraryJSON(path)
+        if references is not False:
+            return references
+        return self.readLibraryXML(path)
+
+    # ----
+
+    def readLibraryJSON(self, path):
+        """Read a JSON reference library."""
+
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            groups = data["references"]
+        except Exception:
+            return False
+
+        if not isinstance(groups, dict):
+            return False
+
+        references = {}
+        for group, items in groups.items():
+            if not isinstance(items, list):
+                continue
+            references[group] = []
+            for ref in items:
+                if isinstance(ref, (list, tuple)) and len(ref) >= 2:
+                    try:
+                        references[group].append((str(ref[0]), float(ref[1])))
+                    except (TypeError, ValueError):
+                        pass
+
+        return references
+
+    # ----
+
     def readLibraryXML(self, path):
-        """Read xml library."""
+        """Read legacy xml library."""
 
         references = {}
 
