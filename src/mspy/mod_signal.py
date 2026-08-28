@@ -249,9 +249,15 @@ def area(signal, minX=None, maxX=None, baseline=None):
     if minX is not None and maxX is not None:
         signal = crop(signal, minX, maxX)
 
+    # the requested range may lie completely outside the signal
+    if len(signal) == 0:
+        return 0.0
+
     # subtract baseline
     if baseline is not None:
         signal = subbase(signal, baseline)
+        if len(signal) == 0:
+            return 0.0
 
     # calculate area
     return calculations.signal_area(signal)
@@ -422,7 +428,7 @@ def crop(signal, minX, maxX):
 
     # check signal data
     if len(signal) == 0 or signal[-1][0] < minX or signal[0][0] > maxX:
-        return numpy.array([])
+        return numpy.empty((0, 2), dtype=numpy.float64)
 
     # crop data
     return calculations.signal_crop(signal, float(minX), float(maxX))

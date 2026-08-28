@@ -1386,7 +1386,7 @@ class documentsTree(wx.TreeCtrl):
         if images.is_dark_mode():
             return wx.Colour(90, 160, 255)
 
-        return wx.SystemSettings.GetColour(wx.SYS_COLOUR_HIGHLIGHT)
+        return wx.SystemSettings.GetColour(int(wx.SYS_COLOUR_HIGHLIGHT))
 
     # ----
 

@@ -1848,7 +1848,11 @@ class sortListCtrl(wx.ListCtrl):
         try:
             import ctypes
 
-            ctypes.windll.user32.SendMessageW(
+            windll = getattr(ctypes, "windll", None)
+            if windll is None:
+                return False
+
+            windll.user32.SendMessageW(
                 self.GetHandle(),
                 LVM_SETEXTENDEDLISTVIEWSTYLE,
                 LVS_EX_HEADERDRAGDROP,
@@ -1867,6 +1871,9 @@ class sortListCtrl(wx.ListCtrl):
         """Notice a column the native header has been dragged elsewhere."""
 
         evt.Skip()
+
+        if self._reorderCallback is None:
+            return
 
         try:
             order = list(self.GetColumnsOrder())
@@ -1995,13 +2002,13 @@ class sortListCtrl(wx.ListCtrl):
             evt.Skip()
             return
 
-        if not dragged:
+        if target is None:
             self._sendColumnClick(column)
             return
 
         # target is the gap the column is dropped into, so dropping it back
         # into either of its own gaps changes nothing
-        if target not in (column, column + 1):
+        if target not in (column, column + 1) and self._reorderCallback is not None:
             if target > column:
                 target -= 1
             # rebuilding the columns from inside their own mouse handler is
@@ -2059,7 +2066,7 @@ class sortListCtrl(wx.ListCtrl):
         dc = wx.ClientDC(header)
         odc = wx.DCOverlay(self._reorderOverlay, dc)
         odc.Clear()
-        dc.SetPen(wx.Pen(wx.SystemSettings.GetColour(wx.SYS_COLOUR_HIGHLIGHT), 2))
+        dc.SetPen(wx.Pen(wx.SystemSettings.GetColour(int(wx.SYS_COLOUR_HIGHLIGHT)), 2))
         dc.DrawLine(x, 0, x, header.GetSize()[1])
         del odc
 
@@ -2068,7 +2075,11 @@ class sortListCtrl(wx.ListCtrl):
     def _endColumnReorder(self, header):
         """Clear the drag state and everything it drew."""
 
-        if self._reorderTarget is not None and header is not None:
+        if (
+            self._reorderTarget is not None
+            and header is not None
+            and self._reorderOverlay is not None
+        ):
             dc = wx.ClientDC(header)
             odc = wx.DCOverlay(self._reorderOverlay, dc)
             odc.Clear()

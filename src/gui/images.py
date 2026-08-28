@@ -100,7 +100,7 @@ def is_dark_mode():
             pass
 
     # Fallback: infer from current window background colour.
-    bg = wx.SystemSettings.GetColour(wx.SYS_COLOUR_WINDOW)
+    bg = wx.SystemSettings.GetColour(int(wx.SYS_COLOUR_WINDOW))
     luminance = 0.299 * bg.Red() + 0.587 * bg.Green() + 0.114 * bg.Blue()
     return luminance < 128
 

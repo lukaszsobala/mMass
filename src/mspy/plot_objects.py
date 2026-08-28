@@ -56,7 +56,7 @@ def _is_dark_mode():
     # Fallback: infer from current window background colour.
     # wx.SystemSettings may require an active wx.App; fail safely during import.
     try:
-        bg = wx.SystemSettings.GetColour(wx.SYS_COLOUR_WINDOW)
+        bg = wx.SystemSettings.GetColour(int(wx.SYS_COLOUR_WINDOW))
         luminance = 0.299 * bg.Red() + 0.587 * bg.Green() + 0.114 * bg.Blue()
         return luminance < 128
     except Exception:
@@ -2116,7 +2116,7 @@ def _labelBadge(dc, key, text, angle, font, colour, bgrColour, scale):
     # matched to the destination so the blit stays 1:1 on HiDPI, where the plot
     # buffer holds device pixels but is drawn into in logical coordinates
     bitmap = wx.Bitmap()
-    bitmap.CreateWithDIPSize((width, height), scale, depth=24)
+    bitmap.CreateWithDIPSize(wx.Size(width, height), scale, depth=24)
 
     memory = wx.MemoryDC(bitmap)
     memory.SetBackground(wx.Brush(bgrColour, _WX_BRUSHSTYLE_SOLID))

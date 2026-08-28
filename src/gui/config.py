@@ -1281,7 +1281,7 @@ def saveConfig(path=None):
     if path is None:
         path = getConfigPath()
 
-    data = {"schemaVersion": CONFIG_SCHEMA_VERSION}
+    data: dict = {"schemaVersion": CONFIG_SCHEMA_VERSION}
     for name in _CONFIG_SECTIONS:
         section = globals()[name]
         if name == "links":
