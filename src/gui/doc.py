@@ -464,6 +464,19 @@ class document:
                     shape = envelope.get("shape")
                     if shape is not None:
                         envAttributes.append('shape="%s"' % self._escape(str(shape)))
+                    # how many leading isotopes were real DETECTED peaks. The
+                    # isotope peaks themselves are consumed by the conversion, so
+                    # without this a reload can only fall back on the theoretical
+                    # extent -- which either drops a genuinely measured isotope or
+                    # keeps an over-long tail (see mod_peakpicking, "detected").
+                    detected = envelope.get("detected")
+                    if detected is not None:
+                        envAttributes.append('detected="%d"' % int(detected))
+                    averagine = envelope.get("averagineType")
+                    if averagine is not None:
+                        envAttributes.append(
+                            'averagine="%s"' % self._escape(str(averagine))
+                        )
 
                     if envAttributes:
                         buff += "      <envelope %s>\n" % " ".join(envAttributes)
@@ -1558,6 +1571,20 @@ class parseMSD:
                     if envelope is not None:
                         if envelopeTag.hasAttribute("shape"):
                             envelope["shape"] = envelopeTag.getAttribute("shape")
+                        if envelopeTag.hasAttribute("averagine"):
+                            envelope["averagineType"] = envelopeTag.getAttribute(
+                                "averagine"
+                            )
+                        # absent for envelopes saved before the count existed:
+                        # leaving the key out is what marks them as unverifiable,
+                        # so they are measured against the theoretical extent
+                        if envelopeTag.hasAttribute("detected"):
+                            try:
+                                envelope["detected"] = max(
+                                    1, int(envelopeTag.getAttribute("detected"))
+                                )
+                            except ValueError:
+                                pass
 
                         isotopeTags = envelopeTag.getElementsByTagName("isotope")
                         for isotopeTag in isotopeTags:

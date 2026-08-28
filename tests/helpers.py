@@ -31,6 +31,7 @@ DEISOTOPING_KEYS = {
     "labelEnvelope": str,
     "envelopeIntensity": str,
     "envelopeNonIdeality": float,
+    "envelopeRefinePattern": int,
 }
 
 

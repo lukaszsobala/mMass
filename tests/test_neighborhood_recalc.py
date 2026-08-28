@@ -270,6 +270,15 @@ def test_recalc_does_not_duplicate_all_isotope_labels(envelope_params):
     one group. Re-labelling emitted a fresh peak per isotope while the originals
     were left in the list, so every edit/delete grew the peak list by a whole
     envelope and left orphans carrying a stale envelope behind.
+
+    The same failure returns whenever an envelope reaches past the auto-recalc
+    margin window, which is a fixed multiple of the isotope *spacing* while an
+    envelope is as long as its pattern: a row left outside the window is not
+    consumed by the rebuild, which emits a fresh row at that position while the
+    stale one survives, so the list grows by one on every recalc. The window is
+    widened to the full stored span of every envelope it touches for exactly this
+    reason -- so the count below has to hold for an envelope longer than the
+    window as well.
     """
     params = dict(envelope_params, labelEnvelope="isotopes")
     pl = mspy.peaklist([
@@ -305,6 +314,92 @@ def test_recalc_after_deleting_one_isotope(envelope_params):
     labeled = [p for p in result if p.attributes.get("envelope")]
     assert labeled
     assert labeled[0].attributes["envelope"]["area"] > 0.0
+
+
+# spectra/example_env4.msd: two charge-1 species two Da apart (each one's +2 is the
+# other's mono), heights read off the real profile.
+_ENV4_ROWS = [
+    (900.494, 1332.0), (901.506, 1333.0), (902.511, 1575.0),
+    (903.510, 600.0), (904.509, 257.0), (905.509, 421.0),
+]
+
+
+def _env4_pair(params):
+    """Both example_env4 species converted to envelopes. Returns (peaklist, profile)."""
+
+    heights = dict(_ENV4_ROWS)
+    profile = mspy.profile(
+        mspy.peaklist([mspy.peak(mz=mz, ai=ai, fwhm=0.05) for mz, ai in _ENV4_ROWS]),
+        fwhm=0.05, points=20,
+    )
+    peaklist = mspy.peaklist([
+        mspy.peak(mz=mz, ai=heights[mz], charge=1, isotope=0, fwhm=0.05)
+        for mz in (900.494, 902.511)
+    ])
+    return _converted(peaklist, profile, params, [900.494, 902.511]), profile
+
+
+def _area_at(peaklist, mz):
+    peak = next(p for p in peaklist if abs(p.mz - mz) < 0.05)
+    return peak.attributes["envelope"]["area"]
+
+
+def test_recalc_after_deleting_a_neighbouring_envelope(envelope_params):
+    """Deleting one envelope must re-fit the neighbour that was sharing its peak.
+
+    The gap that let this through: every delete test above removes an isotope of
+    the SAME envelope, so the edit always landed inside the recalc window. Here the
+    two species are two Da apart while the window is a multiple of the isotope
+    *spacing*, which shrinks as 1/maxCharge -- at maxCharge 4 it is only +/-1.5 Da.
+    Deleting 902.51 therefore never reached 900.49, even though 900.49's +2 IS
+    902.51: the survivor kept the area it had been given while sharing that peak,
+    and to the user nothing recalculated. An envelope must be re-fit whenever the
+    edit touches any of ITS isotopes, not only when its monoisotopic peak happens
+    to fall inside the window.
+    """
+
+    params = dict(envelope_params, maxCharge=4, massTolerance=0.02)
+    converted, profile = _env4_pair(params)
+    before = _area_at(converted, 900.494)
+
+    remaining = mspy.peaklist([p for p in converted if abs(p.mz - 902.511) > 0.05])
+    result = mpp.recalculate_neighborhood_envelopes(
+        remaining, profile, [902.511], params
+    )
+
+    after = _area_at(result, 900.494)
+    # the survivor was actually re-fit ...
+    assert after != pytest.approx(before, rel=1e-6)
+    # ... and it gained: the peak it used to share is now its alone
+    assert after > before
+
+
+def test_recalc_window_reaches_every_envelope_it_touches(envelope_params):
+    """The recalc window covers any envelope whose ISOTOPES reach into it.
+
+    The invariant behind the test above, stated directly: 900.49's monoisotopic
+    peak sits outside the margin window around 902.51, but its +2 lands squarely
+    inside it, so it has to be one of the envelopes the pass rebuilds. If it were
+    skipped the helper would return the list unchanged.
+    """
+
+    params = dict(envelope_params, maxCharge=4, massTolerance=0.02)
+    converted, profile = _env4_pair(params)
+
+    # the margin genuinely does not reach 900.49's monoisotopic peak, so the only
+    # thing that can pull it into the pass is its +2 landing inside the window
+    margin = max(6.0 * mspy.ISOTOPE_DISTANCE / 4.0, 8.0 * params["massTolerance"])
+    assert 900.494 < 902.511 - margin
+    assert 900.494 + 2 * mspy.ISOTOPE_DISTANCE > 902.511 - margin
+
+    remaining = mspy.peaklist(
+        [p for p in converted if abs(p.mz - 902.511) > 0.05]
+    )
+    result = mpp.recalculate_neighborhood_envelopes(
+        remaining, profile, [902.511], params
+    )
+    # the helper returns its input BY IDENTITY when it found nothing to do
+    assert result is not remaining
 
 
 def test_recalc_is_idempotent(envelope_params):

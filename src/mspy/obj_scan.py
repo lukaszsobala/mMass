@@ -693,13 +693,17 @@ class scan:
         averagineType (str) - averagine model key (protein | carbohydrate | lipid)
         """
 
-        # find istopes
+        # find istopes. The profile goes with them: whether a candidate is a
+        # monoisotopic peak or one tooth of a chemical-noise ridge is decided
+        # against the raw signal, which still holds the teeth that picking
+        # dropped at the S/N threshold.
         self.peaklist.deisotope(
             maxCharge=maxCharge,
             mzTolerance=mzTolerance,
             intTolerance=intTolerance,
             isotopeShift=isotopeShift,
             averagineType=averagineType,
+            signal=self.profile if self.hasprofile() else None,
         )
 
     # ----
@@ -714,6 +718,7 @@ class scan:
         averagineType=mod_peakpicking.DEFAULT_AVERAGINE,
         preserveSeeds=False,
         relaxed=False,
+        refinePattern=True,
     ):
         """Convert deisotoped peak clusters to envelope labels.
 
@@ -752,6 +757,7 @@ class scan:
             averagineType=averagineType,
             preserveSeeds=preserveSeeds,
             relaxed=relaxed,
+            refinePattern=refinePattern,
         )
 
     # ----

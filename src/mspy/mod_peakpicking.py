@@ -97,29 +97,31 @@ MIN_ENVELOPE_LENGTH = 3
 
 # Minimum expected signal-to-noise for a theoretical isotope to be worth
 # modeling when extending an envelope's tail. Combined with the base peak's
-# measured S/N this gives an intensity-adaptive cutoff (see relabelenvelopes).
+# measured S/N this gives an intensity-adaptive cutoff, used to place tail
+# placeholders on the real apex rather than on the bare grid point.
 ENVELOPE_TAIL_SN_LIMIT = 1.0
 
-# Bounds on the relative tail cutoff, expressed as a fraction of the *tallest*
-# theoretical isotope (the envelope apex), NOT of the monoisotopic / first peak.
-# The theoretical pattern is normalised to its apex, so this is correct even for
-# heavy species where the first peak is far from the tallest. Keeps the estimate
-# within a realistic single-envelope dynamic range.
-ENVELOPE_TAIL_CUTOFF_MIN = 0.0005
-ENVELOPE_TAIL_CUTOFF_MAX = 0.05
-
-# A real isotope tail past the apex decays monotonically. When walking the tail
-# outward, allow only this much rise relative to the previous position before
-# concluding the signal belongs to a different species (and stopping). Prevents
-# the tail from marching across neighbouring peaks in crowded regions.
-ENVELOPE_TAIL_RISE_TOLERANCE = 1.5
-
-# Past the apex a real isotope tail decays *continuously*. When the observed
-# signal collapses below this fraction of the previous isotope it has dropped to
-# baseline/noise -- the envelope has ended -- so the position is not modelled.
-# This is shape-agnostic (it does not assume an averagine profile) and stops a
-# trailing peak being placed on flat spectrum even at a permissive S/N limit.
-ENVELOPE_TAIL_MIN_DECAY = 0.1
+# How far an envelope is modelled: every theoretical isotope carrying at least
+# this fraction of the *tallest* one (the envelope apex, NOT the monoisotopic /
+# first peak -- correct even for heavy species whose first peak is far from the
+# tallest). Below it the isotope cannot move the fitted area, so modelling it
+# buys nothing, while the *claim* it stakes on whatever m/z it lands on is real.
+#
+# This is deliberately the ONLY thing that sets an envelope's length. The extent
+# was previously walked outward against the observed profile -- keep going while
+# something is there, stop at the noise -- with a floor of 0.05%, so in practice
+# the spectrum decided. That is unsound in exactly the place it matters: the
+# signal at a tail position is not evidence for THIS envelope unless this
+# envelope could produce it, and in a crowded region it usually cannot. Two
+# equivalent species then get visibly different envelopes depending only on who
+# sits under their tails (spectra/example_env4.msd: 900.49 and 902.51 have the
+# same theoretical pattern to three decimals, yet 900.49 was modelled with 5
+# isotopes -- its 4th and 5th, at 1.3% and 0.14% of its apex, "supported" by
+# signal that is really 902.51's mono and +1 -- while 902.51 got 3, stopped by an
+# unrelated peak rising at 905.5). Theory is the same for both, so the envelopes
+# now are too; the observed signal still decides the AREA, via the joint fit,
+# which is where evidence about how much of a species is present belongs.
+ENVELOPE_TAIL_SIGNIFICANCE = 0.01
 
 # Marker attribute set on a peak that takes part in an envelope fit as CONTEXT
 # ONLY: its species is included in the joint overlap-aware apportionment (so a
@@ -127,6 +129,54 @@ ENVELOPE_TAIL_MIN_DECAY = 0.1
 # labelled, absorbed or merged into an envelope -- it comes back out of the fit
 # exactly as it went in. A peak stays a peak until the user converts it.
 ENVELOPE_CONTEXT_ATTR = "_envFitContext"
+
+# Monoisotopic plausibility, applied when deisotoping (see deisotope). NOTHING
+# exists below a species' monoisotopic peak, so a comparably intense peak one
+# isotope spacing BELOW a candidate contradicts the claim that the candidate is a
+# monoisotope -- and a long uninterrupted run of them means the candidate is one
+# tooth of a ridge. At low m/z a MALDI spectrum is often a continuous comb of
+# unresolved matrix cluster peaks about a dalton apart (spectra/example6_raw.mzML:
+# a comb of 250-600 counts runs the whole 600-700 region), and peak picking, which
+# knows only a global intensity/S-N threshold, hands its teeth to deisotoping as
+# candidate species.
+#
+# The catch is that a crowd of genuine overlapping species looks the same from
+# above: four analytes two daltons apart, each with its own isotope pattern, put
+# just as long a run of comparable peaks below the topmost one. What separates
+# them is whether anything ACCOUNTS for that run. A rung that coincides with a
+# picked peak is explained -- it is a species, or an isotope of one, that the rest
+# of the pipeline is already modelling. A rung with no peak on it is signal that
+# picking rejected as too weak to be anything, and a candidate sitting on a run of
+# those is sitting on background. Only unexplained rungs are counted, so the veto
+# fires on the comb and not on the crowd: the heavily-overlapped four-species
+# fixture in tests/test_neighborhood_recalc.py scores 0, every rung of it a picked
+# peak.
+#
+# MONO_RIDGE_MIN_WIDTH is 2 because the candidate has already failed to confirm a
+# single isotope, so the only thing still speaking for it is a clean run-up: one
+# unexplained rung can be a coincidence or a real neighbour a dalton below (a
+# deamidation, a water loss), two consecutive ones are a pattern, and a
+# monoisotopic peak can have neither. Measured over the sample spectra with the
+# shipped pipeline, evidence-free candidates are already rare (11 of 49 seeds in
+# example6, 3 of 26 in RN_H7_WM2_2AA_1_H7, none in three of the others), and the
+# only labelled envelope among them -- example_env3_correct 1335.72 -- scores 0.
+#
+# The rungs need not be evenly spaced: a comb drifts by a few hundredths of a
+# dalton from tooth to tooth, so a rung is looked for within
+# MONO_RIDGE_WINDOW_FRACTION of the spacing rather than within the (much tighter)
+# mass tolerance used for isotope assignment. That tolerance is still what decides
+# whether a picked peak sits ON a rung.
+#
+# All of this is measured against the raw signal, which is why deisotope takes
+# one: a comb tooth only becomes a candidate once it clears the picking
+# threshold, and by then the rest of the comb is below that threshold and absent
+# from the peak list. At snThreshold 20 on example6 the ridge under 658.07 is a
+# single picked peak; in the profile it is 14 rungs deep. With no signal to read,
+# nothing is vetoed.
+MONO_RIDGE_MIN_FRACTION = 0.5
+MONO_RIDGE_MIN_WIDTH = 2
+MONO_RIDGE_WINDOW_FRACTION = 1.0 / 3.0
+MONO_RIDGE_MAX_WALK = 24
 
 
 # PEAK PICKING FUNCTIONS
@@ -835,6 +885,50 @@ def _cluster_weights(cluster, averagineType=DEFAULT_AVERAGINE):
 # ----
 
 
+def _cluster_poisson(cluster, averagineType=DEFAULT_AVERAGINE):
+    """The averagine Poisson parameters behind `_cluster_weights` for a cluster.
+
+    Returns ``(lambda, indices)`` -- the averagine lambda for this cluster's
+    neutral mass and the isotope index of each of its peaks -- or None for a
+    cluster with no charge (whose weights come from the peak heights, not from a
+    Poisson pattern at all). Together they regenerate the same weights via
+    `_poisson_weights`, which is what lets the group fit re-derive the pattern at a
+    data-pinned lambda instead of the generic averagine one.
+    """
+
+    if not cluster:
+        return None
+    parent = cluster[0]
+    if not parent.charge:
+        return None
+
+    mono_mz = parent.mz
+    first_iso = getattr(parent, "isotope", 0)
+    if first_iso is None:
+        first_iso = 0
+    if first_iso > 0:
+        mono_mz -= first_iso * (ISOTOPE_DISTANCE / abs(parent.charge))
+
+    neutralMass = _mass_scalar(
+        mod_basics.mz(mono_mz, charge=0, currentCharge=parent.charge, massType=1),
+        massType=1,
+    )
+    lam = max(0.0, neutralMass * _averagine_lambda(averagineType))
+    if lam <= 0.0:
+        return None
+
+    indices = []
+    for i, peak in enumerate(cluster):
+        idx = getattr(peak, "isotope", i)
+        if idx is None:
+            idx = i
+        indices.append(int(idx))
+    return (lam, indices)
+
+
+# ----
+
+
 def _cluster_fwhm(cluster, defaultFwhm):
     """Get representative FWHM for isotope cluster."""
 
@@ -1461,6 +1555,24 @@ ENVELOPE_CAP_ANCHOR_FRACTION = 0.75
 ENVELOPE_CAP_CONTEST_FRACTION = 0.10
 ENVELOPE_CAP_CONTEST_MIN_FRACTION = 0.50
 
+# A neighbour only makes one of this envelope's peaks genuinely "contested" -- and
+# so allowed to bind the amplitude cap -- when the isotope it puts there is a real
+# part of ITS OWN pattern: apex-relative weight at or above this fraction. Below
+# it the neighbour merely brushes the peak with a negligible far tail (a +3/+4 at
+# a few percent of its apex), which is not competition for the signal, yet the
+# structural `otherFrac` at such a point still creeps over
+# ``ENVELOPE_CAP_CONTEST_FRACTION`` and turns the cap on. That made the treatment
+# of an identical shape mismatch depend on an accident of neighbourhood: an
+# envelope whose modelled +1 sits above the observed +1 (a rigid-averagine artefact)
+# keeps its full area where nothing at all overlaps that +1, but was trimmed ~25%
+# where a neighbour's far tail happened to land on it -- so two equivalent species
+# in the same 2-Da chain got visibly unequal areas (spectra/example_env5_failed.msd:
+# 1030 kept its area while 1032, its twin one step down the chain, lost a quarter
+# of it). Sits between the measured negligible-tail case (a +3 at 0.054 of its
+# apex, must NOT bind) and the real shared-peak cases the cap exists for (a
+# neighbour's +2 at >= 0.24 of its apex, and monos at ~1.0, which must bind).
+ENVELOPE_CAP_CONTEST_NEIGHBOUR_FRACTION = 0.15
+
 # A buried envelope's major peak is trimmed to its residual (see the gated
 # residual pass in `_apportion_group_areas`) only when the neighbour dominating
 # that shared peak is itself a MINOR isotope of its own pattern -- its weight is
@@ -1474,7 +1586,9 @@ ENVELOPE_CAP_CONTEST_MIN_FRACTION = 0.50
 ENVELOPE_RESIDUAL_MINOR_GATE = 0.40
 
 
-def _envelope_amp_cap(areaColumn, x, capSignal, shaped, fwhm, otherFrac=None):
+def _envelope_amp_cap(
+    areaColumn, x, capSignal, shaped, fwhm, otherFrac=None, neighbourStakes=None
+):
     """Largest amplitude whose modelled envelope stays under ``capSignal``.
 
     ``capSignal`` here is the envelope's own *apportioned share* ``g_k`` of the
@@ -1505,12 +1619,23 @@ def _envelope_amp_cap(areaColumn, x, capSignal, shaped, fwhm, otherFrac=None):
       only a tiny tail weight, so the near-mono apexes bound the area tightly).
 
     * the **contested significant** isotopes -- those where another labelled
-      envelope in the group genuinely competes for the signal (``otherFrac`` at the
-      apex exceeds ``ENVELOPE_CAP_CONTEST_FRACTION``) *and* which are themselves a
-      significant peak of this envelope (weight >= ``ENVELOPE_CAP_CONTEST_MIN_FRACTION``
-      of the apex). This is where the no-overshoot guarantee is actually needed: two
-      envelopes competing for a *major* peak (a light species' +1 on a heavier
-      mono) must each be held to their fair share so the sum stays under it.
+      envelope in the group genuinely competes for the signal *and* which are
+      themselves a significant peak of this envelope (weight >=
+      ``ENVELOPE_CAP_CONTEST_MIN_FRACTION`` of the apex). This is where the
+      no-overshoot guarantee is actually needed: two envelopes competing for a
+      *major* peak (a light species' +1 on a heavier mono) must each be held to
+      their fair share so the sum stays under it. Genuine competition takes BOTH
+      readings of the overlap: the structural ``otherFrac`` at the apex must exceed
+      ``ENVELOPE_CAP_CONTEST_FRACTION`` (the neighbour is a real part of the signal
+      *here*), and the neighbour must put a real part of *itself* here --
+      ``neighbourStakes`` (its own apex-relative weight, see `_neighbour_stakes`)
+      at or above ``ENVELOPE_CAP_CONTEST_NEIGHBOUR_FRACTION``. ``otherFrac`` alone
+      is not enough because it is a ratio between the two patterns: where this
+      envelope's own weight is modest, even a neighbour's negligible far tail
+      pushes it over the line and switches the cap on, so an ordinary
+      rigid-averagine shape mismatch (a modelled +1 above the observed one) gets
+      punished or forgiven purely by accident of who happens to sit nearby. Both
+      readings together keep the cap on real shared peaks only.
 
     A contested isotope that is only a **minor tail** of this envelope (below
     ``ENVELOPE_CAP_CONTEST_MIN_FRACTION`` of the apex) is deliberately NOT allowed
@@ -1552,7 +1677,7 @@ def _envelope_amp_cap(areaColumn, x, capSignal, shaped, fwhm, otherFrac=None):
     anchorWeight = ENVELOPE_CAP_ANCHOR_FRACTION * wMax
 
     cap = None
-    for (mz, w) in shaped:
+    for idx, (mz, w) in enumerate(shaped):
         # skip the near-zero tail entirely: unreliable and never a real ceiling
         if float(w) < 0.1 * wMax:
             continue
@@ -1577,8 +1702,15 @@ def _envelope_amp_cap(areaColumn, x, capSignal, shaped, fwhm, otherFrac=None):
             # so the group total is still held to the usable area, without letting
             # a shared tail crush the group total below it.
             isMajor = float(w) >= ENVELOPE_CAP_CONTEST_MIN_FRACTION * wMax
+            # the neighbour must also be putting a real part of ITSELF here: a far
+            # tail at a few percent of its own apex is not competition for this
+            # peak, and letting it bind made an identical shape mismatch cost one
+            # envelope a quarter of its area while its unshadowed twin kept all of
+            # its own (example_env5_failed.msd)
+            stake = 1.0 if neighbourStakes is None else float(neighbourStakes[idx])
             contested = (
                 isMajor
+                and stake >= ENVELOPE_CAP_CONTEST_NEIGHBOUR_FRACTION
                 and float(otherFrac[i1:i2].max()) >= ENVELOPE_CAP_CONTEST_FRACTION
             )
         # an isotope the envelope owns outright, or a minor tail it merely shares,
@@ -1595,29 +1727,31 @@ def _envelope_amp_cap(areaColumn, x, capSignal, shaped, fwhm, otherFrac=None):
     return cap
 
 
-def _dominant_shared_weight(k, capInfo, x):
-    """Largest apex-relative weight any OTHER envelope has at one of envelope k's
-    own MAJOR isotopes -- the "signal 1" residual discriminator.
+def _neighbour_stakes(k, capInfo):
+    """How much of ITSELF each neighbour puts on every isotope of envelope k.
 
-    For each of k's significant peaks (weight >= ``ENVELOPE_CAP_CONTEST_MIN_FRACTION``
-    of its apex) we look at every other envelope's pattern for an isotope at the
-    same m/z and take that neighbour's own apex-relative weight there. A small
-    result means k's major peak sits on a neighbour's MINOR tail (the neighbour
-    takes only a small bite, so trimming k to the residual leaves it its fair
-    share); a large result means it sits on a neighbour's MAJOR peak (a light
-    species' +1 under a heavier mono), where the residual would crush a real
-    labelled peak. Returns 0.0 when nothing competes at k's major peaks.
+    Returns one value per isotope of ``capInfo[k]``: the largest *apex-relative*
+    weight (``w_j / max(w_j)``) any OTHER envelope in the group has at that m/z,
+    or 0.0 where nothing overlaps. Measuring the neighbour in its own terms makes
+    the number scale-free -- it says whether the neighbour genuinely claims that
+    peak (a mono at ~1.0, a +1/+2 at 0.24-0.7) or merely brushes it with a far
+    tail (a +3/+4 at a few percent) -- unlike the structural ``otherFrac``, which
+    is a *ratio between* the two patterns and so creeps up whenever THIS
+    envelope's own weight at the point is small, even against a negligible
+    neighbour.
+
+    This is the shared measurement behind both the cap's contested test
+    (``ENVELOPE_CAP_CONTEST_NEIGHBOUR_FRACTION``) and the residual pass's
+    discriminator (`_dominant_shared_weight`).
     """
 
     shaped, fwhm = capInfo[k]
     if not shaped:
-        return 0.0
+        return []
     halfWin = max(0.6 * float(fwhm), 1e-3)
-    wMax = max((float(w) for _mz, w in shaped), default=0.0) or 1.0
-    worst = 0.0
-    for (mz, w) in shaped:
-        if float(w) < ENVELOPE_CAP_CONTEST_MIN_FRACTION * wMax:
-            continue
+    stakes = []
+    for (mz, _w) in shaped:
+        worst = 0.0
         for j, (shpJ, _fwhmJ) in enumerate(capInfo):
             if j == k or not shpJ:
                 continue
@@ -1627,6 +1761,35 @@ def _dominant_shared_weight(k, capInfo, x):
                     rel = float(wj) / wMaxJ
                     if rel > worst:
                         worst = rel
+        stakes.append(worst)
+    return stakes
+
+
+def _dominant_shared_weight(k, capInfo, x):
+    """Largest apex-relative weight any OTHER envelope has at one of envelope k's
+    own MAJOR isotopes -- the "signal 1" residual discriminator.
+
+    For each of k's significant peaks (weight >= ``ENVELOPE_CAP_CONTEST_MIN_FRACTION``
+    of its apex) we take that neighbour's own apex-relative weight at the same m/z
+    (`_neighbour_stakes`). A small result means k's major peak sits on a
+    neighbour's MINOR tail (the neighbour takes only a small bite, so trimming k to
+    the residual leaves it its fair share); a large result means it sits on a
+    neighbour's MAJOR peak (a light species' +1 under a heavier mono), where the
+    residual would crush a real labelled peak. Returns 0.0 when nothing competes at
+    k's major peaks.
+    """
+
+    shaped, _fwhm = capInfo[k]
+    if not shaped:
+        return 0.0
+    wMax = max((float(w) for _mz, w in shaped), default=0.0) or 1.0
+    stakes = _neighbour_stakes(k, capInfo)
+    worst = 0.0
+    for (_mz, w), stake in zip(shaped, stakes, strict=True):
+        if float(w) < ENVELOPE_CAP_CONTEST_MIN_FRACTION * wMax:
+            continue
+        if stake > worst:
+            worst = stake
     return worst
 
 
@@ -1658,6 +1821,197 @@ def _has_unshared_major(k, capInfo, otherFrac, x):
         if float(otherFrac[i1:i2].max()) < ENVELOPE_CAP_CONTEST_FRACTION:
             return True
     return False
+
+
+# How far the per-envelope Poisson lambda may be re-fit away from the averagine
+# prediction, as a fraction of it (see `_refit_poisson_lambda`). Averagine gives
+# lambda = mass * lambdaFactor from a single generic carbon density, so it is a
+# class average, not this analyte: the three shipped models already disagree by
+# -17%/+41% about the same 1030 Da species, and a real molecule can sit outside
+# all three. The band is wide enough that the data may pull the shape across that
+# whole spread (the measured case needs ~-30%: lipid averagine predicts an isotope
+# ratio of 0.688 where the spectrum shows ~0.44), and tight enough that a single
+# contaminated isotope cannot invent an arbitrary pattern -- the fit still has to
+# look like an averagine-plausible species. Only the DOWNWARD half of the band is
+# actually searched (see `_refit_poisson_lambda`).
+ENVELOPE_LAMBDA_REFIT_BAND = 0.40
+
+# Grid resolution for that one-parameter search. A pure scan (not a solver) keeps
+# it deterministic and order-independent; 41 points across the band resolve lambda
+# to ~1% of averagine, far finer than the evidence justifies.
+ENVELOPE_LAMBDA_REFIT_STEPS = 41
+
+# An isotope only informs the lambda re-fit when the model expects it to carry at
+# least this fraction of the envelope's apex. Below it the peak is a faint tail:
+# poor S/N, and the first thing an unmodelled contaminant lands on.
+ENVELOPE_LAMBDA_REFIT_MIN_WEIGHT = 0.05
+
+# ...and only when this much of the observed signal there survives subtracting the
+# neighbours, i.e. the envelope genuinely OWNS the peak. Where a neighbour's model
+# accounts for most of an isotope, what is left is a small difference of two large
+# numbers -- it carries the neighbour's model error, not this species' shape.
+# Reading a pattern off such leftovers is what produced the nonsense estimates in
+# the measured files (a buried species' +2 landing on its neighbour's mono came
+# back at 7x its own monoisotopic peak, and a species whose +1 was almost entirely
+# subtracted came back at 0.13x).
+ENVELOPE_LAMBDA_REFIT_MIN_OWNERSHIP = 0.5
+
+
+def _poisson_weights(indices, lam):
+    """Averagine isotope weights at an arbitrary Poisson ``lam``.
+
+    Mirrors `_cluster_weights` exactly -- the same 30-term pattern, the same
+    normalisation by the *full* pattern sum rather than by the selected slice --
+    so swapping ``lam`` is the only difference between the two. Keeping the
+    normalisation identical is what makes areas fitted at a re-fit lambda directly
+    comparable to averagine ones.
+    """
+
+    lam = max(0.0, float(lam))
+    maxIso = 30
+    for idx in indices:
+        maxIso = max(maxIso, int(idx) + 1)
+
+    pattern = []
+    value = math.exp(-lam) if lam < 700 else 0.0
+    for i in range(maxIso):
+        if i == 0:
+            pattern.append(value)
+        else:
+            value = value * (lam / i)
+            pattern.append(value)
+
+    total = sum(pattern)
+    if total <= 0.0:
+        return None
+    return [
+        pattern[int(idx)] / total if int(idx) < len(pattern) else 0.0
+        for idx in indices
+    ]
+
+
+def _refit_poisson_lambda(
+    positions, indices, lamAveragine, x, observed, residual, fwhm
+):
+    """Re-fit an envelope's Poisson lambda to its own (de-blended) signal.
+
+    Averagine sets ``lam = mass * lambdaFactor`` from a generic carbon density, and
+    the whole isotope pattern follows from that one number: ``w_i = e^-lam lam^i /
+    i!``. So an error in lam does not just tilt the pattern, it *compounds along
+    it* -- the relative error in ``w_i`` grows like ``i``. The monoisotopic and +1
+    peaks are therefore the trustworthy part of a modelled envelope, the +2/+3 tail
+    the speculative part. That matters most where an envelope's tail lands on a
+    NEIGHBOUR's peak: the neighbour is charged for a claim resting entirely on the
+    least reliable number in the model, and (unlike its own peaks) it has no
+    evidence of its own to argue back with.
+
+    Rather than guess how much to discount that claim, pin it to data: fit the one
+    free parameter to the isotopes we can actually see. ``residual`` is this
+    envelope's share of the observed profile with every OTHER envelope's fitted
+    contribution already subtracted, so the fit reads this species alone even in a
+    chain where every peak is shared.
+
+    Two things make this safe where free per-isotope soft-modelling (`nonIdeality`,
+    deliberately inert in a crowd) is not. The family is a strict one-parameter
+    Poisson, so the shape cannot bend a single tail weight up onto a neighbour's
+    peak -- it can only slide along the physical carbon-count axis, and any move
+    that inflates the tail must lower the mono in the same breath. And the search
+    is confined to ``ENVELOPE_LAMBDA_REFIT_BAND`` around averagine, so the result
+    is always an averagine-plausible species.
+
+    Isotopes are weighted by their theoretical share of the envelope (the abundant
+    peaks carry the fit, the faint tail barely counts), which is the same
+    confidence ordering the amplitude fit already applies. An isotope must also
+    still OWN most of its observed signal after the subtraction
+    (``ENVELOPE_LAMBDA_REFIT_MIN_OWNERSHIP``) -- a peak the neighbours' model
+    almost entirely explains leaves a residual made of their error, not this
+    envelope's shape.
+
+    **The re-fit may only ever LOWER lambda.** The asymmetry is not caution for its
+    own sake, it follows from what can go wrong: an unmodelled contaminant, or a
+    neighbour's under-estimated contribution, can only ADD intensity at an isotope,
+    which always reads as a fatter tail and pushes lambda UP. So an upward estimate
+    is exactly the one that cannot be distinguished from contamination -- and
+    acting on it would let an envelope reach FURTHER into its neighbour's peak,
+    the one thing this pipeline must never do. A downward estimate has no such
+    explanation: nothing but a genuinely lighter-tailed species removes signal that
+    averagine predicted. So the re-fit is allowed to shrink a speculative tail and
+    hand the disputed signal back to the neighbour, never the reverse. (Measured:
+    the upward estimates in the sample files were all artefacts -- 1.4x from a
+    residual sitting on a neighbour's monoisotopic peak, 1.4x from an untracked
+    species under a +1 -- while every downward one tracked a real, visible
+    shortfall against averagine.)
+
+    Returns the fitted lambda, or None when the evidence is too thin to move off
+    averagine (fewer than two usable isotopes, no signal, or an upward estimate).
+    """
+
+    lamAveragine = float(lamAveragine)
+    if lamAveragine <= 0.0 or len(indices) < 2 or len(x) == 0:
+        return None
+
+    baseWeights = _poisson_weights(indices, lamAveragine)
+    if not baseWeights:
+        return None
+    wMax = max(baseWeights)
+    if wMax <= 0.0:
+        return None
+
+    # de-blended height at each isotope, and the confidence to give it
+    halfWindow = max(0.35 * float(fwhm), 1e-4)
+    deblended = []
+    confidence = []
+    for mz, weight in zip(positions, baseWeights, strict=True):
+        i1 = int(numpy.searchsorted(x, float(mz) - halfWindow, side="left"))
+        i2 = int(numpy.searchsorted(x, float(mz) + halfWindow, side="right"))
+        if i1 >= i2:
+            deblended.append(0.0)
+            confidence.append(0.0)
+            continue
+        mine = float(numpy.max(residual[i1:i2]))
+        whole = float(numpy.max(observed[i1:i2]))
+        deblended.append(mine)
+        # too faint to trust, or mostly explained away by the neighbours
+        if weight < ENVELOPE_LAMBDA_REFIT_MIN_WEIGHT * wMax:
+            confidence.append(0.0)
+        elif whole > 0.0 and mine < ENVELOPE_LAMBDA_REFIT_MIN_OWNERSHIP * whole:
+            confidence.append(0.0)
+        else:
+            confidence.append(weight / wMax)
+
+    usable = [i for i, c in enumerate(confidence) if c > 0.0]
+    if len(usable) < 2 or not any(deblended[i] > 0.0 for i in usable):
+        return None
+
+    obs = numpy.array([deblended[i] for i in usable], dtype=float)
+    conf = numpy.array([confidence[i] for i in usable], dtype=float)
+    isoIdx = [indices[i] for i in usable]
+
+    best = None
+    bestSse = None
+    lo = lamAveragine * (1.0 - ENVELOPE_LAMBDA_REFIT_BAND)
+    hi = lamAveragine
+    for lam in numpy.linspace(lo, hi, ENVELOPE_LAMBDA_REFIT_STEPS):
+        trial = _poisson_weights(isoIdx, lam)
+        if not trial:
+            continue
+        model = numpy.array(trial, dtype=float)
+        # profile out the amplitude, so only the SHAPE is being fitted
+        denom = float(numpy.dot(conf * model, model))
+        if denom <= 0.0:
+            continue
+        amp = float(numpy.dot(conf * model, obs)) / denom
+        if amp <= 0.0:
+            continue
+        sse = float(numpy.dot(conf, (obs - amp * model) ** 2))
+        if bestSse is None or sse < bestSse:
+            bestSse = sse
+            best = float(lam)
+
+    # only ever shrink the speculative tail -- see the note above
+    if best is None or best >= lamAveragine:
+        return None
+    return best
 
 
 def _apportion_group_areas(areaColumns, apexColumns, x, y, capInfo=None):
@@ -1770,6 +2124,14 @@ def _apportion_group_areas(areaColumns, apexColumns, x, y, capInfo=None):
         for k in range(K)
     ]
 
+    # per-isotope stake of the strongest competing neighbour, in that neighbour's
+    # OWN apex-relative terms. Pattern geometry only (no amplitudes), so like
+    # otherFracs it is fixed for the whole apportionment.
+    neighbourStakes = [
+        _neighbour_stakes(k, capInfo) if (K > 1 and capInfo is not None) else None
+        for k in range(K)
+    ]
+
     def _pass(weightColumns, useCap):
         """One apportionment pass over `weightColumns` (the per-envelope columns
         that drive the split). Returns the least-squares amplitude per envelope,
@@ -1794,7 +2156,13 @@ def _apportion_group_areas(areaColumns, apexColumns, x, y, capInfo=None):
             if useCap and capInfo is not None:
                 shaped, fwhm = capInfo[k]
                 cap = _envelope_amp_cap(
-                    areaCol, x, g, shaped, fwhm, otherFrac=otherFracs[k]
+                    areaCol,
+                    x,
+                    g,
+                    shaped,
+                    fwhm,
+                    otherFrac=otherFracs[k],
+                    neighbourStakes=neighbourStakes[k],
                 )
                 if cap is not None:
                     amp = min(amp, cap)
@@ -1951,7 +2319,63 @@ def _is_regular_isotope_grid(shaped):
     return minGap >= 0.5 * medGap
 
 
-def _fit_group_areas(metas, x, y, nonIdeality):
+def _envelope_columns(x, shaped, sigma):
+    """Both basis columns for one envelope shape.
+
+    Returns (areaColumn, apexColumn): the pattern rendered as gaussians normalised
+    to unit *area* (a unit coefficient integrates to one), and the same column
+    scaled so its most abundant (apex) isotope is 1 for the abundance-independent
+    signal split. Normalising to the theoretical APEX -- not the monoisotopic peak
+    -- is what makes the split fair for heavy envelopes whose apex is +2/+4/+5:
+    comparing two overlapping species at their representative (tallest) peak,
+    rather than at a mono that may be a tiny sliver of a heavy pattern, no longer
+    flattens a genuine abundance difference between them. The apex weight is a
+    fixed per-envelope scalar from the pattern, so it stays stable in crowded
+    regions (it does not depend on the neighbours).
+    """
+
+    areaColumn = _envelope_gaussian_column(x, shaped, sigma)
+    wApex = max((float(w) for _mz, w in shaped), default=0.0)
+    if wApex <= 0.0:
+        wApex = 1.0
+    norm = sigma * math.sqrt(2.0 * math.pi)
+    return areaColumn, areaColumn * (norm / wApex)
+
+
+def _theory_envelope_length(parent, averagineType=DEFAULT_AVERAGINE):
+    """How many isotopes the current settings model for this species.
+
+    The single definition of an envelope's extent: model from the monoisotopic
+    peak out to the LAST theoretical isotope carrying at least
+    ``ENVELOPE_TAIL_SIGNIFICANCE`` of the apex, never fewer than
+    ``MIN_ENVELOPE_LENGTH``. Used both when building a cluster and when deciding
+    whether a STORED grid still matches what this version would produce, so the
+    two can never drift apart. It scales with the species: the averagine lambda
+    is proportional to mass, so a heavier envelope is modelled with more isotopes
+    (at charge 1, roughly 4 at 900 Da, 6 at 2.3 kDa, 11 at 8 kDa for protein).
+
+    It has to be the LAST significant isotope, not the length of the leading run
+    above the floor. Past about 13 kDa (protein; ~9.5 kDa for the carbon-richer
+    lipid model) the envelope climbs to a mid-envelope apex before it decays, and
+    the monoisotopic peak is itself below 1% of that apex -- so counting the
+    leading run stopped at index 0 and collapsed a 25 kDa protein's envelope to
+    the bare ``MIN_ENVELOPE_LENGTH``. The isotopes between the mono and the apex
+    are part of the envelope regardless of their own size (an envelope cannot have
+    a gap), so the floor may only decide where the tail ENDS.
+    """
+
+    pattern = _cluster_pattern(parent, 30, averagineType=averagineType)
+    if not pattern:
+        return MIN_ENVELOPE_LENGTH
+    floor = max(pattern) * ENVELOPE_TAIL_SIGNIFICANCE
+    length = 0
+    for index, weight in enumerate(pattern):
+        if weight >= floor:
+            length = index + 1
+    return max(length, min(MIN_ENVELOPE_LENGTH, len(pattern)))
+
+
+def _fit_group_areas(metas, x, y, nonIdeality, refinePattern=True):
     """Apportion the observed signal among a group of (overlapping) envelopes.
 
     `metas` holds (fwhm, sigma, theoryIsotopes) for each envelope in the group.
@@ -1982,15 +2406,22 @@ def _fit_group_areas(metas, x, y, nonIdeality):
     if nonIdeality is None:
         nonIdeality = ENVELOPE_NON_IDEALITY_DEFAULT
 
-    norm_ok = [sigma > 0.0 and bool(isotopes) for _fwhm, sigma, isotopes, _stored in metas]
+    norm_ok = [
+        sigma > 0.0 and bool(isotopes)
+        for _fwhm, sigma, isotopes, _stored, _poisson in metas
+    ]
 
     # the theoretical (averagine) pattern is the default shape
-    shapes = [list(isotopes) for _fwhm, _sigma, isotopes, _stored in metas]
+    shapes = [list(isotopes) for _fwhm, _sigma, isotopes, _stored, _poisson in metas]
+    # which envelopes are on the plain averagine pattern (the only ones the
+    # data-pinned pattern refinement may move -- a soft-modelled or stored shape is
+    # already the caller's chosen shape)
+    onAveragine = [False] * K
 
     areaColumns = []
     apexColumns = []
     capInfo = []
-    for k, (fwhm, sigma, isotopes, storedShape) in enumerate(metas):
+    for k, (fwhm, sigma, isotopes, storedShape, _poisson) in enumerate(metas):
         if not norm_ok[k]:
             areaColumns.append(numpy.zeros(len(x), dtype=float))
             apexColumns.append(numpy.zeros(len(x), dtype=float))
@@ -2037,6 +2468,7 @@ def _fit_group_areas(metas, x, y, nonIdeality):
             shapes[k] = shaped
         else:
             shaped = isotopes
+            onAveragine[k] = True
 
         # area-normalised column (unit coefficient integrates to one) for the
         # per-envelope amplitude fit, and the same column scaled so its most
@@ -2048,18 +2480,74 @@ def _fit_group_areas(metas, x, y, nonIdeality):
         # pattern, no longer flattens a genuine abundance difference between them.
         # The apex weight is a fixed per-envelope scalar from the pattern, so it
         # stays stable in crowded regions (it does not depend on the neighbours).
-        areaColumn = _envelope_gaussian_column(x, shaped, sigma)
-        wApex = max((float(w) for _mz, w in shaped), default=0.0)
-        if wApex <= 0.0:
-            wApex = 1.0
-        norm = sigma * math.sqrt(2.0 * math.pi)
+        areaColumn, apexColumn = _envelope_columns(x, shaped, sigma)
         areaColumns.append(areaColumn)
-        apexColumns.append(areaColumn * (norm / wApex))
+        apexColumns.append(apexColumn)
         # the fitted shape + width, so the apportionment can cap each amplitude
         # against this envelope's own apportioned share at its isotope apexes
         capInfo.append((shaped, fwhm))
 
     areas = _apportion_group_areas(areaColumns, apexColumns, x, y, capInfo=capInfo)
+
+    # Data-pinned isotope pattern (one damped refinement step).
+    #
+    # Averagine fixes every envelope's whole pattern from one generic number, and
+    # the error in that number compounds along the isotopes (see
+    # `_refit_poisson_lambda`), so an envelope's speculative +2/+3 tail can be
+    # charged to whichever NEIGHBOUR it lands on -- the neighbour loses area to a
+    # claim no measurement supports. With the areas above we can subtract every
+    # other envelope's fitted contribution and read each species almost alone, so
+    # the one free parameter of its pattern is re-fit to its own de-blended peaks
+    # and the whole group is then re-apportioned on the corrected shapes.
+    #
+    # A single step from a FROZEN snapshot, so the result does not depend on the
+    # order the envelopes are visited and cannot run away: the refit shapes are
+    # never fed back in to refit again. Only meaningful for an overlap group
+    # (K > 1) -- an isolated envelope has no neighbour to mis-charge and already
+    # bends to the data through non-ideality.
+    if refinePattern and K > 1 and any(onAveragine):
+        yy = numpy.clip(y, 0.0, None)
+        frozen = numpy.zeros(len(x), dtype=float)
+        for area, column in zip(areas, areaColumns, strict=True):
+            frozen = frozen + max(0.0, float(area)) * column
+
+        refit = False
+        for k, (fwhm, sigma, isotopes, _storedShape, poisson) in enumerate(metas):
+            if not (norm_ok[k] and onAveragine[k]) or not poisson:
+                continue
+            lamAveragine, indices = poisson
+            # this envelope alone: observed minus every OTHER envelope's model
+            residual = numpy.clip(
+                yy - (frozen - max(0.0, float(areas[k])) * areaColumns[k]), 0.0, None
+            )
+            lam = _refit_poisson_lambda(
+                [mz for mz, _w in isotopes],
+                indices,
+                lamAveragine,
+                x,
+                yy,
+                residual,
+                fwhm,
+            )
+            if lam is None:
+                continue
+            weights = _poisson_weights(indices, lam)
+            if not weights or max(weights) <= 0.0:
+                continue
+            shaped = [
+                (float(mz), float(w))
+                for (mz, _old), w in zip(isotopes, weights, strict=True)
+            ]
+            shapes[k] = shaped
+            areaColumns[k], apexColumns[k] = _envelope_columns(x, shaped, sigma)
+            capInfo[k] = (shaped, fwhm)
+            refit = True
+
+        if refit:
+            areas = _apportion_group_areas(
+                areaColumns, apexColumns, x, y, capInfo=capInfo
+            )
+
     return areas, shapes
 
 
@@ -2068,7 +2556,7 @@ def _fit_group_areas(metas, x, y, nonIdeality):
 
 def _fit_envelope_areas_shaped(
     clusters, signal, defaultFwhm, nonIdeality=None,
-    averagineType=DEFAULT_AVERAGINE,
+    averagineType=DEFAULT_AVERAGINE, refinePattern=True,
 ):
     """Joint envelope area fit, also returning the isotope shape used per cluster.
 
@@ -2127,6 +2615,10 @@ def _fit_envelope_areas_shaped(
         weights = _cluster_weights(cluster, averagineType=averagineType)
         isotopes = [(p.mz, w) for p, w in zip(cluster, weights, strict=True)]
 
+        # the averagine lambda and isotope indices this pattern came from, so the
+        # group fit can re-derive the same pattern at a data-pinned lambda
+        poisson = _cluster_poisson(cluster, averagineType=averagineType)
+
         # the exact fitted shape carried over from a stored envelope (only when
         # every peak has one, i.e. this cluster was rebuilt from an envelope). It
         # lets an overlap fit reproduce the picked area instead of re-deriving a
@@ -2140,7 +2632,7 @@ def _fit_envelope_areas_shaped(
                     (p.mz, max(0.0, float(w)) / tot)
                     for p, w in zip(cluster, storedW, strict=True)
                 ]
-        metas.append((fwhm, sigma, isotopes, storedShape))
+        metas.append((fwhm, sigma, isotopes, storedShape, poisson))
 
         mzs = [p.mz for p in cluster]
         pad = 6.0 * max(fwhm, defaultFwhm)
@@ -2162,7 +2654,9 @@ def _fit_envelope_areas_shaped(
         y[y < 0.0] = 0.0
 
         groupMetas = [metas[i] for i in group]
-        groupAreas, groupShapes = _fit_group_areas(groupMetas, x, y, nonIdeality)
+        groupAreas, groupShapes = _fit_group_areas(
+            groupMetas, x, y, nonIdeality, refinePattern=refinePattern
+        )
         for idx, area, shape in zip(group, groupAreas, groupShapes, strict=True):
             areas[idx] = area
             shapes[idx] = shape
@@ -2172,13 +2666,13 @@ def _fit_envelope_areas_shaped(
 
 def _fit_envelope_areas(
     clusters, signal, defaultFwhm, nonIdeality=None,
-    averagineType=DEFAULT_AVERAGINE,
+    averagineType=DEFAULT_AVERAGINE, refinePattern=True,
 ):
     """Joint envelope area fit. See `_fit_envelope_areas_shaped` for details."""
 
     areas, _shapes = _fit_envelope_areas_shaped(
         clusters, signal, defaultFwhm, nonIdeality=nonIdeality,
-        averagineType=averagineType,
+        averagineType=averagineType, refinePattern=refinePattern,
     )
     return areas
 
@@ -2348,8 +2842,15 @@ def relabelenvelopes(
     relaxed=False,
     averagineType=DEFAULT_AVERAGINE,
     preserveSeeds=False,
+    refinePattern=True,
 ):
     """Convert deisotoped peak clusters to envelope labels.
+
+    refinePattern (bool) - when True, overlapping envelopes re-fit the single
+        parameter of their averagine isotope pattern to their own de-blended
+        signal (see `_refit_poisson_lambda`), instead of being held to the generic
+        averagine ratio. Stops one envelope's speculative isotope tail from being
+        charged to a neighbour it happens to land on.
 
     preserveSeeds (bool) - when True every input peak is kept as its own envelope
         seed: peaks are never absorbed into one another, adjacent clusters are not
@@ -2385,6 +2886,9 @@ def relabelenvelopes(
     # by reference through pruning -- with the cluster itself kept in the value
     # so its id cannot be recycled; a merged cluster falls back to its own peaks.
     memberPeaks = {}
+    # detected-isotope count per cluster, keyed by id() with the cluster kept in
+    # the value so its id cannot be recycled (same trick as memberPeaks)
+    detectedCounts = {}
     clusters = []
 
     for x, parent in enumerate(peaklist):
@@ -2427,7 +2931,7 @@ def relabelenvelopes(
             # present (e.g. find-peaks found the first species merged, then the user
             # labelled the second and is converting it) the merge is stale: reusing
             # it lets this envelope keep the neighbour's isotopes, so its area
-            # balloons and the neighbour is crushed (example_env4_failes.msd: 900.49
+            # balloons and the neighbour is crushed (example_env4_failed.msd: 900.49
             # kept a 10-isotope grid -> area 82, and 902.51 collapsed to 22 instead
             # of the correct 61 / 70). An irregular shape must not survive inside a
             # neighbourhood -- rebuild it as a clean single-species seed so the joint
@@ -2435,25 +2939,78 @@ def relabelenvelopes(
             # reuse (its positions are clean); only an irregular one is dropped, and
             # only when a neighbouring seed actually overlaps its span (so the K==1
             # merged-representative case that has no neighbour is still reproduced).
+            # Is this stored grid still trustworthy, or is it stale?
+            #
+            # Reuse exists because the grid carries information a rebuild cannot
+            # recover: which isotopes were actually DETECTED. After conversion the
+            # isotope peaks are gone from the peak list (label "1st" keeps only the
+            # mono), so rebuilding can only fall back on the theoretical extent --
+            # and a real species often shows one more isotope than the Poisson
+            # averagine predicts. A grid LONGER than theory is therefore normal and
+            # must be kept, or every re-label would quietly shorten the envelope.
+            #
+            # Two things do make it stale:
+            #
+            #  * it swallows a labelled NEIGHBOUR's monoisotopic peak. Then its
+            #    extra isotopes are not this species' at all -- they are the
+            #    neighbour's peaks, picked up either by a find-peaks merge
+            #    (example_env4_failed.msd: 900.49 kept a 10-isotope grid, area 82,
+            #    and 902.51 collapsed to 22 instead of the correct 61/70) or by the
+            #    old profile-walked tail (example_env4.msd: 900.49 saved with 5
+            #    isotopes because 902.51's mono and +1 sat under its tail). Rebuild
+            #    it as a clean single-species seed and let the joint fit apportion
+            #    the shared signal.
+            #
+            #  * it is SHORTER than this version models. That cannot come from
+            #    detected evidence -- detection only ever adds isotopes -- so it is
+            #    an envelope saved by an older method (or under a different
+            #    averagine type) whose extent was cut short by whatever happened to
+            #    sit next to it (example_env4.msd: 902.51 saved with 3 isotopes,
+            #    stopped by an unrelated peak at 905.5). Reusing it verbatim froze
+            #    that mistake: converting again reproduced the old envelope instead
+            #    of applying the current method, so the only way to get a correct
+            #    envelope was to delete the peak and label it from scratch.
+            #
+            # Otherwise reuse short-circuits the rebuild and conversion stays
+            # idempotent.
             reuseStored = True
-            if not _is_regular_isotope_grid(storedIsos):
-                gridMzs = [float(m) for m, _w in storedIsos]
-                gridLo, gridHi = min(gridMzs), max(gridMzs)
-                # index by position -- do NOT iterate `peaklist` here: obj_peaklist's
-                # iterator keeps a single shared cursor, so a nested `for ... in
-                # peaklist` would reset the outer seed loop's cursor and drop every
-                # seed after this one.
-                for j in range(len(peaklist)):
-                    if j == x:
-                        continue
-                    other = peaklist[j]
-                    if other.charge is None or other.isotope not in (None, 0):
-                        continue
-                    # a seed past the mono but inside the merged span is a species
-                    # this grid absorbed -> the merge must be undone
-                    if gridLo + mzTolerance < other.mz <= gridHi + mzTolerance:
-                        reuseStored = False
-                        break
+            gridMzs = [float(m) for m, _w in storedIsos]
+            gridLo, gridHi = min(gridMzs), max(gridMzs)
+            # index by position -- do NOT iterate `peaklist` here: obj_peaklist's
+            # iterator keeps a single shared cursor, so a nested `for ... in
+            # peaklist` would reset the outer seed loop's cursor and drop every
+            # seed after this one.
+            for j in range(len(peaklist)):
+                if j == x:
+                    continue
+                other = peaklist[j]
+                if other.charge is None or other.isotope not in (None, 0):
+                    continue
+                # a seed past the mono but inside the stored span is a species this
+                # grid absorbed -> the grid is not one species and must be redone
+                if gridLo + mzTolerance < other.mz <= gridHi + mzTolerance:
+                    reuseStored = False
+                    break
+            #  * it is not the length this version would build. The extent is
+            #    the theoretical one, extended to cover isotopes that were really
+            #    DETECTED -- and the stored "detected" count is what makes that
+            #    checkable after the fact. A grid saved before the count existed
+            #    reports 1 (only its mono is known-detected), so it is measured
+            #    against the plain theoretical extent and an older method's
+            #    over-long tail is rebuilt away (example_env5's 1002.43 was saved
+            #    with 6 isotopes, the last two sitting on noise; theory gives 4).
+            storedDetected = 1
+            try:
+                storedDetected = max(1, int(storedEnvelope.get("detected", 1)))
+            except (TypeError, ValueError):
+                storedDetected = 1
+            expectedLength = max(
+                storedDetected,
+                _theory_envelope_length(parent, averagineType=averagineType),
+            )
+            if reuseStored and len(storedIsos) != expectedLength:
+                reuseStored = False
+
             if reuseStored:
                 used.add(x)
                 rebuilt = _reconstruct_cluster_from_envelope(
@@ -2464,6 +3021,9 @@ def relabelenvelopes(
                 )
                 if consumed:
                     memberPeaks[id(rebuilt)] = (rebuilt, consumed)
+                # the rebuilt cluster is all placeholders, so its detected count
+                # can only come from what the envelope recorded
+                detectedCounts[id(rebuilt)] = (rebuilt, storedDetected)
                 clusters.append(rebuilt)
                 continue
 
@@ -2548,31 +3108,22 @@ def relabelenvelopes(
             indexes.append(found)
             next_isotope = found_isotope + 1
 
-        # Decide how far to extend the modeled envelope tail.
+        # Decide how far to model the envelope.
         #
-        # The extent is bounded by the *observed* signal, so we never model
-        # isotope peaks where the spectrum is flat. Starting just past the
-        # detected isotopes we walk outward and keep a position only while
-        #   (a) theory still predicts a non-negligible isotope there, and
-        #   (b) the measured profile there rises above the local noise floor.
-        # The first position that fails stops the tail (isotope envelopes decay
-        # monotonically, so there are no gaps to jump).
-        #
-        # The noise floor is an *absolute* estimate (a peak's intensity / its
-        # S/N gives the local noise level), and the test compares observed
-        # signal against it. It therefore does not depend on which isotope is
-        # the base peak -- it behaves the same whether the monoisotopic peak
-        # dominates (small molecules) or a mid-envelope isotope dominates
-        # (proteins), and it cannot fabricate peaks in empty m/z regions.
+        # Purely from theory: every isotope carrying at least
+        # ENVELOPE_TAIL_SIGNIFICANCE of the apex is modelled, and nothing beyond.
+        # The observed profile deliberately plays NO part in this decision (it
+        # still decides the fitted area, in the joint fit). Walking the tail
+        # outward against the spectrum -- the old behaviour -- asked "is there
+        # something here?" when the question that matters is "could THIS envelope
+        # have produced it?", and in a crowded region the answer is usually no:
+        # the tail simply marched along whichever neighbour's peaks happened to
+        # decay smoothly, and stopped early wherever an unrelated peak happened to
+        # rise. Two species with the same theoretical pattern then got visibly
+        # different envelopes (see ENVELOPE_TAIL_SIGNIFICANCE). Theory does not
+        # know about the neighbours, so it treats equivalent species equally.
         ideal_pattern = _cluster_pattern(parent, 30, averagineType=averagineType)
-        max_p = max(ideal_pattern) if ideal_pattern else 1.0
-        theoryFloor = max_p * ENVELOPE_TAIL_CUTOFF_MIN
-
-        # index of the theoretical envelope apex. Above ~2 kDa the monoisotopic
-        # peak is no longer the tallest: the envelope climbs to a mid-envelope
-        # apex before it decays. The decay guard below must therefore only apply
-        # *past* this apex; before it, a rising tail is legitimate.
-        apexIndex = int(numpy.argmax(ideal_pattern)) if len(ideal_pattern) else 0
+        theoryLength = _theory_envelope_length(parent, averagineType=averagineType)
 
         # Absolute noise estimate. Prefer the most intense peak's measured S/N;
         # if that is unavailable, estimate the local noise floor directly from
@@ -2638,58 +3189,20 @@ def relabelenvelopes(
             sigX = sigArr[:, 0]
             sigY = sigArr[:, 1]
 
-        target_length = len(cluster)
-        prevObs = float(cluster[-1].intensity) if cluster else 0.0
-        for mi in range(len(cluster), len(ideal_pattern)):
+        # How many of these isotopes are real, DETECTED peaks rather than modelled
+        # tail. Recorded on the envelope below, because it is the one thing a
+        # rebuild can never recover: after conversion the isotope peaks are gone
+        # from the list, and theory alone cannot tell a detected isotope from an
+        # over-long tail saved by an older method -- on the measured files the
+        # unwanted one (0.84% of its apex) is BIGGER than the genuinely detected
+        # one we must keep (0.39%), so no significance cutoff can separate them.
+        detectedCount = max(1, len(cluster))
 
-            # stop where theory no longer predicts a meaningful isotope
-            if ideal_pattern[mi] < theoryFloor:
-                break
-
-            if useSignal:
-                mzPos = parent.mz + mi * difference + gridOffset
-
-                # observed signal at this position, sampled only within the
-                # mass tolerance so off-grid foreign peaks are never counted
-                i1 = numpy.searchsorted(sigX, mzPos - sampleWindow, side="left")
-                i2 = numpy.searchsorted(sigX, mzPos + sampleWindow, side="right")
-                obs = float(numpy.max(sigY[i1:i2])) if i1 < i2 else 0.0
-
-                # stop where the spectrum is flat (no signal above the noise)
-                if obs < signalFloor:
-                    break
-
-                # Past the apex a genuine envelope decays continuously. Two ways
-                # the observed signal can betray that this position is *not* a
-                # real isotope of this envelope:
-                #   - it rises sharply  -> we have stepped onto a neighbouring
-                #     species (before the apex a rise is legitimate, so this is
-                #     only checked past it);
-                #   - it collapses to a small fraction of the previous isotope
-                #     -> the real envelope has ended and what remains is baseline
-                #     noise, so the trailing peak must not be modelled.
-                if mi > apexIndex:
-                    if obs > prevObs * ENVELOPE_TAIL_RISE_TOLERANCE:
-                        break
-                    if obs < prevObs * ENVELOPE_TAIL_MIN_DECAY:
-                        break
-                prevObs = obs
-            else:
-                # no profile to verify against: fall back to a conservative
-                # relative cutoff so the tail cannot run away into empty m/z
-                if ideal_pattern[mi] < max_p * ENVELOPE_TAIL_CUTOFF_MAX:
-                    break
-
-            target_length = mi + 1
-
-        # Enforce the minimum envelope length first; the anti-hallucination /
-        # decay guards above act only as an *upper* bound and must never shorten
-        # an envelope below this floor. A genuine deisotoped envelope spans at
-        # least three isotopes, so we keep that minimum even where the third
-        # isotope sits just under the noise. The placeholder is added at the
-        # theoretical isotope position (intensity 0), so it cannot absorb a
-        # neighbouring peak.
-        target_length = max(target_length, min(MIN_ENVELOPE_LENGTH, len(ideal_pattern)))
+        # The modelled extent is theoretical -- a pure function of the species, so
+        # equivalent species get equivalent envelopes and nothing in the
+        # surrounding spectrum can change it -- extended only to cover isotopes
+        # that were actually detected.
+        target_length = max(detectedCount, min(theoryLength, len(ideal_pattern)))
 
         if len(cluster) < target_length:
             for mi in range(len(cluster), target_length):
@@ -2720,6 +3233,7 @@ def relabelenvelopes(
         )
         if consumed:
             memberPeaks[id(cluster)] = (cluster, consumed)
+        detectedCounts[id(cluster)] = (cluster, detectedCount)
         clusters.append(cluster)
 
     if not clusters:
@@ -2746,6 +3260,7 @@ def relabelenvelopes(
         defaultFwhm,
         nonIdeality=nonIdeality,
         averagineType=averagineType,
+        refinePattern=refinePattern,
     )
 
     # Re-calculate NNLS areas as fallbacks if needed, but mainly prune zero ones.
@@ -2854,6 +3369,14 @@ def relabelenvelopes(
             "fwhm": fwhm_val,
             "shape": "gaussian",
             "isotopes": isotopes_data,
+            # how many leading isotopes were DETECTED peaks rather than modelled
+            # tail. A rebuild cannot re-derive this (the isotope peaks are consumed
+            # by the conversion), so without it a later re-convert can only fall
+            # back on the theoretical extent -- which either drops a real isotope
+            # or keeps an over-long tail saved by an older method.
+            "detected": int(
+                detectedCounts.get(id(cluster), (None, 1))[1]
+            ),
             # the averagine model the shape/area were fit under, so re-converting
             # can tell whether the stored shape may be reused verbatim (same model
             # -> idempotent) or must be re-derived (user switched models -> the
@@ -2940,6 +3463,96 @@ def _isotope_pattern_at_mass(neutralMass, averagineType=DEFAULT_AVERAGINE, size=
 # ----
 
 
+def _local_maxima_between(signal, minX, maxX):
+    """(mz, intensity) of every local maximum of a raw signal inside a window."""
+
+    if signal is None or len(signal) == 0 or maxX <= minX:
+        return []
+
+    sigX = signal[:, 0]
+    sigY = signal[:, 1]
+    i1 = max(int(numpy.searchsorted(sigX, minX, side="left")), 1)
+    i2 = min(int(numpy.searchsorted(sigX, maxX, side="right")), len(sigY) - 1)
+
+    found = []
+    for j in range(i1, i2):
+        value = float(sigY[j])
+        if value > 0.0 and value >= sigY[j - 1] and value >= sigY[j + 1]:
+            found.append((float(sigX[j]), value))
+    return found
+
+
+# ----
+
+
+def _peaklist_has_peak_near(peaklist, mz, mzTolerance):
+    """True when a picked peak sits within tolerance of an m/z (binary search)."""
+
+    lo = 0
+    hi = len(peaklist) - 1
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        value = peaklist[mid].mz
+        if abs(value - mz) <= mzTolerance:
+            return True
+        if value < mz:
+            lo = mid + 1
+        else:
+            hi = mid - 1
+    return False
+
+
+# ----
+
+
+def _sits_on_isotope_ridge(peaklist, index, step, mzTolerance, signal=None):
+    """True when a candidate is one tooth of an unexplained ridge, not a monoisotope.
+
+    Walks DOWN from the candidate one isotope ``step`` at a time -- where a
+    monoisotopic peak can have nothing -- and counts the rungs carrying at least
+    MONO_RIDGE_MIN_FRACTION of its intensity that NO picked peak accounts for.
+    MONO_RIDGE_MIN_WIDTH of those and the candidate is background rather than a
+    species. See MONO_RIDGE_MIN_FRACTION for why only unexplained rungs count and
+    why this reads the raw signal.
+    """
+
+    if signal is None or not len(signal):
+        return False
+    if step <= 0.0 or MONO_RIDGE_MIN_WIDTH <= 0:
+        return False
+
+    parent = peaklist[index]
+    floor = parent.intensity * MONO_RIDGE_MIN_FRACTION
+    if floor <= 0.0:
+        return False
+    # rungs are read off the raw signal, so compare at the same offset the
+    # candidate's own intensity is measured from
+    floor += parent.base
+    window = step * MONO_RIDGE_WINDOW_FRACTION
+
+    unexplained = 0
+    target = parent.mz - step
+    for _ in range(MONO_RIDGE_MAX_WALK):
+        rungs = [
+            found
+            for found in _local_maxima_between(signal, target - window, target + window)
+            if found[1] >= floor
+        ]
+        if not rungs:
+            return False
+        mz = max(rungs, key=lambda found: found[1])[0]
+        if not _peaklist_has_peak_near(peaklist, mz, mzTolerance):
+            unexplained += 1
+            if unexplained >= MONO_RIDGE_MIN_WIDTH:
+                return True
+        target = mz - step
+
+    return False
+
+
+# ----
+
+
 def deisotope(
     peaklist,
     maxCharge=1,
@@ -2949,6 +3562,7 @@ def deisotope(
     respectCharge=False,
     seedCharge=1,
     averagineType=DEFAULT_AVERAGINE,
+    signal=None,
 ):
     """Isotopes determination and calculation of peaks charge.
     peaklist (mspy.peaklist) - peaklist to process
@@ -2957,15 +3571,29 @@ def deisotope(
     intTolerance (float) - relative intensity tolerance for isotopes and model (in %/100)
     isotopeShift (float) - isotope distance correction (neutral mass) (for HDX etc.)
     averagineType (str) - averagine model key (protein | carbohydrate | lipid)
+    signal (numpy array) - raw profile the peaks came from, used to judge whether a
+        candidate is a monoisotopic peak or one tooth of a chemical-noise ridge.
+        Optional, but the peak list on its own is a poor substitute: picking has
+        already removed everything under the S/N threshold, which is most of a
+        ridge (see MONO_RIDGE_MIN_FRACTION).
     """
 
     # check peaklist
     if not isinstance(peaklist, obj_peaklist.peaklist):
         raise TypeError("Peak list must be mspy.peaklist object!")
 
-    # clear previous results unless caller wants to preserve / respect charge
+    # clear previous results unless caller wants to preserve / respect charge.
+    # A peak that already carries an envelope is exempt: its charge came from a
+    # pattern fit over isotopes that are now folded INTO the envelope model
+    # rather than present as separate rows, so re-deriving it from the collapsed
+    # peak list can only lose it. Without this, running deisotoping over an
+    # already-labelled spectrum stripped the charge from every envelope and
+    # "remove unknown" then deleted the lot (spectra/example6.msd: 49 envelopes
+    # in, 4 out).
     if not respectCharge:
         for peak in peaklist:
+            if _peak_carries_envelope(peak):
+                continue
             peak.setcharge(None)
             peak.setisotope(None)
 
@@ -2978,12 +3606,13 @@ def deisotope(
 
     # walk in a peaklist
     maxIndex = len(peaklist)
+    accepted = []
     for x, parent in enumerate(peaklist):
 
         CHECK_FORCE_QUIT()
 
-        # skip assigned peaks
-        if parent.isotope is not None:
+        # skip assigned peaks, and peaks that are already a labelled envelope
+        if parent.isotope is not None or _peak_carries_envelope(parent):
             continue
 
         # try all charge states or the caller-provided charge seed
@@ -3002,9 +3631,13 @@ def deisotope(
             difference = (ISOTOPE_DISTANCE + isotopeShift) / abs(z)
             y = 1
             while x + y < maxIndex:
-                mzError = peaklist[x + y].mz - cluster[-1].mz - difference
+                candidate = peaklist[x + y]
+                mzError = candidate.mz - cluster[-1].mz - difference
                 if abs(mzError) <= mzTolerance:
-                    cluster.append(peaklist[x + y])
+                    # another species' envelope is not this one's isotope
+                    if _peak_carries_envelope(candidate):
+                        break
+                    cluster.append(candidate)
                 elif mzError > mzTolerance:
                     break
                 y += 1
@@ -3027,6 +3660,7 @@ def deisotope(
 
             # check peak intensities in cluster
             valid = True
+            confirmed = 0
             isotope = 1
             limit = min(len(pattern), len(cluster))
             while isotope < limit:
@@ -3041,6 +3675,7 @@ def deisotope(
                 if abs(intError) <= (intTheoretical * intTolerance):
                     cluster[isotope].setisotope(isotope)
                     cluster[isotope].setcharge(z)
+                    confirmed += 1
 
                 # intensity is higher (overlap)
                 elif intError > 0:
@@ -3054,10 +3689,52 @@ def deisotope(
                 # try next peak
                 isotope += 1
 
+            # A cluster that confirmed no isotope at all rests on nothing: every
+            # position was written off as "intensity is higher (overlap)", which
+            # is an assumption about an unseen neighbour, not evidence. Accept it
+            # only where the candidate could actually BE a monoisotopic peak --
+            # i.e. it is not just one more tooth of a comb running below it. With
+            # a confirmed isotope the pattern speaks for itself and the candidate
+            # is accepted whatever its surroundings.
+            # (not under respectCharge: there the caller has already decided
+            # which peaks are species -- the envelope recalculation path hands in
+            # its own settled assignments -- and this must not second-guess them)
+            if (
+                valid
+                and not confirmed
+                and not respectCharge
+                and _sits_on_isotope_ridge(
+                    peaklist, x, difference, mzTolerance, signal=signal
+                )
+            ):
+                continue
+
+            # Same reasoning one step closer in: a candidate sitting exactly one
+            # isotope spacing above a species already accepted at this charge IS
+            # that species' +1 position. The pattern check looked at it there and
+            # declined to confirm it only because it was too intense -- an
+            # assumption about an unseen overlapping species. Promoting the very
+            # same peak to an independent monoisotope, having confirmed nothing of
+            # its own, claims that signal twice on no evidence either time. It is
+            # what produced pairs of charge-1 envelopes one dalton apart in a
+            # noise band (spectra/example6.msd 963.13 and 964.15, where the "+1"
+            # is 2.1x what the pattern allows). A candidate WITH a confirmed
+            # isotope is untouched, so genuinely overlapping species -- which is
+            # what an isotope-spaced neighbour usually is when either of them has
+            # a pattern of its own -- keep their charge.
+            if valid and not confirmed and not respectCharge:
+                previous = parent.mz - difference
+                if any(
+                    charge == z and abs(mz - previous) <= mzTolerance
+                    for mz, charge in accepted
+                ):
+                    continue
+
             # cluster is OK, set parent peak and skip other charges
             if valid:
                 parent.setisotope(0)
                 parent.setcharge(z)
+                accepted.append((parent.mz, z))
                 break
 
         if respectCharge and parent.charge is None:
@@ -3336,6 +4013,7 @@ def recalculate_neighborhood_envelopes(
     tolerance = params["massTolerance"]
     isotopeShift = params["isotopeShift"]
     maxCharge = max(1, abs(int(params["maxCharge"])))
+    refinePattern = bool(params.get("envelopeRefinePattern", True))
     difference = (ISOTOPE_DISTANCE + isotopeShift) / float(maxCharge)
     averagineType = params.get("averagineType", DEFAULT_AVERAGINE)
 
@@ -3385,6 +4063,50 @@ def recalculate_neighborhood_envelopes(
         margin = max(6.0 * difference, 8.0 * tolerance)
         minMz = min(mzs) - margin
         maxMz = max(mzs) + margin
+
+        # An envelope REACHES INTO the neighbourhood if any of its isotopes does,
+        # and it has to be recalculated whole. Testing only each peak's own m/z
+        # against the window is wrong in both directions:
+        #
+        #  * the margin is a fixed multiple of the isotope *spacing*, which shrinks
+        #    as 1/maxCharge -- at maxCharge 4 it is +/-1.5 Da, narrower than a
+        #    charge-1 envelope. An envelope whose MONO sits just outside is then
+        #    never re-fit even though the edit landed squarely on one of its
+        #    isotopes: deleting 902.51 in example_env4.msd left 900.49 -- whose +2
+        #    IS 902.51 -- untouched, still reporting the area it had while sharing
+        #    that peak. To the user, nothing recalculated.
+        #
+        #  * conversely an envelope whose mono is inside can have isotope ROWS
+        #    outside. A row left outside is never consumed by the rebuild, which
+        #    emits a fresh row at the same position while the stale one survives --
+        #    under labelEnvelope="isotopes" the peak list grows by one on every
+        #    recalc.
+        #
+        # So take every envelope whose stored span *intersects* the window, widen
+        # the window to its full span, and repeat until it stops growing (each pass
+        # only ever widens and the peak list is finite, so this terminates).
+        while True:
+            before = (minMz, maxMz)
+            for peak in peaklist:
+                envelope = (
+                    peak.attributes.get("envelope")
+                    if hasattr(peak, "attributes")
+                    else None
+                )
+                if isinstance(envelope, dict) and envelope.get("isotopes"):
+                    positions = [float(mz) for mz, _w in envelope["isotopes"]]
+                    spanLo = min(min(positions), peak.mz) - tolerance
+                    spanHi = max(max(positions), peak.mz) + tolerance
+                else:
+                    spanLo = spanHi = peak.mz
+                # any overlap with the current window pulls the whole span in
+                if spanLo > maxMz or spanHi < minMz:
+                    continue
+                minMz = min(minMz, spanLo)
+                maxMz = max(maxMz, spanHi)
+            if (minMz, maxMz) == before:
+                break
+
         for i, peak in enumerate(peaklist):
             if not (minMz <= peak.mz <= maxMz):
                 continue
@@ -3480,6 +4202,7 @@ def recalculate_neighborhood_envelopes(
             relaxed=True,
             averagineType=averagineType,
             preserveSeeds=preserveSeeds,
+            refinePattern=refinePattern,
         )
         return list(gpl)
 

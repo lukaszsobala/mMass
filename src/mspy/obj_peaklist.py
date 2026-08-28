@@ -355,6 +355,7 @@ class peaklist:
         respectCharge=False,
         seedCharge=1,
         averagineType=mod_peakpicking.DEFAULT_AVERAGINE,
+        signal=None,
     ):
         """Calculate peak charges and find isotopes.
         maxCharge (float) - max charge to be searched
@@ -362,6 +363,7 @@ class peaklist:
         intTolerance (float) - relative intensity tolerance for isotopes and model (in %/100)
         isotopeShift (float) - isotope distance correction (neutral mass) (for HDX etc.)
         averagineType (str) - averagine model key (protein | carbohydrate | lipid)
+        signal (numpy array) - raw profile the peaks came from (optional)
         """
 
         # check peaklist
@@ -378,6 +380,7 @@ class peaklist:
             respectCharge=respectCharge,
             seedCharge=seedCharge,
             averagineType=averagineType,
+            signal=signal,
         )
 
     # ----
@@ -394,6 +397,7 @@ class peaklist:
         relaxed=False,
         averagineType=mod_peakpicking.DEFAULT_AVERAGINE,
         preserveSeeds=False,
+        refinePattern=True,
     ):
         """Convert deisotoped peak clusters to envelope labels."""
 
@@ -413,6 +417,7 @@ class peaklist:
             relaxed=relaxed,
             averagineType=averagineType,
             preserveSeeds=preserveSeeds,
+            refinePattern=refinePattern,
         )
 
         # store data
@@ -592,7 +597,16 @@ class peaklist:
     # ----
 
     def remisotopes(self):
-        """Remove isotopes."""
+        """Remove isotopes.
+
+        Peaks belonging to a labelled envelope are exempt. Under the "All
+        Isotopes" envelope label an envelope IS a run of peaks carrying isotope
+        numbers 0..n, all sharing one envelope model, so deleting them here would
+        gut the label that was just asked for -- with the shipped defaults
+        ("convert to envelopes" plus "remove isotopes") that silently turned "All
+        Isotopes" into "1st Peak". These rows are a label, not the raw isotope
+        rows deisotoping found, which are what this step is for.
+        """
 
         # check peaklist
         if not self.peaks:
@@ -601,6 +615,8 @@ class peaklist:
         # get indexes to delete
         indexes = []
         for x, peak in enumerate(self.peaks):
+            if mod_peakpicking._peak_carries_envelope(peak):
+                continue
             if peak.isotope != 0 and peak.charge is not None:
                 indexes.append(x)
 
