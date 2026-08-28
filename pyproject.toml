@@ -71,3 +71,18 @@ ignore = ["E501"]  # line-too-long — not enforced
 "src/gui/*.py" = ["F403", "F405"]  # ids.py star-import is intentional
 "src/mspy/__init__.py" = ["F403", "F401"]  # public API re-export via star imports
 "src/mmass_app/app.py" = ["E402"]  # HiDPI awareness must run before `import wx`
+
+[tool.pyright]
+# Pylance/pyright otherwise analyse the setuptools build tree as well, and
+# report every diagnostic twice -- against stale copies of the sources.
+include = ["src", "tests"]
+# note: setting `exclude` replaces pyright's defaults, so they are repeated here
+exclude = [
+    "**/node_modules",
+    "**/__pycache__",
+    "**/.*",
+    ".venv",
+    "build",
+    "dist",
+    "packaging",
+]

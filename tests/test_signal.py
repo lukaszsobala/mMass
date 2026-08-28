@@ -126,3 +126,28 @@ def test_crop_restricts_range():
     assert cropped[:, 0].max() <= 31.0
     # original far-away points are gone
     assert cropped[:, 0].max() < 50.0
+
+
+def test_crop_outside_range_keeps_two_column_shape():
+    sig = numpy.array([[float(i), 1.0] for i in range(100)], dtype=numpy.float64)
+    for window in ((-20.0, -10.0), (200.0, 300.0)):
+        cropped = mod_signal.crop(sig, *window)
+        assert len(cropped) == 0
+        assert cropped.shape == (0, 2)
+
+
+def test_area_outside_signal_is_zero():
+    # dragging the ruler past either end of the spectrum crops away everything
+    sig = numpy.array([[float(i), 1.0] for i in range(100)], dtype=numpy.float64)
+    base = numpy.array([[0.0, 0.1], [99.0, 0.1]], dtype=numpy.float64)
+    assert mod_signal.area(sig, minX=-20.0, maxX=-10.0) == 0.0
+    assert mod_signal.area(sig, minX=200.0, maxX=300.0) == 0.0
+    assert mod_signal.area(sig, minX=-20.0, maxX=-10.0, baseline=base) == 0.0
+
+
+def test_area_ignores_ruler_direction():
+    sig = numpy.array([[float(i), 1.0] for i in range(100)], dtype=numpy.float64)
+    # dragging left gives minX > maxX
+    assert mod_signal.area(sig, minX=30.0, maxX=20.0) == pytest.approx(
+        mod_signal.area(sig, minX=20.0, maxX=30.0)
+    )

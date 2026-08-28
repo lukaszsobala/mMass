@@ -316,6 +316,9 @@ def signal_width(array, x, height):
 
 
 def signal_area(array):
+    # a cropped-to-nothing signal arrives as an empty (or 1-D) array
+    if array.ndim < 2 or len(array) < 2:
+        return 0.0
     return float(np.trapezoid(array[:, 1], array[:, 0]))
 
 
