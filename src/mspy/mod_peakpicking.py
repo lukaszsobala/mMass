@@ -97,29 +97,31 @@ MIN_ENVELOPE_LENGTH = 3
 
 # Minimum expected signal-to-noise for a theoretical isotope to be worth
 # modeling when extending an envelope's tail. Combined with the base peak's
-# measured S/N this gives an intensity-adaptive cutoff (see relabelenvelopes).
+# measured S/N this gives an intensity-adaptive cutoff, used to place tail
+# placeholders on the real apex rather than on the bare grid point.
 ENVELOPE_TAIL_SN_LIMIT = 1.0
 
-# Bounds on the relative tail cutoff, expressed as a fraction of the *tallest*
-# theoretical isotope (the envelope apex), NOT of the monoisotopic / first peak.
-# The theoretical pattern is normalised to its apex, so this is correct even for
-# heavy species where the first peak is far from the tallest. Keeps the estimate
-# within a realistic single-envelope dynamic range.
-ENVELOPE_TAIL_CUTOFF_MIN = 0.0005
-ENVELOPE_TAIL_CUTOFF_MAX = 0.05
-
-# A real isotope tail past the apex decays monotonically. When walking the tail
-# outward, allow only this much rise relative to the previous position before
-# concluding the signal belongs to a different species (and stopping). Prevents
-# the tail from marching across neighbouring peaks in crowded regions.
-ENVELOPE_TAIL_RISE_TOLERANCE = 1.5
-
-# Past the apex a real isotope tail decays *continuously*. When the observed
-# signal collapses below this fraction of the previous isotope it has dropped to
-# baseline/noise -- the envelope has ended -- so the position is not modelled.
-# This is shape-agnostic (it does not assume an averagine profile) and stops a
-# trailing peak being placed on flat spectrum even at a permissive S/N limit.
-ENVELOPE_TAIL_MIN_DECAY = 0.1
+# How far an envelope is modelled: every theoretical isotope carrying at least
+# this fraction of the *tallest* one (the envelope apex, NOT the monoisotopic /
+# first peak -- correct even for heavy species whose first peak is far from the
+# tallest). Below it the isotope cannot move the fitted area, so modelling it
+# buys nothing, while the *claim* it stakes on whatever m/z it lands on is real.
+#
+# This is deliberately the ONLY thing that sets an envelope's length. The extent
+# was previously walked outward against the observed profile -- keep going while
+# something is there, stop at the noise -- with a floor of 0.05%, so in practice
+# the spectrum decided. That is unsound in exactly the place it matters: the
+# signal at a tail position is not evidence for THIS envelope unless this
+# envelope could produce it, and in a crowded region it usually cannot. Two
+# equivalent species then get visibly different envelopes depending only on who
+# sits under their tails (spectra/example_env4.msd: 900.49 and 902.51 have the
+# same theoretical pattern to three decimals, yet 900.49 was modelled with 5
+# isotopes -- its 4th and 5th, at 1.3% and 0.14% of its apex, "supported" by
+# signal that is really 902.51's mono and +1 -- while 902.51 got 3, stopped by an
+# unrelated peak rising at 905.5). Theory is the same for both, so the envelopes
+# now are too; the observed signal still decides the AREA, via the joint fit,
+# which is where evidence about how much of a species is present belongs.
+ENVELOPE_TAIL_SIGNIFICANCE = 0.01
 
 # Marker attribute set on a peak that takes part in an envelope fit as CONTEXT
 # ONLY: its species is included in the joint overlap-aware apportionment (so a
@@ -2292,6 +2294,39 @@ def _envelope_columns(x, shaped, sigma):
     return areaColumn, areaColumn * (norm / wApex)
 
 
+def _theory_envelope_length(parent, averagineType=DEFAULT_AVERAGINE):
+    """How many isotopes the current settings model for this species.
+
+    The single definition of an envelope's extent: model from the monoisotopic
+    peak out to the LAST theoretical isotope carrying at least
+    ``ENVELOPE_TAIL_SIGNIFICANCE`` of the apex, never fewer than
+    ``MIN_ENVELOPE_LENGTH``. Used both when building a cluster and when deciding
+    whether a STORED grid still matches what this version would produce, so the
+    two can never drift apart. It scales with the species: the averagine lambda
+    is proportional to mass, so a heavier envelope is modelled with more isotopes
+    (at charge 1, roughly 4 at 900 Da, 6 at 2.3 kDa, 11 at 8 kDa for protein).
+
+    It has to be the LAST significant isotope, not the length of the leading run
+    above the floor. Past about 13 kDa (protein; ~9.5 kDa for the carbon-richer
+    lipid model) the envelope climbs to a mid-envelope apex before it decays, and
+    the monoisotopic peak is itself below 1% of that apex -- so counting the
+    leading run stopped at index 0 and collapsed a 25 kDa protein's envelope to
+    the bare ``MIN_ENVELOPE_LENGTH``. The isotopes between the mono and the apex
+    are part of the envelope regardless of their own size (an envelope cannot have
+    a gap), so the floor may only decide where the tail ENDS.
+    """
+
+    pattern = _cluster_pattern(parent, 30, averagineType=averagineType)
+    if not pattern:
+        return MIN_ENVELOPE_LENGTH
+    floor = max(pattern) * ENVELOPE_TAIL_SIGNIFICANCE
+    length = 0
+    for index, weight in enumerate(pattern):
+        if weight >= floor:
+            length = index + 1
+    return max(length, min(MIN_ENVELOPE_LENGTH, len(pattern)))
+
+
 def _fit_group_areas(metas, x, y, nonIdeality, refinePattern=True):
     """Apportion the observed signal among a group of (overlapping) envelopes.
 
@@ -2803,6 +2838,9 @@ def relabelenvelopes(
     # by reference through pruning -- with the cluster itself kept in the value
     # so its id cannot be recycled; a merged cluster falls back to its own peaks.
     memberPeaks = {}
+    # detected-isotope count per cluster, keyed by id() with the cluster kept in
+    # the value so its id cannot be recycled (same trick as memberPeaks)
+    detectedCounts = {}
     clusters = []
 
     for x, parent in enumerate(peaklist):
@@ -2853,25 +2891,78 @@ def relabelenvelopes(
             # reuse (its positions are clean); only an irregular one is dropped, and
             # only when a neighbouring seed actually overlaps its span (so the K==1
             # merged-representative case that has no neighbour is still reproduced).
+            # Is this stored grid still trustworthy, or is it stale?
+            #
+            # Reuse exists because the grid carries information a rebuild cannot
+            # recover: which isotopes were actually DETECTED. After conversion the
+            # isotope peaks are gone from the peak list (label "1st" keeps only the
+            # mono), so rebuilding can only fall back on the theoretical extent --
+            # and a real species often shows one more isotope than the Poisson
+            # averagine predicts. A grid LONGER than theory is therefore normal and
+            # must be kept, or every re-label would quietly shorten the envelope.
+            #
+            # Two things do make it stale:
+            #
+            #  * it swallows a labelled NEIGHBOUR's monoisotopic peak. Then its
+            #    extra isotopes are not this species' at all -- they are the
+            #    neighbour's peaks, picked up either by a find-peaks merge
+            #    (example_env4_failed.msd: 900.49 kept a 10-isotope grid, area 82,
+            #    and 902.51 collapsed to 22 instead of the correct 61/70) or by the
+            #    old profile-walked tail (example_env4.msd: 900.49 saved with 5
+            #    isotopes because 902.51's mono and +1 sat under its tail). Rebuild
+            #    it as a clean single-species seed and let the joint fit apportion
+            #    the shared signal.
+            #
+            #  * it is SHORTER than this version models. That cannot come from
+            #    detected evidence -- detection only ever adds isotopes -- so it is
+            #    an envelope saved by an older method (or under a different
+            #    averagine type) whose extent was cut short by whatever happened to
+            #    sit next to it (example_env4.msd: 902.51 saved with 3 isotopes,
+            #    stopped by an unrelated peak at 905.5). Reusing it verbatim froze
+            #    that mistake: converting again reproduced the old envelope instead
+            #    of applying the current method, so the only way to get a correct
+            #    envelope was to delete the peak and label it from scratch.
+            #
+            # Otherwise reuse short-circuits the rebuild and conversion stays
+            # idempotent.
             reuseStored = True
-            if not _is_regular_isotope_grid(storedIsos):
-                gridMzs = [float(m) for m, _w in storedIsos]
-                gridLo, gridHi = min(gridMzs), max(gridMzs)
-                # index by position -- do NOT iterate `peaklist` here: obj_peaklist's
-                # iterator keeps a single shared cursor, so a nested `for ... in
-                # peaklist` would reset the outer seed loop's cursor and drop every
-                # seed after this one.
-                for j in range(len(peaklist)):
-                    if j == x:
-                        continue
-                    other = peaklist[j]
-                    if other.charge is None or other.isotope not in (None, 0):
-                        continue
-                    # a seed past the mono but inside the merged span is a species
-                    # this grid absorbed -> the merge must be undone
-                    if gridLo + mzTolerance < other.mz <= gridHi + mzTolerance:
-                        reuseStored = False
-                        break
+            gridMzs = [float(m) for m, _w in storedIsos]
+            gridLo, gridHi = min(gridMzs), max(gridMzs)
+            # index by position -- do NOT iterate `peaklist` here: obj_peaklist's
+            # iterator keeps a single shared cursor, so a nested `for ... in
+            # peaklist` would reset the outer seed loop's cursor and drop every
+            # seed after this one.
+            for j in range(len(peaklist)):
+                if j == x:
+                    continue
+                other = peaklist[j]
+                if other.charge is None or other.isotope not in (None, 0):
+                    continue
+                # a seed past the mono but inside the stored span is a species this
+                # grid absorbed -> the grid is not one species and must be redone
+                if gridLo + mzTolerance < other.mz <= gridHi + mzTolerance:
+                    reuseStored = False
+                    break
+            #  * it is not the length this version would build. The extent is
+            #    the theoretical one, extended to cover isotopes that were really
+            #    DETECTED -- and the stored "detected" count is what makes that
+            #    checkable after the fact. A grid saved before the count existed
+            #    reports 1 (only its mono is known-detected), so it is measured
+            #    against the plain theoretical extent and an older method's
+            #    over-long tail is rebuilt away (example_env5's 1002.43 was saved
+            #    with 6 isotopes, the last two sitting on noise; theory gives 4).
+            storedDetected = 1
+            try:
+                storedDetected = max(1, int(storedEnvelope.get("detected", 1)))
+            except (TypeError, ValueError):
+                storedDetected = 1
+            expectedLength = max(
+                storedDetected,
+                _theory_envelope_length(parent, averagineType=averagineType),
+            )
+            if reuseStored and len(storedIsos) != expectedLength:
+                reuseStored = False
+
             if reuseStored:
                 used.add(x)
                 rebuilt = _reconstruct_cluster_from_envelope(
@@ -2882,6 +2973,9 @@ def relabelenvelopes(
                 )
                 if consumed:
                     memberPeaks[id(rebuilt)] = (rebuilt, consumed)
+                # the rebuilt cluster is all placeholders, so its detected count
+                # can only come from what the envelope recorded
+                detectedCounts[id(rebuilt)] = (rebuilt, storedDetected)
                 clusters.append(rebuilt)
                 continue
 
@@ -2966,31 +3060,22 @@ def relabelenvelopes(
             indexes.append(found)
             next_isotope = found_isotope + 1
 
-        # Decide how far to extend the modeled envelope tail.
+        # Decide how far to model the envelope.
         #
-        # The extent is bounded by the *observed* signal, so we never model
-        # isotope peaks where the spectrum is flat. Starting just past the
-        # detected isotopes we walk outward and keep a position only while
-        #   (a) theory still predicts a non-negligible isotope there, and
-        #   (b) the measured profile there rises above the local noise floor.
-        # The first position that fails stops the tail (isotope envelopes decay
-        # monotonically, so there are no gaps to jump).
-        #
-        # The noise floor is an *absolute* estimate (a peak's intensity / its
-        # S/N gives the local noise level), and the test compares observed
-        # signal against it. It therefore does not depend on which isotope is
-        # the base peak -- it behaves the same whether the monoisotopic peak
-        # dominates (small molecules) or a mid-envelope isotope dominates
-        # (proteins), and it cannot fabricate peaks in empty m/z regions.
+        # Purely from theory: every isotope carrying at least
+        # ENVELOPE_TAIL_SIGNIFICANCE of the apex is modelled, and nothing beyond.
+        # The observed profile deliberately plays NO part in this decision (it
+        # still decides the fitted area, in the joint fit). Walking the tail
+        # outward against the spectrum -- the old behaviour -- asked "is there
+        # something here?" when the question that matters is "could THIS envelope
+        # have produced it?", and in a crowded region the answer is usually no:
+        # the tail simply marched along whichever neighbour's peaks happened to
+        # decay smoothly, and stopped early wherever an unrelated peak happened to
+        # rise. Two species with the same theoretical pattern then got visibly
+        # different envelopes (see ENVELOPE_TAIL_SIGNIFICANCE). Theory does not
+        # know about the neighbours, so it treats equivalent species equally.
         ideal_pattern = _cluster_pattern(parent, 30, averagineType=averagineType)
-        max_p = max(ideal_pattern) if ideal_pattern else 1.0
-        theoryFloor = max_p * ENVELOPE_TAIL_CUTOFF_MIN
-
-        # index of the theoretical envelope apex. Above ~2 kDa the monoisotopic
-        # peak is no longer the tallest: the envelope climbs to a mid-envelope
-        # apex before it decays. The decay guard below must therefore only apply
-        # *past* this apex; before it, a rising tail is legitimate.
-        apexIndex = int(numpy.argmax(ideal_pattern)) if len(ideal_pattern) else 0
+        theoryLength = _theory_envelope_length(parent, averagineType=averagineType)
 
         # Absolute noise estimate. Prefer the most intense peak's measured S/N;
         # if that is unavailable, estimate the local noise floor directly from
@@ -3056,58 +3141,20 @@ def relabelenvelopes(
             sigX = sigArr[:, 0]
             sigY = sigArr[:, 1]
 
-        target_length = len(cluster)
-        prevObs = float(cluster[-1].intensity) if cluster else 0.0
-        for mi in range(len(cluster), len(ideal_pattern)):
+        # How many of these isotopes are real, DETECTED peaks rather than modelled
+        # tail. Recorded on the envelope below, because it is the one thing a
+        # rebuild can never recover: after conversion the isotope peaks are gone
+        # from the list, and theory alone cannot tell a detected isotope from an
+        # over-long tail saved by an older method -- on the measured files the
+        # unwanted one (0.84% of its apex) is BIGGER than the genuinely detected
+        # one we must keep (0.39%), so no significance cutoff can separate them.
+        detectedCount = max(1, len(cluster))
 
-            # stop where theory no longer predicts a meaningful isotope
-            if ideal_pattern[mi] < theoryFloor:
-                break
-
-            if useSignal:
-                mzPos = parent.mz + mi * difference + gridOffset
-
-                # observed signal at this position, sampled only within the
-                # mass tolerance so off-grid foreign peaks are never counted
-                i1 = numpy.searchsorted(sigX, mzPos - sampleWindow, side="left")
-                i2 = numpy.searchsorted(sigX, mzPos + sampleWindow, side="right")
-                obs = float(numpy.max(sigY[i1:i2])) if i1 < i2 else 0.0
-
-                # stop where the spectrum is flat (no signal above the noise)
-                if obs < signalFloor:
-                    break
-
-                # Past the apex a genuine envelope decays continuously. Two ways
-                # the observed signal can betray that this position is *not* a
-                # real isotope of this envelope:
-                #   - it rises sharply  -> we have stepped onto a neighbouring
-                #     species (before the apex a rise is legitimate, so this is
-                #     only checked past it);
-                #   - it collapses to a small fraction of the previous isotope
-                #     -> the real envelope has ended and what remains is baseline
-                #     noise, so the trailing peak must not be modelled.
-                if mi > apexIndex:
-                    if obs > prevObs * ENVELOPE_TAIL_RISE_TOLERANCE:
-                        break
-                    if obs < prevObs * ENVELOPE_TAIL_MIN_DECAY:
-                        break
-                prevObs = obs
-            else:
-                # no profile to verify against: fall back to a conservative
-                # relative cutoff so the tail cannot run away into empty m/z
-                if ideal_pattern[mi] < max_p * ENVELOPE_TAIL_CUTOFF_MAX:
-                    break
-
-            target_length = mi + 1
-
-        # Enforce the minimum envelope length first; the anti-hallucination /
-        # decay guards above act only as an *upper* bound and must never shorten
-        # an envelope below this floor. A genuine deisotoped envelope spans at
-        # least three isotopes, so we keep that minimum even where the third
-        # isotope sits just under the noise. The placeholder is added at the
-        # theoretical isotope position (intensity 0), so it cannot absorb a
-        # neighbouring peak.
-        target_length = max(target_length, min(MIN_ENVELOPE_LENGTH, len(ideal_pattern)))
+        # The modelled extent is theoretical -- a pure function of the species, so
+        # equivalent species get equivalent envelopes and nothing in the
+        # surrounding spectrum can change it -- extended only to cover isotopes
+        # that were actually detected.
+        target_length = max(detectedCount, min(theoryLength, len(ideal_pattern)))
 
         if len(cluster) < target_length:
             for mi in range(len(cluster), target_length):
@@ -3138,6 +3185,7 @@ def relabelenvelopes(
         )
         if consumed:
             memberPeaks[id(cluster)] = (cluster, consumed)
+        detectedCounts[id(cluster)] = (cluster, detectedCount)
         clusters.append(cluster)
 
     if not clusters:
@@ -3273,6 +3321,14 @@ def relabelenvelopes(
             "fwhm": fwhm_val,
             "shape": "gaussian",
             "isotopes": isotopes_data,
+            # how many leading isotopes were DETECTED peaks rather than modelled
+            # tail. A rebuild cannot re-derive this (the isotope peaks are consumed
+            # by the conversion), so without it a later re-convert can only fall
+            # back on the theoretical extent -- which either drops a real isotope
+            # or keeps an over-long tail saved by an older method.
+            "detected": int(
+                detectedCounts.get(id(cluster), (None, 1))[1]
+            ),
             # the averagine model the shape/area were fit under, so re-converting
             # can tell whether the stored shape may be reused verbatim (same model
             # -> idempotent) or must be re-derived (user switched models -> the
@@ -3805,6 +3861,50 @@ def recalculate_neighborhood_envelopes(
         margin = max(6.0 * difference, 8.0 * tolerance)
         minMz = min(mzs) - margin
         maxMz = max(mzs) + margin
+
+        # An envelope REACHES INTO the neighbourhood if any of its isotopes does,
+        # and it has to be recalculated whole. Testing only each peak's own m/z
+        # against the window is wrong in both directions:
+        #
+        #  * the margin is a fixed multiple of the isotope *spacing*, which shrinks
+        #    as 1/maxCharge -- at maxCharge 4 it is +/-1.5 Da, narrower than a
+        #    charge-1 envelope. An envelope whose MONO sits just outside is then
+        #    never re-fit even though the edit landed squarely on one of its
+        #    isotopes: deleting 902.51 in example_env4.msd left 900.49 -- whose +2
+        #    IS 902.51 -- untouched, still reporting the area it had while sharing
+        #    that peak. To the user, nothing recalculated.
+        #
+        #  * conversely an envelope whose mono is inside can have isotope ROWS
+        #    outside. A row left outside is never consumed by the rebuild, which
+        #    emits a fresh row at the same position while the stale one survives --
+        #    under labelEnvelope="isotopes" the peak list grows by one on every
+        #    recalc.
+        #
+        # So take every envelope whose stored span *intersects* the window, widen
+        # the window to its full span, and repeat until it stops growing (each pass
+        # only ever widens and the peak list is finite, so this terminates).
+        while True:
+            before = (minMz, maxMz)
+            for peak in peaklist:
+                envelope = (
+                    peak.attributes.get("envelope")
+                    if hasattr(peak, "attributes")
+                    else None
+                )
+                if isinstance(envelope, dict) and envelope.get("isotopes"):
+                    positions = [float(mz) for mz, _w in envelope["isotopes"]]
+                    spanLo = min(min(positions), peak.mz) - tolerance
+                    spanHi = max(max(positions), peak.mz) + tolerance
+                else:
+                    spanLo = spanHi = peak.mz
+                # any overlap with the current window pulls the whole span in
+                if spanLo > maxMz or spanHi < minMz:
+                    continue
+                minMz = min(minMz, spanLo)
+                maxMz = max(maxMz, spanHi)
+            if (minMz, maxMz) == before:
+                break
+
         for i, peak in enumerate(peaklist):
             if not (minMz <= peak.mz <= maxMz):
                 continue

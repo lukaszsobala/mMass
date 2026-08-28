@@ -55,3 +55,38 @@ def test_fwhm_lock_survives_msd_roundtrip():
     assert not by_mz[1900].attributes.get("_fwhmLocked")
     # the locked width itself is preserved
     assert by_mz[1802].fwhm == pytest.approx(0.16, rel=1e-3)
+
+
+def test_detected_isotope_count_survives_msd_roundtrip():
+    """The envelope's ``detected`` count persists across save + reload.
+
+    It records how many leading isotopes were real detected peaks rather than
+    modelled tail -- the one thing a rebuild cannot re-derive, since the isotope
+    peaks are consumed by the conversion. Dropped on save, a reloaded envelope
+    would be measured against the bare theoretical extent and a genuinely measured
+    isotope would be silently trimmed off on the next re-convert. An envelope
+    saved WITHOUT the count (an older file) must come back without it, so it is
+    still recognised as unverifiable rather than silently claiming detection.
+    """
+
+    recorded = mspy.peak(mz=1802.0, ai=100.0, charge=1, isotope=0, fwhm=0.16)
+    recorded.attributes["envelope"] = {
+        "area": 137.0, "sumint": 800.0, "fwhm": 0.16, "shape": "gaussian",
+        "detected": 5, "averagineType": "lipid",
+        "isotopes": [(1802.0 + i, w) for i, w in enumerate([0.5, 0.3, 0.15, 0.04, 0.01])],
+    }
+    legacy = mspy.peak(mz=1900.0, ai=50.0, charge=1, isotope=0, fwhm=0.11)
+    legacy.attributes["envelope"] = {
+        "area": 60.0, "sumint": 400.0, "fwhm": 0.11, "shape": "gaussian",
+        "isotopes": [(1900.0, 1.0)],
+    }
+
+    xml, reloaded = _roundtrip([recorded, legacy])
+
+    assert 'detected="5"' in xml
+    by_mz = {round(p.mz): p for p in reloaded}
+    assert by_mz[1802].attributes["envelope"]["detected"] == 5
+    assert by_mz[1802].attributes["envelope"]["averagineType"] == "lipid"
+    # an older envelope stays uncounted rather than gaining a fabricated one
+    assert "detected" not in by_mz[1900].attributes["envelope"]
+
