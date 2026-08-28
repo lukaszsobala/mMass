@@ -73,3 +73,97 @@ def test_averagine_returns_compound():
     mass = av.mass()
     mono = mass[0] if isinstance(mass, (tuple, list)) else mass
     assert mono > 0.0
+
+
+# ---------------------------------------------------------------------------
+# The whole "Find Peaks" pipeline, driven through the scan object
+# ---------------------------------------------------------------------------
+
+
+def test_find_peaks_pipeline_returns_deisotoped_envelopes():
+    """Find Peaks must return deisotoped ENVELOPES, driven through `scan`.
+
+    The exact sequence `panel_processing.pickPeaksOnScan` runs -- labelscan,
+    deisotope, labelenvelopes, remisotopes, remuncharged -- and, crucially, on a
+    ``mspy.scan`` object rather than on a bare peaklist.
+
+    Every other envelope test in this suite drives ``peaklist.labelenvelopes``
+    directly, so the ``scan.labelenvelopes`` wrapper the picking path actually
+    calls was never exercised. When ``refinePattern`` was threaded through
+    ``relabelenvelopes`` and ``peaklist.labelenvelopes`` but not through that
+    wrapper, the whole picking run died on a TypeError inside its worker thread:
+    the app reported nothing and the peaks came back neither deisotoped nor
+    converted. This walks the same path so the wrapper cannot rot again.
+    """
+
+    # two isotopic species far enough apart to stay separate envelopes
+    peaks = []
+    for mono, height in ((1200.0, 1000.0), (1600.0, 600.0)):
+        pattern = mspy.pattern("C50H80N14O18", charge=1, fwhm=0.05, threshold=0.005)
+        shift = mono - pattern[0][0]
+        peaks += [
+            mspy.peak(mz=mz + shift, ai=ri * height, fwhm=0.05) for mz, ri in pattern
+        ]
+    profile = mspy.profile(mspy.peaklist(peaks), fwhm=0.05, points=20)
+
+    scan = mspy.scan(profile=profile)
+    scan.labelscan(pickingHeight=0.5, snThreshold=1.0, baselineWindow=1.0)
+    assert len(scan.peaklist) > 4, "picking found nothing to work with"
+
+    scan.deisotope(maxCharge=2, mzTolerance=0.05, intTolerance=0.5)
+    assert any(p.charge for p in scan.peaklist), "nothing was deisotoped"
+
+    scan.labelenvelopes(
+        label="1st",
+        intensity="maximum",
+        mzTolerance=0.05,
+        isotopeShift=0.0,
+        nonIdeality=0.4,
+        averagineType="protein",
+        refinePattern=True,
+        preserveSeeds=True,
+        relaxed=True,
+    )
+    scan.remisotopes()
+    scan.remuncharged()
+
+    envelopes = [p for p in scan.peaklist if p.attributes.get("envelope")]
+    assert len(envelopes) == 2, "expected one envelope per species"
+    for peak in envelopes:
+        assert peak.charge == 1
+        envelope = peak.attributes["envelope"]
+        assert envelope["area"] > 0.0
+        assert len(envelope["isotopes"]) >= mpp.MIN_ENVELOPE_LENGTH
+    # every surviving peak is an envelope: no bare isotope rows left behind
+    assert len(envelopes) == len(scan.peaklist)
+
+
+def test_find_peaks_pipeline_honours_strict_averagine_mode():
+    """The scan wrapper forwards refinePattern rather than swallowing it.
+
+    A parameter that reaches the wrapper but is not passed on raises nothing and
+    silently does nothing, so the setting appears inert. Both modes must run, and
+    the flag must actually reach the fit.
+    """
+
+    pattern = mspy.pattern("C50H80N14O18", charge=1, fwhm=0.05, threshold=0.005)
+    peaks = [mspy.peak(mz=mz, ai=ri * 1000.0, fwhm=0.05) for mz, ri in pattern]
+    profile = mspy.profile(mspy.peaklist(peaks), fwhm=0.05, points=20)
+
+    areas = {}
+    for refinePattern in (False, True):
+        scan = mspy.scan(profile=profile)
+        scan.labelscan(pickingHeight=0.5, snThreshold=1.0, baselineWindow=1.0)
+        scan.deisotope(maxCharge=2, mzTolerance=0.05, intTolerance=0.5)
+        scan.labelenvelopes(
+            label="1st", intensity="maximum", mzTolerance=0.05,
+            nonIdeality=0.4, refinePattern=refinePattern,
+            preserveSeeds=True, relaxed=True,
+        )
+        envelope = next(
+            p.attributes["envelope"] for p in scan.peaklist if p.attributes.get("envelope")
+        )
+        areas[refinePattern] = envelope["area"]
+
+    assert all(area > 0.0 for area in areas.values())
+

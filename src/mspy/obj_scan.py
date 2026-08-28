@@ -714,6 +714,7 @@ class scan:
         averagineType=mod_peakpicking.DEFAULT_AVERAGINE,
         preserveSeeds=False,
         relaxed=False,
+        refinePattern=True,
     ):
         """Convert deisotoped peak clusters to envelope labels.
 
@@ -752,6 +753,7 @@ class scan:
             averagineType=averagineType,
             preserveSeeds=preserveSeeds,
             relaxed=relaxed,
+            refinePattern=refinePattern,
         )
 
     # ----
