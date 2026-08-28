@@ -130,6 +130,54 @@ ENVELOPE_TAIL_SIGNIFICANCE = 0.01
 # exactly as it went in. A peak stays a peak until the user converts it.
 ENVELOPE_CONTEXT_ATTR = "_envFitContext"
 
+# Monoisotopic plausibility, applied when deisotoping (see deisotope). NOTHING
+# exists below a species' monoisotopic peak, so a comparably intense peak one
+# isotope spacing BELOW a candidate contradicts the claim that the candidate is a
+# monoisotope -- and a long uninterrupted run of them means the candidate is one
+# tooth of a ridge. At low m/z a MALDI spectrum is often a continuous comb of
+# unresolved matrix cluster peaks about a dalton apart (spectra/example6_raw.mzML:
+# a comb of 250-600 counts runs the whole 600-700 region), and peak picking, which
+# knows only a global intensity/S-N threshold, hands its teeth to deisotoping as
+# candidate species.
+#
+# The catch is that a crowd of genuine overlapping species looks the same from
+# above: four analytes two daltons apart, each with its own isotope pattern, put
+# just as long a run of comparable peaks below the topmost one. What separates
+# them is whether anything ACCOUNTS for that run. A rung that coincides with a
+# picked peak is explained -- it is a species, or an isotope of one, that the rest
+# of the pipeline is already modelling. A rung with no peak on it is signal that
+# picking rejected as too weak to be anything, and a candidate sitting on a run of
+# those is sitting on background. Only unexplained rungs are counted, so the veto
+# fires on the comb and not on the crowd: the heavily-overlapped four-species
+# fixture in tests/test_neighborhood_recalc.py scores 0, every rung of it a picked
+# peak.
+#
+# MONO_RIDGE_MIN_WIDTH is 2 because the candidate has already failed to confirm a
+# single isotope, so the only thing still speaking for it is a clean run-up: one
+# unexplained rung can be a coincidence or a real neighbour a dalton below (a
+# deamidation, a water loss), two consecutive ones are a pattern, and a
+# monoisotopic peak can have neither. Measured over the sample spectra with the
+# shipped pipeline, evidence-free candidates are already rare (11 of 49 seeds in
+# example6, 3 of 26 in RN_H7_WM2_2AA_1_H7, none in three of the others), and the
+# only labelled envelope among them -- example_env3_correct 1335.72 -- scores 0.
+#
+# The rungs need not be evenly spaced: a comb drifts by a few hundredths of a
+# dalton from tooth to tooth, so a rung is looked for within
+# MONO_RIDGE_WINDOW_FRACTION of the spacing rather than within the (much tighter)
+# mass tolerance used for isotope assignment. That tolerance is still what decides
+# whether a picked peak sits ON a rung.
+#
+# All of this is measured against the raw signal, which is why deisotope takes
+# one: a comb tooth only becomes a candidate once it clears the picking
+# threshold, and by then the rest of the comb is below that threshold and absent
+# from the peak list. At snThreshold 20 on example6 the ridge under 658.07 is a
+# single picked peak; in the profile it is 14 rungs deep. With no signal to read,
+# nothing is vetoed.
+MONO_RIDGE_MIN_FRACTION = 0.5
+MONO_RIDGE_MIN_WIDTH = 2
+MONO_RIDGE_WINDOW_FRACTION = 1.0 / 3.0
+MONO_RIDGE_MAX_WALK = 24
+
 
 # PEAK PICKING FUNCTIONS
 # ----------------------
@@ -3415,6 +3463,96 @@ def _isotope_pattern_at_mass(neutralMass, averagineType=DEFAULT_AVERAGINE, size=
 # ----
 
 
+def _local_maxima_between(signal, minX, maxX):
+    """(mz, intensity) of every local maximum of a raw signal inside a window."""
+
+    if signal is None or len(signal) == 0 or maxX <= minX:
+        return []
+
+    sigX = signal[:, 0]
+    sigY = signal[:, 1]
+    i1 = max(int(numpy.searchsorted(sigX, minX, side="left")), 1)
+    i2 = min(int(numpy.searchsorted(sigX, maxX, side="right")), len(sigY) - 1)
+
+    found = []
+    for j in range(i1, i2):
+        value = float(sigY[j])
+        if value > 0.0 and value >= sigY[j - 1] and value >= sigY[j + 1]:
+            found.append((float(sigX[j]), value))
+    return found
+
+
+# ----
+
+
+def _peaklist_has_peak_near(peaklist, mz, mzTolerance):
+    """True when a picked peak sits within tolerance of an m/z (binary search)."""
+
+    lo = 0
+    hi = len(peaklist) - 1
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        value = peaklist[mid].mz
+        if abs(value - mz) <= mzTolerance:
+            return True
+        if value < mz:
+            lo = mid + 1
+        else:
+            hi = mid - 1
+    return False
+
+
+# ----
+
+
+def _sits_on_isotope_ridge(peaklist, index, step, mzTolerance, signal=None):
+    """True when a candidate is one tooth of an unexplained ridge, not a monoisotope.
+
+    Walks DOWN from the candidate one isotope ``step`` at a time -- where a
+    monoisotopic peak can have nothing -- and counts the rungs carrying at least
+    MONO_RIDGE_MIN_FRACTION of its intensity that NO picked peak accounts for.
+    MONO_RIDGE_MIN_WIDTH of those and the candidate is background rather than a
+    species. See MONO_RIDGE_MIN_FRACTION for why only unexplained rungs count and
+    why this reads the raw signal.
+    """
+
+    if signal is None or not len(signal):
+        return False
+    if step <= 0.0 or MONO_RIDGE_MIN_WIDTH <= 0:
+        return False
+
+    parent = peaklist[index]
+    floor = parent.intensity * MONO_RIDGE_MIN_FRACTION
+    if floor <= 0.0:
+        return False
+    # rungs are read off the raw signal, so compare at the same offset the
+    # candidate's own intensity is measured from
+    floor += parent.base
+    window = step * MONO_RIDGE_WINDOW_FRACTION
+
+    unexplained = 0
+    target = parent.mz - step
+    for _ in range(MONO_RIDGE_MAX_WALK):
+        rungs = [
+            found
+            for found in _local_maxima_between(signal, target - window, target + window)
+            if found[1] >= floor
+        ]
+        if not rungs:
+            return False
+        mz = max(rungs, key=lambda found: found[1])[0]
+        if not _peaklist_has_peak_near(peaklist, mz, mzTolerance):
+            unexplained += 1
+            if unexplained >= MONO_RIDGE_MIN_WIDTH:
+                return True
+        target = mz - step
+
+    return False
+
+
+# ----
+
+
 def deisotope(
     peaklist,
     maxCharge=1,
@@ -3424,6 +3562,7 @@ def deisotope(
     respectCharge=False,
     seedCharge=1,
     averagineType=DEFAULT_AVERAGINE,
+    signal=None,
 ):
     """Isotopes determination and calculation of peaks charge.
     peaklist (mspy.peaklist) - peaklist to process
@@ -3432,15 +3571,29 @@ def deisotope(
     intTolerance (float) - relative intensity tolerance for isotopes and model (in %/100)
     isotopeShift (float) - isotope distance correction (neutral mass) (for HDX etc.)
     averagineType (str) - averagine model key (protein | carbohydrate | lipid)
+    signal (numpy array) - raw profile the peaks came from, used to judge whether a
+        candidate is a monoisotopic peak or one tooth of a chemical-noise ridge.
+        Optional, but the peak list on its own is a poor substitute: picking has
+        already removed everything under the S/N threshold, which is most of a
+        ridge (see MONO_RIDGE_MIN_FRACTION).
     """
 
     # check peaklist
     if not isinstance(peaklist, obj_peaklist.peaklist):
         raise TypeError("Peak list must be mspy.peaklist object!")
 
-    # clear previous results unless caller wants to preserve / respect charge
+    # clear previous results unless caller wants to preserve / respect charge.
+    # A peak that already carries an envelope is exempt: its charge came from a
+    # pattern fit over isotopes that are now folded INTO the envelope model
+    # rather than present as separate rows, so re-deriving it from the collapsed
+    # peak list can only lose it. Without this, running deisotoping over an
+    # already-labelled spectrum stripped the charge from every envelope and
+    # "remove unknown" then deleted the lot (spectra/example6.msd: 49 envelopes
+    # in, 4 out).
     if not respectCharge:
         for peak in peaklist:
+            if _peak_carries_envelope(peak):
+                continue
             peak.setcharge(None)
             peak.setisotope(None)
 
@@ -3453,12 +3606,13 @@ def deisotope(
 
     # walk in a peaklist
     maxIndex = len(peaklist)
+    accepted = []
     for x, parent in enumerate(peaklist):
 
         CHECK_FORCE_QUIT()
 
-        # skip assigned peaks
-        if parent.isotope is not None:
+        # skip assigned peaks, and peaks that are already a labelled envelope
+        if parent.isotope is not None or _peak_carries_envelope(parent):
             continue
 
         # try all charge states or the caller-provided charge seed
@@ -3477,9 +3631,13 @@ def deisotope(
             difference = (ISOTOPE_DISTANCE + isotopeShift) / abs(z)
             y = 1
             while x + y < maxIndex:
-                mzError = peaklist[x + y].mz - cluster[-1].mz - difference
+                candidate = peaklist[x + y]
+                mzError = candidate.mz - cluster[-1].mz - difference
                 if abs(mzError) <= mzTolerance:
-                    cluster.append(peaklist[x + y])
+                    # another species' envelope is not this one's isotope
+                    if _peak_carries_envelope(candidate):
+                        break
+                    cluster.append(candidate)
                 elif mzError > mzTolerance:
                     break
                 y += 1
@@ -3502,6 +3660,7 @@ def deisotope(
 
             # check peak intensities in cluster
             valid = True
+            confirmed = 0
             isotope = 1
             limit = min(len(pattern), len(cluster))
             while isotope < limit:
@@ -3516,6 +3675,7 @@ def deisotope(
                 if abs(intError) <= (intTheoretical * intTolerance):
                     cluster[isotope].setisotope(isotope)
                     cluster[isotope].setcharge(z)
+                    confirmed += 1
 
                 # intensity is higher (overlap)
                 elif intError > 0:
@@ -3529,10 +3689,52 @@ def deisotope(
                 # try next peak
                 isotope += 1
 
+            # A cluster that confirmed no isotope at all rests on nothing: every
+            # position was written off as "intensity is higher (overlap)", which
+            # is an assumption about an unseen neighbour, not evidence. Accept it
+            # only where the candidate could actually BE a monoisotopic peak --
+            # i.e. it is not just one more tooth of a comb running below it. With
+            # a confirmed isotope the pattern speaks for itself and the candidate
+            # is accepted whatever its surroundings.
+            # (not under respectCharge: there the caller has already decided
+            # which peaks are species -- the envelope recalculation path hands in
+            # its own settled assignments -- and this must not second-guess them)
+            if (
+                valid
+                and not confirmed
+                and not respectCharge
+                and _sits_on_isotope_ridge(
+                    peaklist, x, difference, mzTolerance, signal=signal
+                )
+            ):
+                continue
+
+            # Same reasoning one step closer in: a candidate sitting exactly one
+            # isotope spacing above a species already accepted at this charge IS
+            # that species' +1 position. The pattern check looked at it there and
+            # declined to confirm it only because it was too intense -- an
+            # assumption about an unseen overlapping species. Promoting the very
+            # same peak to an independent monoisotope, having confirmed nothing of
+            # its own, claims that signal twice on no evidence either time. It is
+            # what produced pairs of charge-1 envelopes one dalton apart in a
+            # noise band (spectra/example6.msd 963.13 and 964.15, where the "+1"
+            # is 2.1x what the pattern allows). A candidate WITH a confirmed
+            # isotope is untouched, so genuinely overlapping species -- which is
+            # what an isotope-spaced neighbour usually is when either of them has
+            # a pattern of its own -- keep their charge.
+            if valid and not confirmed and not respectCharge:
+                previous = parent.mz - difference
+                if any(
+                    charge == z and abs(mz - previous) <= mzTolerance
+                    for mz, charge in accepted
+                ):
+                    continue
+
             # cluster is OK, set parent peak and skip other charges
             if valid:
                 parent.setisotope(0)
                 parent.setcharge(z)
+                accepted.append((parent.mz, z))
                 break
 
         if respectCharge and parent.charge is None:

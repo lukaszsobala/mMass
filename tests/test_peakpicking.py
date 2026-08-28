@@ -167,3 +167,100 @@ def test_find_peaks_pipeline_honours_strict_averagine_mode():
 
     assert all(area > 0.0 for area in areas.values())
 
+
+
+def _comb_with_one_real_species(realHeight=4000.0, teeth=24, at=15, combHeight=400.0):
+    """Profile of a 1-Da chemical-noise comb with one genuine species on top of it."""
+
+    step = mspy.ISOTOPE_DISTANCE
+    peaks = [mspy.peak(mz=650.0 + i * step, ai=combHeight, fwhm=0.05) for i in range(teeth)]
+
+    pattern = mspy.pattern("C50H80N14O18", charge=1, fwhm=0.05, threshold=0.005)
+    shift = (650.0 + at * step) - pattern[0][0]
+    real = [mspy.peak(mz=mz + shift, ai=ri * realHeight, fwhm=0.05) for mz, ri in pattern]
+    for peak in real:
+        peaks = [p for p in peaks if abs(p.mz - peak.mz) > 0.3]
+
+    ordered = sorted(peaks + real, key=lambda p: p.mz)
+    return mspy.profile(mspy.peaklist(ordered), fwhm=0.05, points=20), real[0].mz
+
+
+def _pick_envelopes(profile, absThreshold=0.0):
+    """The Find Peaks sequence, returning the m/z of every envelope it labels."""
+
+    scan = mspy.scan(profile=profile)
+    scan.labelscan(pickingHeight=0.5, absThreshold=absThreshold, snThreshold=1.0,
+                   baselineWindow=1.0)
+    scan.deisotope(maxCharge=1, mzTolerance=0.02, intTolerance=0.5)
+    scan.labelenvelopes(
+        label="1st", intensity="maximum", mzTolerance=0.02, isotopeShift=0.0,
+        nonIdeality=0.4, averagineType="protein", refinePattern=True,
+        preserveSeeds=True, relaxed=True,
+    )
+    scan.remisotopes()
+    scan.remuncharged()
+    return sorted(p.mz for p in scan.peaklist if p.attributes.get("envelope"))
+
+
+def test_find_peaks_does_not_grow_envelopes_out_of_a_noise_comb(monkeypatch):
+    """Teeth that clear the picking threshold still get no envelope.
+
+    Picking knows only a global intensity/S-N threshold, so at the low-m/z end of
+    a MALDI spectrum the tallest teeth of the unresolved matrix comb clear it and
+    are handed to deisotoping as candidate species -- which then grew a full
+    theoretical envelope on each (spectra/example6.msd: 658.07 was an "envelope"
+    sitting on fourteen rungs of comb). The threshold is what makes this hard to
+    see from the peak list: the rest of the comb is below it and simply absent, so
+    a tooth appears to stand alone. The evidence is in the profile.
+    """
+
+    step = mspy.ISOTOPE_DISTANCE
+    # a flat comb, two adjacent teeth raised over the threshold, and further along
+    # a genuine species with a real +1 of its own
+    heights = {8: 620.0, 9: 590.0, 18: 1740.0, 19: 630.0}
+    peaks = [
+        mspy.peak(mz=650.0 + i * step, ai=heights.get(i, 400.0), fwhm=0.05)
+        for i in range(24)
+    ]
+    profile = mspy.profile(mspy.peaklist(peaks), fwhm=0.05, points=20)
+    teeth = (650.0 + 8 * step, 650.0 + 9 * step)
+    real = 650.0 + 18 * step
+
+    gated = _pick_envelopes(profile, absThreshold=500.0)
+    monkeypatch.setattr(mpp, "MONO_RIDGE_MIN_WIDTH", 0)
+    ungated = _pick_envelopes(profile, absThreshold=500.0)
+
+    assert any(abs(mz - teeth[0]) < 0.3 for mz in ungated), (
+        "test setup: the comb tooth was not labelled even with the gate off"
+    )
+    assert not any(abs(mz - t) < 0.3 for mz in gated for t in teeth), (
+        "a comb tooth still became an envelope: %s" % gated
+    )
+    assert any(abs(mz - real) < 0.3 for mz in gated), (
+        "the real species standing above the comb was lost: %s" % gated
+    )
+
+
+def test_noise_comb_gate_leaves_a_clean_spectrum_alone(monkeypatch):
+    """Two well-separated species are labelled identically with the gate on or off.
+
+    The gate must be inert wherever there is no ridge -- it may only ever remove
+    candidates that rest on no pattern evidence AND sit on a run of signal that no
+    picked peak explains.
+    """
+
+    peaks = []
+    for mono, height in ((1200.0, 1000.0), (1600.0, 600.0)):
+        pattern = mspy.pattern("C50H80N14O18", charge=1, fwhm=0.05, threshold=0.005)
+        shift = mono - pattern[0][0]
+        peaks += [
+            mspy.peak(mz=mz + shift, ai=ri * height, fwhm=0.05) for mz, ri in pattern
+        ]
+    profile = mspy.profile(mspy.peaklist(peaks), fwhm=0.05, points=20)
+
+    gated = _pick_envelopes(profile)
+    monkeypatch.setattr(mpp, "MONO_RIDGE_MIN_WIDTH", 0)
+    ungated = _pick_envelopes(profile)
+
+    assert gated == ungated
+    assert len(gated) == 2
