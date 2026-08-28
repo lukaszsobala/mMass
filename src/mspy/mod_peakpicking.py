@@ -1461,6 +1461,24 @@ ENVELOPE_CAP_ANCHOR_FRACTION = 0.75
 ENVELOPE_CAP_CONTEST_FRACTION = 0.10
 ENVELOPE_CAP_CONTEST_MIN_FRACTION = 0.50
 
+# A neighbour only makes one of this envelope's peaks genuinely "contested" -- and
+# so allowed to bind the amplitude cap -- when the isotope it puts there is a real
+# part of ITS OWN pattern: apex-relative weight at or above this fraction. Below
+# it the neighbour merely brushes the peak with a negligible far tail (a +3/+4 at
+# a few percent of its apex), which is not competition for the signal, yet the
+# structural `otherFrac` at such a point still creeps over
+# ``ENVELOPE_CAP_CONTEST_FRACTION`` and turns the cap on. That made the treatment
+# of an identical shape mismatch depend on an accident of neighbourhood: an
+# envelope whose modelled +1 sits above the observed +1 (a rigid-averagine artefact)
+# keeps its full area where nothing at all overlaps that +1, but was trimmed ~25%
+# where a neighbour's far tail happened to land on it -- so two equivalent species
+# in the same 2-Da chain got visibly unequal areas (spectra/example_env5_failed.msd:
+# 1030 kept its area while 1032, its twin one step down the chain, lost a quarter
+# of it). Sits between the measured negligible-tail case (a +3 at 0.054 of its
+# apex, must NOT bind) and the real shared-peak cases the cap exists for (a
+# neighbour's +2 at >= 0.24 of its apex, and monos at ~1.0, which must bind).
+ENVELOPE_CAP_CONTEST_NEIGHBOUR_FRACTION = 0.15
+
 # A buried envelope's major peak is trimmed to its residual (see the gated
 # residual pass in `_apportion_group_areas`) only when the neighbour dominating
 # that shared peak is itself a MINOR isotope of its own pattern -- its weight is
@@ -1474,7 +1492,9 @@ ENVELOPE_CAP_CONTEST_MIN_FRACTION = 0.50
 ENVELOPE_RESIDUAL_MINOR_GATE = 0.40
 
 
-def _envelope_amp_cap(areaColumn, x, capSignal, shaped, fwhm, otherFrac=None):
+def _envelope_amp_cap(
+    areaColumn, x, capSignal, shaped, fwhm, otherFrac=None, neighbourStakes=None
+):
     """Largest amplitude whose modelled envelope stays under ``capSignal``.
 
     ``capSignal`` here is the envelope's own *apportioned share* ``g_k`` of the
@@ -1505,12 +1525,23 @@ def _envelope_amp_cap(areaColumn, x, capSignal, shaped, fwhm, otherFrac=None):
       only a tiny tail weight, so the near-mono apexes bound the area tightly).
 
     * the **contested significant** isotopes -- those where another labelled
-      envelope in the group genuinely competes for the signal (``otherFrac`` at the
-      apex exceeds ``ENVELOPE_CAP_CONTEST_FRACTION``) *and* which are themselves a
-      significant peak of this envelope (weight >= ``ENVELOPE_CAP_CONTEST_MIN_FRACTION``
-      of the apex). This is where the no-overshoot guarantee is actually needed: two
-      envelopes competing for a *major* peak (a light species' +1 on a heavier
-      mono) must each be held to their fair share so the sum stays under it.
+      envelope in the group genuinely competes for the signal *and* which are
+      themselves a significant peak of this envelope (weight >=
+      ``ENVELOPE_CAP_CONTEST_MIN_FRACTION`` of the apex). This is where the
+      no-overshoot guarantee is actually needed: two envelopes competing for a
+      *major* peak (a light species' +1 on a heavier mono) must each be held to
+      their fair share so the sum stays under it. Genuine competition takes BOTH
+      readings of the overlap: the structural ``otherFrac`` at the apex must exceed
+      ``ENVELOPE_CAP_CONTEST_FRACTION`` (the neighbour is a real part of the signal
+      *here*), and the neighbour must put a real part of *itself* here --
+      ``neighbourStakes`` (its own apex-relative weight, see `_neighbour_stakes`)
+      at or above ``ENVELOPE_CAP_CONTEST_NEIGHBOUR_FRACTION``. ``otherFrac`` alone
+      is not enough because it is a ratio between the two patterns: where this
+      envelope's own weight is modest, even a neighbour's negligible far tail
+      pushes it over the line and switches the cap on, so an ordinary
+      rigid-averagine shape mismatch (a modelled +1 above the observed one) gets
+      punished or forgiven purely by accident of who happens to sit nearby. Both
+      readings together keep the cap on real shared peaks only.
 
     A contested isotope that is only a **minor tail** of this envelope (below
     ``ENVELOPE_CAP_CONTEST_MIN_FRACTION`` of the apex) is deliberately NOT allowed
@@ -1552,7 +1583,7 @@ def _envelope_amp_cap(areaColumn, x, capSignal, shaped, fwhm, otherFrac=None):
     anchorWeight = ENVELOPE_CAP_ANCHOR_FRACTION * wMax
 
     cap = None
-    for (mz, w) in shaped:
+    for idx, (mz, w) in enumerate(shaped):
         # skip the near-zero tail entirely: unreliable and never a real ceiling
         if float(w) < 0.1 * wMax:
             continue
@@ -1577,8 +1608,15 @@ def _envelope_amp_cap(areaColumn, x, capSignal, shaped, fwhm, otherFrac=None):
             # so the group total is still held to the usable area, without letting
             # a shared tail crush the group total below it.
             isMajor = float(w) >= ENVELOPE_CAP_CONTEST_MIN_FRACTION * wMax
+            # the neighbour must also be putting a real part of ITSELF here: a far
+            # tail at a few percent of its own apex is not competition for this
+            # peak, and letting it bind made an identical shape mismatch cost one
+            # envelope a quarter of its area while its unshadowed twin kept all of
+            # its own (example_env5_failed.msd)
+            stake = 1.0 if neighbourStakes is None else float(neighbourStakes[idx])
             contested = (
                 isMajor
+                and stake >= ENVELOPE_CAP_CONTEST_NEIGHBOUR_FRACTION
                 and float(otherFrac[i1:i2].max()) >= ENVELOPE_CAP_CONTEST_FRACTION
             )
         # an isotope the envelope owns outright, or a minor tail it merely shares,
@@ -1595,29 +1633,31 @@ def _envelope_amp_cap(areaColumn, x, capSignal, shaped, fwhm, otherFrac=None):
     return cap
 
 
-def _dominant_shared_weight(k, capInfo, x):
-    """Largest apex-relative weight any OTHER envelope has at one of envelope k's
-    own MAJOR isotopes -- the "signal 1" residual discriminator.
+def _neighbour_stakes(k, capInfo):
+    """How much of ITSELF each neighbour puts on every isotope of envelope k.
 
-    For each of k's significant peaks (weight >= ``ENVELOPE_CAP_CONTEST_MIN_FRACTION``
-    of its apex) we look at every other envelope's pattern for an isotope at the
-    same m/z and take that neighbour's own apex-relative weight there. A small
-    result means k's major peak sits on a neighbour's MINOR tail (the neighbour
-    takes only a small bite, so trimming k to the residual leaves it its fair
-    share); a large result means it sits on a neighbour's MAJOR peak (a light
-    species' +1 under a heavier mono), where the residual would crush a real
-    labelled peak. Returns 0.0 when nothing competes at k's major peaks.
+    Returns one value per isotope of ``capInfo[k]``: the largest *apex-relative*
+    weight (``w_j / max(w_j)``) any OTHER envelope in the group has at that m/z,
+    or 0.0 where nothing overlaps. Measuring the neighbour in its own terms makes
+    the number scale-free -- it says whether the neighbour genuinely claims that
+    peak (a mono at ~1.0, a +1/+2 at 0.24-0.7) or merely brushes it with a far
+    tail (a +3/+4 at a few percent) -- unlike the structural ``otherFrac``, which
+    is a *ratio between* the two patterns and so creeps up whenever THIS
+    envelope's own weight at the point is small, even against a negligible
+    neighbour.
+
+    This is the shared measurement behind both the cap's contested test
+    (``ENVELOPE_CAP_CONTEST_NEIGHBOUR_FRACTION``) and the residual pass's
+    discriminator (`_dominant_shared_weight`).
     """
 
     shaped, fwhm = capInfo[k]
     if not shaped:
-        return 0.0
+        return []
     halfWin = max(0.6 * float(fwhm), 1e-3)
-    wMax = max((float(w) for _mz, w in shaped), default=0.0) or 1.0
-    worst = 0.0
-    for (mz, w) in shaped:
-        if float(w) < ENVELOPE_CAP_CONTEST_MIN_FRACTION * wMax:
-            continue
+    stakes = []
+    for (mz, _w) in shaped:
+        worst = 0.0
         for j, (shpJ, _fwhmJ) in enumerate(capInfo):
             if j == k or not shpJ:
                 continue
@@ -1627,6 +1667,35 @@ def _dominant_shared_weight(k, capInfo, x):
                     rel = float(wj) / wMaxJ
                     if rel > worst:
                         worst = rel
+        stakes.append(worst)
+    return stakes
+
+
+def _dominant_shared_weight(k, capInfo, x):
+    """Largest apex-relative weight any OTHER envelope has at one of envelope k's
+    own MAJOR isotopes -- the "signal 1" residual discriminator.
+
+    For each of k's significant peaks (weight >= ``ENVELOPE_CAP_CONTEST_MIN_FRACTION``
+    of its apex) we take that neighbour's own apex-relative weight at the same m/z
+    (`_neighbour_stakes`). A small result means k's major peak sits on a
+    neighbour's MINOR tail (the neighbour takes only a small bite, so trimming k to
+    the residual leaves it its fair share); a large result means it sits on a
+    neighbour's MAJOR peak (a light species' +1 under a heavier mono), where the
+    residual would crush a real labelled peak. Returns 0.0 when nothing competes at
+    k's major peaks.
+    """
+
+    shaped, _fwhm = capInfo[k]
+    if not shaped:
+        return 0.0
+    wMax = max((float(w) for _mz, w in shaped), default=0.0) or 1.0
+    stakes = _neighbour_stakes(k, capInfo)
+    worst = 0.0
+    for (_mz, w), stake in zip(shaped, stakes, strict=True):
+        if float(w) < ENVELOPE_CAP_CONTEST_MIN_FRACTION * wMax:
+            continue
+        if stake > worst:
+            worst = stake
     return worst
 
 
@@ -1770,6 +1839,14 @@ def _apportion_group_areas(areaColumns, apexColumns, x, y, capInfo=None):
         for k in range(K)
     ]
 
+    # per-isotope stake of the strongest competing neighbour, in that neighbour's
+    # OWN apex-relative terms. Pattern geometry only (no amplitudes), so like
+    # otherFracs it is fixed for the whole apportionment.
+    neighbourStakes = [
+        _neighbour_stakes(k, capInfo) if (K > 1 and capInfo is not None) else None
+        for k in range(K)
+    ]
+
     def _pass(weightColumns, useCap):
         """One apportionment pass over `weightColumns` (the per-envelope columns
         that drive the split). Returns the least-squares amplitude per envelope,
@@ -1794,7 +1871,13 @@ def _apportion_group_areas(areaColumns, apexColumns, x, y, capInfo=None):
             if useCap and capInfo is not None:
                 shaped, fwhm = capInfo[k]
                 cap = _envelope_amp_cap(
-                    areaCol, x, g, shaped, fwhm, otherFrac=otherFracs[k]
+                    areaCol,
+                    x,
+                    g,
+                    shaped,
+                    fwhm,
+                    otherFrac=otherFracs[k],
+                    neighbourStakes=neighbourStakes[k],
                 )
                 if cap is not None:
                     amp = min(amp, cap)
@@ -2427,7 +2510,7 @@ def relabelenvelopes(
             # present (e.g. find-peaks found the first species merged, then the user
             # labelled the second and is converting it) the merge is stale: reusing
             # it lets this envelope keep the neighbour's isotopes, so its area
-            # balloons and the neighbour is crushed (example_env4_failes.msd: 900.49
+            # balloons and the neighbour is crushed (example_env4_failed.msd: 900.49
             # kept a 10-isotope grid -> area 82, and 902.51 collapsed to 22 instead
             # of the correct 61 / 70). An irregular shape must not survive inside a
             # neighbourhood -- rebuild it as a clean single-species seed so the joint

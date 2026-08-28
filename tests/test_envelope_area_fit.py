@@ -628,6 +628,132 @@ def test_residual_trim_leaves_major_peak_neighbour_visible():
     assert areas[1] / areas[0] > 0.2
 
 
+# spectra/example_env5_failed.msd: three charge-1 species two Da apart, isotope
+# positions and per-species heights read off the real file. Each species' +2 lands
+# on the next species' monoisotopic peak, and -- this is what triggered the bug --
+# the middle species' faint +3 (5% of its own apex) falls 0.025 Da beside the top
+# species' +1, which is a MAJOR peak of that species. The observed +1/mono ratio
+# (~0.44) is well below what lipid averagine models (~0.69), so every envelope's
+# rigid model sits above the data at its own +1.
+_ENV5_SPECIES = [
+    (0.1089, [(1028.433, 6.20), (1029.433, 3.25), (1030.448, 1.46)]),
+    (0.0930, [(1030.448, 23.93), (1031.450, 11.12), (1032.444, 5.64), (1033.457, 1.30)]),
+    (0.1039, [(1032.444, 6.09), (1033.432, 2.61), (1034.450, 0.70)]),
+]
+
+
+def _env5_chain():
+    """The three example_env5 clusters plus the profile their sum makes."""
+    clusters = [
+        [
+            mspy.peak(mz=mz, ai=height, charge=1, isotope=i, fwhm=fwhm)
+            for i, (mz, height) in enumerate(rows)
+        ]
+        for fwhm, rows in _ENV5_SPECIES
+    ]
+    profile = mspy.profile(
+        mspy.peaklist([p for c in clusters for p in c]), fwhm=0.10, points=40
+    )
+    return clusters, profile
+
+
+def test_negligible_neighbour_tail_does_not_cost_envelope_its_area():
+    """A neighbour's faint far tail must not cap an envelope down (env5 regression).
+
+    ``spectra/example_env5_failed.msd``. Three equivalent species form a two-Da
+    chain, and each one's rigid averagine +1 sits above the observed +1 (the data
+    is less carbon-rich than the chosen averagine). That mismatch is supposed to be
+    forgiven -- an envelope may poke cosmetically above its OWN depressed tail,
+    since no shared signal is over-claimed -- and for the lower two species it is.
+
+    But the middle species' +3, a mere 5% of its own apex, lands beside the top
+    species' +1. That is not competition for the peak, yet the structural
+    ``otherFrac`` there still creeps over ``ENVELOPE_CAP_CONTEST_FRACTION``, which
+    flagged the +1 "contested" and let it bind the cap -- capping the top species
+    at its depressed observed +1 and dragging its whole amplitude (mono included)
+    down with it. So the identical shape mismatch was forgiven for the species with
+    nothing beside its +1 and punished for its twin one step up the chain: the user
+    saw 1030 keep its area while 1032, its equal, lost a quarter of its own
+    (recovery 0.94 / 0.88 / 0.76 of the injected amplitudes).
+
+    The cap now also requires the neighbour to be putting a real part of ITSELF at
+    the peak (``ENVELOPE_CAP_CONTEST_NEIGHBOUR_FRACTION``), so the three species
+    are treated alike and recover proportionally.
+    """
+
+    clusters, profile = _env5_chain()
+    areas = mpp._fit_envelope_areas(clusters, profile, 0.10, 0.8, averagineType="lipid")
+
+    # ground truth: each species' injected amplitude, from its monoisotopic height
+    recovery = []
+    for k, (cluster, (fwhm, rows)) in enumerate(zip(clusters, _ENV5_SPECIES, strict=True)):
+        weights = mpp._cluster_weights(cluster, averagineType="lipid")
+        norm = mpp._fwhm_to_sigma(fwhm) * numpy.sqrt(2 * numpy.pi)
+        recovery.append(areas[k] / (rows[0][1] * norm / weights[0]))
+
+    assert all(r > 0.0 for r in recovery)
+    # every species recovers the same fraction of its true amplitude -- no species
+    # is singled out by who happens to sit beside it (pre-fix spread was 1.23)
+    assert max(recovery) / min(recovery) < 1.15
+    # and in particular the top of the chain is no longer robbed (pre-fix 0.76)
+    assert recovery[2] > 0.85
+
+
+def test_real_neighbour_still_binds_the_contested_cap():
+    """The loosened contest test must not switch the cap off where it is needed.
+
+    The mirror guard. In the same chain the middle species' +2 -- 24% of its own
+    apex, a real part of its pattern -- lands squarely on the top species'
+    monoisotopic peak. That IS competition, so it must still bind the top species'
+    cap and hold the summed model under the observed curve at the shared peak. If
+    the neighbour-stake gate were set high enough to swallow this case too, the two
+    would each claim the whole peak.
+    """
+
+    clusters, profile = _env5_chain()
+    areas, shapes = mpp._fit_envelope_areas_shaped(
+        clusters, profile, 0.10, 0.8, averagineType="lipid"
+    )
+
+    x = profile[:, 0]
+    y = numpy.clip(profile[:, 1], 0.0, None)
+    sigma = mpp._fwhm_to_sigma(0.10)
+    norm = sigma * numpy.sqrt(2 * numpy.pi)
+    model = numpy.zeros_like(x)
+    for area, shape in zip(areas, shapes, strict=True):
+        for mz, w in shape:
+            model += (area * w / norm) * numpy.exp(-0.5 * ((x - mz) / sigma) ** 2)
+
+    # at the shared peak (middle's +2 == top's mono) the two contributions split it
+    i = int(numpy.argmin(numpy.abs(x - 1032.444)))
+    assert model[i] <= y[i] * 1.05
+
+
+def test_neighbour_stakes_measure_the_neighbour_not_the_ratio():
+    """`_neighbour_stakes` reports each neighbour's own apex-relative weight.
+
+    The scale-free reading the contest test needs: a neighbour's monoisotopic peak
+    is a full stake (1.0), its +2 a real one, its far tail a negligible one --
+    regardless of how large or small THIS envelope's weight at the same point is
+    (which is what makes the structural ``otherFrac`` unusable on its own here).
+    """
+
+    capInfo = [
+        ([(1030.448, 0.50), (1031.450, 0.35), (1032.444, 0.12), (1033.457, 0.027)], 0.093),
+        ([(1032.444, 0.50), (1033.432, 0.35), (1034.450, 0.12)], 0.104),
+    ]
+    stakes = mpp._neighbour_stakes(1, capInfo)
+
+    # envelope 1's mono is covered by envelope 0's +2 -> a real stake
+    assert stakes[0] == pytest.approx(0.12 / 0.50, rel=1e-6)
+    # its +1 only by envelope 0's far tail -> negligible, below the contest gate
+    assert stakes[1] == pytest.approx(0.027 / 0.50, rel=1e-6)
+    assert stakes[1] < mpp.ENVELOPE_CAP_CONTEST_NEIGHBOUR_FRACTION
+    assert stakes[0] >= mpp.ENVELOPE_CAP_CONTEST_NEIGHBOUR_FRACTION
+    # nothing of envelope 0 reaches the +2 -> no stake at all
+    assert stakes[2] == pytest.approx(0.0)
+
+
 def test_overlapping_model_never_exceeds_observed_curve():
     """The summed envelope model stays within the observed profile (mass conserving).
 
