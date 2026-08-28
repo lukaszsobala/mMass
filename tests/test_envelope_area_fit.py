@@ -642,61 +642,70 @@ _ENV5_SPECIES = [
 ]
 
 
-def _env5_chain():
-    """The three example_env5 clusters plus the profile their sum makes."""
-    clusters = [
-        [
-            mspy.peak(mz=mz, ai=height, charge=1, isotope=i, fwhm=fwhm)
-            for i, (mz, height) in enumerate(rows)
-        ]
-        for fwhm, rows in _ENV5_SPECIES
-    ]
+def _env5_chain(middleIsotopes=4):
+    """The three example_env5 clusters plus the profile their sum makes.
+
+    ``middleIsotopes`` truncates the middle species' pattern, so the same three
+    species can be fit with and without the faint +3 that lands beside the top
+    species' +1.
+    """
+
+    clusters = []
+    for k, (fwhm, rows) in enumerate(_ENV5_SPECIES):
+        if k == 1:
+            rows = rows[:middleIsotopes]
+        clusters.append(
+            [
+                mspy.peak(mz=mz, ai=height, charge=1, isotope=i, fwhm=fwhm)
+                for i, (mz, height) in enumerate(rows)
+            ]
+        )
     profile = mspy.profile(
         mspy.peaklist([p for c in clusters for p in c]), fwhm=0.10, points=40
     )
     return clusters, profile
 
 
-def test_negligible_neighbour_tail_does_not_cost_envelope_its_area():
+def _env5_top_area(middleIsotopes, **kwargs):
+    """Fitted area of the TOP species of the chain."""
+
+    clusters, profile = _env5_chain(middleIsotopes=middleIsotopes)
+    return mpp._fit_envelope_areas(
+        clusters, profile, 0.10, 0.8, averagineType="lipid", **kwargs
+    )[2]
+
+
+@pytest.mark.parametrize("refinePattern", [False, True])
+def test_negligible_neighbour_tail_does_not_cost_envelope_its_area(refinePattern):
     """A neighbour's faint far tail must not cap an envelope down (env5 regression).
 
     ``spectra/example_env5_failed.msd``. Three equivalent species form a two-Da
     chain, and each one's rigid averagine +1 sits above the observed +1 (the data
     is less carbon-rich than the chosen averagine). That mismatch is supposed to be
     forgiven -- an envelope may poke cosmetically above its OWN depressed tail,
-    since no shared signal is over-claimed -- and for the lower two species it is.
+    since no shared signal is over-claimed -- and for the lower two species it was.
 
     But the middle species' +3, a mere 5% of its own apex, lands beside the top
     species' +1. That is not competition for the peak, yet the structural
-    ``otherFrac`` there still creeps over ``ENVELOPE_CAP_CONTEST_FRACTION``, which
+    ``otherFrac`` there still crept over ``ENVELOPE_CAP_CONTEST_FRACTION``, which
     flagged the +1 "contested" and let it bind the cap -- capping the top species
     at its depressed observed +1 and dragging its whole amplitude (mono included)
     down with it. So the identical shape mismatch was forgiven for the species with
     nothing beside its +1 and punished for its twin one step up the chain: the user
-    saw 1030 keep its area while 1032, its equal, lost a quarter of its own
-    (recovery 0.94 / 0.88 / 0.76 of the injected amplitudes).
+    saw 1030 keep its area while 1032, its equal, lost a quarter of its own.
 
-    The cap now also requires the neighbour to be putting a real part of ITSELF at
-    the peak (``ENVELOPE_CAP_CONTEST_NEIGHBOUR_FRACTION``), so the three species
-    are treated alike and recover proportionally.
+    Asserted without assuming any ground-truth area (the averagine model itself is
+    what is in question here): fit the SAME three species twice, once with that
+    faint +3 in the middle species' pattern and once without it. A tail that small
+    is worth a few percent of the top species at most, so the two answers must
+    agree -- pre-fix they differed by -15.9%.
     """
 
-    clusters, profile = _env5_chain()
-    areas = mpp._fit_envelope_areas(clusters, profile, 0.10, 0.8, averagineType="lipid")
+    withTail = _env5_top_area(4, refinePattern=refinePattern)
+    withoutTail = _env5_top_area(3, refinePattern=refinePattern)
 
-    # ground truth: each species' injected amplitude, from its monoisotopic height
-    recovery = []
-    for k, (cluster, (fwhm, rows)) in enumerate(zip(clusters, _ENV5_SPECIES, strict=True)):
-        weights = mpp._cluster_weights(cluster, averagineType="lipid")
-        norm = mpp._fwhm_to_sigma(fwhm) * numpy.sqrt(2 * numpy.pi)
-        recovery.append(areas[k] / (rows[0][1] * norm / weights[0]))
-
-    assert all(r > 0.0 for r in recovery)
-    # every species recovers the same fraction of its true amplitude -- no species
-    # is singled out by who happens to sit beside it (pre-fix spread was 1.23)
-    assert max(recovery) / min(recovery) < 1.15
-    # and in particular the top of the chain is no longer robbed (pre-fix 0.76)
-    assert recovery[2] > 0.85
+    assert withTail > 0.0 and withoutTail > 0.0
+    assert withTail == pytest.approx(withoutTail, rel=0.05)
 
 
 def test_real_neighbour_still_binds_the_contested_cap():
@@ -727,6 +736,168 @@ def test_real_neighbour_still_binds_the_contested_cap():
     # at the shared peak (middle's +2 == top's mono) the two contributions split it
     i = int(numpy.argmin(numpy.abs(x - 1032.444)))
     assert model[i] <= y[i] * 1.05
+
+
+# ---------------------------------------------------------------------------
+# Data-pinned isotope pattern (refinePattern)
+# ---------------------------------------------------------------------------
+
+# A real molecule whose isotope pattern is much thinner than what lipid averagine
+# predicts for its mass: mspy.pattern gives +1/mono = 0.471 at m/z 1023, where
+# lipid averagine's lambda says 0.683 (protein 0.486, carbohydrate 0.405). Using a
+# real pattern -- rather than a hand-built one -- keeps the ground truth
+# independent of the averagine model under test.
+_REAL_FORMULA = "C42H70O28"
+
+
+def _real_species(offset, amount, nIsotopes=4, fwhm=0.10):
+    """One cluster of a real isotope pattern, shifted by ``offset`` Da."""
+
+    pattern = mspy.pattern(_REAL_FORMULA, charge=1, fwhm=0.01, threshold=0.0005)
+    return [
+        mspy.peak(mz=mz + offset, ai=amount * ri, charge=1, isotope=i, fwhm=fwhm)
+        for i, (mz, ri) in enumerate(pattern[:nIsotopes])
+    ]
+
+
+def test_pattern_refit_reduces_dependence_on_the_averagine_guess():
+    """Pinning the pattern to data must make the areas less of a model lottery.
+
+    A large species with a small one two Da above it, so the small species'
+    monoisotopic peak sits on the large one's +2. How much of that shared peak the
+    large species claims is decided entirely by its +2 weight -- and averagine
+    fixes that from a single generic carbon density, which the user picks from a
+    dropdown. For this molecule the three shipped models disagree wildly about it
+    (+2/mono of 0.233 / 0.118 / 0.082), so the small species' fitted area swings by
+    2.7x depending on a guess it has no way to check.
+
+    Re-fitting each envelope's one Poisson parameter to its own de-blended peaks
+    replaces the guess with a measurement, and the three models then have to agree
+    much more closely. That agreement is the real claim -- not that any one number
+    is right, but that the answer stops depending on an unknowable choice.
+    """
+
+    big = _real_species(0.0, 1000.0)
+    small = _real_species(2.0, 100.0)
+    profile = _profile(big, small, fwhm=0.10)
+
+    ratios = {}
+    for refinePattern in (False, True):
+        ratios[refinePattern] = [
+            (
+                lambda areas: areas[1] / areas[0]
+            )(
+                mpp._fit_envelope_areas(
+                    [big, small], profile, 0.10, 0.8,
+                    averagineType=averagine, refinePattern=refinePattern,
+                )
+            )
+            for averagine in ("protein", "carbohydrate", "lipid")
+        ]
+
+    strictSpread = max(ratios[False]) / min(ratios[False])
+    refitSpread = max(ratios[True]) / min(ratios[True])
+
+    assert strictSpread > 2.0          # the models genuinely disagree (measured 2.7x)
+    assert refitSpread < 1.4           # after the re-fit they broadly agree (~1.2x)
+    assert refitSpread < strictSpread / 1.5
+
+
+def test_pattern_refit_never_widens_a_pattern():
+    """The re-fit may shrink a speculative tail, never grow one.
+
+    The guard that makes this safe to run by default. Contamination -- an untracked
+    species, or a neighbour whose contribution was under-estimated -- only ever ADDS
+    intensity at an isotope, which reads as a fatter tail and pushes lambda UP. So
+    an upward estimate is exactly the one that cannot be told apart from an
+    artefact, and acting on it would let an envelope reach FURTHER into its
+    neighbour's peak. Here the "observed" +1 is far taller than averagine predicts;
+    the re-fit must decline rather than widen the pattern.
+    """
+
+    positions = [1000.0, 1001.0, 1002.0]
+    indices = [0, 1, 2]
+    lamAveragine = 0.5
+    x = numpy.linspace(999.5, 1002.5, 600)
+
+    def curve(ratios):
+        y = numpy.zeros_like(x)
+        sigma = mpp._fwhm_to_sigma(0.05)
+        for mz, height in zip(positions, ratios, strict=True):
+            y += height * numpy.exp(-0.5 * ((x - mz) / sigma) ** 2)
+        return y
+
+    # +1 well ABOVE averagine (lambda would want ~0.9): refused
+    fat = curve([1.0, 0.9, 0.4])
+    assert mpp._refit_poisson_lambda(
+        positions, indices, lamAveragine, x, fat, fat, 0.05
+    ) is None
+
+    # +1 well BELOW averagine: accepted, and strictly narrower than averagine
+    thin = curve([1.0, 0.3, 0.05])
+    lam = mpp._refit_poisson_lambda(
+        positions, indices, lamAveragine, x, thin, thin, 0.05
+    )
+    assert lam is not None
+    assert lam < lamAveragine
+    # ...but never outside the band, so the result stays averagine-plausible
+    assert lam >= lamAveragine * (1.0 - mpp.ENVELOPE_LAMBDA_REFIT_BAND)
+
+
+def test_pattern_refit_ignores_isotopes_the_neighbours_explain():
+    """An isotope the neighbours account for must not inform the pattern re-fit.
+
+    The residual at such a peak is a small difference of two large numbers: it
+    carries the neighbours' model error, not this species' shape. Reading a pattern
+    off it produced the nonsense estimates in the sample files (a buried species'
+    +2 sitting on its neighbour's monoisotopic peak came back at 7x its own mono).
+    With only the monoisotopic peak left owned, there is no ratio to measure and
+    the re-fit must decline rather than invent one.
+    """
+
+    positions = [1000.0, 1001.0, 1002.0]
+    indices = [0, 1, 2]
+    x = numpy.linspace(999.5, 1002.5, 600)
+    sigma = mpp._fwhm_to_sigma(0.05)
+
+    def curve(heights):
+        y = numpy.zeros_like(x)
+        for mz, height in zip(positions, heights, strict=True):
+            y += height * numpy.exp(-0.5 * ((x - mz) / sigma) ** 2)
+        return y
+
+    observed = curve([1.0, 1.0, 1.0])
+    # the neighbours explain almost all of the +1 and +2; only the mono is ours
+    residual = curve([1.0, 0.05, 0.05])
+
+    assert mpp._refit_poisson_lambda(
+        positions, indices, 0.5, x, observed, residual, 0.05
+    ) is None
+    # the same residual read as fully owned IS usable (so it is ownership, not
+    # the shape, that disqualified it)
+    assert mpp._refit_poisson_lambda(
+        positions, indices, 0.5, x, residual, residual, 0.05
+    ) is not None
+
+
+def test_strict_averagine_mode_reproduces_the_plain_pattern():
+    """refinePattern=False must leave the shipped averagine behaviour untouched.
+
+    The setting is offered to users as a choice, so the "strict averagine" side of
+    it has to be exactly the old behaviour -- the theoretical pattern, unbent.
+    """
+
+    big = _real_species(0.0, 1000.0)
+    small = _real_species(2.0, 100.0)
+    profile = _profile(big, small, fwhm=0.10)
+
+    _areas, shapes = mpp._fit_envelope_areas_shaped(
+        [big, small], profile, 0.10, 0.8,
+        averagineType="lipid", refinePattern=False,
+    )
+    for cluster, shape in zip([big, small], shapes, strict=True):
+        theory = mpp._cluster_weights(cluster, averagineType="lipid")
+        assert [w for _mz, w in shape] == pytest.approx(theory)
 
 
 def test_neighbour_stakes_measure_the_neighbour_not_the_ratio():

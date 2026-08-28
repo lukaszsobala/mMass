@@ -948,6 +948,7 @@ class panelPeaklist(wx.Panel):
             "labelEnvelope": d["labelEnvelope"],
             "envelopeIntensity": d["envelopeIntensity"],
             "envelopeNonIdeality": d["envelopeNonIdeality"],
+            "envelopeRefinePattern": d.get("envelopeRefinePattern", 1),
             "averagineType": config.processing["peakpicking"].get(
                 "averagineType", "protein"
             ),

@@ -835,6 +835,50 @@ def _cluster_weights(cluster, averagineType=DEFAULT_AVERAGINE):
 # ----
 
 
+def _cluster_poisson(cluster, averagineType=DEFAULT_AVERAGINE):
+    """The averagine Poisson parameters behind `_cluster_weights` for a cluster.
+
+    Returns ``(lambda, indices)`` -- the averagine lambda for this cluster's
+    neutral mass and the isotope index of each of its peaks -- or None for a
+    cluster with no charge (whose weights come from the peak heights, not from a
+    Poisson pattern at all). Together they regenerate the same weights via
+    `_poisson_weights`, which is what lets the group fit re-derive the pattern at a
+    data-pinned lambda instead of the generic averagine one.
+    """
+
+    if not cluster:
+        return None
+    parent = cluster[0]
+    if not parent.charge:
+        return None
+
+    mono_mz = parent.mz
+    first_iso = getattr(parent, "isotope", 0)
+    if first_iso is None:
+        first_iso = 0
+    if first_iso > 0:
+        mono_mz -= first_iso * (ISOTOPE_DISTANCE / abs(parent.charge))
+
+    neutralMass = _mass_scalar(
+        mod_basics.mz(mono_mz, charge=0, currentCharge=parent.charge, massType=1),
+        massType=1,
+    )
+    lam = max(0.0, neutralMass * _averagine_lambda(averagineType))
+    if lam <= 0.0:
+        return None
+
+    indices = []
+    for i, peak in enumerate(cluster):
+        idx = getattr(peak, "isotope", i)
+        if idx is None:
+            idx = i
+        indices.append(int(idx))
+    return (lam, indices)
+
+
+# ----
+
+
 def _cluster_fwhm(cluster, defaultFwhm):
     """Get representative FWHM for isotope cluster."""
 
@@ -1729,6 +1773,197 @@ def _has_unshared_major(k, capInfo, otherFrac, x):
     return False
 
 
+# How far the per-envelope Poisson lambda may be re-fit away from the averagine
+# prediction, as a fraction of it (see `_refit_poisson_lambda`). Averagine gives
+# lambda = mass * lambdaFactor from a single generic carbon density, so it is a
+# class average, not this analyte: the three shipped models already disagree by
+# -17%/+41% about the same 1030 Da species, and a real molecule can sit outside
+# all three. The band is wide enough that the data may pull the shape across that
+# whole spread (the measured case needs ~-30%: lipid averagine predicts an isotope
+# ratio of 0.688 where the spectrum shows ~0.44), and tight enough that a single
+# contaminated isotope cannot invent an arbitrary pattern -- the fit still has to
+# look like an averagine-plausible species. Only the DOWNWARD half of the band is
+# actually searched (see `_refit_poisson_lambda`).
+ENVELOPE_LAMBDA_REFIT_BAND = 0.40
+
+# Grid resolution for that one-parameter search. A pure scan (not a solver) keeps
+# it deterministic and order-independent; 41 points across the band resolve lambda
+# to ~1% of averagine, far finer than the evidence justifies.
+ENVELOPE_LAMBDA_REFIT_STEPS = 41
+
+# An isotope only informs the lambda re-fit when the model expects it to carry at
+# least this fraction of the envelope's apex. Below it the peak is a faint tail:
+# poor S/N, and the first thing an unmodelled contaminant lands on.
+ENVELOPE_LAMBDA_REFIT_MIN_WEIGHT = 0.05
+
+# ...and only when this much of the observed signal there survives subtracting the
+# neighbours, i.e. the envelope genuinely OWNS the peak. Where a neighbour's model
+# accounts for most of an isotope, what is left is a small difference of two large
+# numbers -- it carries the neighbour's model error, not this species' shape.
+# Reading a pattern off such leftovers is what produced the nonsense estimates in
+# the measured files (a buried species' +2 landing on its neighbour's mono came
+# back at 7x its own monoisotopic peak, and a species whose +1 was almost entirely
+# subtracted came back at 0.13x).
+ENVELOPE_LAMBDA_REFIT_MIN_OWNERSHIP = 0.5
+
+
+def _poisson_weights(indices, lam):
+    """Averagine isotope weights at an arbitrary Poisson ``lam``.
+
+    Mirrors `_cluster_weights` exactly -- the same 30-term pattern, the same
+    normalisation by the *full* pattern sum rather than by the selected slice --
+    so swapping ``lam`` is the only difference between the two. Keeping the
+    normalisation identical is what makes areas fitted at a re-fit lambda directly
+    comparable to averagine ones.
+    """
+
+    lam = max(0.0, float(lam))
+    maxIso = 30
+    for idx in indices:
+        maxIso = max(maxIso, int(idx) + 1)
+
+    pattern = []
+    value = math.exp(-lam) if lam < 700 else 0.0
+    for i in range(maxIso):
+        if i == 0:
+            pattern.append(value)
+        else:
+            value = value * (lam / i)
+            pattern.append(value)
+
+    total = sum(pattern)
+    if total <= 0.0:
+        return None
+    return [
+        pattern[int(idx)] / total if int(idx) < len(pattern) else 0.0
+        for idx in indices
+    ]
+
+
+def _refit_poisson_lambda(
+    positions, indices, lamAveragine, x, observed, residual, fwhm
+):
+    """Re-fit an envelope's Poisson lambda to its own (de-blended) signal.
+
+    Averagine sets ``lam = mass * lambdaFactor`` from a generic carbon density, and
+    the whole isotope pattern follows from that one number: ``w_i = e^-lam lam^i /
+    i!``. So an error in lam does not just tilt the pattern, it *compounds along
+    it* -- the relative error in ``w_i`` grows like ``i``. The monoisotopic and +1
+    peaks are therefore the trustworthy part of a modelled envelope, the +2/+3 tail
+    the speculative part. That matters most where an envelope's tail lands on a
+    NEIGHBOUR's peak: the neighbour is charged for a claim resting entirely on the
+    least reliable number in the model, and (unlike its own peaks) it has no
+    evidence of its own to argue back with.
+
+    Rather than guess how much to discount that claim, pin it to data: fit the one
+    free parameter to the isotopes we can actually see. ``residual`` is this
+    envelope's share of the observed profile with every OTHER envelope's fitted
+    contribution already subtracted, so the fit reads this species alone even in a
+    chain where every peak is shared.
+
+    Two things make this safe where free per-isotope soft-modelling (`nonIdeality`,
+    deliberately inert in a crowd) is not. The family is a strict one-parameter
+    Poisson, so the shape cannot bend a single tail weight up onto a neighbour's
+    peak -- it can only slide along the physical carbon-count axis, and any move
+    that inflates the tail must lower the mono in the same breath. And the search
+    is confined to ``ENVELOPE_LAMBDA_REFIT_BAND`` around averagine, so the result
+    is always an averagine-plausible species.
+
+    Isotopes are weighted by their theoretical share of the envelope (the abundant
+    peaks carry the fit, the faint tail barely counts), which is the same
+    confidence ordering the amplitude fit already applies. An isotope must also
+    still OWN most of its observed signal after the subtraction
+    (``ENVELOPE_LAMBDA_REFIT_MIN_OWNERSHIP``) -- a peak the neighbours' model
+    almost entirely explains leaves a residual made of their error, not this
+    envelope's shape.
+
+    **The re-fit may only ever LOWER lambda.** The asymmetry is not caution for its
+    own sake, it follows from what can go wrong: an unmodelled contaminant, or a
+    neighbour's under-estimated contribution, can only ADD intensity at an isotope,
+    which always reads as a fatter tail and pushes lambda UP. So an upward estimate
+    is exactly the one that cannot be distinguished from contamination -- and
+    acting on it would let an envelope reach FURTHER into its neighbour's peak,
+    the one thing this pipeline must never do. A downward estimate has no such
+    explanation: nothing but a genuinely lighter-tailed species removes signal that
+    averagine predicted. So the re-fit is allowed to shrink a speculative tail and
+    hand the disputed signal back to the neighbour, never the reverse. (Measured:
+    the upward estimates in the sample files were all artefacts -- 1.4x from a
+    residual sitting on a neighbour's monoisotopic peak, 1.4x from an untracked
+    species under a +1 -- while every downward one tracked a real, visible
+    shortfall against averagine.)
+
+    Returns the fitted lambda, or None when the evidence is too thin to move off
+    averagine (fewer than two usable isotopes, no signal, or an upward estimate).
+    """
+
+    lamAveragine = float(lamAveragine)
+    if lamAveragine <= 0.0 or len(indices) < 2 or len(x) == 0:
+        return None
+
+    baseWeights = _poisson_weights(indices, lamAveragine)
+    if not baseWeights:
+        return None
+    wMax = max(baseWeights)
+    if wMax <= 0.0:
+        return None
+
+    # de-blended height at each isotope, and the confidence to give it
+    halfWindow = max(0.35 * float(fwhm), 1e-4)
+    deblended = []
+    confidence = []
+    for mz, weight in zip(positions, baseWeights, strict=True):
+        i1 = int(numpy.searchsorted(x, float(mz) - halfWindow, side="left"))
+        i2 = int(numpy.searchsorted(x, float(mz) + halfWindow, side="right"))
+        if i1 >= i2:
+            deblended.append(0.0)
+            confidence.append(0.0)
+            continue
+        mine = float(numpy.max(residual[i1:i2]))
+        whole = float(numpy.max(observed[i1:i2]))
+        deblended.append(mine)
+        # too faint to trust, or mostly explained away by the neighbours
+        if weight < ENVELOPE_LAMBDA_REFIT_MIN_WEIGHT * wMax:
+            confidence.append(0.0)
+        elif whole > 0.0 and mine < ENVELOPE_LAMBDA_REFIT_MIN_OWNERSHIP * whole:
+            confidence.append(0.0)
+        else:
+            confidence.append(weight / wMax)
+
+    usable = [i for i, c in enumerate(confidence) if c > 0.0]
+    if len(usable) < 2 or not any(deblended[i] > 0.0 for i in usable):
+        return None
+
+    obs = numpy.array([deblended[i] for i in usable], dtype=float)
+    conf = numpy.array([confidence[i] for i in usable], dtype=float)
+    isoIdx = [indices[i] for i in usable]
+
+    best = None
+    bestSse = None
+    lo = lamAveragine * (1.0 - ENVELOPE_LAMBDA_REFIT_BAND)
+    hi = lamAveragine
+    for lam in numpy.linspace(lo, hi, ENVELOPE_LAMBDA_REFIT_STEPS):
+        trial = _poisson_weights(isoIdx, lam)
+        if not trial:
+            continue
+        model = numpy.array(trial, dtype=float)
+        # profile out the amplitude, so only the SHAPE is being fitted
+        denom = float(numpy.dot(conf * model, model))
+        if denom <= 0.0:
+            continue
+        amp = float(numpy.dot(conf * model, obs)) / denom
+        if amp <= 0.0:
+            continue
+        sse = float(numpy.dot(conf, (obs - amp * model) ** 2))
+        if bestSse is None or sse < bestSse:
+            bestSse = sse
+            best = float(lam)
+
+    # only ever shrink the speculative tail -- see the note above
+    if best is None or best >= lamAveragine:
+        return None
+    return best
+
+
 def _apportion_group_areas(areaColumns, apexColumns, x, y, capInfo=None):
     """Split the observed signal among overlapping envelopes, then fit each area.
 
@@ -2034,7 +2269,30 @@ def _is_regular_isotope_grid(shaped):
     return minGap >= 0.5 * medGap
 
 
-def _fit_group_areas(metas, x, y, nonIdeality):
+def _envelope_columns(x, shaped, sigma):
+    """Both basis columns for one envelope shape.
+
+    Returns (areaColumn, apexColumn): the pattern rendered as gaussians normalised
+    to unit *area* (a unit coefficient integrates to one), and the same column
+    scaled so its most abundant (apex) isotope is 1 for the abundance-independent
+    signal split. Normalising to the theoretical APEX -- not the monoisotopic peak
+    -- is what makes the split fair for heavy envelopes whose apex is +2/+4/+5:
+    comparing two overlapping species at their representative (tallest) peak,
+    rather than at a mono that may be a tiny sliver of a heavy pattern, no longer
+    flattens a genuine abundance difference between them. The apex weight is a
+    fixed per-envelope scalar from the pattern, so it stays stable in crowded
+    regions (it does not depend on the neighbours).
+    """
+
+    areaColumn = _envelope_gaussian_column(x, shaped, sigma)
+    wApex = max((float(w) for _mz, w in shaped), default=0.0)
+    if wApex <= 0.0:
+        wApex = 1.0
+    norm = sigma * math.sqrt(2.0 * math.pi)
+    return areaColumn, areaColumn * (norm / wApex)
+
+
+def _fit_group_areas(metas, x, y, nonIdeality, refinePattern=True):
     """Apportion the observed signal among a group of (overlapping) envelopes.
 
     `metas` holds (fwhm, sigma, theoryIsotopes) for each envelope in the group.
@@ -2065,15 +2323,22 @@ def _fit_group_areas(metas, x, y, nonIdeality):
     if nonIdeality is None:
         nonIdeality = ENVELOPE_NON_IDEALITY_DEFAULT
 
-    norm_ok = [sigma > 0.0 and bool(isotopes) for _fwhm, sigma, isotopes, _stored in metas]
+    norm_ok = [
+        sigma > 0.0 and bool(isotopes)
+        for _fwhm, sigma, isotopes, _stored, _poisson in metas
+    ]
 
     # the theoretical (averagine) pattern is the default shape
-    shapes = [list(isotopes) for _fwhm, _sigma, isotopes, _stored in metas]
+    shapes = [list(isotopes) for _fwhm, _sigma, isotopes, _stored, _poisson in metas]
+    # which envelopes are on the plain averagine pattern (the only ones the
+    # data-pinned pattern refinement may move -- a soft-modelled or stored shape is
+    # already the caller's chosen shape)
+    onAveragine = [False] * K
 
     areaColumns = []
     apexColumns = []
     capInfo = []
-    for k, (fwhm, sigma, isotopes, storedShape) in enumerate(metas):
+    for k, (fwhm, sigma, isotopes, storedShape, _poisson) in enumerate(metas):
         if not norm_ok[k]:
             areaColumns.append(numpy.zeros(len(x), dtype=float))
             apexColumns.append(numpy.zeros(len(x), dtype=float))
@@ -2120,6 +2385,7 @@ def _fit_group_areas(metas, x, y, nonIdeality):
             shapes[k] = shaped
         else:
             shaped = isotopes
+            onAveragine[k] = True
 
         # area-normalised column (unit coefficient integrates to one) for the
         # per-envelope amplitude fit, and the same column scaled so its most
@@ -2131,18 +2397,74 @@ def _fit_group_areas(metas, x, y, nonIdeality):
         # pattern, no longer flattens a genuine abundance difference between them.
         # The apex weight is a fixed per-envelope scalar from the pattern, so it
         # stays stable in crowded regions (it does not depend on the neighbours).
-        areaColumn = _envelope_gaussian_column(x, shaped, sigma)
-        wApex = max((float(w) for _mz, w in shaped), default=0.0)
-        if wApex <= 0.0:
-            wApex = 1.0
-        norm = sigma * math.sqrt(2.0 * math.pi)
+        areaColumn, apexColumn = _envelope_columns(x, shaped, sigma)
         areaColumns.append(areaColumn)
-        apexColumns.append(areaColumn * (norm / wApex))
+        apexColumns.append(apexColumn)
         # the fitted shape + width, so the apportionment can cap each amplitude
         # against this envelope's own apportioned share at its isotope apexes
         capInfo.append((shaped, fwhm))
 
     areas = _apportion_group_areas(areaColumns, apexColumns, x, y, capInfo=capInfo)
+
+    # Data-pinned isotope pattern (one damped refinement step).
+    #
+    # Averagine fixes every envelope's whole pattern from one generic number, and
+    # the error in that number compounds along the isotopes (see
+    # `_refit_poisson_lambda`), so an envelope's speculative +2/+3 tail can be
+    # charged to whichever NEIGHBOUR it lands on -- the neighbour loses area to a
+    # claim no measurement supports. With the areas above we can subtract every
+    # other envelope's fitted contribution and read each species almost alone, so
+    # the one free parameter of its pattern is re-fit to its own de-blended peaks
+    # and the whole group is then re-apportioned on the corrected shapes.
+    #
+    # A single step from a FROZEN snapshot, so the result does not depend on the
+    # order the envelopes are visited and cannot run away: the refit shapes are
+    # never fed back in to refit again. Only meaningful for an overlap group
+    # (K > 1) -- an isolated envelope has no neighbour to mis-charge and already
+    # bends to the data through non-ideality.
+    if refinePattern and K > 1 and any(onAveragine):
+        yy = numpy.clip(y, 0.0, None)
+        frozen = numpy.zeros(len(x), dtype=float)
+        for area, column in zip(areas, areaColumns, strict=True):
+            frozen = frozen + max(0.0, float(area)) * column
+
+        refit = False
+        for k, (fwhm, sigma, isotopes, _storedShape, poisson) in enumerate(metas):
+            if not (norm_ok[k] and onAveragine[k]) or not poisson:
+                continue
+            lamAveragine, indices = poisson
+            # this envelope alone: observed minus every OTHER envelope's model
+            residual = numpy.clip(
+                yy - (frozen - max(0.0, float(areas[k])) * areaColumns[k]), 0.0, None
+            )
+            lam = _refit_poisson_lambda(
+                [mz for mz, _w in isotopes],
+                indices,
+                lamAveragine,
+                x,
+                yy,
+                residual,
+                fwhm,
+            )
+            if lam is None:
+                continue
+            weights = _poisson_weights(indices, lam)
+            if not weights or max(weights) <= 0.0:
+                continue
+            shaped = [
+                (float(mz), float(w))
+                for (mz, _old), w in zip(isotopes, weights, strict=True)
+            ]
+            shapes[k] = shaped
+            areaColumns[k], apexColumns[k] = _envelope_columns(x, shaped, sigma)
+            capInfo[k] = (shaped, fwhm)
+            refit = True
+
+        if refit:
+            areas = _apportion_group_areas(
+                areaColumns, apexColumns, x, y, capInfo=capInfo
+            )
+
     return areas, shapes
 
 
@@ -2151,7 +2473,7 @@ def _fit_group_areas(metas, x, y, nonIdeality):
 
 def _fit_envelope_areas_shaped(
     clusters, signal, defaultFwhm, nonIdeality=None,
-    averagineType=DEFAULT_AVERAGINE,
+    averagineType=DEFAULT_AVERAGINE, refinePattern=True,
 ):
     """Joint envelope area fit, also returning the isotope shape used per cluster.
 
@@ -2210,6 +2532,10 @@ def _fit_envelope_areas_shaped(
         weights = _cluster_weights(cluster, averagineType=averagineType)
         isotopes = [(p.mz, w) for p, w in zip(cluster, weights, strict=True)]
 
+        # the averagine lambda and isotope indices this pattern came from, so the
+        # group fit can re-derive the same pattern at a data-pinned lambda
+        poisson = _cluster_poisson(cluster, averagineType=averagineType)
+
         # the exact fitted shape carried over from a stored envelope (only when
         # every peak has one, i.e. this cluster was rebuilt from an envelope). It
         # lets an overlap fit reproduce the picked area instead of re-deriving a
@@ -2223,7 +2549,7 @@ def _fit_envelope_areas_shaped(
                     (p.mz, max(0.0, float(w)) / tot)
                     for p, w in zip(cluster, storedW, strict=True)
                 ]
-        metas.append((fwhm, sigma, isotopes, storedShape))
+        metas.append((fwhm, sigma, isotopes, storedShape, poisson))
 
         mzs = [p.mz for p in cluster]
         pad = 6.0 * max(fwhm, defaultFwhm)
@@ -2245,7 +2571,9 @@ def _fit_envelope_areas_shaped(
         y[y < 0.0] = 0.0
 
         groupMetas = [metas[i] for i in group]
-        groupAreas, groupShapes = _fit_group_areas(groupMetas, x, y, nonIdeality)
+        groupAreas, groupShapes = _fit_group_areas(
+            groupMetas, x, y, nonIdeality, refinePattern=refinePattern
+        )
         for idx, area, shape in zip(group, groupAreas, groupShapes, strict=True):
             areas[idx] = area
             shapes[idx] = shape
@@ -2255,13 +2583,13 @@ def _fit_envelope_areas_shaped(
 
 def _fit_envelope_areas(
     clusters, signal, defaultFwhm, nonIdeality=None,
-    averagineType=DEFAULT_AVERAGINE,
+    averagineType=DEFAULT_AVERAGINE, refinePattern=True,
 ):
     """Joint envelope area fit. See `_fit_envelope_areas_shaped` for details."""
 
     areas, _shapes = _fit_envelope_areas_shaped(
         clusters, signal, defaultFwhm, nonIdeality=nonIdeality,
-        averagineType=averagineType,
+        averagineType=averagineType, refinePattern=refinePattern,
     )
     return areas
 
@@ -2431,8 +2759,15 @@ def relabelenvelopes(
     relaxed=False,
     averagineType=DEFAULT_AVERAGINE,
     preserveSeeds=False,
+    refinePattern=True,
 ):
     """Convert deisotoped peak clusters to envelope labels.
+
+    refinePattern (bool) - when True, overlapping envelopes re-fit the single
+        parameter of their averagine isotope pattern to their own de-blended
+        signal (see `_refit_poisson_lambda`), instead of being held to the generic
+        averagine ratio. Stops one envelope's speculative isotope tail from being
+        charged to a neighbour it happens to land on.
 
     preserveSeeds (bool) - when True every input peak is kept as its own envelope
         seed: peaks are never absorbed into one another, adjacent clusters are not
@@ -2829,6 +3164,7 @@ def relabelenvelopes(
         defaultFwhm,
         nonIdeality=nonIdeality,
         averagineType=averagineType,
+        refinePattern=refinePattern,
     )
 
     # Re-calculate NNLS areas as fallbacks if needed, but mainly prune zero ones.
@@ -3419,6 +3755,7 @@ def recalculate_neighborhood_envelopes(
     tolerance = params["massTolerance"]
     isotopeShift = params["isotopeShift"]
     maxCharge = max(1, abs(int(params["maxCharge"])))
+    refinePattern = bool(params.get("envelopeRefinePattern", True))
     difference = (ISOTOPE_DISTANCE + isotopeShift) / float(maxCharge)
     averagineType = params.get("averagineType", DEFAULT_AVERAGINE)
 
@@ -3563,6 +3900,7 @@ def recalculate_neighborhood_envelopes(
             relaxed=True,
             averagineType=averagineType,
             preserveSeeds=preserveSeeds,
+            refinePattern=refinePattern,
         )
         return list(gpl)
 

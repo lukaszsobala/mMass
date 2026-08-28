@@ -990,6 +990,27 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         deisotopingEnvelopeNonIdealityUnits_label = wx.StaticText(panel, -1, "%")
         self.deisotopingEnvelopeNonIdeality_value.Bind(wx.EVT_TEXT, self.getParams)
 
+        deisotopingRefinePattern_label = wx.StaticText(
+            panel, -1, "Fit isotope pattern to data:"
+        )
+        self.deisotopingRefinePattern_check = wx.CheckBox(panel, -1, "")
+        self.deisotopingRefinePattern_check.SetValue(
+            bool(config.processing["deisotoping"].get("envelopeRefinePattern", 1))
+        )
+        self.deisotopingRefinePattern_check.SetToolTip(
+            "Overlapping envelopes measure their own isotope pattern from the "
+            "spectrum instead of assuming the averagine ratios exactly.\n\n"
+            "Averagine predicts an envelope's whole isotope pattern from one "
+            "generic number, so a species that is not typical of the selected "
+            "type gets a tail that is too heavy -- and where that tail lands on a "
+            "neighbouring peak, the neighbour is charged for signal that is not "
+            "there. This lets each envelope narrow its pattern to match its own "
+            "clearly-measured peaks (it can never widen it), which mostly removes "
+            "the dependence on picking the right averagine type.\n\n"
+            "Uncheck to use the averagine pattern strictly."
+        )
+        self.deisotopingRefinePattern_check.Bind(wx.EVT_CHECKBOX, self.getParams)
+
         deisotopingSetAsMonoisotopic_label = wx.StaticText(
             panel, -1, "Set labels as monoisotopes:"
         )
@@ -1079,17 +1100,23 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             flag=wx.ALIGN_CENTER_VERTICAL,
         )
         grid.Add(
-            deisotopingSetAsMonoisotopic_label,
+            deisotopingRefinePattern_label,
             (10, 0),
             flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL,
         )
-        grid.Add(self.deisotopingSetAsMonoisotopic_check, (10, 1))
+        grid.Add(self.deisotopingRefinePattern_check, (10, 1))
         grid.Add(
-            deisotopingConvertToEnvelopes_label,
+            deisotopingSetAsMonoisotopic_label,
             (11, 0),
             flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL,
         )
-        grid.Add(self.deisotopingConvertToEnvelopes_check, (11, 1))
+        grid.Add(self.deisotopingSetAsMonoisotopic_check, (11, 1))
+        grid.Add(
+            deisotopingConvertToEnvelopes_label,
+            (12, 0),
+            flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL,
+        )
+        grid.Add(self.deisotopingConvertToEnvelopes_check, (12, 1))
 
         mainSizer = wx.BoxSizer(wx.VERTICAL)
         mainSizer.Add(grid, 0, wx.ALIGN_CENTER | wx.ALL, mwx.PANEL_SPACE_MAIN)
@@ -1603,6 +1630,9 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         )
         self.deisotopingEnvelopeNonIdeality_value.SetValue(
             str(presets["deisotoping"]["envelopeNonIdeality"] * 100)
+        )
+        self.deisotopingRefinePattern_check.SetValue(
+            bool(presets["deisotoping"].get("envelopeRefinePattern", 1))
         )
 
         choices = ["1st", "monoisotope", "centroid", "isotopes"]
@@ -2243,6 +2273,9 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             )
             config.processing["deisotoping"]["convertToEnvelopes"] = bool(
                 self.deisotopingConvertToEnvelopes_check.GetValue()
+            )
+            config.processing["deisotoping"]["envelopeRefinePattern"] = bool(
+                self.deisotopingRefinePattern_check.GetValue()
             )
 
             labelEnvelope = (
@@ -2974,6 +3007,9 @@ class panelProcessing(wx.Frame, MakeModalMixin):
                         "envelopeNonIdeality"
                     ),
                     averagineType=config.processing["peakpicking"]["averagineType"],
+                    refinePattern=bool(
+                        config.processing["deisotoping"].get("envelopeRefinePattern", 1)
+                    ),
                     preserveSeeds=True,
                     relaxed=True,
                 )
@@ -3074,6 +3110,9 @@ class panelProcessing(wx.Frame, MakeModalMixin):
                         "envelopeNonIdeality"
                     ),
                     averagineType=config.processing["peakpicking"]["averagineType"],
+                    refinePattern=bool(
+                        config.processing["deisotoping"].get("envelopeRefinePattern", 1)
+                    ),
                     preserveSeeds=True,
                     relaxed=True,
                 )

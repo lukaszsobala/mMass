@@ -50,6 +50,7 @@ def envelope_params():
         "labelEnvelope": "1st",
         "envelopeIntensity": "maximum",
         "envelopeNonIdeality": 0.40,
+        "envelopeRefinePattern": 1,
         "seedCharge": 1,
     }
 
