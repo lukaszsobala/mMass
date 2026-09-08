@@ -330,7 +330,6 @@ def test_pattern_evidence_outranks_the_ridge():
     it. Here the comb is in the signal and absent from the peak list, exactly as
     picking leaves it.
     """
-    mono = 650.0 + 8 * mspy.ISOTOPE_DISTANCE
     teeth, profile = _comb(count=20, jitter={8: 1000.0, 9: 400.0}, intensity=560.0)
     picked = mspy.peaklist([teeth[8], teeth[9]])
 
