@@ -73,7 +73,7 @@ def _acqu_constants(fid_path):
 
 
 def _tof_to_mz(time, ml1, ml2, ml3):
-    """Bruker's quadratic TOF -> m/z calibration, as OpenMS applies it."""
+    """The TOF -> m/z calibration described by the ##$ML* fields alone."""
 
     b = math.sqrt(1e12 / ml1)
     c = ml2 - time
@@ -281,8 +281,8 @@ def test_parse_bruker_polarity_reads_polari(tmp_path):
     assert read({}) is None
 
     # ##.IONIZATION MODE is deliberately NOT consulted -- flexControl writes
-    # 'LD+' there even for negative-mode runs, so trusting it (as OpenMS does)
-    # reports every negative spectrum as positive
+    # 'LD+' there even for negative-mode runs, so trusting it reports every
+    # negative spectrum as positive
     assert read({".IONIZATION MODE": "LD+", "POLARI": "0"}) == -1
     assert read({".IONIZATION MODE": "LD+"}) is None
 
@@ -360,7 +360,7 @@ def _write_fake_dataset(root, dataset, spot, owner, date):
     """Build a minimal <dataset>/<spot>/1/1SRef tree with a fid and an acqu.
 
     Only the metadata path is exercised, so the fid can stay empty -- reading
-    the trace itself goes through pyOpenMS and is covered against real data.
+    the trace and calibrating it is covered against real data above.
     """
 
     folder = root / dataset / ("0_" + spot) / "1" / "1SRef"

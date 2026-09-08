@@ -562,13 +562,13 @@ def _polarity(params):
 
     Polarity comes from ##$POLARI, where 0 is negative and 1 is positive.
 
-    NOT from ##.IONIZATION MODE, and so NOT from OpenMS either: OpenMS takes
-    the polarity from the sign on that JCAMP field, but flexControl writes
-    'LD+' there unconditionally - it reads LD+ on negative-mode acquisitions
-    too, which makes every negative spectrum come out as positive. ##$POLARI
-    is the field that actually tracks the acquisition (verified against
-    negative and positive runs, and against the polarity of the reference
-    masses flexControl embeds in ##$CalStar).
+    NOT from ##.IONIZATION MODE: flexControl writes 'LD+' there
+    unconditionally - it reads LD+ on negative-mode acquisitions too - so
+    taking the sign off that JCAMP field, as readers which trust it do, makes
+    every negative spectrum come out positive. ##$POLARI is the field that
+    actually tracks the acquisition (verified against negative and positive
+    runs, and against the polarity of the reference masses flexControl embeds
+    in ##$CalStar).
     """
 
     polarity = params.get("POLARI", "").strip()
