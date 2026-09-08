@@ -15,6 +15,33 @@
 #     main directory of the program.
 # -------------------------------------------------------------------------
 
+# -------------------------------------------------------------------------
+#     ATTRIBUTION
+#
+#     The TOF-to-m/z calibration in this file is derived from
+#     readBrukerFlexData by Sebastian Gibb (the reader behind MALDIquant):
+#
+#         https://github.com/sgibb/readBrukerFlexData/
+#
+#     Specifically, the meaning and field order of the
+#     'V1.0CTOF2CalibrationConstants' block in ##$NTBCal, the cubic
+#     TOF-to-m/z model and its trailing mass offset, and the ##$HPCStr High
+#     Precision Calibration correction all follow that package's reading of
+#     the format; _tofToMassQuadratic, _tofToMassCubic, _applyHPC and
+#     _hpcCoefficients are ports of its .tof2mass, .ctof2calibration, .hpc
+#     and .extractHPCConstants. The cubic is solved differently here (Newton
+#     from the quadratic estimate rather than polyroot), but the model is
+#     theirs, not independent work.
+#
+#     readBrukerFlexData is licensed GPL (>= 3) and mMass is
+#     GPL-3.0-or-later, so this places no restriction on mMass beyond its
+#     own licence.
+#
+#     No OpenMS or pyOpenMS code is present or was copied. This module used
+#     to call pyOpenMS' XMassFile reader, which applies only the ##$ML*
+#     quadratic; that dependency was dropped rather than ported.
+# -------------------------------------------------------------------------
+
 # load libs
 import datetime
 import math
@@ -336,10 +363,14 @@ def _readIntensities(fidPath, params):
 # flexControl itself recorded in ##$CalStar. Hence this module reads ##$NTBCal
 # and falls back to the quadratic only when no cubic block is present.
 #
-# This mirrors readBrukerFlexData (the reader behind MALDIquant), whose output
-# the axis below reproduces to ~1e-10 Da. Note that package warns the block is
-# not fully understood (sgibb/readBrukerFlexData#3); the trailing 'order' value
-# is ignored here as it is there.
+# The model is readBrukerFlexData's - see ATTRIBUTION at the top of the file -
+# and the axis built here reproduces that reader's output to within 1.6e-11 Da
+# across both sample datasets. Two caveats worth keeping in view: that package
+# warns the block is not fully understood (sgibb/readBrukerFlexData#3), and the
+# trailing 'order' value is ignored here exactly as it is ignored there. What
+# vouches for the result is not the agreement but ##$CalStar - flexControl's
+# own calibrant list - which the axis hits to 13 ppm (7 references) and 20 ppm
+# (4 references) on the two datasets.
 
 NTBCAL_MARKER = "V1.0CTOF2CalibrationConstants"
 
@@ -359,8 +390,11 @@ def _massAxis(params, count):
     if ml1 <= 0:
         return None
 
-    # ##$DELAY is the integer sample clock; ##$NTBCal carries the same value
-    # with a fractional part, but the integer is what the samples are on
+    # ##$DELAY and the DELAY inside ##$NTBCal disagree by a fraction of a
+    # sample (39451 against 39451.2), which shifts every sample's m/z by about
+    # 10 ppm. The integer is used because readBrukerFlexData uses it; the
+    # calibrants in ##$CalStar cannot settle which is right, as they pin the
+    # flight-time-to-m/z curve and not the flight time each sample sits at.
     tof = delay + numpy.arange(count, dtype=numpy.float64) * dwell
 
     constants = _ctof2Constants(params)
