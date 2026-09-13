@@ -32,8 +32,7 @@ jobs:
         # Mirrors the [project.optional-dependencies] test extra in
         # pyproject.toml. The project itself is deliberately NOT installed:
         # pytest's pythonpath = ["src"] already puts mspy on the path, and
-        # installing would drag in wxPython and pyopenms, which the suite
-        # imports without. pytest-cov is skipped -- it is unusable on 3.14
+        # installing would drag in wxPython, which the suite imports without. pytest-cov is skipped -- it is unusable on 3.14
         # (see the note in pyproject.toml) and coverage is not gated here.
         run: |
           python -m pip install --upgrade pip

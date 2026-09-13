@@ -19,8 +19,6 @@ import ast
 import inspect
 import os
 
-import pytest
-
 import mspy
 from mspy import mod_peakpicking as mpp
 

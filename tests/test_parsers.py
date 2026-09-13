@@ -3,6 +3,7 @@
 import datetime
 import math
 import os.path
+import re
 
 import numpy
 import pytest
@@ -72,12 +73,30 @@ def _acqu_constants(fid_path):
 
 
 def _tof_to_mz(time, ml1, ml2, ml3):
-    """Bruker's quadratic TOF -> m/z calibration, as OpenMS applies it."""
+    """The TOF -> m/z calibration described by the ##$ML* fields alone."""
 
     b = math.sqrt(1e12 / ml1)
     c = ml2 - time
     root = (-b + math.sqrt(b * b - 4 * ml3 * c)) / (2 * ml3)
     return root * root
+
+
+def _calstar_references(fid_path):
+    """Get flexControl's own reference peaks from ##$CalStar.
+
+    Each <ac> records the raw flight time it was found at (<rv>) and the
+    theoretical mass it was assigned (<cm>), so the pair is an independent
+    check on the calibration -- it comes from the instrument, not from us.
+    """
+
+    params = mspy.parser_bruker._readAcqu(fid_path)
+    calstar = params.get("CalStar", "")
+    return [
+        (float(tof), float(mass))
+        for tof, mass in re.findall(
+            r"<rv>([^<]+)</rv>.*?<cm>([^<]+)</cm>", calstar, re.DOTALL
+        )
+    ]
 
 
 def test_parse_bruker_dataset_folder(sample_bruker):
@@ -118,26 +137,116 @@ def test_parse_bruker_fid_directly(sample_bruker):
     assert from_folder.title == from_fid.title
 
 
-def test_parse_bruker_applies_acqu_calibration(sample_bruker):
-    """The m/z axis is the acqu calibration applied to the TOF axis.
+def test_parse_bruker_calibration_hits_the_reference_masses(sample_bruker):
+    """The calibrated axis reproduces flexControl's own reference masses.
 
-    This is the whole point of going through pyOpenMS rather than unpacking
-    the fid by hand -- the fid holds intensities only, and the TOF-to-m/z
-    constants live in acqu.
+    This is the check that matters: ##$CalStar records the flight time of each
+    calibrant and the mass it was assigned, so agreement there means the axis
+    is right in absolute terms rather than merely self-consistent.
+    """
+
+    fids = mspy.findFIDs(sample_bruker)
+    _ml1, _ml2, _ml3, delay, dw, td = _acqu_constants(fids[0])
+
+    references = _calstar_references(fids[0])
+    assert len(references) >= 4  # a usable calibration curve, not one anchor
+
+    scan = mspy.parseBruker(fids[0]).scan()
+    assert scan is not False  # parser returns False on failure
+    masses = numpy.asarray(scan.profile, dtype=float)[:, 0]
+    assert len(masses) == td
+
+    # the axis is uniform in flight time, so a reference lands between samples
+    times = delay + numpy.arange(td) * dw
+    for tof, expected in references:
+        found = numpy.interp(tof, times, masses)
+        assert abs(found - expected) / expected < 50e-6
+
+
+def test_parse_bruker_prefers_the_cubic_calibration(sample_bruker):
+    """##$NTBCal wins over ##$ML*, which is stale whenever the two disagree.
+
+    Dropping back to the quadratic is not a small error -- it is thousands of
+    ppm, and it grows with mass -- so this pins which constants are used.
     """
 
     fids = mspy.findFIDs(sample_bruker)
     ml1, ml2, ml3, delay, dw, td = _acqu_constants(fids[0])
-    assert ml3 != 0  # quadratic term present, so the simple form would be wrong
+
+    constants = mspy.parser_bruker._ctof2Constants(
+        mspy.parser_bruker._readAcqu(fids[0])
+    )
+    assert constants is not None  # this dataset was calibrated 'Cubic Enhanced'
+    assert constants[5] != 0  # a genuine cubic term, not a quadratic in disguise
 
     scan = mspy.parseBruker(fids[0]).scan()
     assert scan is not False  # parser returns False on failure
-    profile = numpy.asarray(scan.profile, dtype=float)
-    assert len(profile) == td
+    masses = numpy.asarray(scan.profile, dtype=float)[:, 0]
 
-    for index in (0, td // 2, td - 1):
-        expected = _tof_to_mz(delay + index * dw, ml1, ml2, ml3)
-        assert profile[index, 0] == pytest.approx(expected, rel=1e-9)
+    # the quadratic the ##$ML* fields alone describe is far away, and further
+    # the heavier the ion gets
+    errors = [
+        abs(masses[i] - _tof_to_mz(delay + i * dw, ml1, ml2, ml3)) / masses[i]
+        for i in (0, td // 2, td - 1)
+    ]
+    assert min(errors) > 1e-3
+    assert errors[0] < errors[-1]
+
+
+def test_bruker_calibration_falls_back_to_the_quadratic():
+    """An acquisition with no ##$NTBCal block is read from ##$ML* as before."""
+
+    params = {
+        "ML1": 322877.857415489,
+        "ML2": 125.829745293329,
+        "ML3": -0.275017182564298,
+        "DELAY": 39451,
+        "DW": 0.2,
+        "TD": 8,
+    }
+    assert mspy.parser_bruker._ctof2Constants(params) is None
+
+    masses = mspy.parser_bruker._massAxis(params, 8)
+    assert masses is not None  # None means the constants could not be read
+    for index in range(8):
+        expected = _tof_to_mz(
+            params["DELAY"] + index * params["DW"],
+            params["ML1"],
+            params["ML2"],
+            params["ML3"],
+        )
+        assert masses[index] == pytest.approx(expected, rel=1e-12)
+
+
+def test_bruker_hpc_correction_is_applied_within_its_limits():
+    """High Precision Calibration subtracts its polynomial, but only in range.
+
+    No dataset to hand was acquired with HPC on (##$HPClUse= no throughout),
+    so the arithmetic is pinned here against a hand-built acqu instead.
+    """
+
+    masses = numpy.array([100.0, 500.0, 1000.0, 5000.0])
+    params = {
+        "HPClUse": "yes",
+        "HPClBLo": 400.0,
+        "HPClBHi": 2000.0,
+        "HPClOrd": 2,
+        # coefficients are stored lowest power first: 1 + 0.5m
+        "HPCStr": "V1.0VectorDouble 2 1.0 0.5 c2 0 c0 0",
+    }
+
+    corrected = mspy.parser_bruker._applyHPC(masses, params)
+
+    # outside [400, 2000] the mass is untouched
+    assert corrected[0] == pytest.approx(100.0)
+    assert corrected[3] == pytest.approx(5000.0)
+    # inside, m -> m - (1 + 0.5m)
+    assert corrected[1] == pytest.approx(500.0 - (1.0 + 0.5 * 500.0))
+    assert corrected[2] == pytest.approx(1000.0 - (1.0 + 0.5 * 1000.0))
+
+    # and nothing happens at all unless the acquisition asked for it
+    params["HPClUse"] = "no"
+    assert numpy.array_equal(mspy.parser_bruker._applyHPC(masses, params), masses)
 
 
 def test_parse_bruker_ignores_folder_without_data(tmp_path):
@@ -172,13 +281,15 @@ def test_parse_bruker_polarity_reads_polari(tmp_path):
     assert read({}) is None
 
     # ##.IONIZATION MODE is deliberately NOT consulted -- flexControl writes
-    # 'LD+' there even for negative-mode runs, so trusting it (as OpenMS does)
-    # reports every negative spectrum as positive
+    # 'LD+' there even for negative-mode runs, so trusting it reports every
+    # negative spectrum as positive
     assert read({".IONIZATION MODE": "LD+", "POLARI": "0"}) == -1
     assert read({".IONIZATION MODE": "LD+"}) is None
 
 
-def test_parse_bruker_negative_and_positive_modes(sample_bruker, sample_bruker_positive):
+def test_parse_bruker_negative_and_positive_modes(
+    sample_bruker, sample_bruker_positive
+):
     """A negative-mode and a positive-mode acquisition are told apart.
 
     Both files claim '##.IONIZATION MODE=  LD+', which is exactly why the
@@ -220,9 +331,19 @@ def test_parse_bruker_scanlist_carries_spectrum_type(sample_bruker):
     assert scanlist
 
     required = {
-        "title", "scanNumber", "msLevel", "pointsCount", "polarity",
-        "retentionTime", "lowMZ", "highMZ", "basePeakIntensity",
-        "totIonCurrent", "precursorMZ", "precursorCharge", "spectrumType",
+        "title",
+        "scanNumber",
+        "msLevel",
+        "pointsCount",
+        "polarity",
+        "retentionTime",
+        "lowMZ",
+        "highMZ",
+        "basePeakIntensity",
+        "totIonCurrent",
+        "precursorMZ",
+        "precursorCharge",
+        "spectrumType",
     }
     for entry in scanlist.values():
         assert required.issubset(entry)
@@ -239,7 +360,7 @@ def _write_fake_dataset(root, dataset, spot, owner, date):
     """Build a minimal <dataset>/<spot>/1/1SRef tree with a fid and an acqu.
 
     Only the metadata path is exercised, so the fid can stay empty -- reading
-    the trace itself goes through pyOpenMS and is covered against real data.
+    the trace and calibrating it is covered against real data above.
     """
 
     folder = root / dataset / ("0_" + spot) / "1" / "1SRef"

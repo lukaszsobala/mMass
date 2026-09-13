@@ -208,3 +208,14 @@ that you wrote the original software. Altered source versions must be clearly
 marked as such, and must not be misrepresented as being the original software.
 
 This notice must not be removed or altered from any source distribution.
+
+### Third-party code
+
+The Bruker flex (XMASS) TOF-to-m/z calibration in
+[`src/mspy/parser_bruker.py`](src/mspy/parser_bruker.py) is derived from
+[readBrukerFlexData](https://github.com/sgibb/readBrukerFlexData/) by Sebastian
+Gibb, the reader behind MALDIquant: the interpretation of the `##$NTBCal`
+calibration block, the cubic flight-time model and the `##$HPCStr` High
+Precision Calibration correction all follow that package. readBrukerFlexData is
+licensed GPL (>= 3), which is compatible with mMass' own GPL-3.0-or-later; the
+file itself carries the details.

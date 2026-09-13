@@ -402,6 +402,7 @@ def _with_stored_grid(mz, ai, positions):
 
     peak = mspy.peak(mz=mz, ai=ai, charge=1, isotope=0, fwhm=0.05)
     weights = mpp._poisson_weights(list(range(len(positions))), 0.43)
+    assert weights is not None  # a positive lambda always yields a pattern
     peak.attributes["envelope"] = {
         "area": 1.0, "sumint": ai, "fwhm": 0.05, "shape": "gaussian",
         "isotopes": [(p, w) for p, w in zip(positions, weights, strict=True)],

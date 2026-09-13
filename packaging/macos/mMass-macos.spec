@@ -24,20 +24,16 @@ datas += collect_data_files("xdgenvpy")
 # incidentally installed on the build machine.
 hiddenimports = []
 
-# SciPy is not a runtime dependency (mspy.calculations grows its own local
-# maxima kernel); exclude it so a stray transitive import cannot drag ~70 MB of
-# DLLs and Python back into the bundle.
+# None of these is a runtime dependency: mspy.calculations grows its own local
+# maxima kernel rather than calling SciPy, and nothing in mMass imports pandas
+# or matplotlib. They are listed so that a stray transitive import cannot drag
+# tens of MB of DLLs and Python back into the bundle.
 #
-# Matplotlib is only there because pyopenms declares it: it is used solely by
-# pyopenms/plotting.py, which pyopenms/__init__.py never imports and which does
-# its matplotlib imports inside the plotting functions themselves. mMass calls
-# neither, so excluding it is safe -- verified by importing pyopenms and
-# constructing MSExperiment/FileHandler with matplotlib blocked.
-#
-# Note that pandas cannot be excluded the same way: pyopenms/__init__.py
-# imports ._dataframes unconditionally, and that module imports pandas at the
-# top level, so dropping pandas breaks "import pyopenms" outright.
-excludes = ["scipy", "matplotlib"]
+# Matplotlib and pandas used to arrive with pyopenms, which declared both; that
+# dependency is gone (Bruker fid reading and its TOF calibration are done in
+# mspy.parser_bruker now), so a clean build environment should not have any of
+# the three to begin with. The excludes stay as a guard, not as a fix.
+excludes = ["scipy", "matplotlib", "pandas"]
 
 
 a = Analysis(

@@ -15,8 +15,36 @@
 #     main directory of the program.
 # -------------------------------------------------------------------------
 
+# -------------------------------------------------------------------------
+#     ATTRIBUTION
+#
+#     The TOF-to-m/z calibration in this file is derived from
+#     readBrukerFlexData by Sebastian Gibb (the reader behind MALDIquant):
+#
+#         https://github.com/sgibb/readBrukerFlexData/
+#
+#     Specifically, the meaning and field order of the
+#     'V1.0CTOF2CalibrationConstants' block in ##$NTBCal, the cubic
+#     TOF-to-m/z model and its trailing mass offset, and the ##$HPCStr High
+#     Precision Calibration correction all follow that package's reading of
+#     the format; _tofToMassQuadratic, _tofToMassCubic, _applyHPC and
+#     _hpcCoefficients are ports of its .tof2mass, .ctof2calibration, .hpc
+#     and .extractHPCConstants. The cubic is solved differently here (Newton
+#     from the quadratic estimate rather than polyroot), but the model is
+#     theirs, not independent work.
+#
+#     readBrukerFlexData is licensed GPL (>= 3) and mMass is
+#     GPL-3.0-or-later, so this places no restriction on mMass beyond its
+#     own licence.
+#
+#     No OpenMS or pyOpenMS code is present or was copied. This module used
+#     to call pyOpenMS' XMassFile reader, which applies only the ##$ML*
+#     quadratic; that dependency was dropped rather than ported.
+# -------------------------------------------------------------------------
+
 # load libs
 import datetime
+import math
 import os
 import os.path
 import re
@@ -37,10 +65,13 @@ from . import obj_scan
 #     <dataset>/<spot>/<run>/<1SRef|1SLin>/fid      binary TOF trace (int32)
 #     <dataset>/<spot>/<run>/<1SRef|1SLin>/acqu     acquisition parameters
 #
-# The fid holds intensities only; the TOF-to-m/z calibration constants
-# (ML1/ML2/ML3, DELAY, DW) live in acqu. OpenMS' XMassFile reader parses acqu
-# and applies that calibration, which is why the raw fid is read through
-# pyOpenMS here rather than unpacked by hand.
+# The fid holds intensities only - TD little-endian int32 samples, no header -
+# and the TOF-to-m/z calibration lives in acqu. Both are read here directly.
+#
+# This used to go through pyOpenMS' XMassFile reader, which mis-calibrates
+# every spectrum flexControl fitted with more than a quadratic: see the
+# CALIBRATION section below for what that reader leaves out and why the axis
+# is now computed here instead.
 #
 # Note this covers the flex/XMASS family only. Bruker's later .baf/.yep/.d
 # (Compass, timsTOF) containers need the vendor SDK and are NOT supported.
@@ -211,14 +242,15 @@ class parseBruker:
     def _makeScan(self, scanID, fidPath):
         """Make scan object from a single fid."""
 
-        points = _readFID(fidPath)
+        params = _readAcqu(fidPath)
+
+        points = _readFID(fidPath, params)
         if points is None:
             return False
 
         scan = obj_scan.scan(profile=points)
 
         # set metadata
-        params = _readAcqu(fidPath)
         scan.title = _spotName(fidPath, params, self.spansDatasets())
         scan.scanNumber = scanID
         scan.msLevel = 1
@@ -256,34 +288,251 @@ def findFIDs(path):
     return sorted(fids)
 
 
-def _readFID(fidPath):
-    """Read one fid into an [[mz, intensity], ..] array via pyOpenMS."""
+def _readFID(fidPath, params=None):
+    """Read one fid into an [[mz, intensity], ..] array."""
 
-    # imported here rather than at module level only to keep it off the
-    # application start-up path - it costs ~0.3 s and nothing but Bruker
-    # import needs it
-    import pyopenms
+    if params is None:
+        params = _readAcqu(fidPath)
 
-    # OpenMS picks the XMASS reader by file name, so the path has to be the
-    # fid itself - it then reads the calibration from the sibling acqu file
-    experiment = pyopenms.MSExperiment()
-    try:
-        pyopenms.FileHandler().loadExperiment(fidPath, experiment)
-    except Exception:
+    intensities = _readIntensities(fidPath, params)
+    if intensities is None:
         return None
-
-    if not experiment.getNrSpectra():
-        return None
-
-    mzArray, intArray = experiment.getSpectrum(0).get_peaks()
-    if not len(mzArray):
+    if not len(intensities):
         return numpy.array([])
 
-    points = numpy.empty((len(mzArray), 2), dtype=numpy.float64)
-    points[:, 0] = mzArray
-    points[:, 1] = intArray
+    masses = _massAxis(params, len(intensities))
+    if masses is None:
+        return None
+
+    points = numpy.empty((len(intensities), 2), dtype=numpy.float64)
+    points[:, 0] = masses
+    points[:, 1] = intensities
 
     return points
+
+
+def _readIntensities(fidPath, params):
+    """Read the raw TOF trace out of a fid.
+
+    A fid is a bare block of TD 32-bit integers - no header, no padding - and
+    ##$BYTORDA gives the byte order (0 little, 1 big).
+    """
+
+    try:
+        byteOrder = int(params.get("BYTORDA", 0))
+    except ValueError:
+        byteOrder = 0
+    dtype = numpy.dtype(numpy.int32).newbyteorder(">" if byteOrder else "<")
+
+    count = _pointsCount(params)
+    if count is None:
+        return None
+
+    try:
+        intensities = numpy.fromfile(fidPath, dtype=dtype, count=count)
+    except (IOError, OSError, ValueError):
+        return None
+
+    # a truncated acquisition is still worth showing, so short reads are kept
+    # rather than rejected - only the samples actually present are used
+    return intensities.astype(numpy.float64)
+
+
+# CALIBRATION
+# -----------
+#
+# flexControl stores the TOF-to-m/z calibration twice, and the two copies do
+# not agree. ##$ML1/##$ML2/##$ML3 describe a quadratic
+#
+#     tof = ML2 + sqrt(1e12/ML1)*u + ML3*u**2          (u = sqrt(m/z))
+#
+# but when the instrument was calibrated with a higher-order method - the
+# 'Cubic Enhanced' that ##$CalStar names - the coefficients that were actually
+# fitted live in ##$NTBCal, as a 'V1.0CTOF2CalibrationConstants' block of
+#
+#     DELAY  DW  ML2  ML1  ML3  A3  OFFSET  order
+#
+# adding a cubic term and a constant mass offset:
+#
+#     tof = ML2 + sqrt(1e12/ML1)*u + ML3*u**2 + A3*u**3,   m/z = u**2 - OFFSET
+#
+# The ##$ML* fields are NOT updated to match, so reading them alone silently
+# drops both extra terms. OpenMS' XMassFile does exactly that (its reader has
+# no notion of ##$NTBCal at all), which put every affected spectrum out by
+# 4000-10000 ppm - 3 Da at m/z 622, 56 Da at m/z 5728 on the reference masses
+# flexControl itself recorded in ##$CalStar. Hence this module reads ##$NTBCal
+# and falls back to the quadratic only when no cubic block is present.
+#
+# The model is readBrukerFlexData's - see ATTRIBUTION at the top of the file -
+# and the axis built here reproduces that reader's output to within 1.6e-11 Da
+# across both sample datasets. Two caveats worth keeping in view: that package
+# warns the block is not fully understood (sgibb/readBrukerFlexData#3), and the
+# trailing 'order' value is ignored here exactly as it is ignored there. What
+# vouches for the result is not the agreement but ##$CalStar - flexControl's
+# own calibrant list - which the axis hits to 13 ppm (7 references) and 20 ppm
+# (4 references) on the two datasets.
+
+NTBCAL_MARKER = "V1.0CTOF2CalibrationConstants"
+
+
+def _massAxis(params, count):
+    """Build the m/z axis of an acquisition from its calibration constants."""
+
+    try:
+        delay = float(params["DELAY"])
+        dwell = float(params["DW"])
+        ml1 = float(params["ML1"])
+        ml2 = float(params["ML2"])
+        ml3 = float(params["ML3"])
+    except (KeyError, ValueError):
+        return None
+
+    if ml1 <= 0:
+        return None
+
+    # ##$DELAY and the DELAY inside ##$NTBCal disagree by a fraction of a
+    # sample (39451 against 39451.2), which shifts every sample's m/z by about
+    # 10 ppm. The integer is used because readBrukerFlexData uses it; the
+    # calibrants in ##$CalStar cannot settle which is right, as they pin the
+    # flight-time-to-m/z curve and not the flight time each sample sits at.
+    tof = delay + numpy.arange(count, dtype=numpy.float64) * dwell
+
+    constants = _ctof2Constants(params)
+    if constants is not None:
+        _, _, ml2, ml1, ml3, cubic, offset = constants[:7]
+        masses = _tofToMassCubic(tof, ml1, ml2, ml3, cubic, offset)
+    else:
+        masses = _tofToMassQuadratic(tof, ml1, ml2, ml3)
+
+    return _applyHPC(masses, params)
+
+
+def _ctof2Constants(params):
+    """Get the V1.0CTOF2CalibrationConstants block out of ##$NTBCal.
+
+    The field holds two identical copies of the block; the first is taken.
+    Returns None when the acquisition carries no such block, which is the
+    signal to fall back to the plain ##$ML* quadratic.
+    """
+
+    raw = params.get("NTBCal", "")
+    if NTBCAL_MARKER not in raw:
+        return None
+
+    values = []
+    for token in raw.split(NTBCAL_MARKER, 1)[1].split():
+        try:
+            values.append(float(token))
+        except ValueError:
+            # the numbers run until the next marker word
+            break
+
+    # DELAY DW ML2 ML1 ML3 A3 OFFSET, plus a trailing order that is not used
+    if len(values) < 7 or values[3] <= 0:
+        return None
+
+    return values
+
+
+def _tofToMassQuadratic(tof, ml1, ml2, ml3):
+    """Convert TOF to m/z with the plain ##$ML* quadratic."""
+
+    scale = math.sqrt(1e12 / ml1)
+
+    if ml3 == 0:
+        return ((tof - ml2) / scale) ** 2
+
+    return (
+        (-scale + numpy.sqrt(scale * scale - 4 * ml3 * (ml2 - tof))) / (2 * ml3)
+    ) ** 2
+
+
+def _tofToMassCubic(tof, ml1, ml2, ml3, cubic, offset):
+    """Convert TOF to m/z with the cubic ##$NTBCal calibration.
+
+    Solves A3*u**3 + ML3*u**2 + scale*u + (ML2 - tof) = 0 for u = sqrt(m/z).
+    There is no need to pick between roots: the cubic is strongly dominated by
+    its linear term over any physical flight time, so Newton started from the
+    quadratic solution converges on the one root that means anything.
+    """
+
+    if cubic == 0:
+        return _tofToMassQuadratic(tof, ml1, ml2, ml3) - offset
+
+    scale = math.sqrt(1e12 / ml1)
+
+    # start from the quadratic answer, which is already within ~1% of the root
+    u = numpy.sqrt(numpy.abs(_tofToMassQuadratic(tof, ml1, ml2, ml3)))
+
+    for _iteration in range(12):
+        residual = ((cubic * u + ml3) * u + scale) * u + (ml2 - tof)
+        slope = (3 * cubic * u + 2 * ml3) * u + scale
+        # a stationary point would be far outside the physical range; leaving
+        # those samples where they are keeps the whole axis finite
+        step = numpy.where(slope != 0, residual / numpy.where(slope != 0, slope, 1), 0)
+        u = u - step
+        if numpy.all(numpy.abs(step) <= 1e-12 * numpy.abs(u)):
+            break
+
+    # below ML2 the flight time is unphysical; the sign keeps such samples
+    # monotonic rather than folding them back over the real ones
+    return u * u * numpy.sign(tof - ml2) - offset
+
+
+def _applyHPC(masses, params):
+    """Apply High Precision Calibration, when the acquisition used it.
+
+    HPC is a polynomial correction flexControl fits on top of the TOF
+    calibration and applies only between ##$HPClBLo and ##$HPClBHi. It is off
+    in every dataset seen so far (##$HPClUse= no, ##$HPCStr= <>), so this is
+    a faithful port of what readBrukerFlexData does rather than something
+    that has been checked against a real HPC acquisition.
+    """
+
+    if params.get("HPClUse", "").strip().lower() not in ("yes", "true", "on", "1"):
+        return masses
+
+    try:
+        lowMass = float(params.get("HPClBLo", 0))
+        highMass = float(params.get("HPClBHi", 0))
+        order = int(float(params.get("HPClOrd", 0)))
+    except ValueError:
+        return masses
+
+    if order <= 0 or lowMass <= 0 or highMass <= lowMass:
+        return masses
+
+    coefficients = _hpcCoefficients(params.get("HPCStr", ""))
+    if coefficients is None:
+        return masses
+
+    # numpy.polyval wants the highest power first; the block is stored the
+    # other way round
+    corrected = masses[(masses >= lowMass) & (masses <= highMass)]
+    masses = masses.copy()
+    masses[(masses >= lowMass) & (masses <= highMass)] = corrected - numpy.polyval(
+        coefficients[::-1], corrected
+    )
+
+    return masses
+
+
+def _hpcCoefficients(hpcStr):
+    """Get the HPC polynomial coefficients from ##$HPCStr, lowest power first."""
+
+    tokens = hpcStr.split()
+    if "V1.0VectorDouble" not in tokens or "c2" not in tokens:
+        return None
+
+    start = tokens.index("V1.0VectorDouble") + 2
+    end = tokens.index("c2")
+    if start >= end:
+        return None
+
+    try:
+        return numpy.array([float(token) for token in tokens[start:end]])
+    except ValueError:
+        return None
 
 
 def _readAcqu(fidPath):
@@ -347,13 +596,13 @@ def _polarity(params):
 
     Polarity comes from ##$POLARI, where 0 is negative and 1 is positive.
 
-    NOT from ##.IONIZATION MODE, and so NOT from OpenMS either: OpenMS takes
-    the polarity from the sign on that JCAMP field, but flexControl writes
-    'LD+' there unconditionally - it reads LD+ on negative-mode acquisitions
-    too, which makes every negative spectrum come out as positive. ##$POLARI
-    is the field that actually tracks the acquisition (verified against
-    negative and positive runs, and against the polarity of the reference
-    masses flexControl embeds in ##$CalStar).
+    NOT from ##.IONIZATION MODE: flexControl writes 'LD+' there
+    unconditionally - it reads LD+ on negative-mode acquisitions too - so
+    taking the sign off that JCAMP field, as readers which trust it do, makes
+    every negative spectrum come out positive. ##$POLARI is the field that
+    actually tracks the acquisition (verified against negative and positive
+    runs, and against the polarity of the reference masses flexControl embeds
+    in ##$CalStar).
     """
 
     polarity = params.get("POLARI", "").strip()
