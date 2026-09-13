@@ -30,8 +30,9 @@
 #     the format; _tofToMassQuadratic, _tofToMassCubic, _applyHPC and
 #     _hpcCoefficients are ports of its .tof2mass, .ctof2calibration, .hpc
 #     and .extractHPCConstants. The cubic is solved differently here (Newton
-#     from the quadratic estimate rather than polyroot), but the model is
-#     theirs, not independent work.
+#     from the quadratic estimate rather than polyroot), and its time axis
+#     starts from the block's own DELAY rather than ##$DELAY (checked against
+#     FlexAnalysis exports), but the model is theirs, not independent work.
 #
 #     readBrukerFlexData is licensed GPL (>= 3) and mMass is
 #     GPL-3.0-or-later, so this places no restriction on mMass beyond its
@@ -376,13 +377,20 @@ def _readIntensities(fidPath, params):
 # and falls back to the quadratic only when no cubic block is present.
 #
 # The model is readBrukerFlexData's - see ATTRIBUTION at the top of the file -
-# and the axis built here reproduces that reader's output to within 1.6e-11 Da
-# across both sample datasets. Two caveats worth keeping in view: that package
-# warns the block is not fully understood (sgibb/readBrukerFlexData#3), and the
-# trailing 'order' value is ignored here exactly as it is ignored there. What
-# vouches for the result is not the agreement but ##$CalStar - flexControl's
-# own calibrant list - which the axis hits to 13 ppm (7 references) and 20 ppm
-# (4 references) on the two datasets.
+# with one departure: the flight time of each sample is counted from the DELAY
+# and DW inside the block, not from ##$DELAY and ##$DW as that package does.
+# ##$DELAY is the block's value rounded down to a whole nanosecond, and using
+# it puts every m/z out by 15-39 ppm.
+#
+# That is settled by FlexAnalysis' own mzXML export of 'Cubic Enhanced'
+# spectra: with the block's DELAY every sample lands within 0.06 ppm of
+# FlexAnalysis' m/z - half the step of the 32-bit floats that export is
+# written in, so as close as it can show - and with the integer the whole
+# axis is off. The trailing 'order' value is ignored, as it is in
+# readBrukerFlexData, and nothing in the exports says it should not be.
+# ##$CalStar - flexControl's calibrant list - is consistent with either DELAY
+# (to 10-20 ppm), since it records the flight time of each calibrant rather
+# than the sample it sits at, so it cannot tell the two apart.
 
 NTBCAL_MARKER = "V1.0CTOF2CalibrationConstants"
 
@@ -412,22 +420,17 @@ def _massAxis(params, count):
     if ml1 <= 0:
         return None
 
-    # ##$DELAY and the DELAY inside ##$NTBCal disagree by a fraction of a
-    # sample (39451 against 39451.2), which shifts every sample's m/z by about
-    # 10 ppm. The integer is used because readBrukerFlexData uses it; the
-    # calibrants in ##$CalStar cannot settle which is right, as they pin the
-    # flight-time-to-m/z curve and not the flight time each sample sits at.
-    # Note, though, that for LIFT spectra - where there is a FlexAnalysis
-    # export to compare against - it is the ##$NTBCal value that matches, to
-    # 0.06 ppm, and the integer that is 25-150 ppm off. MS1 has not been
-    # checked against such an export.
-    tof = delay + numpy.arange(count, dtype=numpy.float64) * dwell
-
     constants = _ctof2Constants(params)
     if constants is not None:
-        _, _, ml2, ml1, ml3, cubic, offset = constants[:7]
+        # the block's own DELAY and DW, not the rounded ##$DELAY - see
+        # CALIBRATION above
+        delay, dwell, ml2, ml1, ml3, cubic, offset = constants[:7]
+        tof = delay + numpy.arange(count, dtype=numpy.float64) * dwell
         masses = _tofToMassCubic(tof, ml1, ml2, ml3, cubic, offset)
     else:
+        # ##$DELAY is all there is; no export of such a spectrum has been
+        # available to check it against
+        tof = delay + numpy.arange(count, dtype=numpy.float64) * dwell
         masses = _tofToMassQuadratic(tof, ml1, ml2, ml3)
 
     return _applyHPC(masses, params)
@@ -598,19 +601,18 @@ def _hpcCoefficients(hpcStr):
 # polynomial itself puts the edges of the spectrum out by several ns at the
 # light end and tens of ns at the heavy one, while the tangent matches.
 #
-# Two things differ from the MS1 reading above. The flight time axis starts at
-# the DELAY in this block, not at ##$DELAY, which is that value rounded down
-# to a whole nanosecond: the integer puts every sample a fraction of a
-# nanosecond early, which is 25-150 ppm. And ##$HPC* is not
-# applied: HPC is fitted to an MS1 calibration, and LIFT acquisitions carry
-# ##$HPClUse= yes but with an empty ##$HPCStr and order 0 anyway.
+# As for the cubic MS1 calibration, the flight time axis starts at the DELAY
+# in this block, not at ##$DELAY, which is that value rounded down to a whole
+# nanosecond: here the integer puts every sample a fraction of a nanosecond
+# early, which is 25-150 ppm. Unlike it, ##$HPC* is not applied: HPC is
+# fitted to an MS1 calibration, and LIFT acquisitions carry ##$HPClUse= yes
+# but with an empty ##$HPCStr and order 0 anyway.
 #
 # Checked against the mzXML FlexAnalysis exported for three precursors, in
 # positive and negative mode, a fragment spectrum and a precursor spectrum of
-# each: every exported point
-# lands within 0.06 ppm of the m/z computed here, which is half the step of
-# the 32-bit floats that export is written in - i.e. as close as that file
-# can show.
+# each: every exported point lands within 0.06 ppm of the m/z computed here,
+# which is half the step of the 32-bit floats that export is written in -
+# i.e. as close as that file can show.
 
 LIFT_MARKER = "V1.0CLift2CalibrationConstants"
 POLYNOMIAL_MARKER = "V1.0CCalibPolynomial"

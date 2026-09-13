@@ -148,7 +148,12 @@ def test_parse_bruker_calibration_hits_the_reference_masses(sample_bruker):
     """
 
     fids = mspy.findFIDs(sample_bruker)
-    _ml1, _ml2, _ml3, delay, dw, td = _acqu_constants(fids[0])
+    td = _acqu_constants(fids[0])[5]
+    constants = mspy.parser_bruker._ctof2Constants(
+        mspy.parser_bruker._readAcqu(fids[0])
+    )
+    assert constants is not None  # this dataset was calibrated 'Cubic Enhanced'
+    delay, dw = constants[:2]
 
     references = _calstar_references(fids[0])
     assert len(references) >= 4  # a usable calibration curve, not one anchor
@@ -158,7 +163,8 @@ def test_parse_bruker_calibration_hits_the_reference_masses(sample_bruker):
     masses = numpy.asarray(scan.profile, dtype=float)[:, 0]
     assert len(masses) == td
 
-    # the axis is uniform in flight time, so a reference lands between samples
+    # the axis is uniform in flight time, counted from the block's own DELAY,
+    # so a reference lands between samples
     times = delay + numpy.arange(td) * dw
     for tof, expected in references:
         found = numpy.interp(tof, times, masses)
@@ -193,6 +199,44 @@ def test_parse_bruker_prefers_the_cubic_calibration(sample_bruker):
     ]
     assert min(errors) > 1e-3
     assert errors[0] < errors[-1]
+
+
+def test_bruker_cubic_calibration_counts_time_from_the_block_delay():
+    """The DELAY inside ##$NTBCal sets the sample times, not ##$DELAY.
+
+    ##$DELAY is that value rounded down to a whole nanosecond; FlexAnalysis'
+    exports only match with the block's (see the export test below, which
+    needs spectra/).
+    """
+
+    delay, dwell, ml2, ml1, ml3, cubic, offset = (
+        40000.6,
+        0.2,
+        1000.0,
+        400000.0,
+        0.4,
+        -0.003,
+        -9.0,
+    )
+    params = {
+        "DELAY": "40000",
+        "DW": "0.2",
+        "ML1": str(ml1),
+        "ML2": str(ml2),
+        "ML3": str(ml3),
+        "NTBCal": "V1.0CTOF2CalibrationConstants %r %r %r %r %r %r %r 2"
+        % (delay, dwell, ml2, ml1, ml3, cubic, offset),
+    }
+
+    masses = mspy.parser_bruker._massAxis(params, 5)
+    assert masses is not None  # None means the constants could not be read
+
+    # each mass is the root of the cubic at the block's time for that sample
+    scale = math.sqrt(1e12 / ml1)
+    for index, mass in enumerate(masses):
+        u = math.sqrt(mass + offset)
+        time = ml2 + scale * u + ml3 * u**2 + cubic * u**3
+        assert time == pytest.approx(delay + index * dwell, abs=1e-6)
 
 
 def test_bruker_calibration_falls_back_to_the_quadratic():
@@ -252,7 +296,7 @@ def test_bruker_hpc_correction_is_applied_within_its_limits():
 
 
 # ---------------------------------------------------------------------------
-# Bruker: LIFT (MS/MS)
+# Bruker: against FlexAnalysis' own exports
 # ---------------------------------------------------------------------------
 
 
@@ -292,20 +336,19 @@ def _mzxml_reference(path):
     return fids[0], mass, values[0::2], values[1::2]
 
 
-def test_parse_bruker_lift_matches_flexanalysis(sample_bruker_exports):
-    """A LIFT spectrum gets the m/z axis FlexAnalysis itself gives it.
+def test_parse_bruker_matches_flexanalysis_exports(sample_bruker_exports):
+    """Every spectrum gets the m/z axis FlexAnalysis itself gives it.
 
-    Its ##$ML* fields are placeholders, so the old reading put a 1000 Da
-    fragment at m/z 59. The bound is the precision of the reference: m/z in
-    the export is a 32-bit float, whose step is up to 0.12 ppm here.
+    The exports cover LIFT fragment and precursor spectra, whose ##$ML*
+    fields are placeholders (the old reading put a 1000 Da fragment at m/z
+    59), and 'Cubic Enhanced' MS1 spectra, whose sample times must be counted
+    from the DELAY in ##$NTBCal rather than ##$DELAY (15-39 ppm otherwise).
+    The bound is the precision of the reference: m/z in the export is a
+    32-bit float, whose step is up to 0.12 ppm here.
     """
 
-    checked = 0
     for export in sample_bruker_exports:
         fid, precursor, expectedMZ, expectedIntensity = _mzxml_reference(export)
-        if precursor is None:
-            continue  # not a LIFT spectrum
-        checked += 1
 
         parser = mspy.parseBruker(fid)
         scan = parser.scan()
@@ -326,17 +369,22 @@ def test_parse_bruker_lift_matches_flexanalysis(sample_bruker_exports):
         errors = numpy.abs(masses[index] - expectedMZ) / expectedMZ
         assert errors.max() < 0.2e-6, export
 
-        # and it is labelled as the MS/MS spectrum it is
-        assert scan.msLevel == 2
-        assert scan.precursorMZ == pytest.approx(precursor, abs=1e-6)
+        # and it is labelled as the MS or MS/MS spectrum it is
         scanlist = parser.scanlist()
         assert scanlist  # parsers return False on failure
         entry = scanlist[1]
-        assert entry["msLevel"] == 2
-        assert entry["precursorMZ"] == pytest.approx(precursor, abs=1e-6)
+        if precursor is None:
+            assert scan.msLevel == entry["msLevel"] == 1
+            assert scan.precursorMZ is None and entry["precursorMZ"] is None
+        else:
+            assert scan.msLevel == entry["msLevel"] == 2
+            assert scan.precursorMZ == pytest.approx(precursor, abs=1e-6)
+            assert entry["precursorMZ"] == pytest.approx(precursor, abs=1e-6)
 
-    if not checked:
-        pytest.skip("no LIFT exports among the available mzXML")
+
+# ---------------------------------------------------------------------------
+# Bruker: LIFT (MS/MS)
+# ---------------------------------------------------------------------------
 
 
 def _lift_block(delay, dwell, t0, precursor, coefficients, uLow):
