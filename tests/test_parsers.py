@@ -1,6 +1,8 @@
 """Tests for mspy parsers -- one real-file integration plus a small XY round-trip."""
 
+import base64
 import datetime
+import hashlib
 import math
 import os.path
 import re
@@ -247,6 +249,226 @@ def test_bruker_hpc_correction_is_applied_within_its_limits():
     # and nothing happens at all unless the acquisition asked for it
     params["HPClUse"] = "no"
     assert numpy.array_equal(mspy.parser_bruker._applyHPC(masses, params), masses)
+
+
+# ---------------------------------------------------------------------------
+# Bruker: LIFT (MS/MS)
+# ---------------------------------------------------------------------------
+
+
+def _mzxml_reference(path):
+    """Read FlexAnalysis' mzXML export: (fid it came from, precursor, m/z, intensity).
+
+    The fid is found by the SHA-1 the export records for it, since the path
+    it records is the acquisition PC's and the dataset may have been moved or
+    renamed since. The precursor is None for an MS1 spectrum.
+
+    The export drops zero-intensity samples and stores 32-bit floats, so it
+    is compared point by point rather than as a whole array.
+    """
+
+    with open(path, encoding="latin-1") as document:
+        text = document.read()
+
+    source = re.search(r'<parentFile [^>]*fileSha1="([0-9a-f]+)"', text)
+    precursor = re.search(r"<precursorMz[^>]*>([^<]+)</precursorMz>", text)
+    peaks = re.search(
+        r'<peaks precision="32" byteOrder="network" pairOrder="m/z-int">([^<]*)</peaks>',
+        text,
+    )
+    assert source and peaks, path
+
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    fids = []
+    for fid in mspy.findFIDs(os.path.join(root, "spectra")):
+        with open(fid, "rb") as document:
+            if hashlib.sha1(document.read()).hexdigest() == source.group(1):
+                fids.append(fid)
+    assert len(fids) == 1, path
+
+    values = numpy.frombuffer(base64.b64decode(peaks.group(1)), dtype=">f4")
+    mass = float(precursor.group(1)) if precursor else None
+
+    return fids[0], mass, values[0::2], values[1::2]
+
+
+def test_parse_bruker_lift_matches_flexanalysis(sample_bruker_exports):
+    """A LIFT spectrum gets the m/z axis FlexAnalysis itself gives it.
+
+    Its ##$ML* fields are placeholders, so the old reading put a 1000 Da
+    fragment at m/z 59. The bound is the precision of the reference: m/z in
+    the export is a 32-bit float, whose step is up to 0.12 ppm here.
+    """
+
+    checked = 0
+    for export in sample_bruker_exports:
+        fid, precursor, expectedMZ, expectedIntensity = _mzxml_reference(export)
+        if precursor is None:
+            continue  # not a LIFT spectrum
+        checked += 1
+
+        parser = mspy.parseBruker(fid)
+        scan = parser.scan()
+        assert scan is not False, export  # parser returns False on failure
+        profile = numpy.asarray(scan.profile, dtype=float)
+        masses = profile[:, 0]
+        assert numpy.all(numpy.diff(masses) > 0), export
+
+        # pair each exported point with the nearest sample; the intensities
+        # agreeing proves the pairing is the right one
+        index = numpy.clip(numpy.searchsorted(masses, expectedMZ), 1, len(masses) - 1)
+        closer = numpy.abs(masses[index - 1] - expectedMZ) < numpy.abs(
+            masses[index] - expectedMZ
+        )
+        index = numpy.where(closer, index - 1, index)
+        assert numpy.array_equal(profile[index, 1], expectedIntensity), export
+
+        errors = numpy.abs(masses[index] - expectedMZ) / expectedMZ
+        assert errors.max() < 0.2e-6, export
+
+        # and it is labelled as the MS/MS spectrum it is
+        assert scan.msLevel == 2
+        assert scan.precursorMZ == pytest.approx(precursor, abs=1e-6)
+        scanlist = parser.scanlist()
+        assert scanlist  # parsers return False on failure
+        entry = scanlist[1]
+        assert entry["msLevel"] == 2
+        assert entry["precursorMZ"] == pytest.approx(precursor, abs=1e-6)
+
+    if not checked:
+        pytest.skip("no LIFT exports among the available mzXML")
+
+
+def _lift_block(delay, dwell, t0, precursor, coefficients, uLow):
+    """Build a V1.0CLift2CalibrationConstants block laid out as flexControl does."""
+
+    def polynomial(values, mass, low, high):
+        return "V1.0CCalibPolynomial V1.0VectorDouble %d %s %r %r %r" % (
+            len(values),
+            " ".join(repr(value) for value in values),
+            mass,
+            low,
+            high,
+        )
+
+    identity = [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    uHigh = math.sqrt(precursor)
+    block = " ".join(
+        [
+            "V1.0CLift2CalibrationConstants V3.0CTOFCalibrationConstants",
+            "%r %r 0 0 0 2 1" % (delay, dwell),
+            # one calibrant, deliberately NOT the curve for this precursor
+            polynomial([1.0, 900.0, 0.0, 0.0, 0.0, 0.0, 0.0], 1500.0, 8.0, 38.7),
+            polynomial(identity, 1500.0, 30.0, 1500.0),
+            "V1.0VectorDouble 3 0 1.0 0.0",
+            "0 0 %r %r %r" % (t0, t0, precursor),
+            polynomial(coefficients, precursor, uLow, uHigh),
+            polynomial(identity, precursor, 13.0, precursor),
+            "0 0 1 1 1 0",
+        ]
+    )
+    # the field repeats the block, as flexControl writes it
+    return "V3.0CCalibrator 10 1 V1.0CHPCData endCHPCData %s %s" % (block, block)
+
+
+def test_bruker_lift_calibration_inverts_the_precursor_polynomial():
+    """Inside its range the polynomial is inverted; outside, its tangent is.
+
+    tof - T0 = P(sqrt(m/z)) for the precursor's own polynomial, time counted
+    from the DELAY in the block rather than from ##$DELAY.
+    """
+
+    coefficients = [500.0, 1000.0, 10.0, 0.0125]
+    delay, dwell, t0, precursor, uLow = 20000.4, 0.4, 15000.0, 900.0, 9.0
+    params = {
+        "SPType": "2",
+        "Parent": str(precursor),
+        # placeholders, as in a real LIFT acqu, and an integer DELAY that
+        # must not be used
+        "DELAY": "20000",
+        "DW": "0.40000001",
+        "ML1": "20000",
+        "ML2": "0",
+        "ML3": "0",
+        "NTBCal": _lift_block(delay, dwell, t0, precursor, coefficients, uLow),
+    }
+
+    lift = mspy.parser_bruker._liftCalibration(params)
+    assert lift is not None  # None means the block could not be read
+    assert lift[0] == delay and lift[2] == t0
+
+    count = 100000
+    masses = mspy.parser_bruker._massAxis(params, count)
+    assert masses is not None
+    assert numpy.all(numpy.diff(masses) > 0)
+
+    curve = numpy.polynomial.Polynomial(coefficients)
+    times = delay + numpy.arange(count) * dwell - t0
+    roots = numpy.sqrt(masses)
+    inside = (roots >= uLow) & (roots <= math.sqrt(precursor))
+    assert 0 < inside.sum() < count  # the spectrum runs past both ends
+
+    assert numpy.allclose(curve(roots[inside]), times[inside], rtol=0, atol=1e-7)
+
+    uHigh = math.sqrt(precursor)
+    for end, outside in ((uLow, roots < uLow), (uHigh, roots > uHigh)):
+        assert outside.any()
+        tangent = curve(end) + curve.deriv()(end) * (roots[outside] - end)
+        assert numpy.allclose(tangent, times[outside], rtol=0, atol=1e-7)
+
+
+def test_bruker_lift_calibration_rejects_a_block_it_cannot_read():
+    """A block of another layout is not guessed at."""
+
+    coefficients = [500.0, 1000.0, 10.0, 0.0125]
+    block = _lift_block(20000.4, 0.4, 15000.0, 900.0, coefficients, 9.0)
+    read = mspy.parser_bruker._liftCalibration
+
+    assert read({"NTBCal": block}) is not None
+    # truncated partway through the precursor's polynomial
+    assert read({"NTBCal": block[: block.index("0.0125")]}) is None
+    # the polynomial after T0 is not for the precursor named beside it
+    marker = " V1.0CCalibPolynomial"
+    wrongPrecursor = block.replace("900.0" + marker, "950.0" + marker, 1)
+    assert read({"NTBCal": wrongPrecursor}) is None
+    # no LIFT block at all
+    assert read({"NTBCal": "V1.0CTOF2CalibrationConstants 1 2 3"}) is None
+
+
+def test_parse_bruker_lift_sits_in_the_same_dataset_as_its_spot(tmp_path):
+    """LIFT's extra '<precursor>.LIFT' folder does not look like another dataset.
+
+    And the precursor names it, since the MS1 spectrum on the same spot would
+    otherwise carry the same label.
+    """
+
+    ms1 = _write_fake_dataset(tmp_path, "PlateA", "A1", "alice", "2026-01-01T12:00:00")
+
+    folder = tmp_path / "PlateA" / "0_A1" / "1" / "900.1234.LIFT" / "1SRef"
+    folder.mkdir(parents=True)
+    (folder / "fid").write_bytes(b"")
+    (folder / "acqu").write_text(
+        (tmp_path / "PlateA" / "0_A1" / "1" / "1SRef" / "acqu").read_text()
+        + "##$SPType= 2\n##$Parent= 900.123456789\n"
+    )
+    lift = folder / "fid"
+
+    assert mspy.datasetDir(str(lift)) == mspy.datasetDir(str(ms1))
+    assert mspy.datasetDir(str(lift)) == str(tmp_path / "PlateA")
+
+    parser = mspy.parseBruker(str(tmp_path / "PlateA"))
+    assert not parser.spansDatasets()
+    scanlist = parser.scanlist()
+    assert scanlist  # parsers return False on failure
+
+    entries = sorted(scanlist.values(), key=lambda entry: entry["msLevel"])
+    assert [entry["title"] for entry in entries] == ["A1", "A1 LIFT 900.1235"]
+    assert [entry["msLevel"] for entry in entries] == [1, 2]
+    assert entries[0]["precursorMZ"] is None
+    assert entries[1]["precursorMZ"] == pytest.approx(900.123456789)
+
+    # ##$Parent is a placeholder outside LIFT and is not reported
+    assert mspy.parser_bruker._precursorMZ({"SPType": "0", "Parent": "1000"}) is None
 
 
 def test_parse_bruker_ignores_folder_without_data(tmp_path):

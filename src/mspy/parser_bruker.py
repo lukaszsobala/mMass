@@ -37,6 +37,12 @@
 #     GPL-3.0-or-later, so this places no restriction on mMass beyond its
 #     own licence.
 #
+#     The LIFT (MS/MS) calibration is NOT from that package, which does not
+#     support LIFT: it detects such spectra and returns their raw flight
+#     times. The reading of the 'V1.0CLift2CalibrationConstants' block here
+#     was worked out for mMass by comparing the raw fid against FlexAnalysis'
+#     own mzXML export of the same acquisitions.
+#
 #     No OpenMS or pyOpenMS code is present or was copied. This module used
 #     to call pyOpenMS' XMassFile reader, which applies only the ##$ML*
 #     quadratic; that dependency was dropped rather than ported.
@@ -64,6 +70,11 @@ from . import obj_scan
 #
 #     <dataset>/<spot>/<run>/<1SRef|1SLin>/fid      binary TOF trace (int32)
 #     <dataset>/<spot>/<run>/<1SRef|1SLin>/acqu     acquisition parameters
+#
+# except LIFT (MS/MS) acquisitions, which sit one level deeper, in a folder
+# named after the precursor:
+#
+#     <dataset>/<spot>/<run>/<precursor>.LIFT/1SRef/fid
 #
 # The fid holds intensities only - TD little-endian int32 samples, no header -
 # and the TOF-to-m/z calibration lives in acqu. Both are read here directly.
@@ -202,7 +213,7 @@ class parseBruker:
                 "title": _spotName(fidPath, params, qualify),
                 "scanNumber": scanID,
                 "parentScanNumber": None,
-                "msLevel": 1,
+                "msLevel": _msLevel(params),
                 "pointsCount": _pointsCount(params),
                 "polarity": _polarity(params),
                 "retentionTime": None,
@@ -211,7 +222,7 @@ class parseBruker:
                 "basePeakMZ": None,
                 "basePeakIntensity": None,
                 "totIonCurrent": None,
-                "precursorMZ": None,
+                "precursorMZ": _precursorMZ(params),
                 "precursorIntensity": None,
                 "precursorCharge": None,
                 # a fid is the raw TOF trace, always a profile
@@ -253,7 +264,8 @@ class parseBruker:
         # set metadata
         scan.title = _spotName(fidPath, params, self.spansDatasets())
         scan.scanNumber = scanID
-        scan.msLevel = 1
+        scan.msLevel = _msLevel(params)
+        scan.precursorMZ = _precursorMZ(params)
         scan.polarity = _polarity(params)
 
         if len(points):
@@ -378,6 +390,16 @@ NTBCAL_MARKER = "V1.0CTOF2CalibrationConstants"
 def _massAxis(params, count):
     """Build the m/z axis of an acquisition from its calibration constants."""
 
+    # LIFT spectra carry a calibration of their own, and their ##$ML* fields
+    # are placeholders (ML1= 20000, ML2= ML3= 0) that would put a 1000 Da
+    # fragment at 59. A block that cannot be used falls through to them all
+    # the same, so the spectrum still opens rather than not at all.
+    lift = _liftCalibration(params)
+    if lift is not None:
+        masses = _liftMasses(lift, count)
+        if masses is not None:
+            return masses
+
     try:
         delay = float(params["DELAY"])
         dwell = float(params["DW"])
@@ -395,6 +417,10 @@ def _massAxis(params, count):
     # 10 ppm. The integer is used because readBrukerFlexData uses it; the
     # calibrants in ##$CalStar cannot settle which is right, as they pin the
     # flight-time-to-m/z curve and not the flight time each sample sits at.
+    # Note, though, that for LIFT spectra - where there is a FlexAnalysis
+    # export to compare against - it is the ##$NTBCal value that matches, to
+    # 0.06 ppm, and the integer that is 25-150 ppm off. MS1 has not been
+    # checked against such an export.
     tof = delay + numpy.arange(count, dtype=numpy.float64) * dwell
 
     constants = _ctof2Constants(params)
@@ -535,6 +561,175 @@ def _hpcCoefficients(hpcStr):
         return None
 
 
+# LIFT CALIBRATION
+# ----------------
+#
+# A LIFT spectrum holds the fragments of one precursor, re-accelerated in the
+# LIFT cell once the precursor has flown there. Their flight time is not a
+# quadratic in sqrt(m/z) at all, so ##$ML* is left at placeholder values and
+# the calibration lives in ##$NTBCal instead, as a
+# 'V1.0CLift2CalibrationConstants' block laid out as
+#
+#     V3.0CTOFCalibrationConstants  DELAY  DW  0 0 0  2  N
+#     N x polynomial                  the instrument's calibration, one per
+#                                     calibrant precursor
+#     1 x polynomial                  (identity in every file seen)
+#     V1.0VectorDouble k  k values    (not used)
+#     0 0  T0 T0  PRECURSOR
+#     1 x polynomial                  the calibration for THIS precursor
+#     1 x polynomial                  (identity in every file seen)
+#     6 flags
+#
+# where each polynomial is
+#
+#     V1.0CCalibPolynomial V1.0VectorDouble k  c0 .. c(k-1)  MASS  ULOW  UHIGH
+#
+# The one that applies is the one flexControl already interpolated for the
+# precursor that was actually selected, and it gives the flight time measured
+# from T0 as a function of u = sqrt(m/z):
+#
+#     tof - T0 = c0 + c1*u + ... + c6*u**6        ULOW <= u <= UHIGH
+#
+# T0 is close to ##$TLft + ##$TLift - roughly when the precursor reaches the
+# LIFT cell - but only to within 0.3 ns, which is why it is read from the
+# block. UHIGH is sqrt(PRECURSOR), since no fragment outweighs its precursor.
+# Outside [ULOW, UHIGH] the curve continues as a straight line along the
+# tangent at the nearer end, NOT as the polynomial: extrapolating the
+# polynomial itself puts the edges of the spectrum out by several ns at the
+# light end and tens of ns at the heavy one, while the tangent matches.
+#
+# Two things differ from the MS1 reading above. The flight time axis starts at
+# the DELAY in this block, not at ##$DELAY, which is that value rounded down
+# to a whole nanosecond: the integer puts every sample a fraction of a
+# nanosecond early, which is 25-150 ppm. And ##$HPC* is not
+# applied: HPC is fitted to an MS1 calibration, and LIFT acquisitions carry
+# ##$HPClUse= yes but with an empty ##$HPCStr and order 0 anyway.
+#
+# Checked against the mzXML FlexAnalysis exported for three precursors, in
+# positive and negative mode, a fragment spectrum and a precursor spectrum of
+# each: every exported point
+# lands within 0.06 ppm of the m/z computed here, which is half the step of
+# the 32-bit floats that export is written in - i.e. as close as that file
+# can show.
+
+LIFT_MARKER = "V1.0CLift2CalibrationConstants"
+POLYNOMIAL_MARKER = "V1.0CCalibPolynomial"
+
+
+def _liftCalibration(params):
+    """Get the LIFT calibration for this acquisition's precursor out of ##$NTBCal.
+
+    Returns (delay, dwell, t0, coefficients, uLow, uHigh), coefficients lowest
+    power first, or None when the acquisition is not LIFT or the block does
+    not have the layout described above.
+    """
+
+    raw = params.get("NTBCal", "")
+    if LIFT_MARKER not in raw:
+        return None
+
+    # the field holds two identical copies of the block; the first is taken
+    tokens = raw.split(LIFT_MARKER)[1].split()
+
+    try:
+        return _parseLiftBlock(tokens)
+    except (IndexError, ValueError):
+        return None
+
+
+def _parseLiftBlock(tokens):
+    """Walk one V1.0CLift2CalibrationConstants block; raises if it is malformed."""
+
+    if tokens[0] != "V3.0CTOFCalibrationConstants":
+        raise ValueError("unexpected LIFT header")
+
+    delay = float(tokens[1])
+    dwell = float(tokens[2])
+    calibrants = int(tokens[7])
+    position = 8
+
+    # the calibrant polynomials, then the (identity) one after them
+    for _polynomial in range(calibrants + 1):
+        _coefficients, _limits, position = _readPolynomial(tokens, position)
+
+    # a short vector that is not needed here
+    if tokens[position] != "V1.0VectorDouble":
+        raise ValueError("unexpected LIFT layout")
+    position += 2 + int(tokens[position + 1])
+
+    # 0 0 T0 T0 PRECURSOR
+    t0 = float(tokens[position + 2])
+    precursor = float(tokens[position + 4])
+    position += 5
+
+    coefficients, (mass, uLow, uHigh), position = _readPolynomial(tokens, position)
+
+    if abs(mass - precursor) > 1e-6 * precursor:
+        raise ValueError("polynomial is not for this precursor")
+    if not 0 < uLow < uHigh or dwell <= 0:
+        raise ValueError("unusable LIFT calibration")
+
+    return delay, dwell, t0, coefficients, uLow, uHigh
+
+
+def _readPolynomial(tokens, position):
+    """Read one V1.0CCalibPolynomial; returns (coefficients, limits, next position)."""
+
+    if (
+        tokens[position] != POLYNOMIAL_MARKER
+        or tokens[position + 1] != "V1.0VectorDouble"
+    ):
+        raise ValueError("expected a calibration polynomial")
+
+    size = int(tokens[position + 2])
+    start = position + 3
+    coefficients = numpy.array([float(token) for token in tokens[start : start + size]])
+    limits = tuple(float(token) for token in tokens[start + size : start + size + 3])
+    if len(coefficients) != size or len(limits) != 3:
+        raise IndexError("truncated calibration polynomial")
+
+    return coefficients, limits, start + size + 3
+
+
+def _liftMasses(lift, count):
+    """Build the m/z axis of a LIFT acquisition."""
+
+    delay, dwell, t0, coefficients, uLow, uHigh = lift
+    polynomial = numpy.polynomial.Polynomial(coefficients)
+    slope = polynomial.deriv()
+
+    # the inversion below needs a curve that only ever rises across its range
+    grid = numpy.linspace(uLow, uHigh, 2001)
+    if not numpy.all(slope(grid) > 0):
+        return None
+
+    times = delay + numpy.arange(count, dtype=numpy.float64) * dwell - t0
+    timeLow = polynomial(uLow)
+    timeHigh = polynomial(uHigh)
+
+    # inside the range: start from the tabulated curve and polish with Newton,
+    # kept inside the range so it cannot wander off onto the extrapolation
+    inside = (times >= timeLow) & (times <= timeHigh)
+    u = numpy.interp(times[inside], polynomial(grid), grid)
+    for _iteration in range(20):
+        step = (polynomial(u) - times[inside]) / slope(u)
+        u = numpy.clip(u - step, uLow, uHigh)
+        if numpy.all(numpy.abs(step) <= 1e-13 * u):
+            break
+
+    roots = numpy.empty(count, dtype=numpy.float64)
+    roots[inside] = u
+
+    # outside it: the tangent at the nearer end
+    below = times < timeLow
+    above = times > timeHigh
+    roots[below] = uLow + (times[below] - timeLow) / slope(uLow)
+    roots[above] = uHigh + (times[above] - timeHigh) / slope(uHigh)
+
+    # the sign keeps an (unphysical) negative root monotonic, as in the cubic
+    return roots * numpy.abs(roots)
+
+
 def _readAcqu(fidPath):
     """Read the acquisition parameters sitting next to a fid."""
 
@@ -614,6 +809,46 @@ def _polarity(params):
     return None
 
 
+def _isLIFT(params):
+    """Tell whether an acquisition is a LIFT (MS/MS) spectrum.
+
+    ##$SPType is 2 for LIFT (0 for a plain TOF spectrum). The calibration
+    block is accepted as well, so a LIFT spectrum is still recognised in case
+    the type field is missing.
+    """
+
+    return params.get("SPType", "").strip() == "2" or LIFT_MARKER in params.get(
+        "NTBCal", ""
+    )
+
+
+def _msLevel(params):
+    """Get the MS level: 2 for LIFT, 1 otherwise.
+
+    FlexAnalysis exports the precursor ('par') spectrum of a LIFT run as MS2
+    as well - it is acquired through the LIFT cell, with the precursor
+    selected - so no distinction is made between the two here either.
+    """
+
+    return 2 if _isLIFT(params) else 1
+
+
+def _precursorMZ(params):
+    """Get the selected precursor m/z of a LIFT acquisition, else None.
+
+    ##$Parent is filled in for every acquisition, but outside LIFT it is a
+    placeholder (1000), so it is only read when the spectrum is LIFT.
+    """
+
+    if not _isLIFT(params):
+        return None
+
+    try:
+        return float(params["Parent"])
+    except (KeyError, ValueError):
+        return None
+
+
 def _pointsCount(params):
     """Get the number of data points from the acquisition parameters."""
 
@@ -626,14 +861,21 @@ def _pointsCount(params):
 def _spotLabel(fidPath, params):
     """Get the bare label of a single acquisition."""
 
-    # the sample position (e.g. 'M9' or 'A1') is the meaningful label
-    spot = params.get("SPOTNO", "") or params.get("PATCHNO", "")
-    if spot:
-        return spot
-
+    # the sample position (e.g. 'M9' or 'A1') is the meaningful label;
     # otherwise fall back to the spot folder, e.g. '0_M9' - not the folder the
     # fid sits in directly, which is the '1SRef' every acquisition shares
-    return os.path.basename(_spotDir(fidPath))
+    spot = params.get("SPOTNO", "") or params.get("PATCHNO", "")
+    if not spot:
+        spot = os.path.basename(_spotDir(fidPath))
+
+    # a LIFT spectrum shares its spot with the MS1 spectrum it was selected
+    # from, and with any other precursor fragmented there, so the precursor
+    # is what tells them apart
+    precursor = _precursorMZ(params)
+    if precursor is not None:
+        return "%s LIFT %.4f" % (spot, precursor)
+
+    return spot
 
 
 def _spotName(fidPath, params, qualify=False):
@@ -664,12 +906,24 @@ def _levelsUp(path, levels):
     return path
 
 
-# a fid sits at <dataset>/<spot>/<run>/<1SRef>/fid, so its spot folder is two
-# levels above the folder holding it and its dataset folder three
+# a fid sits at <dataset>/<spot>/<run>/<1SRef>/fid, so its run folder is one
+# level above the folder holding it, its spot folder two and its dataset folder
+# three - or one more of each for LIFT, whose 1SRef sits in a
+# '<precursor>.LIFT' folder inside the run
+def _runDir(fidPath):
+    """Get the run folder holding a single acquisition."""
+
+    folder = os.path.dirname(os.path.dirname(fidPath))
+    if os.path.basename(folder).lower().endswith(".lift"):
+        folder = os.path.dirname(folder)
+
+    return folder
+
+
 def _spotDir(fidPath):
     """Get the spot folder holding a single acquisition."""
 
-    return os.path.normpath(_levelsUp(os.path.dirname(fidPath), 2))
+    return os.path.normpath(_levelsUp(_runDir(fidPath), 1))
 
 
 def datasetDir(fidPath):
@@ -680,7 +934,7 @@ def datasetDir(fidPath):
     results belong, not the '1SRef' the fid happens to sit in.
     """
 
-    return os.path.normpath(_levelsUp(os.path.dirname(fidPath), 3))
+    return os.path.normpath(_levelsUp(_runDir(fidPath), 2))
 
 
 def _datasetName(path):

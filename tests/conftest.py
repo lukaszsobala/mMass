@@ -152,3 +152,25 @@ def sample_bruker_positive():
     if not os.path.exists(path):
         pytest.skip("sample Bruker data not available (spectra/ is gitignored)")
     return path
+
+
+@pytest.fixture
+def sample_bruker_exports():
+    """Paths of mzXML files FlexAnalysis exported from Bruker data, or skip.
+
+    Each export records the SHA-1 of the fid it was made from, so it is
+    paired with its dataset by content wherever the two sit under spectra/,
+    and its m/z axis is the reference that dataset's calibration is checked
+    against.
+    """
+
+    root = os.path.join(_REPO_ROOT, "spectra")
+    exports = sorted(
+        os.path.join(folder, name)
+        for folder, _subfolders, names in os.walk(root)
+        for name in names
+        if name.endswith(".mzXML")
+    )
+    if not exports:
+        pytest.skip("no Bruker mzXML exports available (spectra/ is gitignored)")
+    return exports
