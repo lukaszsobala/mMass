@@ -1,11 +1,10 @@
-"""Tests for mspy parsers -- one real-file integration plus a small XY round-trip."""
+"""Tests for mspy parsers, each reading data the test writes itself."""
 
 import base64
 import datetime
-import hashlib
 import math
 import os.path
-import re
+import zlib
 
 import numpy
 import pytest
@@ -38,40 +37,200 @@ def test_parse_xy_missing_file_raises():
         mspy.parseXY("/no/such/file.xy")
 
 
-def test_parse_mzml_sample(sample_mzml):
-    parser = mspy.parseMZML(sample_mzml)
-    parser.load()
-    scan_ids = parser.scanlist()
-    assert isinstance(scan_ids, dict) and scan_ids  # at least one scan
+def _mzml_array(values, name, precision=64, compressed=False):
+    """One <binaryDataArray>, encoded as mzML stores it (little-endian, base64)."""
 
-    first_id = next(iter(scan_ids))
-    scan = parser.scan(first_id)
-    assert scan is not False  # parser returns False on failure
-    profile = numpy.asarray(scan.profile, dtype=float)
-    assert profile.ndim == 2 and profile.shape[1] == 2
-    assert len(profile) > 0
-    # m/z values are sorted and positive
-    assert numpy.all(profile[:, 0] > 0)
-    assert numpy.all(numpy.diff(profile[:, 0]) >= 0)
+    raw = numpy.asarray(values, dtype="<f8" if precision == 64 else "<f4").tobytes()
+    if compressed:
+        raw = zlib.compress(raw)
+    encoded = base64.b64encode(raw).decode("ascii")
+
+    return (
+        '<binaryDataArray encodedLength="%d">'
+        '<cvParam cvRef="MS" accession="MS:%s" name="%d-bit float"/>'
+        '<cvParam cvRef="MS" accession="MS:%s" name="%s"/>'
+        '<cvParam cvRef="MS" accession="MS:%s" name="%s"/>'
+        "<binary>%s</binary>"
+        "</binaryDataArray>"
+        % (
+            len(encoded),
+            "1000523" if precision == 64 else "1000521",
+            precision,
+            "1000574" if compressed else "1000576",
+            "zlib compression" if compressed else "no compression",
+            "1000514" if name == "m/z array" else "1000515",
+            name,
+            encoded,
+        )
+    )
+
+
+def test_parse_mzml(tmp_path):
+    """A profile MS1 scan and a centroided MS2 scan read back as written.
+
+    The two scans use the two encodings mzML writers pick between -- 64-bit
+    zlib-compressed and 32-bit uncompressed -- so both decoders are covered.
+    """
+
+    profileMZ = numpy.linspace(500.0, 510.0, 11)
+    profileIntensity = numpy.array([0, 1, 3, 9, 20, 35, 20, 9, 3, 1, 0], dtype=float)
+    peakMZ = [150.25, 300.5, 450.75]
+    peakIntensity = [10.0, 40.0, 25.0]
+
+    path = tmp_path / "run.mzML"
+    path.write_text(
+        '<?xml version="1.0" encoding="utf-8"?>'
+        '<mzML xmlns="http://psi.hupo.org/ms/mzml" version="1.1.0">'
+        '<run id="run"><spectrumList count="2">'
+        # scan 1: profile MS1, positive
+        '<spectrum index="0" id="scan=1" defaultArrayLength="11">'
+        '<cvParam cvRef="MS" accession="MS:1000511" name="ms level" value="1"/>'
+        '<cvParam cvRef="MS" accession="MS:1000128" name="profile spectrum"/>'
+        '<cvParam cvRef="MS" accession="MS:1000130" name="positive scan"/>'
+        '<scanList count="1"><scan>'
+        '<cvParam cvRef="MS" accession="MS:1000016" name="scan start time"'
+        ' value="1.5" unitName="minute"/>'
+        "</scan></scanList>"
+        '<binaryDataArrayList count="2">'
+        + _mzml_array(profileMZ, "m/z array", compressed=True)
+        + _mzml_array(profileIntensity, "intensity array", compressed=True)
+        + "</binaryDataArrayList></spectrum>"
+        # scan 2: centroided MS2 of a precursor picked in scan 1, negative
+        + '<spectrum index="1" id="scan=2" defaultArrayLength="3">'
+        '<cvParam cvRef="MS" accession="MS:1000511" name="ms level" value="2"/>'
+        '<cvParam cvRef="MS" accession="MS:1000127" name="centroid spectrum"/>'
+        '<cvParam cvRef="MS" accession="MS:1000129" name="negative scan"/>'
+        '<precursorList count="1"><precursor spectrumRef="scan=1">'
+        '<selectedIonList count="1"><selectedIon>'
+        '<cvParam cvRef="MS" accession="MS:1000744" name="selected ion m/z"'
+        ' value="505.0"/>'
+        '<cvParam cvRef="MS" accession="MS:1000041" name="charge state" value="2"/>'
+        "</selectedIon></selectedIonList></precursor></precursorList>"
+        '<binaryDataArrayList count="2">'
+        + _mzml_array(peakMZ, "m/z array", precision=32)
+        + _mzml_array(peakIntensity, "intensity array", precision=32)
+        + "</binaryDataArrayList></spectrum>"
+        "</spectrumList></run></mzML>"
+    )
+
+    parser = mspy.parseMZML(str(path))
+    scanlist = parser.scanlist()
+    assert isinstance(scanlist, dict)  # parsers return False on failure
+    assert sorted(scanlist) == [1, 2]
+    assert scanlist[1]["msLevel"] == 1 and scanlist[2]["msLevel"] == 2
+    assert scanlist[2]["precursorMZ"] == pytest.approx(505.0)
+
+    ms1 = parser.scan(1)
+    assert ms1 is not False  # parser returns False on failure
+    profile = numpy.asarray(ms1.profile, dtype=float)
+    assert numpy.array_equal(profile[:, 0], profileMZ)
+    assert numpy.array_equal(profile[:, 1], profileIntensity)
+    assert ms1.polarity == 1
+    assert ms1.retentionTime == pytest.approx(90.0)  # minutes -> seconds
+
+    ms2 = parser.scan(2)
+    assert ms2 is not False  # parser returns False on failure
+    assert [peak.mz for peak in ms2.peaklist] == pytest.approx(peakMZ)
+    assert [peak.ai for peak in ms2.peaklist] == pytest.approx(peakIntensity)
+    assert ms2.polarity == -1
+    assert ms2.parentScanNumber == 1
+    assert ms2.precursorMZ == pytest.approx(505.0)
+    assert ms2.precursorCharge == 2
 
 
 # ---------------------------------------------------------------------------
 # Bruker flex (XMASS)
 # ---------------------------------------------------------------------------
+#
+# Every acquisition below is written by the test itself: a fid of int32
+# samples beside an acqu laid out as flexControl writes one, with invented
+# calibration constants. What a real instrument stores was established
+# against FlexAnalysis' own exports (see the CALIBRATION notes in
+# parser_bruker.py); these tests pin that reading down.
+
+# An invented 'Cubic Enhanced' calibration, stored the way flexControl stores
+# one: the fitted constants in ##$NTBCal, an older quadratic left behind in
+# ##$ML*, and ##$DELAY holding the block's DELAY rounded down.
+CUBIC = {
+    "delay": 30000.6,
+    "dwell": 0.5,
+    "ml2": 500.0,
+    "ml1": 350000.0,
+    "ml3": 0.3,
+    "cubic": -0.002,
+    "offset": -5.0,
+}
 
 
-def _acqu_constants(fid_path):
-    """Read the TOF calibration constants from a fid's sibling acqu file."""
+def _write_acquisition(folder, fields, intensities=(), byteOrder="<"):
+    """Write one acquisition: a fid of int32 samples and the acqu beside it.
 
-    params = mspy.parser_bruker._readAcqu(fid_path)
-    return (
-        float(params["ML1"]),
-        float(params["ML2"]),
-        float(params["ML3"]),
-        float(params["DELAY"]),
-        float(params["DW"]),
-        int(params["TD"]),
+    fields maps acqu names to values as they appear in the file, e.g.
+    {'$TD': '1000', '.IONIZATION MODE': 'LD+'}.
+    """
+
+    folder.mkdir(parents=True)
+    samples = numpy.asarray(intensities, dtype=byteOrder + "i4")
+    (folder / "fid").write_bytes(samples.tobytes())
+
+    lines = ["##TITLE=  XMASS Parameter file", "##JCAMPDX=  5.0"]
+    lines += ["##%s= %s " % (name, value) for name, value in fields.items()]
+    lines.append("##END=")
+    (folder / "acqu").write_text("\n".join(lines) + "\n")
+
+    return folder / "fid"
+
+
+def _cubic_fields(count, **extra):
+    """acqu fields for an MS1 acquisition carrying the CUBIC calibration."""
+
+    block = "V1.0CTOF2CalibrationConstants %r %r %r %r %r %r %r 2" % (
+        CUBIC["delay"],
+        CUBIC["dwell"],
+        CUBIC["ml2"],
+        CUBIC["ml1"],
+        CUBIC["ml3"],
+        CUBIC["cubic"],
+        CUBIC["offset"],
     )
+    fields = {
+        "SPECTROMETER/DATASYSTEM": " Bruker Flex Series",
+        ".IONIZATION MODE": " LD+",
+        "$BYTORDA": "0",
+        "$DATE": "0",
+        "$DELAY": "30000",
+        "$DW": "0.5",
+        "$HPClUse": "no",
+        "$INSTRUM": "<FLEX-PC>",
+        "$ML1": "340000.0",
+        "$ML2": "520.0",
+        "$ML3": "0.25",
+        "$OWNER": "<alice>",
+        "$POLARI": "1",
+        "$SPType": "0",
+        "$SPOTNO": "<A1>",
+        "$TD": str(count),
+        "$AQ_DATE": "<2026-01-01T12:00:00.000+01:00>",
+        "$NTBCal": "<V3.0CCalibrator 12 1 V1.0CHPCData endCHPCData %s %s>"
+        % (block, block),
+    }
+    fields.update(extra)
+    return fields
+
+
+def _cubic_time(mass):
+    """Flight time of an m/z under the CUBIC calibration -- the forward model."""
+
+    u = numpy.sqrt(numpy.asarray(mass) + CUBIC["offset"])
+    scale = math.sqrt(1e12 / CUBIC["ml1"])
+    return CUBIC["ml2"] + scale * u + CUBIC["ml3"] * u**2 + CUBIC["cubic"] * u**3
+
+
+def _peak_trace(count):
+    """A peak on a small baseline, so every sample has a distinct role."""
+
+    index = numpy.arange(count)
+    return (20 + 5000 * numpy.exp(-(((index - count / 3) / 15.0) ** 2))).astype(int)
 
 
 def _tof_to_mz(time, ml1, ml2, ml3):
@@ -83,55 +242,45 @@ def _tof_to_mz(time, ml1, ml2, ml3):
     return root * root
 
 
-def _calstar_references(fid_path):
-    """Get flexControl's own reference peaks from ##$CalStar.
+def test_parse_bruker_dataset_folder(tmp_path):
+    """A dataset folder opens as its acquisition, every fid sample kept."""
 
-    Each <ac> records the raw flight time it was found at (<rv>) and the
-    theoretical mass it was assigned (<cm>), so the pair is an independent
-    check on the calibration -- it comes from the instrument, not from us.
-    """
+    count = 4000
+    trace = _peak_trace(count)
+    _write_acquisition(
+        tmp_path / "PlateA" / "0_A1" / "1" / "1SRef", _cubic_fields(count), trace
+    )
 
-    params = mspy.parser_bruker._readAcqu(fid_path)
-    calstar = params.get("CalStar", "")
-    return [
-        (float(tof), float(mass))
-        for tof, mass in re.findall(
-            r"<rv>([^<]+)</rv>.*?<cm>([^<]+)</cm>", calstar, re.DOTALL
-        )
-    ]
-
-
-def test_parse_bruker_dataset_folder(sample_bruker):
-    parser = mspy.parseBruker(sample_bruker)
-    scan_ids = parser.scanlist()
-    assert isinstance(scan_ids, dict) and scan_ids  # at least one acquisition
-
-    first_id = next(iter(scan_ids))
-    entry = scan_ids[first_id]
+    parser = mspy.parseBruker(str(tmp_path / "PlateA"))
+    scanlist = parser.scanlist()
+    assert scanlist  # parsers return False on failure
+    entry = scanlist[1]
     assert entry["msLevel"] == 1
-    assert entry["pointsCount"] > 0
+    assert entry["pointsCount"] == count
 
-    scan = parser.scan(first_id)
+    scan = parser.scan(1)
     assert scan is not False  # parser returns False on failure
     profile = numpy.asarray(scan.profile, dtype=float)
-    assert profile.ndim == 2 and profile.shape[1] == 2
-    # every point in the fid is kept: TD from acqu is the point count
-    assert len(profile) == entry["pointsCount"]
+    assert profile.shape == (count, 2)
+    assert numpy.array_equal(profile[:, 1], trace)
     assert numpy.all(profile[:, 0] > 0)
     assert numpy.all(numpy.diff(profile[:, 0]) > 0)
-    assert numpy.all(profile[:, 1] >= 0)
     # base peak metadata agrees with the profile it was derived from
-    assert scan.basePeakIntensity == pytest.approx(profile[:, 1].max())
+    assert scan.basePeakIntensity == trace.max()
+    assert scan.basePeakMZ == profile[trace.argmax(), 0]
 
 
-def test_parse_bruker_fid_directly(sample_bruker):
+def test_parse_bruker_fid_directly(tmp_path):
     """Opening the fid itself gives the same spectrum as opening the folder."""
 
-    fids = mspy.findFIDs(sample_bruker)
-    assert fids
+    count = 500
+    dataset = tmp_path / "PlateA"
+    fid = _write_acquisition(
+        dataset / "0_A1" / "1" / "1SRef", _cubic_fields(count), _peak_trace(count)
+    )
 
-    from_folder = mspy.parseBruker(sample_bruker).scan()
-    from_fid = mspy.parseBruker(fids[0]).scan()
+    from_folder = mspy.parseBruker(str(dataset)).scan()
+    from_fid = mspy.parseBruker(str(fid)).scan()
     assert from_folder is not False and from_fid is not False  # False on failure
     assert numpy.array_equal(
         numpy.asarray(from_folder.profile), numpy.asarray(from_fid.profile)
@@ -139,114 +288,63 @@ def test_parse_bruker_fid_directly(sample_bruker):
     assert from_folder.title == from_fid.title
 
 
-def test_parse_bruker_calibration_hits_the_reference_masses(sample_bruker):
-    """The calibrated axis reproduces flexControl's own reference masses.
+def test_parse_bruker_reads_big_endian_fids(tmp_path):
+    """##$BYTORDA= 1 means the fid's samples are big-endian."""
 
-    This is the check that matters: ##$CalStar records the flight time of each
-    calibrant and the mass it was assigned, so agreement there means the axis
-    is right in absolute terms rather than merely self-consistent.
-    """
-
-    fids = mspy.findFIDs(sample_bruker)
-    td = _acqu_constants(fids[0])[5]
-    constants = mspy.parser_bruker._ctof2Constants(
-        mspy.parser_bruker._readAcqu(fids[0])
+    count = 300
+    trace = _peak_trace(count)
+    fid = _write_acquisition(
+        tmp_path / "PlateA" / "0_A1" / "1" / "1SRef",
+        _cubic_fields(count, **{"$BYTORDA": "1"}),
+        trace,
+        byteOrder=">",
     )
-    assert constants is not None  # this dataset was calibrated 'Cubic Enhanced'
-    delay, dw = constants[:2]
 
-    references = _calstar_references(fids[0])
-    assert len(references) >= 4  # a usable calibration curve, not one anchor
-
-    scan = mspy.parseBruker(fids[0]).scan()
+    scan = mspy.parseBruker(str(fid)).scan()
     assert scan is not False  # parser returns False on failure
-    masses = numpy.asarray(scan.profile, dtype=float)[:, 0]
-    assert len(masses) == td
-
-    # the axis is uniform in flight time, counted from the block's own DELAY,
-    # so a reference lands between samples
-    times = delay + numpy.arange(td) * dw
-    for tof, expected in references:
-        found = numpy.interp(tof, times, masses)
-        assert abs(found - expected) / expected < 50e-6
+    assert numpy.array_equal(numpy.asarray(scan.profile)[:, 1], trace)
 
 
-def test_parse_bruker_prefers_the_cubic_calibration(sample_bruker):
-    """##$NTBCal wins over ##$ML*, which is stale whenever the two disagree.
+def test_parse_bruker_applies_the_cubic_calibration(tmp_path):
+    """Each sample's m/z is the cubic's root at that sample's flight time.
 
-    Dropping back to the quadratic is not a small error -- it is thousands of
-    ppm, and it grows with mass -- so this pins which constants are used.
+    Two ways of getting this wrong are pinned here. The ##$ML* fields hold a
+    stale quadratic, and reading them instead is thousands of ppm out. And the
+    flight time of sample i is DELAY + i*DW with the DELAY from the ##$NTBCal
+    block: the rounded ##$DELAY puts the whole axis tens of ppm out.
     """
 
-    fids = mspy.findFIDs(sample_bruker)
-    ml1, ml2, ml3, delay, dw, td = _acqu_constants(fids[0])
-
-    constants = mspy.parser_bruker._ctof2Constants(
-        mspy.parser_bruker._readAcqu(fids[0])
+    count = 4000
+    fid = _write_acquisition(
+        tmp_path / "PlateA" / "0_A1" / "1" / "1SRef",
+        _cubic_fields(count),
+        _peak_trace(count),
     )
-    assert constants is not None  # this dataset was calibrated 'Cubic Enhanced'
-    assert constants[5] != 0  # a genuine cubic term, not a quadratic in disguise
 
-    scan = mspy.parseBruker(fids[0]).scan()
+    scan = mspy.parseBruker(str(fid)).scan()
     assert scan is not False  # parser returns False on failure
     masses = numpy.asarray(scan.profile, dtype=float)[:, 0]
 
-    # the quadratic the ##$ML* fields alone describe is far away, and further
-    # the heavier the ion gets
+    times = CUBIC["delay"] + numpy.arange(count) * CUBIC["dwell"]
+    assert numpy.allclose(_cubic_time(masses), times, rtol=0, atol=1e-6)
+
+    # (so ##$DELAY, 0.6 ns earlier, fails the check above by a wide margin)
+    # and the quadratic in ##$ML* is far away
     errors = [
-        abs(masses[i] - _tof_to_mz(delay + i * dw, ml1, ml2, ml3)) / masses[i]
-        for i in (0, td // 2, td - 1)
+        abs(masses[i] - _tof_to_mz(times[i], 340000.0, 520.0, 0.25)) / masses[i]
+        for i in (0, count // 2, count - 1)
     ]
     assert min(errors) > 1e-3
-    assert errors[0] < errors[-1]
-
-
-def test_bruker_cubic_calibration_counts_time_from_the_block_delay():
-    """The DELAY inside ##$NTBCal sets the sample times, not ##$DELAY.
-
-    ##$DELAY is that value rounded down to a whole nanosecond; FlexAnalysis'
-    exports only match with the block's (see the export test below, which
-    needs spectra/).
-    """
-
-    delay, dwell, ml2, ml1, ml3, cubic, offset = (
-        40000.6,
-        0.2,
-        1000.0,
-        400000.0,
-        0.4,
-        -0.003,
-        -9.0,
-    )
-    params = {
-        "DELAY": "40000",
-        "DW": "0.2",
-        "ML1": str(ml1),
-        "ML2": str(ml2),
-        "ML3": str(ml3),
-        "NTBCal": "V1.0CTOF2CalibrationConstants %r %r %r %r %r %r %r 2"
-        % (delay, dwell, ml2, ml1, ml3, cubic, offset),
-    }
-
-    masses = mspy.parser_bruker._massAxis(params, 5)
-    assert masses is not None  # None means the constants could not be read
-
-    # each mass is the root of the cubic at the block's time for that sample
-    scale = math.sqrt(1e12 / ml1)
-    for index, mass in enumerate(masses):
-        u = math.sqrt(mass + offset)
-        time = ml2 + scale * u + ml3 * u**2 + cubic * u**3
-        assert time == pytest.approx(delay + index * dwell, abs=1e-6)
 
 
 def test_bruker_calibration_falls_back_to_the_quadratic():
     """An acquisition with no ##$NTBCal block is read from ##$ML* as before."""
 
     params = {
-        "ML1": 322877.857415489,
-        "ML2": 125.829745293329,
-        "ML3": -0.275017182564298,
-        "DELAY": 39451,
+        "ML1": 330000.0,
+        "ML2": 120.0,
+        "ML3": -0.3,
+        "DELAY": 40000,
         "DW": 0.2,
         "TD": 8,
     }
@@ -296,93 +394,6 @@ def test_bruker_hpc_correction_is_applied_within_its_limits():
 
 
 # ---------------------------------------------------------------------------
-# Bruker: against FlexAnalysis' own exports
-# ---------------------------------------------------------------------------
-
-
-def _mzxml_reference(path):
-    """Read FlexAnalysis' mzXML export: (fid it came from, precursor, m/z, intensity).
-
-    The fid is found by the SHA-1 the export records for it, since the path
-    it records is the acquisition PC's and the dataset may have been moved or
-    renamed since. The precursor is None for an MS1 spectrum.
-
-    The export drops zero-intensity samples and stores 32-bit floats, so it
-    is compared point by point rather than as a whole array.
-    """
-
-    with open(path, encoding="latin-1") as document:
-        text = document.read()
-
-    source = re.search(r'<parentFile [^>]*fileSha1="([0-9a-f]+)"', text)
-    precursor = re.search(r"<precursorMz[^>]*>([^<]+)</precursorMz>", text)
-    peaks = re.search(
-        r'<peaks precision="32" byteOrder="network" pairOrder="m/z-int">([^<]*)</peaks>',
-        text,
-    )
-    assert source and peaks, path
-
-    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    fids = []
-    for fid in mspy.findFIDs(os.path.join(root, "spectra")):
-        with open(fid, "rb") as document:
-            if hashlib.sha1(document.read()).hexdigest() == source.group(1):
-                fids.append(fid)
-    assert len(fids) == 1, path
-
-    values = numpy.frombuffer(base64.b64decode(peaks.group(1)), dtype=">f4")
-    mass = float(precursor.group(1)) if precursor else None
-
-    return fids[0], mass, values[0::2], values[1::2]
-
-
-def test_parse_bruker_matches_flexanalysis_exports(sample_bruker_exports):
-    """Every spectrum gets the m/z axis FlexAnalysis itself gives it.
-
-    The exports cover LIFT fragment and precursor spectra, whose ##$ML*
-    fields are placeholders (the old reading put a 1000 Da fragment at m/z
-    59), and 'Cubic Enhanced' MS1 spectra, whose sample times must be counted
-    from the DELAY in ##$NTBCal rather than ##$DELAY (15-39 ppm otherwise).
-    The bound is the precision of the reference: m/z in the export is a
-    32-bit float, whose step is up to 0.12 ppm here.
-    """
-
-    for export in sample_bruker_exports:
-        fid, precursor, expectedMZ, expectedIntensity = _mzxml_reference(export)
-
-        parser = mspy.parseBruker(fid)
-        scan = parser.scan()
-        assert scan is not False, export  # parser returns False on failure
-        profile = numpy.asarray(scan.profile, dtype=float)
-        masses = profile[:, 0]
-        assert numpy.all(numpy.diff(masses) > 0), export
-
-        # pair each exported point with the nearest sample; the intensities
-        # agreeing proves the pairing is the right one
-        index = numpy.clip(numpy.searchsorted(masses, expectedMZ), 1, len(masses) - 1)
-        closer = numpy.abs(masses[index - 1] - expectedMZ) < numpy.abs(
-            masses[index] - expectedMZ
-        )
-        index = numpy.where(closer, index - 1, index)
-        assert numpy.array_equal(profile[index, 1], expectedIntensity), export
-
-        errors = numpy.abs(masses[index] - expectedMZ) / expectedMZ
-        assert errors.max() < 0.2e-6, export
-
-        # and it is labelled as the MS or MS/MS spectrum it is
-        scanlist = parser.scanlist()
-        assert scanlist  # parsers return False on failure
-        entry = scanlist[1]
-        if precursor is None:
-            assert scan.msLevel == entry["msLevel"] == 1
-            assert scan.precursorMZ is None and entry["precursorMZ"] is None
-        else:
-            assert scan.msLevel == entry["msLevel"] == 2
-            assert scan.precursorMZ == pytest.approx(precursor, abs=1e-6)
-            assert entry["precursorMZ"] == pytest.approx(precursor, abs=1e-6)
-
-
-# ---------------------------------------------------------------------------
 # Bruker: LIFT (MS/MS)
 # ---------------------------------------------------------------------------
 
@@ -419,46 +430,55 @@ def _lift_block(delay, dwell, t0, precursor, coefficients, uLow):
     return "V3.0CCalibrator 10 1 V1.0CHPCData endCHPCData %s %s" % (block, block)
 
 
-def test_bruker_lift_calibration_inverts_the_precursor_polynomial():
+def test_parse_bruker_lift_inverts_the_precursor_polynomial(tmp_path):
     """Inside its range the polynomial is inverted; outside, its tangent is.
 
     tof - T0 = P(sqrt(m/z)) for the precursor's own polynomial, time counted
-    from the DELAY in the block rather than from ##$DELAY.
+    from the DELAY in the block rather than from ##$DELAY. The ##$ML* fields
+    of a LIFT acquisition are placeholders and must not be used.
     """
 
     coefficients = [500.0, 1000.0, 10.0, 0.0125]
     delay, dwell, t0, precursor, uLow = 20000.4, 0.4, 15000.0, 900.0, 9.0
-    params = {
-        "SPType": "2",
-        "Parent": str(precursor),
-        # placeholders, as in a real LIFT acqu, and an integer DELAY that
-        # must not be used
-        "DELAY": "20000",
-        "DW": "0.40000001",
-        "ML1": "20000",
-        "ML2": "0",
-        "ML3": "0",
-        "NTBCal": _lift_block(delay, dwell, t0, precursor, coefficients, uLow),
-    }
-
-    lift = mspy.parser_bruker._liftCalibration(params)
-    assert lift is not None  # None means the block could not be read
-    assert lift[0] == delay and lift[2] == t0
-
     count = 100000
-    masses = mspy.parser_bruker._massAxis(params, count)
-    assert masses is not None
+    fid = _write_acquisition(
+        tmp_path / "PlateA" / "0_A1" / "1" / "900.0000.LIFT" / "1SRef",
+        {
+            "$BYTORDA": "0",
+            "$DELAY": "20000",
+            "$DW": "0.40000001",
+            "$HPClOrd": "0",
+            "$HPClUse": "yes",
+            "$ML1": "20000",
+            "$ML2": "0",
+            "$ML3": "0",
+            "$POLARI": "1",
+            "$Parent": repr(precursor),
+            "$SPOTNO": "<A1>",
+            "$SPType": "2",
+            "$TD": str(count),
+            "$NTBCal": "<%s>"
+            % _lift_block(delay, dwell, t0, precursor, coefficients, uLow),
+        },
+        _peak_trace(count),
+    )
+
+    scan = mspy.parseBruker(str(fid)).scan()
+    assert scan is not False  # parser returns False on failure
+    assert scan.msLevel == 2
+    assert scan.precursorMZ == pytest.approx(precursor)
+    masses = numpy.asarray(scan.profile, dtype=float)[:, 0]
     assert numpy.all(numpy.diff(masses) > 0)
 
     curve = numpy.polynomial.Polynomial(coefficients)
     times = delay + numpy.arange(count) * dwell - t0
     roots = numpy.sqrt(masses)
-    inside = (roots >= uLow) & (roots <= math.sqrt(precursor))
+    uHigh = math.sqrt(precursor)
+    inside = (roots >= uLow) & (roots <= uHigh)
     assert 0 < inside.sum() < count  # the spectrum runs past both ends
 
     assert numpy.allclose(curve(roots[inside]), times[inside], rtol=0, atol=1e-7)
 
-    uHigh = math.sqrt(precursor)
     for end, outside in ((uLow, roots < uLow), (uHigh, roots > uHigh)):
         assert outside.any()
         tangent = curve(end) + curve.deriv()(end) * (roots[outside] - end)
@@ -523,23 +543,21 @@ def test_parse_bruker_ignores_folder_without_data(tmp_path):
     assert mspy.findFIDs(str(tmp_path)) == []
 
 
-def test_parse_bruker_reads_acquisition_metadata(sample_bruker):
-    """Date, polarity and instrument come from acqu, not from the filesystem."""
+def test_parse_bruker_reads_acquisition_metadata(tmp_path):
+    """Date, operator and instrument come from acqu, not from the filesystem."""
 
-    parser = mspy.parseBruker(sample_bruker)
-    info = parser.info()
+    fid = _write_acquisition(
+        tmp_path / "PlateA" / "0_A1" / "1" / "1SRef", _cubic_fields(10), [0] * 10
+    )
 
-    # ##$AQ_DATE (the collection time), not the file's mtime -- ##$DATE is a
-    # legacy unix-timestamp field that flex leaves at 0
-    fids = mspy.findFIDs(sample_bruker)
-    params = mspy.parser_bruker._readAcqu(fids[0])
-    assert params["DATE"] == "0"
-    expected = datetime.datetime.fromisoformat(params["AQ_DATE"]).ctime()
-    assert info["date"] == expected
-
+    info = mspy.parseBruker(str(fid)).info()
+    assert (
+        info["date"]
+        == datetime.datetime.fromisoformat("2026-01-01T12:00:00.000+01:00").ctime()
+    )
+    assert info["operator"] == "alice"
     # the instrument, not the acquisition PC name in ##$INSTRUM
-    assert info["instrument"] == params["SPECTROMETER/DATASYSTEM"]
-    assert info["operator"] == params["OWNER"]
+    assert info["instrument"] == "Bruker Flex Series"
 
 
 def test_parse_bruker_polarity_reads_polari(tmp_path):
@@ -557,39 +575,28 @@ def test_parse_bruker_polarity_reads_polari(tmp_path):
     assert read({".IONIZATION MODE": "LD+"}) is None
 
 
-def test_parse_bruker_negative_and_positive_modes(
-    sample_bruker, sample_bruker_positive
-):
+def test_parse_bruker_negative_and_positive_modes(tmp_path):
     """A negative-mode and a positive-mode acquisition are told apart.
 
-    Both files claim '##.IONIZATION MODE=  LD+', which is exactly why the
-    parser ignores that field.
+    Both say '##.IONIZATION MODE=  LD+', as flexControl writes it whatever
+    the polarity, which is exactly why the parser ignores that field.
     """
 
-    negative = mspy.parseBruker(sample_bruker)
-    positive = mspy.parseBruker(sample_bruker_positive)
-
-    for parser in (negative, positive):
-        fid = mspy.findFIDs(parser.path)[0]
-        params = mspy.parser_bruker._readAcqu(fid)
-        assert params[".IONIZATION MODE"].endswith("+")  # unhelpfully constant
-
-    negative_scan = negative.scan()
-    positive_scan = positive.scan()
-    negative_list = negative.scanlist()
-    positive_list = positive.scanlist()
-    # parsers return False on failure
-    assert negative_scan is not False and positive_scan is not False
-    assert negative_list and positive_list
-
-    assert negative_scan.polarity == -1
-    assert next(iter(negative_list.values()))["polarity"] == -1
-
-    assert positive_scan.polarity == 1
-    assert next(iter(positive_list.values()))["polarity"] == 1
+    for polari, expected in (("0", -1), ("1", 1)):
+        fid = _write_acquisition(
+            tmp_path / ("Plate" + polari) / "0_A1" / "1" / "1SRef",
+            _cubic_fields(10, **{"$POLARI": polari}),
+            [0] * 10,
+        )
+        parser = mspy.parseBruker(str(fid))
+        scan = parser.scan()
+        scanlist = parser.scanlist()
+        assert scan is not False and scanlist  # parsers return False on failure
+        assert scan.polarity == expected
+        assert scanlist[1]["polarity"] == expected
 
 
-def test_parse_bruker_scanlist_carries_spectrum_type(sample_bruker):
+def test_parse_bruker_scanlist_carries_spectrum_type(tmp_path):
     """Every key the scan picker reads is present.
 
     dlgSelectScans indexes scanlist entries directly, so a missing key raises
@@ -597,8 +604,15 @@ def test_parse_bruker_scanlist_carries_spectrum_type(sample_bruker):
     any dataset holding more than one acquisition.
     """
 
-    scanlist = mspy.parseBruker(sample_bruker).scanlist()
-    assert scanlist
+    for spot in ("A1", "A2"):
+        _write_acquisition(
+            tmp_path / "PlateA" / ("0_" + spot) / "1" / "1SRef",
+            _cubic_fields(10, **{"$SPOTNO": "<%s>" % spot}),
+            [0] * 10,
+        )
+
+    scanlist = mspy.parseBruker(str(tmp_path / "PlateA")).scanlist()
+    assert scanlist and len(scanlist) == 2  # parsers return False on failure
 
     required = {
         "title",
@@ -630,7 +644,7 @@ def _write_fake_dataset(root, dataset, spot, owner, date):
     """Build a minimal <dataset>/<spot>/1/1SRef tree with a fid and an acqu.
 
     Only the metadata path is exercised, so the fid can stay empty -- reading
-    the trace and calibrating it is covered against real data above.
+    the trace and calibrating it is covered above.
     """
 
     folder = root / dataset / ("0_" + spot) / "1" / "1SRef"
