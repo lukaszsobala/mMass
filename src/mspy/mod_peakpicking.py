@@ -114,7 +114,7 @@ ENVELOPE_TAIL_SN_LIMIT = 1.0
 # signal at a tail position is not evidence for THIS envelope unless this
 # envelope could produce it, and in a crowded region it usually cannot. Two
 # equivalent species then get visibly different envelopes depending only on who
-# sits under their tails (spectra/example_env4.msd: 900.49 and 902.51 have the
+# sits under their tails (in one measured spectrum 900.49 and 902.51 have the
 # same theoretical pattern to three decimals, yet 900.49 was modelled with 5
 # isotopes -- its 4th and 5th, at 1.3% and 0.14% of its apex, "supported" by
 # signal that is really 902.51's mono and +1 -- while 902.51 got 3, stopped by an
@@ -135,8 +135,8 @@ ENVELOPE_CONTEXT_ATTR = "_envFitContext"
 # isotope spacing BELOW a candidate contradicts the claim that the candidate is a
 # monoisotope -- and a long uninterrupted run of them means the candidate is one
 # tooth of a ridge. At low m/z a MALDI spectrum is often a continuous comb of
-# unresolved matrix cluster peaks about a dalton apart (spectra/example6_raw.mzML:
-# a comb of 250-600 counts runs the whole 600-700 region), and peak picking, which
+# unresolved matrix cluster peaks about a dalton apart (in one measured
+# spectrum a comb of 250-600 counts runs the whole 600-700 region), and peak picking, which
 # knows only a global intensity/S-N threshold, hands its teeth to deisotoping as
 # candidate species.
 #
@@ -158,8 +158,8 @@ ENVELOPE_CONTEXT_ATTR = "_envFitContext"
 # deamidation, a water loss), two consecutive ones are a pattern, and a
 # monoisotopic peak can have neither. Measured over the sample spectra with the
 # shipped pipeline, evidence-free candidates are already rare (11 of 49 seeds in
-# example6, 3 of 26 in RN_H7_WM2_2AA_1_H7, none in three of the others), and the
-# only labelled envelope among them -- example_env3_correct 1335.72 -- scores 0.
+# one, 3 of 26 in another, none in three of the others), and the only labelled
+# envelope among them, at 1335.72, scores 0.
 #
 # The rungs need not be evenly spaced: a comb drifts by a few hundredths of a
 # dalton from tooth to tooth, so a rung is looked for within
@@ -170,7 +170,7 @@ ENVELOPE_CONTEXT_ATTR = "_envFitContext"
 # All of this is measured against the raw signal, which is why deisotope takes
 # one: a comb tooth only becomes a candidate once it clears the picking
 # threshold, and by then the rest of the comb is below that threshold and absent
-# from the peak list. At snThreshold 20 on example6 the ridge under 658.07 is a
+# from the peak list. At snThreshold 20 on one such spectrum the ridge under 658.07 is a
 # single picked peak; in the profile it is 14 rungs deep. With no signal to read,
 # nothing is vetoed.
 MONO_RIDGE_MIN_FRACTION = 0.5
@@ -1493,7 +1493,7 @@ def _merge_adjacent_clusters(
             # combs interleaved), which then over-claims the shared signal and cannot
             # be re-derived from positions. That is exactly the merge the "convert to
             # envelopes" route has to undo, so "find peaks" and "convert" disagree
-            # (example_env4.msd: 900.49 fused 902.51 into a 10-isotope grid). Only
+            # (measured: 900.49 fused 902.51 into a 10-isotope grid). Only
             # merge genuinely adjacent fragments (no shared positions); leave
             # overlapping species as separate seeds so the joint fit apportions them,
             # and both routes produce the same clean single-species envelopes.
@@ -1566,7 +1566,7 @@ ENVELOPE_CAP_CONTEST_MIN_FRACTION = 0.50
 # envelope whose modelled +1 sits above the observed +1 (a rigid-averagine artefact)
 # keeps its full area where nothing at all overlaps that +1, but was trimmed ~25%
 # where a neighbour's far tail happened to land on it -- so two equivalent species
-# in the same 2-Da chain got visibly unequal areas (spectra/example_env5_failed.msd:
+# in the same 2-Da chain got visibly unequal areas (measured:
 # 1030 kept its area while 1032, its twin one step down the chain, lost a quarter
 # of it). Sits between the measured negligible-tail case (a +3 at 0.054 of its
 # apex, must NOT bind) and the real shared-peak cases the cap exists for (a
@@ -1643,7 +1643,7 @@ def _envelope_amp_cap(
     every isotope, capping the envelope at a shared *minor* peak drags the whole
     envelope down -- including its unshared, fully-owned mono/+1 -- crushing a
     dominant envelope to a fraction of its real area and pulling the group total
-    *below* the usable area (the ``example_env3.msd`` regression: a small species'
+    *below* the usable area (a measured regression: a small species'
     mono landing on a large envelope's +2 collapsed the large one to ~42%). The
     shared minor peak is instead held under the observed curve by the *neighbour's*
     cap, for which that peak is a major/anchor isotope -- the envelope that owns it
@@ -1696,7 +1696,7 @@ def _envelope_amp_cap(
             # isotope, capping the envelope at that shared minor peak drags the
             # whole envelope -- including its unshared, fully-owned mono/+1 -- down
             # with it, crushing a dominant envelope to a fraction of its real area
-            # (the example_env3.msd regression). Requiring the contested isotope to
+            # (a measured regression). Requiring the contested isotope to
             # be a significant peak keeps the cap where two envelopes genuinely
             # compete for a *major* peak (a light species' +1 on a heavier mono),
             # so the group total is still held to the usable area, without letting
@@ -1706,7 +1706,7 @@ def _envelope_amp_cap(
             # tail at a few percent of its own apex is not competition for this
             # peak, and letting it bind made an identical shape mismatch cost one
             # envelope a quarter of its area while its unshadowed twin kept all of
-            # its own (example_env5_failed.msd)
+            # its own (a measured case)
             stake = 1.0 if neighbourStakes is None else float(neighbourStakes[idx])
             contested = (
                 isMajor
@@ -2186,7 +2186,7 @@ def _apportion_group_areas(areaColumns, apexColumns, x, y, capInfo=None):
     # neighbour's MINOR tail it is still handed more of the shared peak than the
     # residual -- observed minus the neighbours' own fitted contribution -- can
     # support, leaving a pointwise overshoot at the shared peak even though the
-    # group integral is bounded (the parked ``example_env3`` overshoot). Trim such
+    # group integral is bounded (a known, parked overshoot). Trim such
     # an envelope to its residual. Guarded so it fires only where residual == fair
     # share:
     #   * the neighbour dominating this envelope's major peak must itself be a
@@ -2931,7 +2931,7 @@ def relabelenvelopes(
             # present (e.g. find-peaks found the first species merged, then the user
             # labelled the second and is converting it) the merge is stale: reusing
             # it lets this envelope keep the neighbour's isotopes, so its area
-            # balloons and the neighbour is crushed (example_env4_failed.msd: 900.49
+            # balloons and the neighbour is crushed (measured: 900.49
             # kept a 10-isotope grid -> area 82, and 902.51 collapsed to 22 instead
             # of the correct 61 / 70). An irregular shape must not survive inside a
             # neighbourhood -- rebuild it as a clean single-species seed so the joint
@@ -2954,9 +2954,9 @@ def relabelenvelopes(
             #  * it swallows a labelled NEIGHBOUR's monoisotopic peak. Then its
             #    extra isotopes are not this species' at all -- they are the
             #    neighbour's peaks, picked up either by a find-peaks merge
-            #    (example_env4_failed.msd: 900.49 kept a 10-isotope grid, area 82,
+            #    (measured: 900.49 kept a 10-isotope grid, area 82,
             #    and 902.51 collapsed to 22 instead of the correct 61/70) or by the
-            #    old profile-walked tail (example_env4.msd: 900.49 saved with 5
+            #    old profile-walked tail (measured: 900.49 saved with 5
             #    isotopes because 902.51's mono and +1 sat under its tail). Rebuild
             #    it as a clean single-species seed and let the joint fit apportion
             #    the shared signal.
@@ -2965,7 +2965,7 @@ def relabelenvelopes(
             #    detected evidence -- detection only ever adds isotopes -- so it is
             #    an envelope saved by an older method (or under a different
             #    averagine type) whose extent was cut short by whatever happened to
-            #    sit next to it (example_env4.msd: 902.51 saved with 3 isotopes,
+            #    sit next to it (measured: 902.51 saved with 3 isotopes,
             #    stopped by an unrelated peak at 905.5). Reusing it verbatim froze
             #    that mistake: converting again reproduced the old envelope instead
             #    of applying the current method, so the only way to get a correct
@@ -2997,7 +2997,7 @@ def relabelenvelopes(
             #    checkable after the fact. A grid saved before the count existed
             #    reports 1 (only its mono is known-detected), so it is measured
             #    against the plain theoretical extent and an older method's
-            #    over-long tail is rebuilt away (example_env5's 1002.43 was saved
+            #    over-long tail is rebuilt away (a measured 1002.43 was saved
             #    with 6 isotopes, the last two sitting on noise; theory gives 4).
             storedDetected = 1
             try:
@@ -3588,7 +3588,7 @@ def deisotope(
     # rather than present as separate rows, so re-deriving it from the collapsed
     # peak list can only lose it. Without this, running deisotoping over an
     # already-labelled spectrum stripped the charge from every envelope and
-    # "remove unknown" then deleted the lot (spectra/example6.msd: 49 envelopes
+    # "remove unknown" then deleted the lot (a measured spectrum: 49 envelopes
     # in, 4 out).
     if not respectCharge:
         for peak in peaklist:
@@ -3717,7 +3717,7 @@ def deisotope(
             # same peak to an independent monoisotope, having confirmed nothing of
             # its own, claims that signal twice on no evidence either time. It is
             # what produced pairs of charge-1 envelopes one dalton apart in a
-            # noise band (spectra/example6.msd 963.13 and 964.15, where the "+1"
+            # noise band (measured at 963.13 and 964.15, where the "+1"
             # is 2.1x what the pattern allows). A candidate WITH a confirmed
             # isotope is untouched, so genuinely overlapping species -- which is
             # what an isotope-spaced neighbour usually is when either of them has
@@ -4072,7 +4072,7 @@ def recalculate_neighborhood_envelopes(
         #    as 1/maxCharge -- at maxCharge 4 it is +/-1.5 Da, narrower than a
         #    charge-1 envelope. An envelope whose MONO sits just outside is then
         #    never re-fit even though the edit landed squarely on one of its
-        #    isotopes: deleting 902.51 in example_env4.msd left 900.49 -- whose +2
+        #    isotopes: deleting 902.51 in a measured spectrum left 900.49 -- whose +2
         #    IS 902.51 -- untouched, still reporting the area it had while sharing
         #    that peak. To the user, nothing recalculated.
         #

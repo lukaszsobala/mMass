@@ -244,7 +244,7 @@ def test_relabelenvelopes_empty_returns_empty():
 # Envelope extent (how many isotopes are modelled)
 # ---------------------------------------------------------------------------
 
-# spectra/example_env4.msd: two species two Da apart, monoisotopic peaks and
+# A measured spectrum: two species two Da apart, monoisotopic peaks and
 # surrounding heights read off the real profile. Their masses differ by 0.2%, so
 # averagine gives them the same theoretical pattern to three decimals -- they are
 # equivalent species and must be modelled with equivalent envelopes.
@@ -289,7 +289,7 @@ def _extents(seeds, rows=_ENV4_ROWS):
 def test_equivalent_species_get_equivalent_envelopes():
     """Two species of the same mass must be modelled with the same envelope.
 
-    ``spectra/example_env4.msd``. 900.49 and 902.51 differ in mass by 0.2%, so
+    A measured case. 900.49 and 902.51 differ in mass by 0.2%, so
     averagine predicts the same isotope pattern for both to three decimals -- the
     data says nothing that would give one more isotopes than the other. Yet the
     extent used to be walked outward against the observed profile ("keep going
@@ -415,7 +415,7 @@ def test_reconvert_rebuilds_a_stale_stored_grid():
 
     A converted envelope stores its isotope grid, and the grid is reused verbatim
     so conversion stays idempotent. But that also froze envelopes built by an older
-    method: on ``spectra/example_env4.msd`` -- 900.49 saved with 5 isotopes (its
+    method: in a measured spectrum -- 900.49 saved with 5 isotopes (its
     tail had walked onto 902.51's peaks) and 902.51 with 3 (cut short by an
     unrelated peak above it) -- "Convert All to Envelopes" faithfully reproduced
     the old mismatched pair. The only way to get a correct envelope was to delete
@@ -453,7 +453,7 @@ def test_reconvert_keeps_detected_isotopes_beyond_the_theoretical_tail():
     """A grid longer than theory is kept only where the extra isotopes were DETECTED.
 
     Theory alone cannot settle this. On the measured files the isotope that must
-    be DROPPED (example_env5's 1002.43, saved with six isotopes whose last two sit
+    be DROPPED (a measured 1002.43, saved with six isotopes whose last two sit
     on noise) carries 0.84% of its apex, while the one that must be KEPT here is
     smaller still at 0.39% -- so no significance cutoff separates them. The
     difference is that one was a real detected peak and the other was tail an
@@ -478,7 +478,7 @@ def test_reconvert_keeps_detected_isotopes_beyond_the_theoretical_tail():
 def test_reconvert_rebuilds_a_long_grid_with_no_detection_record():
     """An over-long grid from before the count existed is rebuilt to theory.
 
-    ``spectra/example_env5_failed.msd``: 1002.43 was saved with six isotopes by the
+    Measured: 1002.43 was saved with six isotopes by the
     old profile-walked tail, the last two sitting on noise between neighbouring
     species. Such a grid reports no ``detected`` count, so only its monoisotopic
     peak is known to be real and it is measured against the plain theoretical

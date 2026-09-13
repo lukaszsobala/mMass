@@ -305,7 +305,7 @@ def test_shared_peak_is_split_not_stolen_by_lower_mz():
     """A peak shared by a lower species' isotope and a higher species' mono is
     fairly split, and the lower species does not over-claim it.
 
-    Three overlapping charge-1 envelopes two Da apart (the example_env.msd layout):
+    Three overlapping charge-1 envelopes two Da apart (a measured layout):
     each species' +2 isotope lands on the next species' monoisotopic peak. The
     fair, abundance-independent split must (a) NOT let the lower-m/z envelope take
     the whole shared peak -- which would push its area up and rob the higher-m/z
@@ -349,7 +349,7 @@ def test_edge_envelope_does_not_claim_untracked_neighbour_forest():
     neighbours. The per-envelope apex cap -- a modelled envelope may not rise above
     the observed signal at its own isotope peaks -- holds it to a fair share.
 
-    This is the example_env.msd regression: three similar-height overlapping lipid
+    This is a measured regression: three similar-height overlapping lipid
     envelopes where the highest read ~2.4x its siblings. The earlier "equal
     overlapping" test missed it because its profile contained ONLY the fitted
     clusters, leaving the highest envelope's right side empty; here the forest is
@@ -416,7 +416,7 @@ def test_small_envelope_under_large_neighbour_keeps_fair_share():
 def test_small_neighbour_isotope_does_not_rob_large_envelope_mono():
     """A tiny envelope's isotope must not steal a large envelope's monoisotopic peak.
 
-    The mirror of the test above, and the ``spectra/example_env2.msd`` regression:
+    The mirror of the test above, and a measured regression:
     the user adds a small peak two Da *below* a much larger envelope (charge 1), so
     the small species' +2 isotope lands exactly on the large species' monoisotopic
     peak. Under a purely abundance-independent (equal-weight) split the tiny
@@ -469,7 +469,7 @@ def test_small_neighbour_isotope_does_not_rob_large_envelope_mono():
 def test_small_neighbour_on_dominant_minor_tail_conserves_group_area():
     """A small envelope on a dominant one's MINOR tail must not crush the group.
 
-    The ``spectra/example_env3.msd`` regression, and the geometry the mirror test
+    A measured regression, and the geometry the mirror test
     above does NOT cover. A small species sits two Da *above* a much larger
     envelope (charge 1), so the small species' *monoisotopic* peak lands on the
     large species' *+2 isotope* -- one of the large envelope's minor tail peaks.
@@ -628,7 +628,7 @@ def test_residual_trim_leaves_major_peak_neighbour_visible():
     assert areas[1] / areas[0] > 0.2
 
 
-# spectra/example_env5_failed.msd: three charge-1 species two Da apart, isotope
+# A measured spectrum: three charge-1 species two Da apart, isotope
 # positions and per-species heights read off the real file. Each species' +2 lands
 # on the next species' monoisotopic peak, and -- this is what triggered the bug --
 # the middle species' faint +3 (5% of its own apex) falls 0.025 Da beside the top
@@ -643,7 +643,7 @@ _ENV5_SPECIES = [
 
 
 def _env5_chain(middleIsotopes=4):
-    """The three example_env5 clusters plus the profile their sum makes.
+    """The three measured clusters plus the profile their sum makes.
 
     ``middleIsotopes`` truncates the middle species' pattern, so the same three
     species can be fit with and without the faint +3 that lands beside the top
@@ -677,9 +677,9 @@ def _env5_top_area(middleIsotopes, **kwargs):
 
 @pytest.mark.parametrize("refinePattern", [False, True])
 def test_negligible_neighbour_tail_does_not_cost_envelope_its_area(refinePattern):
-    """A neighbour's faint far tail must not cap an envelope down (env5 regression).
+    """A neighbour's faint far tail must not cap an envelope down (a measured regression).
 
-    ``spectra/example_env5_failed.msd``. Three equivalent species form a two-Da
+    A measured case. Three equivalent species form a two-Da
     chain, and each one's rigid averagine +1 sits above the observed +1 (the data
     is less carbon-rich than the chosen averagine). That mismatch is supposed to be
     forgiven -- an envelope may poke cosmetically above its OWN depressed tail,
