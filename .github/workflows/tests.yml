@@ -39,6 +39,5 @@ jobs:
           python -m pip install pytest "numpy>=2.0" numba
 
       - name: Run tests
-        # The spectra/ sample data is gitignored, so the mzML and Bruker
-        # integration tests skip here; everything else runs.
+        # Every test builds the data it reads, so the whole suite runs here.
         run: python -m pytest -q

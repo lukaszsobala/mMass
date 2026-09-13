@@ -316,7 +316,7 @@ def test_recalc_after_deleting_one_isotope(envelope_params):
     assert labeled[0].attributes["envelope"]["area"] > 0.0
 
 
-# spectra/example_env4.msd: two charge-1 species two Da apart (each one's +2 is the
+# A measured spectrum: two charge-1 species two Da apart (each one's +2 is the
 # other's mono), heights read off the real profile.
 _ENV4_ROWS = [
     (900.494, 1332.0), (901.506, 1333.0), (902.511, 1575.0),
@@ -325,7 +325,7 @@ _ENV4_ROWS = [
 
 
 def _env4_pair(params):
-    """Both example_env4 species converted to envelopes. Returns (peaklist, profile)."""
+    """Both measured species converted to envelopes. Returns (peaklist, profile)."""
 
     heights = dict(_ENV4_ROWS)
     profile = mspy.profile(

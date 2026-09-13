@@ -284,7 +284,7 @@ def _picked_comb(threshold=500.0, **kwargs):
 def test_noise_comb_does_not_become_a_crowd_of_species():
     """Teeth that clear the picking threshold are still not handed a charge.
 
-    Reproduces spectra/example6.msd at snThreshold 20: a couple of teeth of the
+    Reproduces a measured spectrum at snThreshold 20: a couple of teeth of the
     600-700 comb rise above the threshold and used to be declared species -- each
     then growing a full theoretical envelope out of background. Their "+1" is far
     too intense for their pattern, and deisotoping wrote that off as an overlap
@@ -365,7 +365,7 @@ def test_deisotoping_preserves_labelled_envelopes():
     envelopes. An envelope's isotopes live inside its model, not as separate peak
     rows, so a fresh charge search over the collapsed list cannot re-confirm the
     charge it was given -- it used to clear it, and "remove unknown" then deleted
-    the envelope (spectra/example6.msd went from 49 envelopes to 4). The
+    the envelope (a measured spectrum went from 49 envelopes to 4). The
     assignment a pattern fit already made has to be respected, not re-derived.
     """
     pl = _labelled_pair()
@@ -426,7 +426,7 @@ def test_evidence_free_candidate_is_not_the_previous_species_plus_one():
     declined to confirm it only because it was too intense -- an assumption about
     an unseen overlap. Promoting the same peak to an independent monoisotope,
     having confirmed nothing itself, claims that signal twice on no evidence.
-    Produced adjacent charge-1 envelopes in a noise band (spectra/example6.msd
+    Produced adjacent charge-1 envelopes in a noise band (measured at
     963.13 and 964.15, whose "+1" runs 2.1x the theoretical ratio).
     """
     step = mspy.ISOTOPE_DISTANCE

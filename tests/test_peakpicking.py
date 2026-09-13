@@ -208,7 +208,7 @@ def test_find_peaks_does_not_grow_envelopes_out_of_a_noise_comb(monkeypatch):
     Picking knows only a global intensity/S-N threshold, so at the low-m/z end of
     a MALDI spectrum the tallest teeth of the unresolved matrix comb clear it and
     are handed to deisotoping as candidate species -- which then grew a full
-    theoretical envelope on each (spectra/example6.msd: 658.07 was an "envelope"
+    theoretical envelope on each (in a measured spectrum 658.07 was an "envelope"
     sitting on fourteen rungs of comb). The threshold is what makes this hard to
     see from the peak list: the rest of the comb is below it and simply absent, so
     a tooth appears to stand alone. The evidence is in the profile.
