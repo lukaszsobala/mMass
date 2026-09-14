@@ -55,6 +55,9 @@ def error(message, command=cli.CONVERT_COMMAND):
     print(f"mmass {command}: error: {message}", file=sys.stderr)
 
 
+shown = cli.shown_path
+
+
 # SETTINGS
 # --------
 
@@ -71,58 +74,106 @@ def processing_settings(options):
     settings = json.loads(json.dumps(config.processing))
 
     if options.preset:
-        if options.preset == "Default":
-            preset = config.processing_defaults
-        else:
-            from gui import libs
+        settings = apply_preset(settings, options)
 
-            presets = libs.presets["processing"]
-            if options.preset not in presets:
-                names = ", ".join(["Default"] + sorted(presets))
-                raise ConversionError(
-                    f"there are no presets named '{options.preset}'; choose from {names}"
-                )
-            preset = presets[options.preset]
-        for section, values in json.loads(json.dumps(preset)).items():
-            if section in settings and isinstance(values, dict):
-                settings[section].update(values)
-
-        # the averagine model moved from deisotoping to peak picking; presets
-        # saved before that still carry the old key
-        legacy = preset.get("deisotoping", {}).get("averagineType")
-        if legacy and "averagineType" not in preset.get("peakpicking", {}):
-            settings["peakpicking"]["averagineType"] = legacy
-
-    for key, text in options.settings:
-        section, name = key.split(".", 1)
-        if section not in cli.SETTINGS_SECTIONS:
-            raise ConversionError(
-                f"--set {key}: the steps use the settings sections "
-                f"{', '.join(cli.SETTINGS_SECTIONS)}"
-            )
-        values = settings[section]
-        if key in cli.UNUSED_SETTINGS:
-            raise ConversionError(
-                f"--set {key}: no step uses this setting"
-                + ("; give the operation to --math" if name == "operation" else "")
-            )
-        if name not in values or isinstance(values[name], (list, dict)):
-            known = ", ".join(sorted(visible_settings(section, values)))
-            raise ConversionError(f"--set {key}: {section} has no setting {name}; it has {known}")
-        values[name] = setting_value(key, text, values[name])
+    for key, text, origin in options.settings:
+        where = f"{origin}: set {key}" if origin != "--set" else f"--set {key}"
+        section, name = resolve_setting(settings, key, where)
+        settings[section][name] = setting_value(
+            f"{section}.{name}", text, settings[section][name], where
+        )
 
     return settings
 
 
-def setting_value(key, text, current):
+def apply_preset(settings, options):
+    """Settings changed by the preset --preset names (in any letter case)."""
+
+    from gui import config
+
+    where = options.presetOrigin
+    wanted = options.preset.casefold()
+    if wanted == "default":
+        preset = config.processing_defaults
+    else:
+        from gui import libs
+
+        presets = libs.presets["processing"]
+        names = {name.casefold(): name for name in presets}
+        if wanted not in names:
+            choices = ", ".join(["Default"] + sorted(presets))
+            raise ConversionError(
+                f"{where}: there are no presets named '{options.preset}'; choose from {choices}"
+            )
+        preset = presets[names[wanted]]
+
+    for section, values in json.loads(json.dumps(preset)).items():
+        if section in settings and isinstance(values, dict):
+            settings[section].update(values)
+
+    # the averagine model moved from deisotoping to peak picking; presets
+    # saved before that still carry the old key
+    legacy = preset.get("deisotoping", {}).get("averagineType")
+    if legacy and "averagineType" not in preset.get("peakpicking", {}):
+        settings["peakpicking"]["averagineType"] = legacy
+
+    return settings
+
+
+def resolve_setting(settings, key, where):
+    """The (section, name) a --set key means, in any letter case.
+
+    A key without its section names the one setting of that name; a name
+    several sections have needs the section.
+    """
+
+    sectionName, _dot, name = key.rpartition(".")
+    sections = cli.SETTINGS_SECTIONS
+    if sectionName:
+        matches = [section for section in sections if section.casefold() == sectionName.casefold()]
+        if not matches:
+            raise ConversionError(
+                f"{where}: the steps use the settings sections {', '.join(sections)}"
+            )
+        sections = matches
+
+    found = [
+        (section, setting)
+        for section in sections
+        for setting in settings[section]
+        if setting.casefold() == name.casefold()
+    ]
+    unused = [pair for pair in found if f"{pair[0]}.{pair[1]}" in cli.UNUSED_SETTINGS]
+    usable = [pair for pair in found if pair not in unused]
+
+    if unused and not usable:
+        raise ConversionError(
+            f"{where}: no step uses this setting"
+            + ("; give the operation to --math" if unused[0][1] == "operation" else "")
+        )
+    if not usable:
+        if sectionName:
+            known = ", ".join(sorted(visible_settings(sections[0], settings[sections[0]])))
+            raise ConversionError(f"{where}: {sections[0]} has no setting {name}; it has {known}")
+        raise ConversionError(
+            f"{where}: there is no setting {name}; mmass process --show-settings lists them"
+        )
+    if len(usable) > 1:
+        qualified = " or ".join(f"{section}.{setting}" for section, setting in usable)
+        raise ConversionError(f"{where}: several sections have {name}; write {qualified}")
+    return usable[0]
+
+
+def setting_value(key, text, current, where):
     """Convert a --set value to the type of the setting it changes."""
 
     if key in SETTING_CHOICES:
-        if text not in SETTING_CHOICES[key]:
+        choices = {choice.casefold(): choice for choice in SETTING_CHOICES[key]}
+        if text.casefold() not in choices:
             raise ConversionError(
-                f"--set {key}: choose from {', '.join(SETTING_CHOICES[key])}"
+                f"{where}: choose from {', '.join(SETTING_CHOICES[key])}"
             )
-        return text
+        return choices[text.casefold()]
     if isinstance(current, str):
         return text
 
@@ -134,9 +185,9 @@ def setting_value(key, text, current):
     try:
         value = int(text) if isinstance(current, int) and text.lstrip("+-").isdigit() else float(text)
     except ValueError:
-        raise ConversionError(f"--set {key}: '{text}' is not a number") from None
+        raise ConversionError(f"{where}: '{text}' is not a number") from None
     if not math.isfinite(value) or (key in POSITIVE_SETTINGS and value <= 0):
-        raise ConversionError(f"--set {key}: '{text}' is out of range")
+        raise ConversionError(f"{where}: '{text}' is out of range")
     return value
 
 
@@ -243,8 +294,8 @@ def in_place_options(path, docType, options):
 
     if options.peaklist and kind == "ASCII":
         raise ConversionError(
-            "--peaklist would replace the spectrum in the file with its peak "
-            "list; write the peak list with --to csv --peaklist instead"
+            "--peak-list would replace the spectrum in the file with its peak "
+            "list; write the peak list with --to csv --peak-list instead"
         )
     problem = cli.steps_problem(options.steps, kind, name, False, inPlace=True)
     if problem:
@@ -286,7 +337,9 @@ def plan(options):
         job = Job(path, docType, output_path(path, options), options)
         try:
             check_input(path, docType)
-            if options.inPlace:
+            if job.output == cli.STDOUT:
+                pass
+            elif options.inPlace:
                 job.options = in_place_options(path, docType, options)
                 if not os.access(job.output, os.W_OK):
                     raise ConversionError("the file cannot be written")
@@ -297,10 +350,10 @@ def plan(options):
                         + (", or --in-place" if options.command == cli.PROCESS_COMMAND else "")
                     )
                 if os.path.isdir(job.output):
-                    raise ConversionError(f"the output {job.output} is a folder")
+                    raise ConversionError(f"the output {shown(job.output)} is a folder")
                 if os.path.exists(job.output) and not options.overwrite:
                     raise ConversionError(
-                        f"{job.output} already exists (use --overwrite to replace it)"
+                        f"{shown(job.output)} already exists (use --overwrite to replace it)"
                     )
         except ConversionError as exc:
             job.problem = str(exc)
@@ -312,7 +365,7 @@ def plan(options):
     for job in jobs:
         key = os.path.normcase(job.output)
         if key in seen and job.problem is None:
-            job.problem = f"{seen[key]} is written to the same {job.output}"
+            job.problem = f"{shown(seen[key])} is written to the same {shown(job.output)}"
         seen.setdefault(key, job.path)
 
     return jobs
@@ -393,7 +446,7 @@ def needs_run(options, settings):
     Peaks found in pooled scans come from the whole run, even for one scan.
     """
 
-    if settings is None or not any(step == "findpeaks" for step, _ in options.steps):
+    if settings is None or not any(step == "find-peaks" for step, _ in options.steps):
         return False
 
     from gui import processing
@@ -565,7 +618,7 @@ def apply_steps(document, scanID, options, settings):
             for scan in with_profile(step):
                 processing.smoothScan(scan, settings)
 
-        elif step == "findpeaks":
+        elif step == "find-peaks":
             usable = with_profile(step)
             if document.islcms() and processing.isPooled(settings):
                 processing.pickPeaksPooled(
@@ -580,7 +633,7 @@ def apply_steps(document, scanID, options, settings):
             if not usable:
                 raise ConversionError(
                     f"--deisotope needs peaks, and the {what} "
-                    f"{'have' if len(scans) > 1 else 'has'} none; find them first with --findpeaks"
+                    f"{'have' if len(scans) > 1 else 'has'} none; find them first with --find-peaks"
                 )
             for scan in usable:
                 processing.deisotopeScan(scan, settings)
@@ -601,103 +654,126 @@ def write(document, path, options):
 
     The output is written beside its destination under a temporary name and
     moved into place once complete, so a failure never leaves a half-written
-    file, nor destroys the input processed in place.
+    file, nor destroys the input processed in place. A dry run checks that the
+    document can be written, but writes nothing.
     """
 
     kind = options.kind
     spectrum = document.spectrum
+    processing = options.command == cli.PROCESS_COMMAND
+    findPeaks = (
+        "find peaks with --find-peaks"
+        if processing
+        else f"find peaks with mmass {cli.PROCESS_COMMAND} --find-peaks"
+    )
 
     if kind in ("mSD", "mzML", "mzXML"):
         if not any(scan.hasprofile() or scan.haspeaks() for scan in document_scans(document)):
             raise ConversionError("the document contains no data")
 
     if kind == "mSD":
-        text = document.msd()
-        with replacing(path) as temporary:
-            write_text(temporary, text)
+        def writer(temporary):
+            write_text(temporary, document.msd())
 
     elif kind in ("mzML", "mzXML"):
-        import mspy
+        def writer(temporary):
+            import mspy
 
-        scans = document_scans(document)
-        info = {
-            "title": document.title,
-            "operator": document.operator,
-            "contact": document.contact,
-            "institution": document.institution,
-            "instrument": document.instrument,
-            "date": document.date,
-        }
-        writer = mspy.writeMZML if kind == "mzML" else mspy.writeMZXML
-        with replacing(path) as temporary:
-            writer(scans if len(scans) > 1 else scans[0], info).write(temporary)
+            scans = document_scans(document)
+            info = {
+                "title": document.title,
+                "operator": document.operator,
+                "contact": document.contact,
+                "institution": document.institution,
+                "instrument": document.instrument,
+                "date": document.date,
+            }
+            write_class = mspy.writeMZML if kind == "mzML" else mspy.writeMZXML
+            write_class(scans if len(scans) > 1 else scans[0], info).write(temporary)
 
     elif kind == "ASCII" and options.peaklist:
         if not spectrum.haspeaks():
-            raise ConversionError(
-                "the spectrum has no peak list to write; "
-                + (
-                    "find peaks with --findpeaks"
-                    if options.command == cli.PROCESS_COMMAND
-                    else f"find peaks with mmass {cli.PROCESS_COMMAND} --findpeaks"
-                )
-            )
-        from gui import config, doc
+            raise ConversionError(f"the spectrum has no peak list to write; {findPeaks}")
 
-        columns = options.columns or [
-            name for name in doc.PEAKLIST_COLUMNS if name in config.export["peaklistColumns"]
-        ]
-        text = doc.peaklistText(spectrum.peaklist, columns, options.separator, headers=True)
-        with replacing(path) as temporary:
-            write_text(temporary, text)
+        def writer(temporary):
+            from gui import config, doc
+
+            columns = options.columns or [
+                name for name in doc.PEAKLIST_COLUMNS if name in config.export["peaklistColumns"]
+            ]
+            write_text(
+                temporary,
+                doc.peaklistText(spectrum.peaklist, columns, options.separator, headers=True),
+            )
 
     elif kind == "ASCII":
         if not spectrum.hasprofile():
             raise ConversionError(
                 f"the spectrum has no profile data to write as {options.format}, "
-                f"only a peak list; write it with --peaklist, or as mgf, mzml or msd"
+                f"only a peak list; write it with --peak-list, or as mgf, mzml or msd"
             )
-        separator = options.separator
-        text = "".join("%f%s%f\n" % (mz, separator, ai) for mz, ai in spectrum.profile)
-        with replacing(path) as temporary:
-            write_text(temporary, text)
+
+        def writer(temporary):
+            separator = options.separator
+            write_text(
+                temporary,
+                "".join("%f%s%f\n" % (mz, separator, ai) for mz, ai in spectrum.profile),
+            )
 
     elif kind == "MGF":
         if not spectrum.haspeaks():
             raise ConversionError(
-                "the spectrum has no peak list to write as mgf; "
-                + (
-                    "find peaks with --findpeaks"
-                    if options.command == cli.PROCESS_COMMAND
-                    else f"find peaks with mmass {cli.PROCESS_COMMAND} --findpeaks"
-                )
-                + ", or write the profile as txt, mzml or msd"
+                f"the spectrum has no peak list to write as mgf; {findPeaks}, or "
+                "write the profile as txt, mzml or msd"
             )
-        text = mgf(document)
-        with replacing(path) as temporary:
-            write_text(temporary, text)
+
+        def writer(temporary):
+            write_text(temporary, mgf(document))
 
     elif kind == "image":
         if not (spectrum.hasprofile() or spectrum.haspeaks()):
             raise ConversionError("the spectrum contains no data to draw")
-        with replacing(path) as temporary:
+        check_display()
+
+        def writer(temporary):
             render_image(document, temporary, options)
+
+    else:
+        raise ConversionError(f"mMass cannot write {options.format}")
+
+    if options.dryRun:
+        return
+    with replacing(path) as temporary:
+        writer(temporary)
 
 
 @contextlib.contextmanager
 def replacing(path):
-    """Write to a temporary file that replaces path once written."""
+    """Write to a temporary file that replaces path once written.
 
-    folder, name = os.path.split(path)
-    base, extension = os.path.splitext(name)
+    For standard output (cli.STDOUT) the file is copied there once written.
+    """
+
+    toStdout = path == cli.STDOUT
+    if toStdout:
+        folder, base, extension = tempfile.gettempdir(), "mmass", ""
+    else:
+        folder, name = os.path.split(path)
+        base, extension = os.path.splitext(name)
     try:
         handle, temporary = tempfile.mkstemp(prefix=f".{base}.", suffix=extension, dir=folder)
     except OSError as exc:
-        raise ConversionError(f"cannot write {path}: {exc.strerror}") from None
+        raise ConversionError(f"cannot write {shown(path)}: {exc.strerror}") from None
     os.close(handle)
 
     try:
         yield temporary
+
+        if toStdout:
+            with open(temporary, "rb") as f:
+                shutil.copyfileobj(f, sys.stdout.buffer)
+            sys.stdout.buffer.flush()
+            return
 
         # a replaced file keeps its permissions, a new one gets the usual ones
         if os.path.exists(path):
@@ -708,7 +784,7 @@ def replacing(path):
             os.chmod(temporary, 0o666 & ~umask)
         os.replace(temporary, path)
     except OSError as exc:
-        raise ConversionError(f"cannot write {path}: {exc.strerror}") from None
+        raise ConversionError(f"cannot write {shown(path)}: {exc.strerror}") from None
     finally:
         if os.path.exists(temporary):
             os.remove(temporary)
@@ -719,7 +795,7 @@ def write_text(path, text):
         with open(path, "wb") as f:
             f.write(text.encode("utf-8"))
     except OSError as exc:
-        raise ConversionError(f"cannot write {path}: {exc.strerror}") from None
+        raise ConversionError(f"cannot write {shown(path)}: {exc.strerror}") from None
 
 
 def mgf(document):
@@ -747,8 +823,8 @@ def mgf(document):
 _app = None
 
 
-def render_image(document, path, options):
-    """Draw a document's spectrum into an image file."""
+def check_display():
+    """Refuse to draw images where there is no display to draw with."""
 
     if sys.platform.startswith("linux") and not (
         os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")
@@ -757,6 +833,12 @@ def render_image(document, path, options):
             "drawing images needs a graphical display; on a machine without "
             "one, run the command under xvfb-run"
         )
+
+
+def render_image(document, path, options):
+    """Draw a document's spectrum into an image file."""
+
+    check_display()
 
     import wx
 
@@ -793,7 +875,7 @@ def render_image(document, path, options):
         if options.format == "svg":
             canvas.getSVG(path, width, height)
             if not os.path.getsize(path):
-                raise ConversionError(f"cannot write {path}")
+                raise ConversionError("the image could not be saved")
             return
 
         fileTypes = {
@@ -807,7 +889,7 @@ def render_image(document, path, options):
         image = canvas.getBitmap(width, height).ConvertToImage()
         image.SetOption(wx.IMAGE_OPTION_QUALITY, "100")
         if not image.SaveFile(path, fileTypes[options.format]):
-            raise ConversionError(f"cannot write {path}")
+            raise ConversionError("the image could not be saved")
     finally:
         frame.Destroy()
 
@@ -857,6 +939,11 @@ def run(options):
         print(shown_settings(settings))
         return 0
 
+    # a pipe gets the output alone, and a dry run's report
+    toStdout = options.output == cli.STDOUT
+    report = sys.stderr if toStdout else sys.stdout
+    dry = " (dry run, nothing written)" if options.dryRun else ""
+
     failed = 0
     for job in plan(options):
         try:
@@ -867,21 +954,23 @@ def run(options):
                 apply_steps(document, scanID, job.options, settings)
             if scanID is not None:
                 document = scan_document(document, scanID)
-            if options.outputDir:
+            if options.outputDir and not options.dryRun:
                 os.makedirs(options.outputDir, exist_ok=True)
             write(document, job.output, job.options)
         except ConversionError as exc:
-            error(f"{job.path}: {exc}", command)
+            error(f"{shown(job.path)}: {exc}", command)
             failed += 1
             continue
         except Exception as exc:
-            error(f"{job.path}: {command} failed: {exc!r}", command)
+            error(f"{shown(job.path)}: {command} failed: {exc!r}", command)
             failed += 1
             continue
 
+        if toStdout and not options.dryRun:
+            continue
         if options.inPlace:
-            print(f"{job.path}: processed in place")
+            print(f"{shown(job.path)}: processed in place{dry}", file=report)
         else:
-            print(f"{job.path} -> {job.output}")
+            print(f"{shown(job.path)} -> {shown(job.output)}{dry}", file=report)
 
     return 1 if failed else 0

@@ -6,8 +6,10 @@ the GUI starts and is tested headless.
 
 import argparse
 import os
+import re
 import sys
 from dataclasses import dataclass, field
+from typing import Any
 
 # gui.session.SESSION_EXTENSION, repeated here because importing the gui
 # package would load the user's config as a side effect
@@ -20,6 +22,9 @@ LAUNCHER_PLACEHOLDERS = {"%f", "%F", "%u", "%U", "%i", "%c", "%k"}
 
 CONVERT_COMMAND = "convert"
 PROCESS_COMMAND = "process"
+
+# the output name that writes to standard output
+STDOUT = "-"
 
 # formats mmass convert writes, by the name --to takes (the file extension
 # without its dot, lowercase), with the kind of output each one is
@@ -63,11 +68,25 @@ MAX_IMAGE_SIZE = 16000
 
 SEPARATORS = {"tab": "\t", "comma": ",", "semicolon": ";", "space": " "}
 
-# gui.doc.PEAKLIST_COLUMNS names, repeated for the same reason as above
-PEAKLIST_COLUMNS = (
-    "mz", "ai", "base", "int", "rel", "sn", "z", "mass", "fwhm", "resol",
-    "envarea", "envint", "group",
-)
+# gui.doc.PEAKLIST_COLUMNS names, repeated for the same reason as above, with
+# what they hold
+PEAKLIST_COLUMNS = {
+    "mz": "m/z",
+    "ai": "apex intensity, baseline included",
+    "base": "baseline",
+    "int": "intensity above the baseline",
+    "rel": "relative intensity, %",
+    "sn": "signal to noise",
+    "z": "charge",
+    "mass": "neutral mass",
+    "fwhm": "peak width",
+    "resol": "resolution",
+    "envarea": "envelope area",
+    "envint": "summed envelope intensity",
+    "group": "group",
+}
+# longer names --columns also takes
+COLUMN_ALIASES = {"intensity": "int", "charge": "z", "resolution": "resol"}
 
 # processing steps of mmass process, by option name: (help, what they change
 # -- the "profile", the "peaks" or "both")
@@ -75,7 +94,7 @@ STEPS = {
     "crop": ("keep only the m/z range LOW:HIGH", "both"),
     "baseline": ("subtract the baseline", "profile"),
     "smooth": ("smooth the profile", "profile"),
-    "findpeaks": (
+    "find-peaks": (
         "find peaks, deisotoping them if the peak picking settings say so",
         "peaks",
     ),
@@ -87,11 +106,13 @@ STEPS = {
         "both",
     ),
 }
+# other spellings of options, accepted but not listed in --help
+OPTION_ALIASES = {"--findpeaks": "--find-peaks", "--peaklist": "--peak-list"}
 
 # gui.processing.SINGLE_SPECTRUM_MATH, repeated for the same reason as above
 MATH_OPERATIONS = ("normalize", "multiply", "squareroot")
-# shorter names --math also takes
-MATH_ALIASES = {"sqrt": "squareroot"}
+# other names --math also takes
+MATH_ALIASES = {"sqrt": "squareroot", "normalise": "normalize"}
 # math operations of the GUI that take other spectra than the one processed
 MULTI_SPECTRUM_MATH = (
     "combine", "overlay", "subtract", "averageall", "combineall", "overlayall",
@@ -102,6 +123,18 @@ SETTINGS_SECTIONS = ("math", "baseline", "smoothing", "peakpicking", "deisotopin
 # settings of those sections no step uses: the math operation is the step's
 # argument, and no single-spectrum operation preserves peaks
 UNUSED_SETTINGS = {"math.operation", "math.preservePeaks"}
+
+# options a recipe may hold: what to do with a spectrum and how to write it,
+# but not which files to read or where to write, nor anything destructive
+RECIPE_OPTIONS = (
+    *STEPS, "preset", "set", "peak-list", "columns", "separator", "size",
+    "mz-range", "dark",
+)
+
+EXIT_CODES = (
+    "Exit status: 0 when every input was written, 1 when some inputs could not "
+    "be, 2 when the arguments are wrong."
+)
 
 
 @dataclass
@@ -128,20 +161,27 @@ class ConvertOptions:
     explicitSeparator: bool = False
     dark: bool = False
     overwrite: bool = False
+    dryRun: bool = False
     mzRange: tuple[float | None, float | None] | None = None
     peaklist: bool = False
     columns: list[str] | None = None
-    # mmass process: [(step, argument)] in the order given, and the settings
+    # mmass process: [(step, argument)] in the order given, and the settings;
+    # each setting is (key, value, where it was given)
     command: str = CONVERT_COMMAND
     steps: list[tuple[str, object]] = field(default_factory=list)
     inPlace: bool = False
     preset: str | None = None
-    settings: list[tuple[str, str]] = field(default_factory=list)
+    presetOrigin: str = "--preset"
+    settings: list[tuple[str, str, str]] = field(default_factory=list)
     showSettings: bool = False
 
     @property
     def kind(self):
         return OUTPUT_FORMATS.get(self.format) if self.format else None
+
+    @property
+    def prog(self):
+        return f"mmass {self.command}"
 
 
 def get_version():
@@ -155,21 +195,47 @@ def get_version():
         return "unknown"
 
 
+class Parser(argparse.ArgumentParser):
+    """An argument parser taking only whole option names, with short errors."""
+
+    def __init__(self, *args, **kwargs):
+        # a prefix of an option (--mz for --mz-range) would stop working as
+        # soon as another option starts alike
+        kwargs.setdefault("allow_abbrev", False)
+        super().__init__(*args, **kwargs)
+
+    def error(self, message):
+        self.exit(2, f"{self.prog}: error: {message}\nSee '{self.prog} --help'.\n")
+
+
 def make_parser():
     """Return the argument parser of the mmass command."""
 
-    parser = argparse.ArgumentParser(
+    parser = Parser(
         prog="mmass",
-        description="mMass - Open Source Mass Spectrometry Tool.",
-        epilog=(
-            "FILE can be an mzML, mzXML, mzData, MGF, mSD or XY/TXT/ASC "
-            "spectrum, a Bruker fid file or dataset folder, or a FASTA file "
-            f"(its sequences are imported). A session file ({SESSION_EXTENSION}) "
-            "reopens its documents and view; other files are added to it. "
-            f"To convert documents without opening the GUI, see 'mmass "
-            f"{CONVERT_COMMAND} --help'; to process them, 'mmass "
-            f"{PROCESS_COMMAND} --help'."
+        usage=(
+            "mmass [FILE ...]\n"
+            f"       mmass {CONVERT_COMMAND} INPUT ... (-o FILE | -t FORMAT) [options]\n"
+            f"       mmass {PROCESS_COMMAND} INPUT ... STEP ... "
+            "(-o FILE | -t FORMAT | --in-place) [options]"
         ),
+        description=(
+            "mMass - Open Source Mass Spectrometry Tool.\n\n"
+            "Without a command, mMass opens its window with the FILEs given.\n\n"
+            "commands:\n"
+            f"  {CONVERT_COMMAND}   convert spectra to other formats or images, "
+            "without the GUI\n"
+            f"  {PROCESS_COMMAND}   process spectra (crop, baseline, smooth, "
+            "find peaks, ...) without the GUI\n"
+            f"See 'mmass {CONVERT_COMMAND} --help' and 'mmass {PROCESS_COMMAND} --help'."
+        ),
+        epilog=(
+            "FILE can be an mzML, mzXML, mzData, MGF, mSD or XY/TXT/ASC spectrum,\n"
+            "a Bruker fid file or dataset folder, or a FASTA file (its sequences\n"
+            f"are imported). A session file ({SESSION_EXTENSION}) reopens its documents "
+            "and view;\nother files are added to it."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "paths",
@@ -183,10 +249,25 @@ def make_parser():
     return parser
 
 
-def warn(message):
+def warn(message, prog="mmass"):
     """Print a warning for a user starting mMass from a terminal."""
 
-    print(f"mmass: warning: {message}", file=sys.stderr)
+    print(f"{prog}: warning: {message}", file=sys.stderr)
+
+
+def shown_path(path):
+    """A path as a message shows it: relative when under the current folder."""
+
+    if path == STDOUT:
+        return "standard output"
+    try:
+        relative = os.path.relpath(path)
+    except ValueError:
+        # another drive on Windows
+        return path
+    if relative == os.pardir or relative.startswith(os.pardir + os.sep):
+        return path
+    return relative
 
 
 def collect_paths(items):
@@ -238,6 +319,10 @@ def parse_args(argv=None):
     return collect_paths(args.paths)
 
 
+# VALUES
+# ------
+
+
 def parse_size(value):
     """Parse an image size given as WIDTHxHEIGHT in pixels."""
 
@@ -259,8 +344,10 @@ def parse_size(value):
 
 
 def _parse_mz_range(value, openEnded):
-    parts = value.split(":")
-    example = "400:1500" + (", 400: or :1500" if openEnded else "")
+    # m/z is never negative, so a dash separates the ends as well as a colon
+    separator = ":" if ":" in value else "-"
+    parts = value.split(separator)
+    example = "400:1500 or 400-1500" + (", 400: or :1500" if openEnded else "")
     try:
         if len(parts) != 2:
             raise ValueError
@@ -296,22 +383,33 @@ def parse_crop_range(value):
 
 
 def parse_setting(value):
-    """Parse a --set argument SECTION.KEY=VALUE into (SECTION.KEY, VALUE)."""
+    """Parse a --set argument [SECTION.]KEY=VALUE into ([SECTION.]KEY, VALUE)."""
 
     key, equals, setting = value.partition("=")
-    section, dot, name = key.strip().partition(".")
-    if not equals or not dot or not section or not name:
+    key = key.strip()
+    section, dot, name = key.partition(".")
+    if not equals or not key or (dot and not (section and name)):
         raise argparse.ArgumentTypeError(
-            f"'{value}' is not a setting such as peakpicking.snThreshold=10"
+            f"'{value}' is not a setting such as snThreshold=10 or "
+            "peakpicking.snThreshold=10"
         )
-    return f"{section}.{name}", setting.strip()
+    return key, setting.strip()
 
 
 def parse_columns(value):
     """Parse a comma-separated list of peak list columns."""
 
-    columns = [column.strip() for column in value.split(",") if column.strip()]
-    unknown = [column for column in columns if column not in PEAKLIST_COLUMNS]
+    columns = []
+    unknown = []
+    for column in value.split(","):
+        name = column.strip().lower()
+        if not name:
+            continue
+        name = COLUMN_ALIASES.get(name, name)
+        if name in PEAKLIST_COLUMNS:
+            columns.append(name)
+        else:
+            unknown.append(column.strip())
     if unknown or not columns:
         raise argparse.ArgumentTypeError(
             f"unknown peak list column {', '.join(unknown) or value!r}; choose "
@@ -338,6 +436,16 @@ def parse_math(value):
     return operation
 
 
+def output_extension(name):
+    """Return the file extension mmass convert gives a format."""
+
+    return OUTPUT_EXTENSIONS.get(name, "." + name)
+
+
+# ACTIONS
+# -------
+
+
 class _StepAction(argparse.Action):
     """Collect processing steps in the order they are given."""
 
@@ -347,10 +455,94 @@ class _StepAction(argparse.Action):
         setattr(namespace, self.dest, steps)
 
 
-def output_extension(name):
-    """Return the file extension mmass convert gives a format."""
+class _SettingAction(argparse.Action):
+    """Collect --set settings with where they were given."""
 
-    return OUTPUT_EXTENSIONS.get(name, "." + name)
+    def __call__(self, parser, namespace, values, option_string=None, origin="--set"):
+        settings = list(getattr(namespace, self.dest) or [])
+        key, value = values
+        settings.append((key, value, origin))
+        setattr(namespace, self.dest, settings)
+
+
+class _PresetAction(argparse.Action):
+    """Keep --preset with where it was given."""
+
+    def __call__(self, parser, namespace, values, option_string=None, origin="--preset"):
+        setattr(namespace, self.dest, values)
+        namespace.preset_origin = origin
+
+
+class _RecipeAction(argparse.Action):
+    """Apply the lines of a recipe file where --recipe is given.
+
+    A recipe holds one option per line, written as on the command line with or
+    without the leading dashes; its value follows a space or an equals sign.
+    Blank lines and text after a # are ignored.
+    """
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        path = str(values)
+        try:
+            with open(path, encoding="utf-8") as f:
+                lines = f.read().splitlines()
+        except OSError as exc:
+            parser.error(f"cannot read the recipe {path}: {exc.strerror}")
+        except UnicodeDecodeError:
+            parser.error(f"the recipe {path} is not a text file")
+
+        for number, line in enumerate(lines, start=1):
+            where = f"recipe {path}, line {number}"
+            text = re.sub(r"(^|\s)#.*$", "", line).strip()
+            if not text:
+                continue
+
+            match = re.match(r"-{0,2}([A-Za-z][\w-]*)\s*(?:[=\s]\s*(.*))?$", text)
+            if not match:
+                parser.error(f"{where}: '{line.strip()}' is not an option")
+            name, value = match.group(1).lower(), match.group(2)
+            option = OPTION_ALIASES.get(f"--{name}", f"--{name}")
+
+            if option[2:] not in RECIPE_OPTIONS:
+                if option == "--recipe":
+                    parser.error(f"{where}: a recipe cannot include another recipe")
+                if option in parser._option_string_actions:
+                    parser.error(
+                        f"{where}: {option} belongs on the command line, not in "
+                        "a recipe, which says what to do but not with which "
+                        "files or where to write"
+                    )
+                parser.error(f"{where}: unknown option '{name}'")
+
+            action = parser._option_string_actions[option]
+            takes_value = action.nargs != 0
+            if takes_value and not value:
+                parser.error(f"{where}: {option[2:]} needs a value")
+            if not takes_value and value:
+                parser.error(f"{where}: {option[2:]} takes no value")
+
+            converted: Any = []
+            if takes_value:
+                converted = value
+                if callable(action.type):
+                    try:
+                        converted = action.type(value)
+                    except argparse.ArgumentTypeError as exc:
+                        parser.error(f"{where}: {exc}")
+                if action.choices is not None and converted not in action.choices:
+                    choices = ", ".join(map(str, action.choices))
+                    parser.error(f"{where}: {option[2:]} must be one of {choices}")
+
+            if isinstance(action, (_SettingAction, _PresetAction)):
+                action(parser, namespace, converted, option, origin=where)
+            elif takes_value or isinstance(action, _StepAction):
+                action(parser, namespace, converted, option)
+            else:
+                action(parser, namespace, None, option)
+
+
+# CHECKS
+# ------
 
 
 def stored_data(kind, peaklist):
@@ -378,17 +570,17 @@ def steps_problem(steps, kind, name, peaklist, inPlace=False):
         changes = STEPS[step][1]
         if changes == "peaks" and "peaks" not in stored:
             advice = (
-                "write them with --to csv --peaklist or --to msd instead"
+                "write them with --to csv --peak-list or --to msd instead"
                 if inPlace
-                else "add --peaklist to write the peak list as text, or write msd"
+                else "add --peak-list to write the peak list as text, or write msd"
             )
             return (
                 f"{holder} holds only the profile, so the peaks --{step} finds "
                 f"would be lost; {advice}"
             )
         if changes == "profile" and "profile" not in stored:
-            if "findpeaks" not in names[index + 1:]:
-                advice = "add --findpeaks after it" + (
+            if "find-peaks" not in names[index + 1:]:
+                advice = "add --find-peaks after it" + (
                     "" if inPlace else ", or write msd or text"
                 )
                 return (
@@ -396,6 +588,10 @@ def steps_problem(steps, kind, name, peaklist, inPlace=False):
                     f"not change; {advice}"
                 )
     return None
+
+
+# PARSERS
+# -------
 
 
 def make_convert_parser(command=CONVERT_COMMAND):
@@ -410,44 +606,59 @@ def make_convert_parser(command=CONVERT_COMMAND):
         "or a Bruker folder of many acquisitions) is written whole to "
         "mzML, mzXML and, for LC-MS runs, msd; other outputs need one "
         "spectrum picked with --scan. Text outputs hold the profile, or the "
-        "peak list with --peaklist; MGF holds the peak list. Images use the "
+        "peak list with --peak-list; MGF holds the peak list. Images use the "
         "spectrum settings of the GUI, e.g. labels and colours, on a light "
         "background."
     )
 
     if process:
-        parser = argparse.ArgumentParser(
+        parser = Parser(
             prog=f"mmass {PROCESS_COMMAND}",
+            usage=(
+                f"mmass {PROCESS_COMMAND} INPUT ... STEP ... "
+                "(-o FILE | -t FORMAT [-d DIR] | --in-place) [options]\n"
+                f"       mmass {PROCESS_COMMAND} INPUT ... --recipe FILE "
+                "(-o FILE | -t FORMAT [-d DIR] | --in-place) [options]\n"
+                f"       mmass {PROCESS_COMMAND} --show-settings [--recipe FILE] "
+                "[--preset NAME] [--set KEY=VALUE ...]"
+            ),
             description=(
                 "Process spectra without opening the GUI: run the steps in the "
                 "order they are given, then write the result, or rewrite the "
                 "inputs with --in-place."
             ),
             epilog=(
-                "Steps use the settings of the Processing panel of the GUI, "
-                "which --preset and --set change for this command only. Each "
-                "input is processed on its own and written to its own output. "
-                "In an LC-MS run written whole, every scan is processed, and "
-                "peaks are found in pooled scans if the settings say so. "
+                "Steps use your settings from the Processing panel of the GUI, "
+                "which --preset and --set change for this command only (the "
+                "preset first, then each --set in turn). A recipe file lists "
+                "steps and settings, one per line as on the command line, e.g. "
+                "'find-peaks' or 'set snThreshold=10'; # starts a comment. "
+                "Each input is processed on its own and written to its own "
+                "output. In an LC-MS run written whole, every scan is processed, "
+                "and peaks are found in pooled scans if the settings say so. "
                 "--in-place rewrites msd, txt, xy, asc and single-spectrum mgf "
                 "files; each is replaced only once it has been processed and "
-                "written in full. " + inputs_epilog
+                "written in full. " + inputs_epilog + " " + EXIT_CODES
             ),
         )
     else:
-        parser = argparse.ArgumentParser(
+        parser = Parser(
             prog=f"mmass {CONVERT_COMMAND}",
+            usage=(
+                f"mmass {CONVERT_COMMAND} INPUT ... (-o FILE | -t FORMAT [-d DIR]) [options]"
+            ),
             description=(
                 "Convert spectra to another format or draw them as images, "
                 "without opening the GUI."
             ),
             epilog=inputs_epilog
-            + f" To process spectra as well, see 'mmass {PROCESS_COMMAND} --help'.",
+            + f" To process spectra as well, see 'mmass {PROCESS_COMMAND} --help'. "
+            + EXIT_CODES,
         )
 
     parser.add_argument(
         "inputs",
-        nargs="*" if process else "+",
+        nargs="*",
         metavar="INPUT",
         help="documents to process" if process else "documents to convert",
     )
@@ -455,39 +666,32 @@ def make_convert_parser(command=CONVERT_COMMAND):
     if process:
         steps = parser.add_argument_group("steps, run in the order given")
         for step, (text, _changes) in STEPS.items():
+            names = [f"--{step}"]
+            names += [alias for alias, name in OPTION_ALIASES.items() if name == names[0]]
+            kwargs: dict[str, Any] = {"nargs": 0}
             if step == "crop":
-                steps.add_argument(
-                    "--crop",
-                    dest="steps",
-                    action=_StepAction,
-                    const=step,
-                    type=parse_crop_range,
-                    metavar="LOW:HIGH",
-                    help=text,
-                )
+                kwargs = {"type": parse_crop_range, "metavar": "LOW:HIGH"}
             elif step == "math":
+                kwargs = {"type": parse_math, "metavar": "OPERATION"}
+            steps.add_argument(
+                names[0], dest="steps", action=_StepAction, const=step, help=text, **kwargs
+            )
+            for alias in names[1:]:
                 steps.add_argument(
-                    "--math",
-                    dest="steps",
-                    action=_StepAction,
-                    const=step,
-                    type=parse_math,
-                    metavar="OPERATION",
-                    help=text,
-                )
-            else:
-                steps.add_argument(
-                    f"--{step}",
-                    dest="steps",
-                    action=_StepAction,
-                    const=step,
-                    nargs=0,
-                    help=text,
+                    alias, dest="steps", action=_StepAction, const=step,
+                    help=argparse.SUPPRESS, **kwargs,
                 )
 
         settings = parser.add_argument_group("settings")
         settings.add_argument(
+            "--recipe",
+            action=_RecipeAction,
+            metavar="FILE",
+            help="run the steps and settings listed in a file, where it is given",
+        )
+        settings.add_argument(
             "--preset",
+            action=_PresetAction,
             metavar="NAME",
             help=(
                 "start from processing presets saved in the GUI; 'Default' "
@@ -497,11 +701,14 @@ def make_convert_parser(command=CONVERT_COMMAND):
         settings.add_argument(
             "--set",
             dest="settings",
-            action="append",
+            action=_SettingAction,
             default=[],
             type=parse_setting,
-            metavar="SECTION.KEY=VALUE",
-            help="change one setting, e.g. peakpicking.snThreshold=10 (repeatable)",
+            metavar="[SECTION.]KEY=VALUE",
+            help=(
+                "change one setting, e.g. snThreshold=10; the section is "
+                "needed only for a key several sections have (repeatable)"
+            ),
         )
         settings.add_argument(
             "--show-settings",
@@ -510,14 +717,16 @@ def make_convert_parser(command=CONVERT_COMMAND):
         )
 
     outputs = parser.add_argument_group("output")
-    target = outputs.add_mutually_exclusive_group(required=not process)
-    target.add_argument(
+    outputs.add_argument(
         "-o",
         "--output",
         metavar="FILE",
-        help="output file, its format given by the extension (one input only)",
+        help=(
+            "output file, its format given by the extension (one input only); "
+            "- writes to standard output, in the format given by --to"
+        ),
     )
-    target.add_argument(
+    outputs.add_argument(
         "-t",
         "--to",
         metavar="FORMAT",
@@ -527,7 +736,7 @@ def make_convert_parser(command=CONVERT_COMMAND):
         ),
     )
     if process:
-        target.add_argument(
+        outputs.add_argument(
             "--in-place",
             action="store_true",
             help="replace each input with its processed version",
@@ -550,21 +759,36 @@ def make_convert_parser(command=CONVERT_COMMAND):
     outputs.add_argument(
         "--overwrite", action="store_true", help="replace outputs that already exist"
     )
+    outputs.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=(
+            "read and process every input and report what would be written, "
+            "but write nothing"
+        ),
+    )
 
     text = parser.add_argument_group("text outputs")
     text.add_argument(
-        "--peaklist",
+        "--peak-list",
+        dest="peaklist",
         action="store_true",
         help="write the peak list instead of the profile",
+    )
+    text.add_argument(
+        "--peaklist", dest="peaklist", action="store_true", help=argparse.SUPPRESS
     )
     text.add_argument(
         "--columns",
         type=parse_columns,
         metavar="LIST",
         help=(
-            "peak list columns, comma-separated, from: "
-            f"{','.join(PEAKLIST_COLUMNS)} (default: the columns of Export "
-            "Peak List in the GUI)"
+            "peak list columns, comma-separated (default: the columns of Export "
+            "Peak List in the GUI): "
+            + ", ".join(
+                f"{name} ({meaning})" if meaning != name else name
+                for name, meaning in PEAKLIST_COLUMNS.items()
+            ).replace("%", "%%")
         ),
     )
     text.add_argument(
@@ -598,6 +822,14 @@ def make_convert_parser(command=CONVERT_COMMAND):
     return parser
 
 
+def _process_only_options():
+    """Option names mmass process takes and mmass convert does not."""
+
+    convert = make_convert_parser(CONVERT_COMMAND)._option_string_actions
+    process = make_convert_parser(PROCESS_COMMAND)._option_string_actions
+    return set(process) - set(convert)
+
+
 def parse_convert_args(argv, command=CONVERT_COMMAND):
     """Parse and check mmass convert or process arguments into ConvertOptions.
 
@@ -607,42 +839,78 @@ def parse_convert_args(argv, command=CONVERT_COMMAND):
 
     process = command == PROCESS_COMMAND
     parser = make_convert_parser(command)
+    prog = parser.prog
+
+    if not argv:
+        parser.print_help()
+        parser.exit(0)
+
+    if not process:
+        processOnly = _process_only_options()
+        for item in argv:
+            if item == "--":
+                break
+            name = item.split("=", 1)[0]
+            if name in processOnly:
+                parser.error(
+                    f"{name} belongs to processing; use mmass {PROCESS_COMMAND} "
+                    f"instead of mmass {CONVERT_COMMAND}"
+                )
+
     # inputs may follow options, as in: mmass convert -t png *.mzML more.msd
     args = parser.parse_intermixed_args(argv)
 
     steps = getattr(args, "steps", None) or []
     inPlace = getattr(args, "in_place", False)
     showSettings = getattr(args, "show_settings", False)
-
-    if process and not showSettings:
-        if not steps:
-            parser.error(
-                "no processing steps given, e.g. --baseline --findpeaks; to "
-                f"convert without processing, use mmass {CONVERT_COMMAND}"
-            )
-        if not args.inputs:
-            parser.error("no inputs given")
-        if not (args.output or args.to or inPlace):
-            parser.error(
-                "say where to write the results: --output FILE, --to FORMAT, "
-                "or --in-place to replace the inputs"
-            )
+    settings = getattr(args, "settings", [])
+    preset = getattr(args, "preset", None)
+    presetOrigin = getattr(args, "preset_origin", "--preset")
 
     if showSettings:
         return ConvertOptions(
             inputs=[],
             format=None,
             command=command,
-            preset=args.preset,
-            settings=args.settings,
+            preset=preset,
+            presetOrigin=presetOrigin,
+            settings=settings,
             showSettings=True,
         )
 
-    # output format
+    # where to write
+    if not (args.output or args.to or inPlace):
+        last = args.inputs[-1] if args.inputs else ""
+        extension = os.path.splitext(last)[1].lower().lstrip(".")
+        if len(args.inputs) > 1 and extension in OUTPUT_FORMATS and not os.path.exists(last):
+            parser.error(f"to write {last}, give it as the output: --output {last}")
+        parser.error(
+            "say where to write the results: --output FILE or --to FORMAT"
+            + (", or --in-place to replace the inputs" if process else "")
+        )
+    if process and not steps:
+        parser.error(
+            "no processing steps given, e.g. --baseline --find-peaks; to "
+            f"convert without processing, use mmass {CONVERT_COMMAND}"
+        )
+    if not args.inputs:
+        parser.error("no inputs given")
+
+    toStdout = args.output == STDOUT
+    targets = [
+        name for name, given in
+        (("--output", args.output and not toStdout), ("--to", args.to), ("--in-place", inPlace))
+        if given
+    ]
+    if len(targets) > 1:
+        parser.error(f"give only one of {' and '.join(targets)}")
+
     name = None
     kind = None
     what = ""
     if inPlace:
+        if toStdout:
+            parser.error("--in-place writes each input back where it is, not to standard output")
         if args.output_dir:
             parser.error("--in-place writes each input back where it is, not to --output-dir")
         if args.scan is not None:
@@ -651,10 +919,23 @@ def parse_convert_args(argv, command=CONVERT_COMMAND):
                 "spectrum of them; write it out with --output or --to instead"
             )
         if args.overwrite:
-            warn("--overwrite does not apply to --in-place, ignoring it")
-    elif args.output:
+            warn("--overwrite does not apply to --in-place, ignoring it", prog)
+    elif toStdout:
+        if not args.to:
+            parser.error("writing to standard output (--output -) needs --to FORMAT")
         if len(args.inputs) > 1:
-            parser.error("--output takes one input; use --to for several")
+            parser.error("only one input can be written to standard output")
+        if args.output_dir:
+            parser.error("--output - writes to standard output, not to --output-dir")
+        name = args.to.lower().lstrip(".")
+        what = f"format '{args.to}'"
+    elif args.output:
+        folder = args.output.endswith(("/", os.sep)) or os.path.isdir(args.output)
+        if len(args.inputs) > 1 or folder:
+            parser.error(
+                ("--output takes one input" if not folder else f"--output {args.output} is a folder")
+                + f"; to write into a folder, use --to FORMAT --output-dir {args.output}"
+            )
         if args.output_dir:
             parser.error("--output-dir works with --to; give --output a full path")
         name = os.path.splitext(args.output)[1].lower().lstrip(".")
@@ -688,7 +969,7 @@ def parse_convert_args(argv, command=CONVERT_COMMAND):
     # inputs
     missing = [path for path in args.inputs if not os.path.exists(path)]
     for path in missing:
-        warn(f"no such file or folder: {path}")
+        warn(f"no such file or folder: {path}", prog)
     if missing:
         parser.error("inputs not found")
 
@@ -700,42 +981,46 @@ def parse_convert_args(argv, command=CONVERT_COMMAND):
     shown = name or "in-place"
     size = args.size
     if size is not None and (kind != "image" or name == "svg"):
-        warn(f"--size does not apply to {shown} output, ignoring it")
+        warn(f"--size does not apply to {shown} output, ignoring it", prog)
     if size is None or name == "svg":
         size = SVG_SIZE if name == "svg" else DEFAULT_IMAGE_SIZE
     if args.dark and kind != "image":
-        warn(f"--dark does not apply to {shown} output, ignoring it")
+        warn(f"--dark does not apply to {shown} output, ignoring it", prog)
     if args.mz_range and kind != "image":
         warn(
             f"--mz-range does not apply to {shown} output, ignoring it"
-            + ("; --crop cuts the data itself" if process else "")
+            + ("; --crop cuts the data itself" if process else ""),
+            prog,
         )
     if args.separator and kind not in ("ASCII", None):
-        warn(f"--separator does not apply to {shown} output, ignoring it")
-    if args.peaklist and kind not in ("ASCII", None):
-        warn(f"--peaklist does not apply to {shown} output, ignoring it")
+        warn(f"--separator does not apply to {shown} output, ignoring it", prog)
+    # an MGF file is a peak list already
+    if args.peaklist and kind not in ("ASCII", "MGF", None):
+        warn(f"--peak-list does not apply to {shown} output, ignoring it", prog)
     if args.columns and not args.peaklist:
-        warn("--columns applies to --peaklist output, ignoring it")
+        warn("--columns applies to --peak-list output, ignoring it", prog)
     separator = args.separator or ("comma" if name == "csv" else "tab")
 
     return ConvertOptions(
         inputs=[os.path.abspath(path) for path in args.inputs],
         format=name,
-        output=os.path.abspath(args.output) if args.output else None,
+        output=STDOUT if toStdout else os.path.abspath(args.output) if args.output else None,
         outputDir=os.path.abspath(args.output_dir) if args.output_dir else None,
         scan=args.scan,
         size=size,
         separator=SEPARATORS[separator],
         dark=args.dark,
         overwrite=args.overwrite and not inPlace,
+        dryRun=args.dry_run,
         mzRange=args.mz_range if kind == "image" else None,
         peaklist=args.peaklist and kind in ("ASCII", None),
         columns=args.columns,
         command=command,
         steps=steps,
         inPlace=inPlace,
-        preset=getattr(args, "preset", None),
-        settings=getattr(args, "settings", []),
+        preset=preset,
+        presetOrigin=presetOrigin,
+        settings=settings,
         # an explicit --separator also sets the separator of in-place text
         # files, which otherwise keep their own
         explicitSeparator=args.separator is not None,

@@ -267,7 +267,7 @@ def test_the_command_dispatches_to_convert(files, tmp_path):
 
 
 def test_peak_list_columns_match_the_gui():
-    assert tuple(doc.PEAKLIST_COLUMNS) == cli.PEAKLIST_COLUMNS
+    assert tuple(doc.PEAKLIST_COLUMNS) == tuple(cli.PEAKLIST_COLUMNS)
 
 
 def test_math_operations_match_the_gui():
@@ -279,7 +279,7 @@ def test_math_operations_match_the_gui():
 def test_a_peak_list_is_written_as_text_with_a_header(files, tmp_path):
     target = tmp_path / "peaks.csv"
 
-    assert _convert(files["single"], "-o", str(target), "--peaklist", "--columns", "mz,int,z")[0] == 0
+    assert _convert(files["single"], "-o", str(target), "--peak-list", "--columns", "mz,int,z")[0] == 0
 
     assert target.read_text().splitlines() == ["m/z,int,z", "405.0,100.0,"]
 
@@ -341,7 +341,7 @@ def test_steps_give_what_the_processing_panel_gives(profiles, tmp_path):
 
     target = tmp_path / "out.msd"
 
-    assert _process(str(profiles["msd"]), "--baseline", "--smooth", "--findpeaks", "-o", str(target)) == 0
+    assert _process(str(profiles["msd"]), "--baseline", "--smooth", "--find-peaks", "-o", str(target)) == 0
 
     expected = _read(profiles["msd"], "mSD").spectrum
     settings = _settings()
@@ -358,8 +358,8 @@ def test_steps_run_in_the_order_given(profiles, tmp_path):
     cropped_first = tmp_path / "cropped_first.msd"
     picked_first = tmp_path / "picked_first.msd"
 
-    assert _process(str(profiles["msd"]), "--crop", "400:404", "--findpeaks", "-o", str(cropped_first)) == 0
-    assert _process(str(profiles["msd"]), "--findpeaks", "--crop", "404:406", "-o", str(picked_first)) == 0
+    assert _process(str(profiles["msd"]), "--crop", "400:404", "--find-peaks", "-o", str(cropped_first)) == 0
+    assert _process(str(profiles["msd"]), "--find-peaks", "--crop", "404:406", "-o", str(picked_first)) == 0
 
     assert not _read(cropped_first, "mSD").spectrum.haspeaks()
     picked = _read(picked_first, "mSD").spectrum
@@ -374,7 +374,7 @@ def test_settings_change_the_result_but_never_the_configuration(profiles, tmp_pa
     before = json.dumps(config.processing, sort_keys=True)
     strict = tmp_path / "strict.msd"
 
-    assert _process(str(profiles["msd"]), "--findpeaks", "-o", str(strict), "--set", "peakpicking.snThreshold=100000") == 0
+    assert _process(str(profiles["msd"]), "--find-peaks", "-o", str(strict), "--set", "peakpicking.snThreshold=100000") == 0
 
     assert not _read(strict, "mSD").spectrum.haspeaks()
     assert json.dumps(config.processing, sort_keys=True) == before
@@ -390,6 +390,8 @@ def test_settings_change_the_result_but_never_the_configuration(profiles, tmp_pa
         ("baseline.precision=-3", "out of range"),
         ("math.multiplier=0", "out of range"),
         ("baseline.offset=high", "not a number"),
+        ("bogus=1", "there is no setting bogus"),
+        ("preservePeaks=1", "write baseline.preservePeaks or smoothing.preservePeaks"),
     ],
 )
 def test_wrong_settings_stop_before_any_file(profiles, tmp_path, capsys, setting, message):
@@ -399,6 +401,27 @@ def test_wrong_settings_stop_before_any_file(profiles, tmp_path, capsys, setting
 
     assert message in capsys.readouterr().err
     assert not target.exists()
+
+
+def test_settings_are_found_by_name_in_any_case():
+    settings = _settings(
+        "--set", "SNTHRESHOLD=7", "--set", "Smoothing.Method=ga", "--set", "baseline.preservepeaks=0",
+        "--preset", "default",
+    )
+
+    assert settings["peakpicking"]["snThreshold"] == 7
+    assert settings["smoothing"]["method"] == "GA"
+    assert settings["baseline"]["preservePeaks"] == 0
+
+
+def test_setting_errors_say_where_the_setting_was_given(profiles, tmp_path, capsys):
+    recipe = tmp_path / "steps.recipe"
+    recipe.write_text("find-peaks\nset snThreshold=lots\n")
+
+    status = _process(str(profiles["msd"]), "--recipe", str(recipe), "-o", str(tmp_path / "out.msd"))
+
+    assert status == 2
+    assert f"recipe {recipe}, line 2: set snThreshold: 'lots' is not a number" in capsys.readouterr().err
 
 
 def test_show_settings(capsys):
@@ -440,7 +463,7 @@ def test_math_transforms_profile_and_peaks(profiles, tmp_path):
     targets = {}
     for operation in ("normalize", "multiply", "squareroot"):
         targets[operation] = tmp_path / f"{operation}.msd"
-        argv = [str(profiles["msd"]), "--findpeaks", "--math", operation, "-o", str(targets[operation])]
+        argv = [str(profiles["msd"]), "--find-peaks", "--math", operation, "-o", str(targets[operation])]
         assert _process(*argv, "--set", "math.multiplier=2.5") == 0
 
     top = source.profile[:, 1].max()
@@ -465,7 +488,7 @@ def test_math_settings_no_step_uses_are_refused(setting, message):
 
 def test_steps_lacking_their_data_are_errors(files, profiles, tmp_path, capsys):
     assert _process(str(profiles["msd"]), "--deisotope", "-o", str(tmp_path / "a.msd")) == 1
-    assert "find them first with --findpeaks" in capsys.readouterr().err
+    assert "find them first with --find-peaks" in capsys.readouterr().err
 
     assert _process(files["mgf"], "--scan", "0", "--baseline", "-o", str(tmp_path / "b.msd")) == 1
     assert "only a peak list" in capsys.readouterr().err
@@ -477,7 +500,7 @@ def test_steps_lacking_their_data_are_errors(files, profiles, tmp_path, capsys):
 def test_every_scan_of_a_run_written_whole_is_processed(profiles, tmp_path):
     for pooling in ("run", "off"):
         target = tmp_path / f"{pooling}.msd"
-        argv = ["--findpeaks", "-o", str(target), "--set", f"peakpicking.poolScans={pooling}"]
+        argv = ["--find-peaks", "-o", str(target), "--set", f"peakpicking.poolScans={pooling}"]
 
         assert _process(str(profiles["run"]), *argv) == 0
 
@@ -491,8 +514,8 @@ def test_one_scan_is_picked_like_the_scan_of_the_whole_run(profiles, tmp_path):
     whole = tmp_path / "whole.msd"
     one = tmp_path / "one.csv"
 
-    assert _process(str(profiles["run"]), "--findpeaks", "-o", str(whole)) == 0
-    assert _process(str(profiles["run"]), "--findpeaks", "--scan", "3", "-o", str(one), "--peaklist", "--columns", "mz,int") == 0
+    assert _process(str(profiles["run"]), "--find-peaks", "-o", str(whole)) == 0
+    assert _process(str(profiles["run"]), "--find-peaks", "--scan", "3", "-o", str(one), "--peak-list", "--columns", "mz,int") == 0
 
     scan = _read(whole, "mSD").scanCache[3]
     lines = one.read_text().splitlines()
@@ -506,7 +529,7 @@ def test_in_place_rewrites_the_input(profiles):
     path = profiles["msd"]
     os.chmod(path, 0o640)
 
-    assert _process(str(path), "--findpeaks", "--in-place") == 0
+    assert _process(str(path), "--find-peaks", "--in-place") == 0
 
     assert _read(path, "mSD").spectrum.haspeaks()
     assert os.stat(path).st_mode & 0o777 == 0o640
@@ -553,7 +576,7 @@ def test_in_place_refuses_files_it_would_damage(files, profiles, capsys, kind, m
 def test_one_failing_input_does_not_stop_the_others(files, profiles, tmp_path, capsys):
     out = tmp_path / "out"
 
-    status = _process(files["fasta"], str(profiles["msd"]), str(profiles["txt"]), "--findpeaks", "-t", "msd", "-d", str(out))
+    status = _process(files["fasta"], str(profiles["msd"]), str(profiles["txt"]), "--find-peaks", "-t", "msd", "-d", str(out))
 
     assert status == 1
     assert sorted(os.listdir(out)) == ["profile.msd"]
@@ -563,10 +586,74 @@ def test_one_failing_input_does_not_stop_the_others(files, profiles, tmp_path, c
     assert captured.out.count(" -> ") == 1
 
 
+def test_a_dry_run_writes_nothing(profiles, tmp_path, capsys):
+    out = tmp_path / "out"
+    original = profiles["msd"].read_bytes()
+
+    assert _process(str(profiles["msd"]), "--find-peaks", "-t", "msd", "-d", str(out), "--dry-run") == 0
+    assert _process(str(profiles["msd"]), "--find-peaks", "--in-place", "--dry-run") == 0
+
+    assert not out.exists()
+    assert profiles["msd"].read_bytes() == original
+    assert capsys.readouterr().out.count("dry run, nothing written") == 2
+    assert sorted(os.listdir(tmp_path)) == ["profile.msd", "profile.txt", "run.mzML"]
+
+
+def test_a_dry_run_still_finds_what_would_fail(profiles, tmp_path, capsys):
+    assert _process(str(profiles["msd"]), "--deisotope", "-o", str(tmp_path / "a.msd"), "--dry-run") == 1
+
+    assert "--deisotope needs peaks" in capsys.readouterr().err
+
+
+def test_standard_output_gets_the_output_alone(profiles, capfdbinary):
+    status = _process(str(profiles["msd"]), "--find-peaks", "-o", "-", "-t", "csv", "--peak-list", "--columns", "mz,z")
+
+    assert status == 0
+    captured = capfdbinary.readouterr()
+    lines = captured.out.decode().splitlines()
+    assert lines[0] == "m/z,z" and len(lines) > 1
+    assert captured.err == b""
+
+
+def test_messages_show_paths_relative_to_the_current_folder(profiles, tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "profile.png").write_text("")
+
+    assert _convert("profile.msd", "-t", "msd", "-d", "out")[0] == 0
+    assert _convert("profile.msd", "-t", "png")[0] == 1
+
+    captured = capsys.readouterr()
+    assert captured.out == f"profile.msd -> {os.path.join('out', 'profile.msd')}\n"
+    assert "error: profile.msd: profile.png already exists" in captured.err
+
+
+def test_a_recipe_processes_like_its_options(profiles, tmp_path):
+    recipe = tmp_path / "peaks.recipe"
+    recipe.write_text(
+        "# peaks of the pattern as a peak list\n"
+        "set snThreshold=10\n"
+        "baseline\n"
+        "find-peaks\n"
+        "peak-list\n"
+        "columns mz,int,z\n"
+    )
+    by_recipe = tmp_path / "recipe.csv"
+    by_options = tmp_path / "options.csv"
+
+    assert _process(str(profiles["msd"]), "--recipe", str(recipe), "-o", str(by_recipe)) == 0
+    assert _process(
+        str(profiles["msd"]), "--set", "snThreshold=10", "--baseline", "--find-peaks",
+        "--peak-list", "--columns", "mz,int,z", "-o", str(by_options),
+    ) == 0
+
+    assert by_recipe.read_text() == by_options.read_text()
+    assert by_recipe.read_text().startswith("m/z,int,z\n405.")
+
+
 def test_the_command_dispatches_to_process(profiles, tmp_path):
     target = tmp_path / "out.msd"
 
-    assert app.main(["process", str(profiles["msd"]), "--findpeaks", "-o", str(target)]) == 0
+    assert app.main(["process", str(profiles["msd"]), "--find-peaks", "-o", str(target)]) == 0
     assert _read(target, "mSD").spectrum.haspeaks()
 
 
