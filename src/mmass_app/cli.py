@@ -91,7 +91,7 @@ COLUMN_ALIASES = {"intensity": "int", "charge": "z", "resolution": "resol"}
 # processing steps of mmass process, by option name: (help, what they change
 # -- the "profile", the "peaks" or "both")
 STEPS = {
-    "crop": ("keep only the m/z range LOW:HIGH", "both"),
+    "crop": ("keep only the m/z range LOW-HIGH, e.g. 500-3000", "both"),
     "baseline": ("subtract the baseline", "profile"),
     "smooth": ("smooth the profile", "profile"),
     "find-peaks": (
@@ -107,7 +107,11 @@ STEPS = {
     ),
 }
 # other spellings of options, accepted but not listed in --help
-OPTION_ALIASES = {"--findpeaks": "--find-peaks", "--peaklist": "--peak-list"}
+OPTION_ALIASES = {
+    "--findpeaks": "--find-peaks",
+    "--peaklist": "--peak-list",
+    "--mz-range": "--range",
+}
 
 # gui.processing.SINGLE_SPECTRUM_MATH, repeated for the same reason as above
 MATH_OPERATIONS = ("normalize", "multiply", "squareroot")
@@ -128,7 +132,7 @@ UNUSED_SETTINGS = {"math.operation", "math.preservePeaks"}
 # but not which files to read or where to write, nor anything destructive
 RECIPE_OPTIONS = (
     *STEPS, "preset", "set", "peak-list", "columns", "separator", "size",
-    "mz-range", "dark",
+    "range", "dark",
 )
 
 EXIT_CODES = (
@@ -199,7 +203,7 @@ class Parser(argparse.ArgumentParser):
     """An argument parser taking only whole option names, with short errors."""
 
     def __init__(self, *args, **kwargs):
-        # a prefix of an option (--mz for --mz-range) would stop working as
+        # a prefix of an option (--dry for --dry-run) would stop working as
         # soon as another option starts alike
         kwargs.setdefault("allow_abbrev", False)
         super().__init__(*args, **kwargs)
@@ -215,9 +219,11 @@ def make_parser():
         prog="mmass",
         usage=(
             "mmass [FILE ...]\n"
-            f"       mmass {CONVERT_COMMAND} INPUT ... (-o FILE | -f FORMAT) [options]\n"
+            f"       mmass {CONVERT_COMMAND} INPUT OUTPUT [options]\n"
+            f"       mmass {CONVERT_COMMAND} INPUT ... -f FORMAT [-d DIR] [options]\n"
+            f"       mmass {PROCESS_COMMAND} INPUT STEP ... OUTPUT [options]\n"
             f"       mmass {PROCESS_COMMAND} INPUT ... STEP ... "
-            "(-o FILE | -f FORMAT | --in-place) [options]"
+            "(-f FORMAT [-d DIR] | --in-place) [options]"
         ),
         description=(
             "mMass - Open Source Mass Spectrometry Tool.\n\n"
@@ -600,25 +606,25 @@ def make_convert_parser(command=CONVERT_COMMAND):
     process = command == PROCESS_COMMAND
     writable = ", ".join(OUTPUT_FORMATS)
     inputs_epilog = (
-        "Inputs are read like the GUI opens them: mzML, mzXML, mzData, MGF, "
+        "Inputs: mzML, mzXML, mzData, MGF, "
         "mSD, XY/TXT/ASC, a Bruker fid file or dataset folder. Outputs: "
         f"{writable}. A file holding several spectra (an LC-MS run, an MGF "
         "or a Bruker folder of many acquisitions) is written whole to "
         "mzML, mzXML and, for LC-MS runs, msd; other outputs need one "
         "spectrum picked with --scan. Text outputs hold the profile, or the "
         "peak list with --peak-list; MGF holds the peak list. Images use the "
-        "spectrum settings of the GUI, e.g. labels and colours, on a light "
-        "background."
+        "spectrum settings of the GUI."
     )
 
     if process:
         parser = Parser(
             prog=f"mmass {PROCESS_COMMAND}",
             usage=(
-                f"mmass {PROCESS_COMMAND} INPUT ... STEP ... "
-                "(-o FILE | -f FORMAT [-d DIR] | --in-place) [options]\n"
+                f"mmass {PROCESS_COMMAND} INPUT STEP ... OUTPUT [options]\n"
+                f"       mmass {PROCESS_COMMAND} INPUT ... STEP ... "
+                "(-f FORMAT [-d DIR] | --in-place) [options]\n"
                 f"       mmass {PROCESS_COMMAND} INPUT ... --recipe FILE "
-                "(-o FILE | -f FORMAT [-d DIR] | --in-place) [options]\n"
+                "(OUTPUT | -f FORMAT [-d DIR] | --in-place) [options]\n"
                 f"       mmass {PROCESS_COMMAND} --show-settings [--recipe FILE] "
                 "[--preset NAME] [--set KEY=VALUE ...]"
             ),
@@ -629,38 +635,35 @@ def make_convert_parser(command=CONVERT_COMMAND):
             ),
             epilog=(
                 "Steps use your settings from the Processing panel of the GUI, "
-                "which --preset and --set change for this command only (the "
-                "preset first, then each --set in turn). A recipe file lists "
+                "which --preset and --set change for this command only. A recipe file lists "
                 "steps and settings, one per line as on the command line, e.g. "
-                "'find-peaks' or 'set snThreshold=10'; # starts a comment. "
-                "Each input is processed on its own and written to its own "
-                "output. In an LC-MS run written whole, every scan is processed, "
-                "and peaks are found in pooled scans if the settings say so. "
-                "--in-place rewrites msd, txt, xy, asc and single-spectrum mgf "
-                "files; each is replaced only once it has been processed and "
-                "written in full. " + inputs_epilog + " " + EXIT_CODES
+                "'find-peaks' or 'set snThreshold=10'; # starts a comment. " + inputs_epilog
             ),
         )
     else:
         parser = Parser(
             prog=f"mmass {CONVERT_COMMAND}",
             usage=(
-                f"mmass {CONVERT_COMMAND} INPUT ... (-o FILE | -f FORMAT [-d DIR]) [options]"
+                f"mmass {CONVERT_COMMAND} INPUT OUTPUT [options]\n"
+                f"       mmass {CONVERT_COMMAND} INPUT ... -f FORMAT [-d DIR] [options]"
             ),
             description=(
                 "Convert spectra to another format or draw them as images, "
                 "without opening the GUI."
             ),
             epilog=inputs_epilog
-            + f" To process spectra as well, see 'mmass {PROCESS_COMMAND} --help'. "
-            + EXIT_CODES,
+            + f" To process spectra as well, see 'mmass {PROCESS_COMMAND} --help'."
         )
 
     parser.add_argument(
         "inputs",
         nargs="*",
         metavar="INPUT",
-        help="documents to process" if process else "documents to convert",
+        help=(
+            f"documents to {'process' if process else 'convert'}; without "
+            "--output or --format, the last name is the output file, its format "
+            "given by its extension"
+        ),
     )
 
     if process:
@@ -670,7 +673,7 @@ def make_convert_parser(command=CONVERT_COMMAND):
             names += [alias for alias, name in OPTION_ALIASES.items() if name == names[0]]
             kwargs: dict[str, Any] = {"nargs": 0}
             if step == "crop":
-                kwargs = {"type": parse_crop_range, "metavar": "LOW:HIGH"}
+                kwargs = {"type": parse_crop_range, "metavar": "LOW-HIGH"}
             elif step == "math":
                 kwargs = {"type": parse_math, "metavar": "OPERATION"}
             steps.add_argument(
@@ -722,7 +725,8 @@ def make_convert_parser(command=CONVERT_COMMAND):
         "--output",
         metavar="FILE",
         help=(
-            "output file, its format given by the extension (one input only); "
+            "output file, its format given by the extension (one input only), "
+            "which can also follow the input without -o; "
             "- writes to standard output, in the format given by --format"
         ),
     )
@@ -808,13 +812,17 @@ def make_convert_parser(command=CONVERT_COMMAND):
         ),
     )
     images.add_argument(
-        "--mz-range",
+        "--range",
+        dest="mz_range",
         type=parse_mz_range,
-        metavar="LOW:HIGH",
+        metavar="LOW-HIGH",
         help=(
-            "draw only this m/z range, e.g. 400:1500; leave out an end to "
-            "draw to the end of the spectrum, e.g. 400:"
+            "draw only this m/z range, e.g. 400-1500 or 400:1500; leave out an "
+            "end to draw to the end of the spectrum, e.g. 400-"
         ),
+    )
+    images.add_argument(
+        "--mz-range", dest="mz_range", type=parse_mz_range, help=argparse.SUPPRESS
     )
     images.add_argument(
         "--dark", action="store_true", help="draw images on a dark background"
@@ -878,14 +886,22 @@ def parse_convert_args(argv, command=CONVERT_COMMAND):
             showSettings=True,
         )
 
-    # where to write
+    # where to write: without --output, --format or --in-place, the last of
+    # several names is the output file, as in: mmass convert in.mzML out.png
+    namedOutput = False
+    if not (args.output or args.format or inPlace) and len(args.inputs) > 1:
+        args.output = args.inputs.pop()
+        namedOutput = True
+        if os.path.exists(args.output) and not os.path.isdir(args.output) and not args.overwrite:
+            parser.error(
+                f"{args.output} already exists, and as the last name it would be "
+                "the output file; add --overwrite to replace it, or give "
+                "--format FORMAT to convert every file named"
+            )
     if not (args.output or args.format or inPlace):
-        last = args.inputs[-1] if args.inputs else ""
-        extension = os.path.splitext(last)[1].lower().lstrip(".")
-        if len(args.inputs) > 1 and extension in OUTPUT_FORMATS and not os.path.exists(last):
-            parser.error(f"to write {last}, give it as the output: --output {last}")
         parser.error(
-            "say where to write the results: --output FILE or --format FORMAT"
+            "say where to write the results: an output file after the input, "
+            "--output FILE or --format FORMAT"
             + (", or --in-place to replace the inputs" if process else "")
         )
     if process and not steps:
@@ -930,14 +946,22 @@ def parse_convert_args(argv, command=CONVERT_COMMAND):
         name = args.format.lower().lstrip(".")
         what = f"format '{args.format}'"
     elif args.output:
+        given = args.output if namedOutput else f"--output {args.output}"
         folder = args.output.endswith(("/", os.sep)) or os.path.isdir(args.output)
-        if len(args.inputs) > 1 or folder:
+        if folder:
             parser.error(
-                ("--output takes one input" if not folder else f"--output {args.output} is a folder")
-                + f"; to write into a folder, use --format FORMAT --output-dir {args.output}"
+                f"{given} is a folder; to write into a folder, use --format "
+                f"FORMAT --output-dir {args.output}"
+            )
+        if len(args.inputs) > 1:
+            parser.error(
+                f"{given} names one output file, for one input; to convert "
+                "several files, use --format FORMAT"
             )
         if args.output_dir:
-            parser.error("--output-dir works with --format; give --output a full path")
+            parser.error(
+                "--output-dir works with --format; give the output file a full path"
+            )
         name = os.path.splitext(args.output)[1].lower().lstrip(".")
         if os.path.basename(args.output).lower() == "fid":
             name = "fid"
@@ -988,7 +1012,7 @@ def parse_convert_args(argv, command=CONVERT_COMMAND):
         warn(f"--dark does not apply to {shown} output, ignoring it", prog)
     if args.mz_range and kind != "image":
         warn(
-            f"--mz-range does not apply to {shown} output, ignoring it"
+            f"--range does not apply to {shown} output, ignoring it"
             + ("; --crop cuts the data itself" if process else ""),
             prog,
         )

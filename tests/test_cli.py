@@ -178,17 +178,19 @@ def test_convert_warns_about_options_that_do_not_apply(files, capsys):
 
 
 def test_convert_image_range(files, capsys):
-    options = cli.parse_convert_args(["a.mzML", "-f", "png", "--mz-range", "400.5:"])
-    text = cli.parse_convert_args(["a.mzML", "-f", "txt", "--mz-range", "400:500"])
+    options = cli.parse_convert_args(["a.mzML", "-f", "png", "--range", "400.5:"])
+    text = cli.parse_convert_args(["a.mzML", "-f", "txt", "--range", "400:500"])
+    alias = cli.parse_convert_args(["a.mzML", "-f", "png", "--mz-range", "400-500"])
 
     assert options.mzRange == (400.5, None)
     assert text.mzRange is None
-    assert "--mz-range does not apply to txt" in capsys.readouterr().err
+    assert alias.mzRange == (400.0, 500.0)
+    assert "--range does not apply to txt" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("value", ["400", "500:400", ":", "a:b", "1:2:3"])
 def test_convert_refuses_ranges_that_are_none(files, capsys, value):
-    assert "--mz-range" in _convert_error(["a.mzML", "-f", "png", "--mz-range", value], capsys)
+    assert "--range" in _convert_error(["a.mzML", "-f", "png", "--range", value], capsys)
 
 
 def test_convert_writes_peak_lists_as_text(files, capsys):
@@ -360,15 +362,20 @@ def test_errors_are_short(files, capsys):
 
 
 def test_options_cannot_be_abbreviated(files, capsys):
-    assert "unrecognized arguments: --mz" in _convert_error(
-        ["a.mzML", "-f", "png", "--mz", "400:500"], capsys
+    assert "unrecognized arguments: --ran" in _convert_error(
+        ["a.mzML", "-f", "png", "--ran", "400:500"], capsys
     )
 
 
 @pytest.mark.parametrize(
     "argv, message",
     [
-        (["a.mzML", "a.png"], "give it as the output: --output a.png"),
+        (["a.mzML", "b.msd", "c.png"], "c.png names one output file, for one input"),
+        (["a.mzML", "b.msd"], "b.msd already exists, and as the last name it would be the output"),
+        (["a.mzML", "bruker"], "bruker is a folder; to write into a folder, use --format FORMAT --output-dir bruker"),
+        (["a.mzML", "out.png", "-d", "out"], "--output-dir works with --format"),
+        (["a.mzML", "out.fasta"], "cannot write them (output file out.fasta)"),
+        (["a.mzML"], "an output file after the input"),
         (["a.mzML", "b.msd", "-o", "out/"], "use --format FORMAT --output-dir out/"),
         (["a.mzML", "-o", "bruker"], "bruker is a folder"),
         (["a.mzML", "--find-peaks", "-f", "csv"], "use mmass process instead"),
@@ -382,6 +389,18 @@ def test_likely_mistakes_get_a_hint(files, capsys, argv, message):
     assert message in _convert_error(argv, capsys)
 
 
+def test_an_output_file_can_follow_the_input(files, capsys):
+    options = cli.parse_convert_args(["a.mzML", "out/Plot.SVG", "--dark"])
+    replaced = cli.parse_convert_args(["a.mzML", "b.msd", "--overwrite"])
+    processed = _process(["a.mzML", "--find-peaks", "peaks.csv", "--peak-list"])
+
+    assert options.inputs == [str(files / "a.mzML")]
+    assert (options.output, options.format, options.dark) == (str(files / "out" / "Plot.SVG"), "svg", True)
+    assert (replaced.output, replaced.format) == (str(files / "b.msd"), "msd")
+    assert (processed.output, processed.format, processed.peaklist) == (str(files / "peaks.csv"), "csv", True)
+    assert capsys.readouterr().err == ""
+
+
 def test_standard_output_takes_the_format_from_to(files):
     options = cli.parse_convert_args(["a.mzML", "-o", "-", "-f", "CSV", "--peak-list"])
 
@@ -393,7 +412,7 @@ def test_standard_output_takes_the_format_from_to(files):
     [("400-1500", (400.0, 1500.0)), ("400.5-", (400.5, None)), ("-1500", (None, 1500.0))],
 )
 def test_ranges_take_a_dash(files, value, expected):
-    options = cli.parse_convert_args(["a.mzML", "-f", "png", "--mz-range", value])
+    options = cli.parse_convert_args(["a.mzML", "-f", "png", "--range", value])
 
     assert options.mzRange == expected
 
@@ -421,6 +440,7 @@ def test_old_spellings_still_work_but_are_not_listed(files, capsys):
         _process(["--help"])
     out = capsys.readouterr().out
     assert "--find-peaks" in out and "--findpeaks" not in out and "--peaklist" not in out
+    assert "--range" in out and "--mz-range" not in out
 
 
 def test_warnings_name_the_command(files, capsys):

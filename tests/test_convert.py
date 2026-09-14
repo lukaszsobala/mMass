@@ -259,6 +259,17 @@ def test_outputs_are_named_after_bruker_datasets(tmp_path):
         assert convert.output_path(path, options) == str(tmp_path / "out" / "dataset.png")
 
 
+def test_the_output_file_can_follow_the_input(files, tmp_path, capsys):
+    target = tmp_path / "single.mzXML"
+
+    assert app.main(["convert", files["single"], str(target)]) == 0
+
+    numpy.testing.assert_allclose(
+        _read(target, "mzXML").spectrum.profile, _read(files["single"], "mzML").spectrum.profile, rtol=1e-6
+    )
+    assert capsys.readouterr().out.endswith(f" -> {target}\n")
+
+
 def _acquisition(folder, spot, lift=None):
     """A Bruker acquisition folder with an empty fid and an acqu naming it."""
 
@@ -760,7 +771,7 @@ def test_svg_ignores_the_size(files, tmp_path, capsys):
 def test_images_can_show_an_mz_range(files, tmp_path, mzRange):
     target = tmp_path / "range.png"
 
-    assert _convert(files["single"], "-o", str(target), "--size", "640x360", "--mz-range", mzRange)[0] == 0
+    assert _convert(files["single"], "-o", str(target), "--size", "640x360", "--range", mzRange)[0] == 0
     assert target.exists()
 
 
@@ -768,7 +779,7 @@ def test_images_can_show_an_mz_range(files, tmp_path, mzRange):
 def test_an_mz_range_without_data_is_refused(files, tmp_path, capsys):
     target = tmp_path / "range.png"
 
-    assert _convert(files["single"], "-o", str(target), "--mz-range", "500:600")[0] == 1
+    assert _convert(files["single"], "-o", str(target), "--range", "500:600")[0] == 1
 
     assert "holds no data" in capsys.readouterr().err
     assert not target.exists()

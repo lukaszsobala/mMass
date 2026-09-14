@@ -54,19 +54,19 @@ mmass spectrum.mzML spectrum2.msd bruker_dataset/
 mmass --help
 ```
 
-`mmass convert` converts documents without opening the GUI, and draws spectra as images
+`mmass convert` converts documents without opening the GUI, and also can draw spectra as images
 using the spectrum settings of the GUI:
 
 ```sh
-mmass convert spectrum.mzML -o spectrum.msd
+mmass convert spectrum.mzML spectrum.msd
 mmass convert *.mzML bruker_dataset/ -f png -d images --size 1920x1080
-mmass convert run.mzML -o scan.txt --scan 42   # one spectrum of an LC-MS run
+mmass convert run.mzML scan.txt --scan 42   # one spectrum of an LC-MS run
 mmass convert --help
 ```
 
 Outputs are msd, mzML, mzXML, text (txt/xy/asc/csv; the profile, or the peak list with
 `--peak-list`), MGF (peak list) and images (PNG, JPEG, TIFF, BMP, SVG; light by default, `--dark`
-for a dark background, `--mz-range 400-1500` to show part of the spectrum). A conversion that
+for a dark background, `--range 400-1500` to show part of the spectrum). A conversion that
 cannot work, such as a session or a FASTA file into a spectrum format, or several spectra into
 one text file, is refused with the reason. Image output needs a display; on a headless machine run
 it under `xvfb-run`.
@@ -74,7 +74,7 @@ it under `xvfb-run`.
 `mmass process` runs processing steps, in the order given, before writing the result:
 
 ```sh
-mmass process sample.mzML --baseline --smooth --find-peaks -o sample.msd
+mmass process sample.mzML --baseline --smooth --find-peaks sample.msd
 mmass process *.mzML --find-peaks -f csv --peak-list --columns mz,intensity,charge,envarea -d peaks
 mmass process spectra/*.msd --crop 500-3000 --find-peaks --in-place --dry-run
 mmass process run.mzML --find-peaks --preset Default --set snThreshold=10 -f mzml -d picked
