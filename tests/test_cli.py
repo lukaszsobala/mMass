@@ -222,7 +222,7 @@ def _process_error(argv, capsys):
 def test_process_keeps_the_order_of_the_steps(files):
     options = _process(
         ["--findpeaks", "a.mzML", "--crop", "500:1500.5", "--math", "SquareRoot",
-         "--baseline", "-t", "msd", "--findpeaks", "--math", "multiply"]
+         "--baseline", "-t", "msd", "--findpeaks", "--math", "multiply", "--math", "SQRT"]
     )
 
     assert options.steps == [
@@ -232,6 +232,7 @@ def test_process_keeps_the_order_of_the_steps(files):
         ("baseline", None),
         ("findpeaks", None),
         ("math", "multiply"),
+        ("math", "squareroot"),
     ]
     assert options.command == cli.PROCESS_COMMAND
     assert options.inputs == [str(files / "a.mzML")]

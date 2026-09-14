@@ -83,13 +83,15 @@ STEPS = {
     "math": (
         "apply a math operation to the profile and the peaks: normalize "
         "(scale to a maximum of 100 %%), multiply (by the math.multiplier "
-        "setting) or squareroot",
+        "setting) or squareroot (or sqrt)",
         "both",
     ),
 }
 
 # gui.processing.SINGLE_SPECTRUM_MATH, repeated for the same reason as above
 MATH_OPERATIONS = ("normalize", "multiply", "squareroot")
+# shorter names --math also takes
+MATH_ALIASES = {"sqrt": "squareroot"}
 # math operations of the GUI that take other spectra than the one processed
 MULTI_SPECTRUM_MATH = (
     "combine", "overlay", "subtract", "averageall", "combineall", "overlayall",
@@ -322,6 +324,7 @@ def parse_math(value):
     """Parse the operation of a --math step."""
 
     operation = value.strip().lower()
+    operation = MATH_ALIASES.get(operation, operation)
     if operation in MULTI_SPECTRUM_MATH:
         raise argparse.ArgumentTypeError(
             f"'{value}' takes more spectra than the one processed; the command "
@@ -329,7 +332,8 @@ def parse_math(value):
         )
     if operation not in MATH_OPERATIONS:
         raise argparse.ArgumentTypeError(
-            f"unknown math operation '{value}'; choose from {', '.join(MATH_OPERATIONS)}"
+            f"unknown math operation '{value}'; choose from "
+            f"{', '.join(MATH_OPERATIONS + tuple(MATH_ALIASES))}"
         )
     return operation
 
