@@ -477,6 +477,24 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
         mwx.fitChoice(self.spectrumRange_choice)
         self.spectrumRange_choice.Select(0)
 
+        spectrumScans_label = wx.StaticText(panel, -1, "Scans:")
+        self.spectrumScans_choice = wx.Choice(
+            panel,
+            -1,
+            choices=["Current Scan", "Whole Run"],
+            size=wx.Size(130, mwx.CHOICE_HEIGHT),
+        )
+        self.spectrumScans_choice.SetToolTip(
+            wx.ToolTip(
+                "For LC-MS runs: export only the shown scan, or every scan of the "
+                "run (with the peaks picked in each) into one file."
+            )
+        )
+        mwx.fitChoice(self.spectrumScans_choice)
+        self.spectrumScans_choice.Select(
+            1 if config.export.get("spectrumScans") == "run" else 0
+        )
+
         spectrumSeparator_label = wx.StaticText(panel, -1, "Separator:")
         self.spectrumSeparator_choice = wx.Choice(
             panel,
@@ -509,6 +527,10 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
             flag=wx.ALIGN_CENTER_VERTICAL | wx.ALIGN_RIGHT,
         )
         grid.Add(self.spectrumSeparator_choice, (2, 1))
+        grid.Add(
+            spectrumScans_label, (3, 0), flag=wx.ALIGN_CENTER_VERTICAL | wx.ALIGN_RIGHT
+        )
+        grid.Add(self.spectrumScans_choice, (3, 1))
 
         mainSizer = wx.BoxSizer(wx.VERTICAL)
         mainSizer.Add(grid, 0, wx.ALIGN_CENTER | wx.ALL, mwx.PANEL_SPACE_MAIN)
@@ -531,10 +553,11 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
             self.spectrumFormat_choice.GetStringSelection()
         )
 
-        # separator and range only apply to ASCII export
+        # separator and range only apply to ASCII export, the scans to mzML/mzXML
         enable = config.export["spectrumFormat"] == "ASCII"
         self.spectrumSeparator_choice.Enable(enable)
         self.spectrumRange_choice.Enable(enable)
+        self.spectrumScans_choice.Enable(not enable)
 
     # ----
 
@@ -958,6 +981,9 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
             config.export["spectrumFormat"] = (
                 self.spectrumFormat_choice.GetStringSelection()
             )
+            config.export["spectrumScans"] = (
+                "run" if self.spectrumScans_choice.GetSelection() == 1 else "current"
+            )
 
         # ring error bell if error
         except (ValueError, KeyError):
@@ -1187,12 +1213,17 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
             "date": document.date,
         }
 
+        # every scan of an LC-MS run, or just the shown one
+        scans = document.spectrum
+        if config.export["spectrumScans"] == "run" and document.islcms():
+            scans = self.parent.getRunScans(document)
+
         # export data
         try:
             if config.export["spectrumFormat"] == "mzML":
-                writer = mspy.writeMZML(document.spectrum, info)
+                writer = mspy.writeMZML(scans, info)
             else:
-                writer = mspy.writeMZXML(document.spectrum, info)
+                writer = mspy.writeMZXML(scans, info)
             writer.write(path)
         except IOError:
             wx.Bell()

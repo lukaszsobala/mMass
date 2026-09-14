@@ -35,6 +35,95 @@ import mspy
 # DOCUMENT STRUCTURE
 # ------------------
 
+# scan metadata stored for every scan of an LC-MS run in .msd files, with the
+# type each value is read back as
+MSD_SCAN_ATTRIBUTES = {
+    "scanNumber": int,
+    "parentScanNumber": int,
+    "msLevel": int,
+    "polarity": int,
+    "retentionTime": float,
+    "lowMZ": float,
+    "highMZ": float,
+    "basePeakMZ": float,
+    "basePeakIntensity": float,
+    "totIonCurrent": float,
+    "precursorMZ": float,
+    "precursorIntensity": float,
+    "precursorCharge": int,
+    "pointsCount": int,
+    "spectrumType": str,
+    "filterString": str,
+    "instrumentConfigurationRef": str,
+    "title": str,
+}
+
+
+def makeChromatograms(scanlist):
+    """Build TIC/BPC traces (MS1 only, retention time in minutes) from a scan index.
+
+    Returns {"traces": [{"label", "tic", "bpc"}, ...]}, one trace per way the MS1
+    scans were acquired (see mspy.acquisitionkey). A run that interleaves two
+    kinds of full scan -- an Orbitrap and an ion trap one, say -- would otherwise
+    alternate between their very different ion currents in a single trace, which
+    draws as a zigzag. The label names the acquisition ("FTMS", "ITMS", ...) and
+    is empty when the run has only one.
+    """
+
+    groups = {}
+    for _scanID, meta in scanlist.items():
+        if meta.get("msLevel") not in (None, 1):
+            continue
+        rt = meta.get("retentionTime")
+        if rt is None:
+            continue
+        key = mspy.acquisitionkey(meta)
+        if key not in groups:
+            groups[key] = {"tic": [], "bpc": [], "filterString": meta.get("filterString")}
+        group = groups[key]
+        if meta.get("totIonCurrent") is not None:
+            group["tic"].append((rt / 60.0, meta["totIonCurrent"]))
+        if meta.get("basePeakIntensity") is not None:
+            group["bpc"].append((rt / 60.0, meta["basePeakIntensity"]))
+
+    labels = _acquisitionLabels(list(groups))
+
+    traces = []
+    for key, group in groups.items():
+        traces.append(
+            {
+                "label": labels[key] if len(groups) > 1 else "",
+                "tic": sorted(group["tic"]),
+                "bpc": sorted(group["bpc"]),
+            }
+        )
+
+    return {"traces": traces}
+
+
+def _acquisitionLabels(keys):
+    """Short names telling acquisition keys apart in a chromatogram legend.
+
+    The analyser token of the filter string ("FTMS + p ESI Full ms [...]" ->
+    "FTMS") when that alone tells the keys apart, then the whole filter string
+    (or instrument configuration), then that with the polarity added.
+    """
+
+    def _polarity(key):
+        return {1: "+", -1: "-"}.get(key[1], "")
+
+    candidates = (
+        lambda key: key[2].split(" ")[0],
+        lambda key: key[2],
+        lambda key: ("%s %s" % (key[2], _polarity(key))).strip(),
+    )
+    labels = {}
+    for name in candidates:
+        labels = {key: name(key) for key in keys}
+        if len(set(labels.values())) == len(keys):
+            break
+    return labels
+
 
 class document:
     """Document object definition."""
@@ -64,7 +153,12 @@ class document:
         self.scanlist: Any = None  # {scanNumber: metadata dict} or None
         self.scanCache: dict[Any, Any] = {}  # {scanNumber: mspy.scan}
         self.currentScanID: Any = None  # scanNumber currently shown
-        self.chromatograms: dict[str, list] = {}  # {"tic": [(rt, ai)..], "bpc": [..]}
+        # {"traces": [{"label": str, "tic": [(rt, ai)..], "bpc": [..]}, ..]}
+        self.chromatograms: dict[str, list] = {}
+        # (path, format) of the raw file scans not yet in scanCache are read
+        # from; None once every scan is held in the document (e.g. a run
+        # reopened from .msd)
+        self.scanSource: Any = None
 
         self.colour = (0, 0, 255)
         self.style = wx.SOLID  # type: ignore[attr-defined]
@@ -426,78 +520,7 @@ class document:
         # format peaklist
         if len(self.spectrum.peaklist):
             buff += "  <peaklist>\n"
-            for peak in self.spectrum.peaklist:
-                attributes = 'mz="%.6f" intensity="%.6f" baseline="%.6f"' % (
-                    peak.mz,
-                    peak.ai,
-                    peak.base,
-                )
-                if peak.sn is not None:
-                    attributes += ' sn="%.3f"' % peak.sn
-                if peak.charge is not None:
-                    attributes += ' charge="%d"' % peak.charge
-                if peak.isotope is not None:
-                    attributes += ' isotope="%d"' % peak.isotope
-                if peak.fwhm is not None:
-                    attributes += ' fwhm="%.6f"' % peak.fwhm
-                if peak.group:
-                    attributes += ' group="%s"' % self._escape(peak.group)
-                if hasattr(peak, "attributes") and peak.attributes.get("_fwhmLocked"):
-                    attributes += ' fwhmLocked="1"'
-                envelope = None
-                if hasattr(peak, "attributes"):
-                    envelope = peak.attributes.get("envelope")
-
-                if envelope and isinstance(envelope, dict):
-                    buff += "    <peak %s>\n" % attributes
-
-                    envAttributes = []
-                    area = envelope.get("area")
-                    if area is not None:
-                        envAttributes.append('area="%.12g"' % float(area))
-                    sumint = envelope.get("sumint")
-                    if sumint is not None:
-                        envAttributes.append('sumint="%.12g"' % float(sumint))
-                    fwhm = envelope.get("fwhm")
-                    if fwhm is not None:
-                        envAttributes.append('fwhm="%.12g"' % float(fwhm))
-                    shape = envelope.get("shape")
-                    if shape is not None:
-                        envAttributes.append('shape="%s"' % self._escape(str(shape)))
-                    # how many leading isotopes were real DETECTED peaks. The
-                    # isotope peaks themselves are consumed by the conversion, so
-                    # without this a reload can only fall back on the theoretical
-                    # extent -- which either drops a genuinely measured isotope or
-                    # keeps an over-long tail (see mod_peakpicking, "detected").
-                    detected = envelope.get("detected")
-                    if detected is not None:
-                        envAttributes.append('detected="%d"' % int(detected))
-                    averagine = envelope.get("averagineType")
-                    if averagine is not None:
-                        envAttributes.append(
-                            'averagine="%s"' % self._escape(str(averagine))
-                        )
-
-                    if envAttributes:
-                        buff += "      <envelope %s>\n" % " ".join(envAttributes)
-                    else:
-                        buff += "      <envelope>\n"
-
-                    for isotope in envelope.get("isotopes", []):
-                        try:
-                            isoMZ = float(isotope[0])
-                            isoIntensity = float(isotope[1])
-                        except (TypeError, ValueError, IndexError):
-                            continue
-                        buff += (
-                            '        <isotope mz="%.12g" intensity="%.12g" />\n'
-                            % (isoMZ, isoIntensity)
-                        )
-
-                    buff += "      </envelope>\n"
-                    buff += "    </peak>\n"
-                else:
-                    buff += "    <peak %s />\n" % attributes
+            buff += self._formatPeaks(self.spectrum.peaklist, "    ")
             buff += "  </peaklist>\n\n"
 
         # format annotations
@@ -599,7 +622,156 @@ class document:
                 buff += "    </sequence>\n\n"
             buff += "  </sequences>\n\n"
 
+        # format chromatogram (all scans of an LC-MS run)
+        if self.islcms():
+            buff += self._formatChromatogram()
+
         buff += "</mSD>\n"
+
+        return buff
+
+    # ----
+
+    def _formatPeaks(self, peaklist, indent):
+        """Format peaks (with their envelopes) as mSD <peak> elements."""
+
+        buff = ""
+        for peak in peaklist:
+            attributes = 'mz="%.6f" intensity="%.6f" baseline="%.6f"' % (
+                peak.mz,
+                peak.ai,
+                peak.base,
+            )
+            if peak.sn is not None:
+                attributes += ' sn="%.3f"' % peak.sn
+            if peak.charge is not None:
+                attributes += ' charge="%d"' % peak.charge
+            if peak.isotope is not None:
+                attributes += ' isotope="%d"' % peak.isotope
+            if peak.fwhm is not None:
+                attributes += ' fwhm="%.6f"' % peak.fwhm
+            if peak.group:
+                attributes += ' group="%s"' % self._escape(peak.group)
+            if hasattr(peak, "attributes") and peak.attributes.get("_fwhmLocked"):
+                attributes += ' fwhmLocked="1"'
+            # the finer acquisition's m/z a guided peak was matched to
+            if hasattr(peak, "attributes") and peak.attributes.get("referenceMz") is not None:
+                attributes += ' referenceMz="%.6f"' % float(peak.attributes["referenceMz"])
+            envelope = None
+            if hasattr(peak, "attributes"):
+                envelope = peak.attributes.get("envelope")
+
+            if envelope and isinstance(envelope, dict):
+                buff += "%s<peak %s>\n" % (indent, attributes)
+
+                envAttributes = []
+                area = envelope.get("area")
+                if area is not None:
+                    envAttributes.append('area="%.12g"' % float(area))
+                sumint = envelope.get("sumint")
+                if sumint is not None:
+                    envAttributes.append('sumint="%.12g"' % float(sumint))
+                fwhm = envelope.get("fwhm")
+                if fwhm is not None:
+                    envAttributes.append('fwhm="%.12g"' % float(fwhm))
+                shape = envelope.get("shape")
+                if shape is not None:
+                    envAttributes.append('shape="%s"' % self._escape(str(shape)))
+                # how many leading isotopes were real DETECTED peaks. The
+                # isotope peaks themselves are consumed by the conversion, so
+                # without this a reload can only fall back on the theoretical
+                # extent -- which either drops a genuinely measured isotope or
+                # keeps an over-long tail (see mod_peakpicking, "detected").
+                detected = envelope.get("detected")
+                if detected is not None:
+                    envAttributes.append('detected="%d"' % int(detected))
+                averagine = envelope.get("averagineType")
+                if averagine is not None:
+                    envAttributes.append(
+                        'averagine="%s"' % self._escape(str(averagine))
+                    )
+
+                if envAttributes:
+                    buff += "%s  <envelope %s>\n" % (indent, " ".join(envAttributes))
+                else:
+                    buff += "%s  <envelope>\n" % indent
+
+                for isotope in envelope.get("isotopes", []):
+                    try:
+                        isoMZ = float(isotope[0])
+                        isoIntensity = float(isotope[1])
+                    except (TypeError, ValueError, IndexError):
+                        continue
+                    buff += '%s    <isotope mz="%.12g" intensity="%.12g" />\n' % (
+                        indent,
+                        isoMZ,
+                        isoIntensity,
+                    )
+
+                buff += "%s  </envelope>\n" % indent
+                buff += "%s</peak>\n" % indent
+            else:
+                buff += "%s<peak %s />\n" % (indent, attributes)
+
+        return buff
+
+    # ----
+
+    def _formatChromatogram(self):
+        """Format every scan of an LC-MS run as the mSD <chromatogram> element.
+
+        Older readers look each mSD section up by tag name anywhere in the file,
+        so nothing in here reuses <spectrum>, <peaklist>, <annotations> or
+        <sequences>: a reader that does not know the element opens the file as
+        the single scan stored in <spectrum> -- the one that was shown -- and
+        skips the rest. That shown scan is not stored a second time; its <scan>
+        entry carries metadata only.
+
+        Every scan must already be loaded into scanCache.
+        """
+
+        precision = config.main["dataPrecision"]
+        endian = sys.byteorder
+
+        buff = '  <chromatogram scans="%d"' % len(self.scanlist)
+        if self.currentScanID is not None:
+            buff += ' currentScan="%s"' % self._escape(str(self.currentScanID))
+        buff += ">\n"
+
+        for scanID, meta in self.scanlist.items():
+            attributes = 'id="%s"' % self._escape("" if scanID is None else str(scanID))
+            for name in MSD_SCAN_ATTRIBUTES:
+                value = meta.get(name)
+                if value is None or value == "":
+                    continue
+                attributes += ' %s="%s"' % (name, self._escape(str(value)))
+
+            scan = self.scanCache.get(scanID)
+            if scanID == self.currentScanID:
+                buff += "    <scan %s current=\"1\" />\n" % attributes
+                continue
+            if scan is None:
+                buff += "    <scan %s missing=\"1\" />\n" % attributes
+                continue
+
+            buff += "    <scan %s>\n" % attributes
+            if len(scan.profile):
+                mzArray, intArray = self._convertSpectrum(scan.profile, precision)
+                buff += (
+                    '      <mzArray precision="%s" compression="zlib" endian="%s" points="%d">%s</mzArray>\n'
+                    % (precision, endian, len(scan.profile), mzArray.decode("utf-8"))
+                )
+                buff += (
+                    '      <intArray precision="%s" compression="zlib" endian="%s">%s</intArray>\n'
+                    % (precision, endian, intArray.decode("utf-8"))
+                )
+            if len(scan.peaklist):
+                buff += "      <scanPeaklist>\n"
+                buff += self._formatPeaks(scan.peaklist, "        ")
+                buff += "      </scanPeaklist>\n"
+            buff += "    </scan>\n"
+
+        buff += "  </chromatogram>\n\n"
 
         return buff
 
@@ -1281,6 +1453,7 @@ class parseMSD:
             self.handlePeaklist()
             self.handleAnnotations()
             self.handleSequences()
+            self.handleChromatogram()
 
         return self.document
 
@@ -1493,116 +1666,265 @@ class parseMSD:
         # get peaklist
         peaklistTags = self._parsedData.getElementsByTagName("peaklist")
         if peaklistTags:
-
-            # get peaks
-            peakTags = peaklistTags[0].getElementsByTagName("peak")
-            for peakTag in peakTags:
-
-                # get data
-                try:
-                    mz = float(peakTag.getAttribute("mz"))
-                    ai = float(peakTag.getAttribute("intensity"))
-
-                    base = 0.0
-                    sn = None
-                    charge = None
-                    isotope = None
-                    fwhm = None
-                    group = ""
-
-                    if peakTag.hasAttribute("baseline"):
-                        base = float(peakTag.getAttribute("baseline"))
-                    if peakTag.hasAttribute("sn"):
-                        sn = float(peakTag.getAttribute("sn"))
-                    if peakTag.hasAttribute("charge"):
-                        charge = int(peakTag.getAttribute("charge"))
-                    if peakTag.hasAttribute("isotope"):
-                        isotope = int(peakTag.getAttribute("isotope"))
-                    if peakTag.hasAttribute("fwhm"):
-                        fwhm = float(peakTag.getAttribute("fwhm"))
-                    if peakTag.hasAttribute("group"):
-                        group = peakTag.getAttribute("group")
-
-                except ValueError:
-                    self.errors.append("Incorrect peak data.")
-                    continue
-
-                # make peak
-                peak = mspy.peak(
-                    mz=mz,
-                    ai=ai,
-                    base=base,
-                    sn=sn,
-                    charge=charge,
-                    isotope=isotope,
-                    fwhm=fwhm,
-                    group=group,
-                )
-
-                # Restore a user FWHM lock so a manually pinned width survives a
-                # save/reload (see panel_peaklist's FWHM lock checkbox).
-                if peakTag.getAttribute("fwhmLocked") in ("1", "true", "True"):
-                    peak.attributes["_fwhmLocked"] = True
-
-                # Restore optional envelope metadata saved in mSD.
-                envelopeTags = peakTag.getElementsByTagName("envelope")
-                if envelopeTags:
-                    envelopeTag = envelopeTags[0]
-                    envelope = {
-                        "area": 0.0,
-                        "sumint": 0.0,
-                        "fwhm": fwhm if fwhm is not None else 0.1,
-                        "shape": "gaussian",
-                        "isotopes": [],
-                    }
-
-                    try:
-                        if envelopeTag.hasAttribute("area"):
-                            envelope["area"] = float(envelopeTag.getAttribute("area"))
-                        if envelopeTag.hasAttribute("sumint"):
-                            envelope["sumint"] = float(
-                                envelopeTag.getAttribute("sumint")
-                            )
-                        if envelopeTag.hasAttribute("fwhm"):
-                            envelope["fwhm"] = float(envelopeTag.getAttribute("fwhm"))
-                    except ValueError:
-                        envelope = None
-
-                    if envelope is not None:
-                        if envelopeTag.hasAttribute("shape"):
-                            envelope["shape"] = envelopeTag.getAttribute("shape")
-                        if envelopeTag.hasAttribute("averagine"):
-                            envelope["averagineType"] = envelopeTag.getAttribute(
-                                "averagine"
-                            )
-                        # absent for envelopes saved before the count existed:
-                        # leaving the key out is what marks them as unverifiable,
-                        # so they are measured against the theoretical extent
-                        if envelopeTag.hasAttribute("detected"):
-                            try:
-                                envelope["detected"] = max(
-                                    1, int(envelopeTag.getAttribute("detected"))
-                                )
-                            except ValueError:
-                                pass
-
-                        isotopeTags = envelopeTag.getElementsByTagName("isotope")
-                        for isotopeTag in isotopeTags:
-                            try:
-                                isoMZ = float(isotopeTag.getAttribute("mz"))
-                                isoIntensity = float(isotopeTag.getAttribute("intensity"))
-                            except ValueError:
-                                continue
-                            envelope["isotopes"].append((isoMZ, isoIntensity))
-
-                        if envelope["isotopes"]:
-                            peak.attributes["envelope"] = envelope
-
-                peaklist.append(peak)
+            peaklist = self._parsePeaks(peaklistTags[0])
 
         # add peaklist to document
         peaklist = mspy.peaklist(peaklist)
         self.document.spectrum.setpeaklist(peaklist)
+
+    # ----
+
+    def _parsePeaks(self, peaklistTag):
+        """Parse the <peak> elements (with their envelopes) of a peak list element."""
+
+        peaklist = []
+
+        # get peaks
+        peakTags = peaklistTag.getElementsByTagName("peak")
+        for peakTag in peakTags:
+
+            # get data
+            try:
+                mz = float(peakTag.getAttribute("mz"))
+                ai = float(peakTag.getAttribute("intensity"))
+
+                base = 0.0
+                sn = None
+                charge = None
+                isotope = None
+                fwhm = None
+                group = ""
+
+                if peakTag.hasAttribute("baseline"):
+                    base = float(peakTag.getAttribute("baseline"))
+                if peakTag.hasAttribute("sn"):
+                    sn = float(peakTag.getAttribute("sn"))
+                if peakTag.hasAttribute("charge"):
+                    charge = int(peakTag.getAttribute("charge"))
+                if peakTag.hasAttribute("isotope"):
+                    isotope = int(peakTag.getAttribute("isotope"))
+                if peakTag.hasAttribute("fwhm"):
+                    fwhm = float(peakTag.getAttribute("fwhm"))
+                if peakTag.hasAttribute("group"):
+                    group = peakTag.getAttribute("group")
+
+            except ValueError:
+                self.errors.append("Incorrect peak data.")
+                continue
+
+            # make peak
+            peak = mspy.peak(
+                mz=mz,
+                ai=ai,
+                base=base,
+                sn=sn,
+                charge=charge,
+                isotope=isotope,
+                fwhm=fwhm,
+                group=group,
+            )
+
+            # Restore a user FWHM lock so a manually pinned width survives a
+            # save/reload (see panel_peaklist's FWHM lock checkbox).
+            if peakTag.getAttribute("fwhmLocked") in ("1", "true", "True"):
+                peak.attributes["_fwhmLocked"] = True
+            if peakTag.hasAttribute("referenceMz"):
+                try:
+                    peak.attributes["referenceMz"] = float(peakTag.getAttribute("referenceMz"))
+                except ValueError:
+                    pass
+
+            # Restore optional envelope metadata saved in mSD.
+            envelopeTags = peakTag.getElementsByTagName("envelope")
+            if envelopeTags:
+                envelopeTag = envelopeTags[0]
+                envelope = {
+                    "area": 0.0,
+                    "sumint": 0.0,
+                    "fwhm": fwhm if fwhm is not None else 0.1,
+                    "shape": "gaussian",
+                    "isotopes": [],
+                }
+
+                try:
+                    if envelopeTag.hasAttribute("area"):
+                        envelope["area"] = float(envelopeTag.getAttribute("area"))
+                    if envelopeTag.hasAttribute("sumint"):
+                        envelope["sumint"] = float(
+                            envelopeTag.getAttribute("sumint")
+                        )
+                    if envelopeTag.hasAttribute("fwhm"):
+                        envelope["fwhm"] = float(envelopeTag.getAttribute("fwhm"))
+                except ValueError:
+                    envelope = None
+
+                if envelope is not None:
+                    if envelopeTag.hasAttribute("shape"):
+                        envelope["shape"] = envelopeTag.getAttribute("shape")
+                    if envelopeTag.hasAttribute("averagine"):
+                        envelope["averagineType"] = envelopeTag.getAttribute(
+                            "averagine"
+                        )
+                    # absent for envelopes saved before the count existed:
+                    # leaving the key out is what marks them as unverifiable,
+                    # so they are measured against the theoretical extent
+                    if envelopeTag.hasAttribute("detected"):
+                        try:
+                            envelope["detected"] = max(
+                                1, int(envelopeTag.getAttribute("detected"))
+                            )
+                        except ValueError:
+                            pass
+
+                    isotopeTags = envelopeTag.getElementsByTagName("isotope")
+                    for isotopeTag in isotopeTags:
+                        try:
+                            isoMZ = float(isotopeTag.getAttribute("mz"))
+                            isoIntensity = float(isotopeTag.getAttribute("intensity"))
+                        except ValueError:
+                            continue
+                        envelope["isotopes"].append((isoMZ, isoIntensity))
+
+                    if envelope["isotopes"]:
+                        peak.attributes["envelope"] = envelope
+
+            peaklist.append(peak)
+
+        return peaklist
+
+    # ----
+
+    def handleChromatogram(self):
+        """Get all scans of an LC-MS run (the mSD <chromatogram> element)."""
+
+        chromatogramTags = self._parsedData.getElementsByTagName("chromatogram")
+        if not chromatogramTags:
+            return
+
+        scanlist = {}
+        scanCache = {}
+        currentID = None
+
+        for scanTag in chromatogramTags[0].getElementsByTagName("scan"):
+
+            # scan ID as the parsers use it (numeric scan numbers)
+            scanID = self._convertScanID(scanTag.getAttribute("id"))
+
+            meta = {}
+            for name, kind in MSD_SCAN_ATTRIBUTES.items():
+                meta[name] = None
+                if scanTag.hasAttribute(name):
+                    value = scanTag.getAttribute(name)
+                    try:
+                        meta[name] = kind(value)
+                    except ValueError:
+                        self.errors.append("Incorrect scan metadata.")
+            if meta["title"] is None:
+                meta["title"] = ""
+            if meta["spectrumType"] is None:
+                meta["spectrumType"] = "unknown"
+            scanlist[scanID] = meta
+
+            # the shown scan is the document's own spectrum
+            if scanTag.getAttribute("current") in ("1", "true"):
+                currentID = scanID
+                continue
+            if scanTag.getAttribute("missing") in ("1", "true"):
+                continue
+
+            scan = mspy.scan()
+            profile = self._parseArrays(scanTag)
+            if profile is not None:
+                scan.setprofile(profile)
+            peaklistTags = scanTag.getElementsByTagName("scanPeaklist")
+            if peaklistTags:
+                scan.setpeaklist(mspy.peaklist(self._parsePeaks(peaklistTags[0])))
+
+            scan.title = meta["title"]
+            scan.scanNumber = meta["scanNumber"]
+            scan.parentScanNumber = meta["parentScanNumber"]
+            scan.msLevel = meta["msLevel"]
+            scan.polarity = meta["polarity"]
+            scan.retentionTime = meta["retentionTime"]
+            scan.totIonCurrent = meta["totIonCurrent"]
+            scan.basePeakMZ = meta["basePeakMZ"]
+            scan.basePeakIntensity = meta["basePeakIntensity"]
+            scan.precursorMZ = meta["precursorMZ"]
+            scan.precursorIntensity = meta["precursorIntensity"]
+            scan.precursorCharge = meta["precursorCharge"]
+            if meta["filterString"]:
+                scan.attributes["filterString"] = meta["filterString"]
+
+            scanCache[scanID] = scan
+
+        if len(scanlist) < 2:
+            return
+
+        # the <chromatogram> attribute names the shown scan too
+        if currentID is None and chromatogramTags[0].hasAttribute("currentScan"):
+            currentID = self._convertScanID(chromatogramTags[0].getAttribute("currentScan"))
+        if currentID not in scanlist:
+            currentID = next(iter(scanlist))
+        scanCache[currentID] = self.document.spectrum
+
+        # <spectrum> holds only part of a scan's metadata; its <scan> entry the rest
+        spectrum = self.document.spectrum
+        meta = scanlist[currentID]
+        for name in (
+            "parentScanNumber",
+            "totIonCurrent",
+            "basePeakMZ",
+            "basePeakIntensity",
+            "precursorIntensity",
+        ):
+            if getattr(spectrum, name, None) is None and meta.get(name) is not None:
+                setattr(spectrum, name, meta[name])
+        if meta.get("filterString"):
+            spectrum.attributes["filterString"] = meta["filterString"]
+
+        self.document.scanlist = scanlist
+        self.document.scanCache = scanCache
+        self.document.currentScanID = currentID
+        self.document.chromatograms = makeChromatograms(scanlist)
+        self.document.scanSource = None
+
+    # ----
+
+    def _convertScanID(self, value):
+        """Scan ID read from an mSD attribute (int when numeric, None when empty)."""
+
+        if value == "":
+            return None
+        try:
+            return int(value)
+        except ValueError:
+            return value
+
+    # ----
+
+    def _parseArrays(self, tag):
+        """Profile points from the <mzArray>/<intArray> children of an element."""
+
+        mzArrayTags = tag.getElementsByTagName("mzArray")
+        intArrayTags = tag.getElementsByTagName("intArray")
+        if not mzArrayTags or not intArrayTags:
+            return None
+
+        arrays = []
+        for arrayTag in (mzArrayTags[0], intArrayTags[0]):
+            compression = arrayTag.getAttribute("compression") or False
+            precision = "d" if arrayTag.getAttribute("precision") == "64" else "f"
+            endian = ">" if arrayTag.getAttribute("endian") == "big" else "<"
+            data = self._getNodeText(arrayTag)
+            arrays.append(
+                self._convertDataPoints(data, compression, precision, endian)
+            )
+
+        if len(arrays[0]) != len(arrays[1]):
+            self.errors.append("m/z and intensity arrays have different lengths")
+            return None
+
+        return numpy.column_stack(arrays).astype(numpy.float64)
 
     # ----
 

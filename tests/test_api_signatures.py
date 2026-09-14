@@ -40,6 +40,7 @@ _API_CLASSES = {"scan": mspy.scan, "peaklist": mspy.peaklist}
 # parameters -- the ones that actually drift.
 _PIPELINE_API = frozenset({
     "labelenvelopes",
+    "labelpooled",
     "deisotope",
     "labelscan",
     "remisotopes",
@@ -169,6 +170,28 @@ def test_envelope_parameters_reach_the_fit_from_every_wrapper():
     assert middle <= top, "not forwarded by scan.labelenvelopes: %s" % sorted(
         middle - top
     )
+
+
+def test_pooled_labelling_parameters_reach_the_fit_from_the_scan_wrapper():
+    """``scan.labelpooled`` forwards every knob of ``mod_pooling.labelpooled``.
+
+    The LC-MS "Find Peaks" path labels each scan through the scan wrapper, so a
+    parameter added to the module function only would be silently unreachable.
+    """
+
+    from mspy import mod_pooling
+
+    def names(func):
+        return {
+            name for name, p in inspect.signature(func).parameters.items()
+            if p.kind in (p.POSITIONAL_OR_KEYWORD, p.KEYWORD_ONLY) and name != "self"
+        }
+
+    bottom = names(mod_pooling.labelpooled)
+    # `scan` supplies these itself: its profile and the baseline it computes
+    top = names(mspy.scan.labelpooled) | {"signal", "baseline"}
+
+    assert bottom <= top, "not forwarded by scan.labelpooled: %s" % sorted(bottom - top)
 
 
 def test_recalc_helper_reads_every_envelope_param_the_gui_builds():

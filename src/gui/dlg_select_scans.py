@@ -23,8 +23,10 @@ import wx
 # load modules
 from . import mwx
 from . import config
+from . import doc
+from .panel_chromatogram import makeChromatogramPlots
 from mspy.plot_canvas import canvas as plot_canvas
-from mspy.plot_objects import container as plot_container, points as plot_points
+from mspy.plot_objects import container as plot_container
 
 # SCAN SELECTION DIALOG
 # ---------------------
@@ -311,48 +313,21 @@ class dlgSelectScans(wx.Dialog):
 
         container = plot_container([])
 
-        # get data
-        ticData = []
-        bpcData = []
-        for _scanID, scan in sorted(self.scans.items()):
-            if scan["msLevel"] != 1 or scan["retentionTime"] is None:
+        # one trace per acquisition, so interleaved scan types do not zigzag;
+        # a run is worth a chromatogram once it has more than ten MS1 scans
+        chromatograms = doc.makeChromatograms(self.scans)
+        for kind in ("tic", "bpc"):
+            points = sum(len(trace[kind]) for trace in chromatograms["traces"])
+            if points <= 10:
                 continue
-            if scan["totIonCurrent"] is not None:
-                ticData.append((scan["retentionTime"] / 60, scan["totIonCurrent"]))
-            if scan["basePeakIntensity"] is not None:
-                bpcData.append((scan["retentionTime"] / 60, scan["basePeakIntensity"]))
-
-        # trace colours follow the theme, matching panel_chromatogram
-        ticColour = mwx.themedPlotColour((16, 71, 185))
-        bpcColour = mwx.themedPlotColour((50, 140, 0))
-
-        # make objects
-        if len(ticData) > 10:
-            ticData.sort()
-            obj = plot_points(
-                ticData,
-                lineColour=ticColour,
-                legend="TIC (MS)",
-                showLines=True,
-                showPoints=False,
-                exactFit=True,
-                normalized=True,
+            plots = makeChromatogramPlots(
+                chromatograms,
+                showTIC=kind == "tic",
+                showBPC=kind == "bpc",
+                legendSuffix=" (MS)",
             )
-            container.append(obj)
-            self.showChromCanvas = True
-
-        if len(bpcData) > 10:
-            bpcData.sort()
-            obj = plot_points(
-                bpcData,
-                lineColour=bpcColour,
-                legend="BPC (MS)",
-                showLines=True,
-                showPoints=False,
-                exactFit=True,
-                normalized=True,
-            )
-            container.append(obj)
+            for plot in plots:
+                container.append(plot)
             self.showChromCanvas = True
 
         # draw container

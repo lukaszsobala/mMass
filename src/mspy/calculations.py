@@ -621,3 +621,76 @@ def peaklist_filter_indices(array, resol):
     count += 1
 
     return keep[:count].copy()
+
+
+@njit
+def signal_common_raster(mz, spacing, fraction):
+    """Collapse sorted m/z values from several scans onto one shared raster.
+
+    mz holds the sorted union of every scan's m/z points and spacing the native
+    sampling step each point had in its own scan. A run of points closer than
+    `fraction` of their native step becomes a single raster node at their mean,
+    so scans sharing one acquisition raster reproduce it exactly, while scans on
+    slightly shifted rasters get one node per native step instead of a node per
+    scan. The distance is measured from the first point of the run (not the
+    previous one), so many shifted rasters cannot chain into one node.
+    """
+
+    n = len(mz)
+    out = np.empty(n, dtype=np.float64)
+    count = 0
+    i = 0
+    while i < n:
+        start = mz[i]
+        total = start
+        members = 1
+        j = i + 1
+        while j < n:
+            step = spacing[i] if spacing[i] < spacing[j] else spacing[j]
+            if mz[j] - start >= fraction * step:
+                break
+            total += mz[j]
+            members += 1
+            j += 1
+        out[count] = total / members
+        count += 1
+        i = j
+
+    return out[:count].copy()
+
+
+@njit
+def signal_gaussian_blur(mz, intensity, spacing, grid, sigma):
+    """Profile as a coarser analyser would record it, evaluated on `grid`.
+
+    Each profile point contributes its intensity times its sampling step
+    (`spacing`) as a unit-area Gaussian of width sigma[i] at grid[i], so the
+    result keeps peak areas while widening every peak. sigma may change along
+    m/z (a trap's constant FWHM and a TOF's growing one both work); both mz and
+    grid must be sorted.
+    """
+
+    n = len(grid)
+    m = len(mz)
+    out = np.zeros(n, dtype=np.float64)
+    norm = np.sqrt(2.0 * np.pi)
+    lo = 0
+    for i in range(n):
+        s = sigma[i]
+        if s <= 0.0:
+            continue
+        start = grid[i] - 4.0 * s
+        while lo < m and mz[lo] < start:
+            lo += 1
+        while lo > 0 and mz[lo - 1] >= start:
+            lo -= 1
+        end = grid[i] + 4.0 * s
+        total = 0.0
+        j = lo
+        while j < m and mz[j] <= end:
+            d = (grid[i] - mz[j]) / s
+            total += intensity[j] * spacing[j] * np.exp(-0.5 * d * d)
+            j += 1
+        out[i] = total / (s * norm)
+
+    return out

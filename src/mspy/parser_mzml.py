@@ -200,6 +200,10 @@ class parseMZML:
         scan.precursorIntensity = scanData["precursorIntensity"]
         scan.precursorCharge = scanData["precursorCharge"]
 
+        # how the scan was acquired, used to decide which scans may be pooled
+        if scanData.get("filterString"):
+            scan.attributes["filterString"] = scanData["filterString"]
+
         return scan
 
     # ----
@@ -373,6 +377,8 @@ class scanlistHandler(ContentHandler):
                 "precursorIntensity": None,
                 "precursorCharge": None,
                 "spectrumType": "unknown",
+                "filterString": None,
+                "instrumentConfigurationRef": None,
             }
 
             # get points count
@@ -382,6 +388,12 @@ class scanlistHandler(ContentHandler):
 
             # append scan
             self.data[self.currentID] = scan
+
+        # scan element (the analyser configuration it was acquired with)
+        elif name == "scan" and self._isSpectrum:
+            attribute = attrs.get("instrumentConfigurationRef", "")
+            if attribute:
+                self.data[self.currentID]["instrumentConfigurationRef"] = attribute
 
         # precursor tag
         elif name == "precursor" and self._isSpectrum:
@@ -455,6 +467,10 @@ class scanlistHandler(ContentHandler):
                     self.data[self.currentID]["retentionTime"] = float(paramValue)
                 else:
                     self.data[self.currentID]["retentionTime"] = float(paramValue) * 60
+
+            # vendor scan description (e.g. Thermo filter string)
+            elif paramName == "filter string" and paramValue:
+                self.data[self.currentID]["filterString"] = paramValue
 
     # ----
 
@@ -532,6 +548,8 @@ class scanHandler(ContentHandler):
                     "precursorIntensity": None,
                     "precursorCharge": None,
                     "spectrumType": "unknown",
+                    "filterString": None,
+                    "instrumentConfigurationRef": None,
                     "mzData": None,
                     "mzPrecision": None,
                     "mzCompression": None,
@@ -550,6 +568,12 @@ class scanHandler(ContentHandler):
                 attribute = attrs.get("defaultArrayLength", "")
                 if attribute:
                     self.data["pointsCount"] = int(attribute)
+
+        # scan element (the analyser configuration it was acquired with)
+        elif name == "scan" and self._isMatch:
+            attribute = attrs.get("instrumentConfigurationRef", "")
+            if attribute:
+                self.data["instrumentConfigurationRef"] = attribute
 
         # precursor tag
         elif name == "precursor" and self._isMatch:
@@ -660,6 +684,10 @@ class scanHandler(ContentHandler):
                     self.data["retentionTime"] = float(paramValue)
                 else:
                     self.data["retentionTime"] = float(paramValue) * 60
+
+            # vendor scan description (e.g. Thermo filter string)
+            elif paramName == "filter string" and paramValue:
+                self.data["filterString"] = paramValue
 
     # ----
 
@@ -775,6 +803,8 @@ class runHandler(ContentHandler):
                 "precursorIntensity": None,
                 "precursorCharge": None,
                 "spectrumType": "unknown",
+                "filterString": None,
+                "instrumentConfigurationRef": None,
                 "mzData": None,
                 "mzPrecision": None,
                 "mzCompression": None,
@@ -796,6 +826,12 @@ class runHandler(ContentHandler):
 
             # add scan
             self.data[self.currentID] = scan
+
+        # scan element (the analyser configuration it was acquired with)
+        elif name == "scan" and self._isSpectrum:
+            attribute = attrs.get("instrumentConfigurationRef", "")
+            if attribute:
+                self.data[self.currentID]["instrumentConfigurationRef"] = attribute
 
         # precursor tag
         elif name == "precursor" and self._isSpectrum:
@@ -910,6 +946,10 @@ class runHandler(ContentHandler):
                     self.data[self.currentID]["retentionTime"] = float(paramValue)
                 else:
                     self.data[self.currentID]["retentionTime"] = float(paramValue) * 60
+
+            # vendor scan description (e.g. Thermo filter string)
+            elif paramName == "filter string" and paramValue:
+                self.data[self.currentID]["filterString"] = paramValue
 
     # ----
 

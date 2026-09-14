@@ -5231,7 +5231,9 @@ class mainFrame(wx.Frame):
             return
 
         # make document for non-mSD formats
-        if spectrum:
+        # a scan object is falsy without profile data (len() counts profile
+        # points), yet a centroided scan is a perfectly good document
+        if spectrum is not None and spectrum is not False:
 
             # init document
             document = doc.document()
@@ -5347,8 +5349,15 @@ class mainFrame(wx.Frame):
     def runDocumentSave(self, docIndex):
         """Save current document."""
 
+        document = self.documents[docIndex]
+
+        # an LC-MS run is saved with all of its scans, so load the ones never
+        # shown (and keep the shown one's edits)
+        if document.islcms():
+            self.getRunScans(document)
+
         # get XML data for selected document
-        self.currentDocumentXML = self.documents[docIndex].msd()
+        self.currentDocumentXML = document.msd()
 
     # ----
 
@@ -5593,22 +5602,7 @@ class mainFrame(wx.Frame):
     def buildChromatograms(self, scanlist):
         """Build TIC/BPC traces (MS1 only) from a scan index."""
 
-        tic = []
-        bpc = []
-        for _scanID, meta in scanlist.items():
-            if meta.get("msLevel") not in (None, 1):
-                continue
-            rt = meta.get("retentionTime")
-            if rt is None:
-                continue
-            if meta.get("totIonCurrent") is not None:
-                tic.append((rt / 60.0, meta["totIonCurrent"]))
-            if meta.get("basePeakIntensity") is not None:
-                bpc.append((rt / 60.0, meta["basePeakIntensity"]))
-
-        tic.sort()
-        bpc.sort()
-        return {"tic": tic, "bpc": bpc}
+        return doc.makeChromatograms(scanlist)
 
     # ----
 
@@ -5625,7 +5619,7 @@ class mainFrame(wx.Frame):
             return
 
         spectrum = parser.scan(initialID)
-        if not spectrum:
+        if spectrum is None or spectrum is False:
             return
 
         # init document
@@ -5639,6 +5633,7 @@ class mainFrame(wx.Frame):
         document.chromatograms = self.buildChromatograms(scanlist)
         document.currentScanID = initialID
         document.scanCache = {initialID: spectrum}
+        document.scanSource = (path, docType)
 
         # get info
         info = parser.info()
@@ -5727,22 +5722,81 @@ class mainFrame(wx.Frame):
         if scanID in document.scanCache:
             return document.scanCache[scanID]
 
-        # parse the scan from file
-        parser = self.makeScanParser(document.path, document.format)
+        # parse the scan from the file the run was read from
+        parser = self.makeScanParser(*self.getScanSource(document))
         if parser is None:
             return None
         scan = parser.scan(scanID)
+        if scan is None or scan is False:
+            return None
 
-        if scan:
-            # precalculate baseline once
-            if scan.hasprofile():
-                scan.baseline(
-                    window=(1.0 / config.processing["baseline"]["precision"]),
-                    offset=config.processing["baseline"]["offset"],
-                )
-            document.scanCache[scanID] = scan
+        self.cacheLoadedScan(document, scanID, scan)
 
         return scan
+
+    # ----
+
+    def loadScansRaw(self, document, scanIDs):
+        """Load and cache several scans of a run without touching the GUI.
+
+        Returns {scanID: scan or None}. Loading a scan on its own re-reads the
+        file up to that scan, so when more than one scan is missing the whole run
+        is read once instead. Safe to call from worker threads.
+        """
+
+        missing = [scanID for scanID in scanIDs if scanID not in document.scanCache]
+        if len(missing) > 1:
+            parser = self.makeScanParser(*self.getScanSource(document))
+            if parser is not None:
+                parser.load()
+                for scanID in missing:
+                    mspy.CHECK_FORCE_QUIT()
+                    scan = parser.scan(scanID)
+                    if scan is not None and scan is not False:
+                        self.cacheLoadedScan(document, scanID, scan)
+
+        return {scanID: self.loadScanRaw(document, scanID) for scanID in scanIDs}
+
+    # ----
+
+    def getRunScans(self, document):
+        """Every scan of an LC-MS run in file order, loaded and with its edits.
+
+        The shown scan is synced into the cache first, so its peaks and any
+        processing are what gets written. Scans that cannot be read are left out.
+        Safe to call from worker threads.
+        """
+
+        if document.currentScanID is not None:
+            document.scanCache[document.currentScanID] = document.spectrum
+
+        loaded = self.loadScansRaw(document, list(document.scanlist))
+        return [scan for scan in loaded.values() if scan is not None]
+
+    # ----
+
+    def getScanSource(self, document):
+        """(path, format) of the raw file a run's scans are loaded from.
+
+        Kept apart from the document path, which becomes the .msd file once the
+        run is saved -- scans not yet loaded still have to come from the raw file.
+        """
+
+        if document.scanSource:
+            return document.scanSource
+        return (document.path, document.format)
+
+    # ----
+
+    def cacheLoadedScan(self, document, scanID, scan):
+        """Cache a freshly parsed scan, precalculating its baseline once."""
+
+        if scan.hasprofile():
+            scan.baseline(
+                window=(1.0 / config.processing["baseline"]["precision"]),
+                offset=config.processing["baseline"]["offset"],
+            )
+        document.scanCache[scanID] = scan
 
     # ----
 
@@ -5799,7 +5853,7 @@ class mainFrame(wx.Frame):
 
         # load the requested scan
         scan = self.loadScan(document, scanID)
-        if not scan:
+        if scan is None or scan is False:
             wx.Bell()
             return
 
@@ -5908,12 +5962,8 @@ class mainFrame(wx.Frame):
                 if batch:
                     gauge.setLabel(self.makeReadingLabel(scan=(i + 1, len(selected))))
                 process = threading.Thread(
-                    target=self.runDocumentParser,
-                    kwargs={
-                        "path": document.path,
-                        "docType": document.format,
-                        "scan": scan,
-                    },
+                    target=self.runExtractedScanParser,
+                    kwargs={"document": document, "scanID": scan},
                 )
                 process.start()
                 self.waitForParser(process, gauge)
@@ -5928,6 +5978,39 @@ class mainFrame(wx.Frame):
 
         if not status:
             wx.Bell()
+
+    # ----
+
+    def runExtractedScanParser(self, document, scanID):
+        """Open one scan of an LC-MS run as its own single-spectrum document.
+
+        The scan is read from the run's raw file when there is one; a run
+        reopened from .msd holds its scans itself, so a copy of the held scan is
+        used instead.
+        """
+
+        if document.scanSource:
+            path, docType = document.scanSource
+            self.runDocumentParser(path=path, docType=docType, scan=scanID)
+            return
+
+        scan = document.scanCache.get(scanID)
+        if scan is None:
+            return
+
+        extracted = doc.document()
+        extracted.format = "mSD"
+        extracted.path = ""
+        extracted.dirty = True
+        extracted.title = "%s [%s]" % (document.title, scanID)
+        extracted.date = document.date
+        extracted.operator = document.operator
+        extracted.contact = document.contact
+        extracted.institution = document.institution
+        extracted.instrument = document.instrument
+        extracted.spectrum = scan.duplicate()
+        extracted.colour = self.getFreeColour()
+        self.documents.append(extracted)
 
     # ----
 
