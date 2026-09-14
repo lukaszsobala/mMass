@@ -105,6 +105,14 @@ def _find(peaklist, mono, charge, ppm=15.0):
     return None
 
 
+def _get(peaklist, mono, charge, ppm=15.0):
+    """The peak `_find` finds, which must be there."""
+
+    peak = _find(peaklist, mono, charge, ppm)
+    assert peak is not None, (mono, charge)
+    return peak
+
+
 # ---------------------------------------------------------------------------
 # Which scans may be pooled
 # ---------------------------------------------------------------------------
@@ -300,27 +308,46 @@ def test_pool_windows_follow_an_eluting_species():
 # ---------------------------------------------------------------------------
 
 
-def test_labelled_peaks_keep_pooled_positions_and_widths():
-    """Position, charge and FWHM come from the pool, intensity from the scan."""
+def test_labelled_peaks_sit_where_each_scan_records_them():
+    """Charge and FWHM come from the pool; position and intensity from the scan.
 
-    scans = _run([(800.40, 2, 400.0), (1046.54, 1, 300.0)], nscans=6, noise=10.0)
+    Each scan is miscalibrated by its own offset, and one of them also only
+    around one species. Every label lands on that scan's peak, and keeps the
+    pooled m/z it was matched to.
+    """
+
+    ppms = [-6.0, -3.0, 0.0, 2.0, 4.0, 7.0]
+    scans = _run([(800.40, 2, 400.0), (1046.54, 1, 300.0)], nscans=6, noise=10.0, ppms=ppms)
+
+    # a scan whose calibration is off only around 1046: move that species alone
+    x = scans[5].profile[:, 0]
+    fwhm = 1046.54 / 40000.0
+    scans[5].profile[:, 1] += (
+        _envelope(x, 1046.54, 1, 300.0, fwhm, ppm=ppms[5] + 8.0)
+        - _envelope(x, 1046.54, 1, 300.0, fwhm, ppm=ppms[5])
+    )
+    truth = [[ppm, ppm] for ppm in ppms]
+    truth[5][1] += 8.0
+
     pooled = mspy.poolscans(scans)
     _pick(pooled, snThreshold=5.0)
     features = list(pooled.peaklist)
     assert len(features) == 2
 
-    for scan, offset in zip(scans, pooled.attributes["alignment"], strict=True):
+    for index, (scan, offset) in enumerate(zip(scans, pooled.attributes["alignment"], strict=True)):
         scan.baseline(window=0.01, offset=0.5)
         scan.labelpooled(pooled.peaklist, snThreshold=3.0, baselineWindow=0.01,
                          baselineOffset=0.5, averagineType="protein", alignment=offset)
         assert len(scan.peaklist) == 2
-        for peak, feature in zip(scan.peaklist, features, strict=True):
-            assert peak.mz == feature.mz
+        for k, (peak, feature, mono) in enumerate(
+            zip(scan.peaklist, features, (800.40, 1046.54), strict=True)
+        ):
+            expected = mono * (1.0 + truth[index][k] * 1e-6)
+            assert peak.mz == pytest.approx(expected, abs=1.0e-6 * mono)
+            assert peak.attributes["referenceMz"] == feature.mz
             assert peak.charge == feature.charge
             assert peak.fwhm == feature.fwhm
-            assert peak.attributes["envelope"]["isotopes"][0][0] == pytest.approx(
-                feature.attributes["envelope"]["isotopes"][0][0]
-            )
+            assert peak.attributes["envelope"]["isotopes"][0][0] == pytest.approx(peak.mz)
             # measured in THIS scan
             assert peak.ai == pytest.approx(
                 mpool._height(scan.profile[:, 0], scan.profile[:, 1], peak.mz,
@@ -402,7 +429,7 @@ def test_missing_envelope_still_accounts_for_its_own_signal():
     ]
 
     def areaA(peaklist):
-        return _find(peaklist, 1046.54, 1).attributes["envelope"]["area"]
+        return _get(peaklist, 1046.54, 1).attributes["envelope"]["area"]
 
     # B labelled too / A fitted as if B did not exist
     both = mspy.labelpooled(scan.profile, mspy.peaklist(features), averagineType="protein")
@@ -417,7 +444,7 @@ def test_missing_envelope_still_accounts_for_its_own_signal():
         averagineType="protein",
     )
     assert _find(missing, 1048.55, 1) is None
-    assert areaA(missing) == pytest.approx(areaA(both))
+    assert areaA(missing) == pytest.approx(areaA(both), rel=0.01)
 
 
 # ---------------------------------------------------------------------------
@@ -453,9 +480,8 @@ def test_pooled_picking_finds_species_single_scans_miss():
     for scan, offset in zip(scans, pooled.attributes["alignment"], strict=True):
         scan.labelpooled(pooled.peaklist, snThreshold=1.5, baselineWindow=0.01,
                          baselineOffset=0.5, averagineType="protein", alignment=offset)
-        found = [_find(scan.peaklist, mono, charge) for mono, charge, _h in species]
-        assert all(found)
-        mzs = [peak.mz for peak in found]
+        found = [_get(scan.peaklist, mono, charge) for mono, charge, _h in species]
+        mzs = [peak.attributes["referenceMz"] for peak in found]
         assert positions is None or mzs == positions
         positions = mzs
 
@@ -477,7 +503,8 @@ _GUIDED_SPECIES = [
 ]
 
 
-def _coarse_run(species, nscans=4, fwhm=0.45, shift=0.15, noise=5.0, lo=500.0, hi=1400.0, seed=5):
+def _coarse_run(species, nscans=4, fwhm=0.45, shift: float | list[float] = 0.15, noise=5.0,
+                lo=500.0, hi=1400.0, seed=5):
     """Ion-trap-like scans of `species`: uniform raster, wide peaks, reading `shift` Da high.
 
     `height` may be a callable of the scan index, as in `_run`; `fwhm` may be a
@@ -576,13 +603,12 @@ def test_guided_scans_are_labelled_with_the_fine_species():
                          averagineType="protein", guide=mspy.scanguide(guide, index))
         assert len(scan.peaklist) == len(fine.peaklist)
         for feature in fine.peaklist:
-            peak = _find(scan.peaklist, feature.mz + _JITTER[index], feature.charge, ppm=40.0)
-            assert peak is not None, (scan.scanNumber, feature.mz)
+            peak = _get(scan.peaklist, feature.mz + _JITTER[index], feature.charge, ppm=40.0)
             assert peak.attributes["referenceMz"] == feature.mz
             assert peak.mz == peak.attributes["envelope"]["isotopes"][0][0]
             assert peak.fwhm == pytest.approx(0.45, rel=0.07)
 
-        peak = _find(scan.peaklist, 810.42 + _JITTER[index], 2, ppm=40.0)
+        peak = _get(scan.peaklist, 810.42 + _JITTER[index], 2, ppm=40.0)
         assert peak.intensity == pytest.approx(abundance(index), rel=0.1)
         isotopes = peak.attributes["envelope"]["isotopes"]
         assert [mz for mz, _w in isotopes[:3]] == pytest.approx(
@@ -609,9 +635,9 @@ def test_guided_species_closer_than_the_coarse_width_share_by_reference_abundanc
     labelled = mspy.labelpooled(scan.profile, mspy.peaklist([first, second]),
                                 averagineType="protein", guide=_flat_guide(1030.0, 1065.0))
 
-    areaFirst = _find(labelled, 1046.54, 1, ppm=5.0).attributes["envelope"]["area"]
-    assert _find(labelled, 1046.54, 1, ppm=5.0).attributes["referenceMz"] == pytest.approx(1046.54)
-    areaSecond = _find(labelled, 1046.60, 1, ppm=5.0).attributes["envelope"]["area"]
+    areaFirst = _get(labelled, 1046.54, 1, ppm=5.0).attributes["envelope"]["area"]
+    assert _get(labelled, 1046.54, 1, ppm=5.0).attributes["referenceMz"] == pytest.approx(1046.54)
+    areaSecond = _get(labelled, 1046.60, 1, ppm=5.0).attributes["envelope"]["area"]
     assert areaFirst / areaSecond == pytest.approx(3.0, rel=0.05)
 
 
@@ -649,8 +675,8 @@ def test_faint_neighbour_the_coarse_scan_cannot_separate_is_not_labelled():
 
     assert _find(labelled, 1046.57, 1, ppm=5.0) is None
     assert _find(labelled, 1055.00, 1, ppm=5.0) is not None
-    area = _find(labelled, 1046.54, 1, ppm=5.0).attributes["envelope"]["area"]
-    assert area < _find(without, 1046.54, 1, ppm=5.0).attributes["envelope"]["area"]
+    area = _get(labelled, 1046.54, 1, ppm=5.0).attributes["envelope"]["area"]
+    assert area < _get(without, 1046.54, 1, ppm=5.0).attributes["envelope"]["area"]
 
 
 def test_guided_features_keep_own_peaks_where_the_reference_does_not_reach():

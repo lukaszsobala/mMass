@@ -117,10 +117,11 @@ def _acquisitionLabels(keys):
         lambda key: key[2],
         lambda key: ("%s %s" % (key[2], _polarity(key))).strip(),
     )
+    labels = {}
     for name in candidates:
         labels = {key: name(key) for key in keys}
         if len(set(labels.values())) == len(keys):
-            return labels
+            break
     return labels
 
 

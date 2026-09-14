@@ -85,14 +85,16 @@ def test_mzml_run_index_and_checksum_are_consistent(tmp_path):
     data = path.read_bytes()
 
     checked = data[: data.index(b"<fileChecksum>") + len(b"<fileChecksum>")]
-    assert hashlib.sha1(checked).hexdigest().encode() == re.search(
-        rb"<fileChecksum>([0-9a-f]+)<", data
-    ).group(1)
+    checksum = re.search(rb"<fileChecksum>([0-9a-f]+)<", data)
+    assert checksum is not None
+    assert hashlib.sha1(checked).hexdigest().encode() == checksum.group(1)
 
     offsets = [int(m.group(1)) for m in re.finditer(rb'<offset idRef="[^"]*">(\d+)<', data)]
     assert len(offsets) == 6  # five spectra and the TIC chromatogram
     assert all(data[o:o + 9] in (b"<spectrum", b"<chromato") for o in offsets)
-    listOffset = int(re.search(rb"<indexListOffset>(\d+)<", data).group(1))
+    listMatch = re.search(rb"<indexListOffset>(\d+)<", data)
+    assert listMatch is not None
+    listOffset = int(listMatch.group(1))
     assert data[listOffset:listOffset + 10] == b"<indexList"
 
     # TIC over the four MS1 scans, in retention-time order

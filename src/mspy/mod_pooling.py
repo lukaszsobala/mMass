@@ -117,6 +117,12 @@ POOL_GUIDE_ITERATIONS = 2
 # analyser records it as part of a much stronger neighbour's peak.
 POOL_GUIDE_MIN_SHARE = 0.1
 
+# Local placement in a scan (see _local_shifts): how far, as a fraction of the
+# FWHM, a group of species may slide from its modelled position, and how well
+# its shape must then match.
+POOL_LOCAL_REACH = 0.5
+POOL_LOCAL_MIN_CORRELATION = 0.8
+
 # Area of a Gaussian peak of height 1 and FWHM 1.
 GAUSSIAN_AREA = math.sqrt(math.pi / (4.0 * math.log(2.0)))
 
@@ -290,21 +296,23 @@ def guidinggroups(scanSets, keys):
     """
 
     steps = [_set_steps(scans) for scans in scanSets]
-    result = [None] * len(scanSets)
+    result: list[int | None] = [None] * len(scanSets)
 
     for i, key in enumerate(keys):
-        if steps[i] is None:
+        mine = steps[i]
+        if mine is None:
             continue
         bestRatio = POOL_SAMPLING_RATIO
         for j, other in enumerate(keys):
-            if j == i or steps[j] is None:
+            theirs = steps[j]
+            if j == i or theirs is None:
                 continue
             if (key[0], key[1], key[3]) != (other[0], other[1], other[3]):
                 continue
-            common = ~numpy.isnan(steps[i]) & ~numpy.isnan(steps[j])
+            common = ~numpy.isnan(mine) & ~numpy.isnan(theirs)
             if not numpy.any(common):
                 continue
-            ratio = float(numpy.median(steps[i][common] / steps[j][common]))
+            ratio = float(numpy.median(mine[common] / theirs[common]))
             if ratio >= bestRatio:
                 result[i] = j
                 bestRatio = ratio
@@ -312,11 +320,14 @@ def guidinggroups(scanSets, keys):
     # a guide is picked from its own pool: follow a chain to its finest end
     for i in range(len(result)):
         seen = {i}
-        while result[i] is not None and result[result[i]] is not None:
-            if result[result[i]] in seen:
+        guide = result[i]
+        while guide is not None:
+            further = result[guide]
+            if further is None or further in seen:
                 break
-            seen.add(result[result[i]])
-            result[i] = result[result[i]]
+            seen.add(further)
+            guide = further
+        result[i] = guide
 
     return result
 
@@ -1151,7 +1162,7 @@ def _scan_offsets(reference, guide, profiles):
     """
 
     model = _guide_model(reference, guide)
-    offsets = [None] * len(profiles)
+    offsets: list[float | None] = [None] * len(profiles)
     for i, profile in enumerate(profiles):
 
         CHECK_FORCE_QUIT()
@@ -1448,10 +1459,12 @@ def labelpooled(
         the features inside its range were picked in a finer acquisition; those
         are labelled as `_labelguided` describes, without `alignment`
 
-    Every labelled peak keeps its pooled m/z, charge, isotope, FWHM and group;
-    its intensity, baseline and S/N are measured in the scan. An envelope keeps
-    its pooled isotope positions and has its area re-fit to the scan with the same
-    overlap-aware joint fit picking uses. A peak (or envelope, judged at its
+    Every labelled peak keeps its pooled charge, isotope, FWHM and group, and is
+    placed where this scan records it: the pooled position moved by the scan's
+    `alignment`, then by what `_local_shifts` measures around it. The pooled m/z
+    is kept as the peak's "referenceMz" attribute. Its intensity, baseline and
+    S/N are measured in the scan, and an envelope has its area re-fit to the scan
+    with the same overlap-aware joint fit picking uses. A peak (or envelope, judged at its
     theoretically tallest isotope) below `snThreshold` in the scan is left out --
     but a missing envelope still takes part in the area fit, so a neighbour cannot
     claim whatever signal it does have.
@@ -1494,10 +1507,8 @@ def labelpooled(
         labelled += _labelguided(signal, inside, baseline, guide, snThreshold, label, intensity)
         return obj_peaklist.peaklist(labelled)
 
-    # measure on the pool's m/z axis
-    signal = _shifted(signal, alignment)
-    if baseline is not None and len(baseline):
-        baseline = _shifted(baseline, alignment)
+    # the pooled positions, moved to where this scan records them
+    features = _features_in_scan(features, signal, baseline, alignment)
 
     x = signal[:, 0]
     y = signal[:, 1]
@@ -1636,6 +1647,153 @@ def labelpooled(
 # ----
 
 
+def _signal_above_baseline(signal, baseline):
+    """(x, y) of a profile with its baseline level taken off (clipped at zero)."""
+
+    x = signal[:, 0]
+    y = numpy.asarray(signal[:, 1], dtype=float)
+    if baseline is not None and len(baseline):
+        y = y - numpy.interp(x, baseline[:, 0], baseline[:, 1])
+    return x, numpy.clip(y, 0.0, None)
+
+
+# ----
+
+
+def _local_shifts(signal, baseline, components):
+    """How far each group of overlapping species sits from its modelled position.
+
+    components - dicts with "isotopes" [(mz, weight)], "sigma" and "prior" (the
+        relative abundance the species is modelled with)
+
+    Pooled positions and a scan's overall offset still leave each scan's peaks a
+    little off in places (a scan's calibration is not a single number), so the
+    species of each overlap group are slid together by up to POOL_LOCAL_REACH of
+    their FWHM to where their modelled shape correlates best with the scan. A
+    group is only moved when the match is good and the best shift lies inside
+    the searched range; otherwise it stays where it was modelled. Noise needs no
+    gate of its own: it lowers the correlation. Returns a shift in Da per
+    component.
+    """
+
+    shifts = [0.0] * len(components)
+    if not components or len(signal) < 3:
+        return shifts
+
+    x, y = _signal_above_baseline(signal, baseline)
+
+    intervals = []
+    for component in components:
+        mzs = [mz for mz, _w in component["isotopes"]]
+        reach = 3.0 * component["sigma"]
+        intervals.append((min(mzs) - reach, max(mzs) + reach))
+
+    for group in mod_peakpicking._overlap_groups(intervals):
+
+        CHECK_FORCE_QUIT()
+
+        members = [components[k] for k in group]
+        sigma = min(c["sigma"] for c in members)
+        if sigma <= 0.0:
+            continue
+        reach = POOL_LOCAL_REACH * sigma * 2.0 * math.sqrt(2.0 * math.log(2.0))
+        lo = min(intervals[k][0] for k in group) - reach
+        hi = max(intervals[k][1] for k in group) + reach
+        i1 = int(numpy.searchsorted(x, lo, side="left"))
+        i2 = int(numpy.searchsorted(x, hi, side="right"))
+        if i2 - i1 < 3:
+            continue
+        xs = x[i1:i2]
+        ys = y[i1:i2]
+
+        if not numpy.any(ys > 0.0):
+            continue
+
+        step = reach / 10.0
+        deltas = numpy.arange(-10, 11) * step
+        scores = numpy.zeros(len(deltas))
+        for j, delta in enumerate(deltas):
+            model = numpy.zeros(len(xs))
+            for c in members:
+                model += c["prior"] * mod_peakpicking._envelope_gaussian_column(
+                    xs - delta, c["isotopes"], c["sigma"]
+                )
+            scores[j] = _correlation(xs, ys, model)
+
+        j = int(numpy.argmax(scores))
+        if scores[j] < POOL_LOCAL_MIN_CORRELATION or j in (0, len(deltas) - 1):
+            continue
+        delta = float(deltas[j])
+        curvature = scores[j - 1] - 2.0 * scores[j] + scores[j + 1]
+        if curvature < 0.0:
+            delta += 0.5 * step * (scores[j - 1] - scores[j + 1]) / curvature
+        for k in group:
+            shifts[k] = delta
+
+    return shifts
+
+
+# ----
+
+
+def _features_in_scan(features, signal, baseline, alignment):
+    """Copies of pooled features placed where one scan records them.
+
+    Positions move by the scan's `alignment` (ppm) and then by `_local_shifts`;
+    each copy keeps the pooled m/z as "referenceMz".
+    """
+
+    peaks = copy.deepcopy([features[i] for i in range(len(features))])
+    scale = 1.0 + alignment * 1e-6
+    defaultFwhm = 0.1
+    if features.basepeak is not None and features.basepeak.fwhm:
+        defaultFwhm = features.basepeak.fwhm
+
+    # one component per envelope (its members share the dict) or plain peak
+    components = []
+    byEnvelope = {}
+    for peak in peaks:
+        envelope = peak.attributes.get("envelope")
+        if isinstance(envelope, dict) and envelope.get("isotopes"):
+            if id(envelope) in byEnvelope:
+                components[byEnvelope[id(envelope)]]["members"].append(peak)
+                continue
+            byEnvelope[id(envelope)] = len(components)
+            isotopes = [(float(mz) * scale, max(0.0, float(w))) for mz, w in envelope["isotopes"]]
+            fwhm = float(envelope.get("fwhm") or peak.fwhm or defaultFwhm)
+            prior = float(envelope.get("area") or 0.0)
+        else:
+            envelope = None
+            isotopes = [(float(peak.mz) * scale, 1.0)]
+            fwhm = float(peak.fwhm or defaultFwhm)
+            prior = max(0.0, peak.ai - peak.base) * fwhm * GAUSSIAN_AREA
+        components.append(
+            {
+                "members": [peak],
+                "envelope": envelope,
+                "isotopes": isotopes,
+                "sigma": mod_peakpicking._fwhm_to_sigma(fwhm),
+                "prior": prior if prior > 0.0 else 1.0,
+            }
+        )
+
+    shifts = _local_shifts(signal, baseline, components)
+
+    for component, shift in zip(components, shifts, strict=True):
+        if component["envelope"] is not None:
+            component["envelope"]["isotopes"] = [
+                (mz + shift, w) for mz, w in component["isotopes"]
+            ]
+        for peak in component["members"]:
+            peak.attributes["referenceMz"] = float(peak.mz)
+            peak.setmz(float(peak.mz) * scale + shift)
+
+    return obj_peaklist.peaklist(peaks)
+
+
+# ----
+
+
 def _labelguided(signal, peaks, baseline, guide, snThreshold, label, intensity):
     """Label species picked in a finer acquisition in a scan of a coarser one.
 
@@ -1651,7 +1809,8 @@ def _labelguided(signal, peaks, baseline, guide, snThreshold, label, intensity):
     its peak width, and the reference did. Each species' area is then the fit of
     its own pattern to its share.
 
-    Every labelled peak sits on its envelope, at the m/z this scan records, and
+    Every labelled peak sits on its envelope, at the m/z this scan records (the
+    guide's position, refined by `_local_shifts`), and
     keeps the reference position it was matched to as its "referenceMz"
     attribute: the two analysers disagree by more than a coarse peak's width
     allows to hide, and the finer reference is the more accurate mass. A species
@@ -1709,6 +1868,13 @@ def _labelguided(signal, peaks, baseline, guide, snThreshold, label, intensity):
     for component in components:
         prior = component["prior"]
         component["prior"] = max(prior, 1e-6 * largest) if largest > 0.0 else 1.0
+
+    # the guide places every species by the scan's overall calibration; each
+    # group then settles where this scan actually records it
+    shifts = _local_shifts(signal, baseline, components)
+    for component, shift in zip(components, shifts, strict=True):
+        component["isotopes"] = [(mz + shift, w) for mz, w in component["isotopes"]]
+        component["shift"] = shift
 
     intervals = []
     for component in components:
@@ -1777,7 +1943,8 @@ def _labelguided(signal, peaks, baseline, guide, snThreshold, label, intensity):
             base, noise = _baseline_at(baseline, mz)
             height = area * w / norm
             measured.append((base + height, base, height / noise if noise else None))
-        if not _is_present(*measured[component["apex"]], snThreshold):
+        ai, base, sn = measured[component["apex"]]
+        if not _is_present(ai, base, sn, snThreshold):
             continue
 
         envelope = component["envelope"]
@@ -1806,7 +1973,7 @@ def _labelguided(signal, peaks, baseline, guide, snThreshold, label, intensity):
 
         for peak in component["members"]:
             new = copy.deepcopy(peak)
-            inScan = float(peak.mz) + float(_guide_shift(guide, peak.mz))
+            inScan = float(peak.mz) + float(_guide_shift(guide, peak.mz)) + component["shift"]
             if display is None:
                 nearest = min(range(len(isotopes)), key=lambda i: abs(isotopes[i][0] - inScan))
                 ai, base, sn = measured[nearest]

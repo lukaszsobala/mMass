@@ -3324,8 +3324,8 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             guide = mspy.crossguide(reference["pool"], scans)
 
         # the set's own peaks, wherever the reference does not reach
-        features = [None] * len(scans)
-        if guide is None or not mspy.guidecovers(guide, whole.profile):
+        features: list = [None] * len(scans)
+        if guide is None or whole is None or not mspy.guidecovers(guide, whole.profile):
             if single:
                 self.pickPeaksOnScan(scans[0])
                 features[0] = scans[0].peaklist
@@ -3335,7 +3335,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
                     if targets[index] or keepPool:
                         self.pickPeaksOnScan(pooled)
                         features[index] = pooled.peaklist
-            else:
+            elif whole is not None:
                 self.pickPeaksOnScan(whole)
                 features = [whole.peaklist] * len(scans)
 
