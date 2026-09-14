@@ -37,6 +37,29 @@ def test_parse_xy_missing_file_raises():
         mspy.parseXY("/no/such/file.xy")
 
 
+def test_parse_mgf_reads_every_ion_block(tmp_path):
+    # the data lines once split on an empty-matching pattern, which Python 3.7+
+    # splits between every character, so no point was ever read
+    path = tmp_path / "spectra.mgf"
+    path.write_text(
+        "BEGIN IONS\nTITLE=first\nPEPMASS=405.25 1200\nCHARGE=2+\n"
+        "150.5 10.0\n300.25\t40.0\nEND IONS\n"
+        "BEGIN IONS\nTITLE=second\n200.0 5.0\nEND IONS\n"
+    )
+    parser = mspy.parseMGF(str(path))
+
+    scanlist = parser.scanlist()
+    assert scanlist
+    assert [meta["title"] for meta in scanlist.values()] == ["first", "second"]
+    assert [meta["pointsCount"] for meta in scanlist.values()] == [2, 1]
+
+    scan = parser.scan(0)
+    assert scan is not False  # parser returns False on failure
+    assert [(peak.mz, peak.ai) for peak in scan.peaklist] == [(150.5, 10.0), (300.25, 40.0)]
+    assert scan.precursorMZ == pytest.approx(405.25)
+    assert scan.precursorCharge == 2
+
+
 def _mzml_array(values, name, precision=64, compressed=False):
     """One <binaryDataArray>, encoded as mzML stores it (little-endian, base64)."""
 
