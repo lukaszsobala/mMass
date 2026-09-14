@@ -58,6 +58,21 @@ def test_fwhm_lock_survives_msd_roundtrip():
     assert by_mz[1802].fwhm == pytest.approx(0.16, rel=1e-3)
 
 
+def test_reference_mz_of_a_guided_peak_survives_msd_roundtrip():
+    """A peak labelled from a finer acquisition keeps the m/z it was matched to."""
+
+    guided = mspy.peak(mz=810.573, ai=100.0, charge=2, isotope=0, fwhm=0.4)
+    guided.attributes["referenceMz"] = 810.4155
+    plain = mspy.peak(mz=900.0, ai=50.0, charge=1, isotope=0, fwhm=0.4)
+
+    xml, reloaded = _roundtrip([guided, plain])
+
+    assert 'referenceMz="810.415500"' in xml
+    by_mz = {round(p.mz): p for p in reloaded}
+    assert by_mz[811].attributes.get("referenceMz") == pytest.approx(810.4155)
+    assert "referenceMz" not in by_mz[900].attributes
+
+
 def test_detected_isotope_count_survives_msd_roundtrip():
     """The envelope's ``detected`` count persists across save + reload.
 

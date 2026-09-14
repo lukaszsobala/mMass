@@ -458,3 +458,209 @@ def test_pooled_picking_finds_species_single_scans_miss():
         mzs = [peak.mz for peak in found]
         assert positions is None or mzs == positions
         positions = mzs
+
+
+# ---------------------------------------------------------------------------
+# A finer acquisition guiding a coarser one
+# ---------------------------------------------------------------------------
+
+
+# species of both acquisitions: (mono, charge, height in the fine scans)
+_GUIDED_SPECIES = [
+    (524.26, 1, 800.0),
+    (622.03, 2, 600.0),
+    (810.42, 2, 1000.0),
+    (922.01, 1, 700.0),
+    (1046.54, 1, 900.0),
+    (1221.62, 1, 500.0),
+    (1347.74, 1, 600.0),
+]
+
+
+def _coarse_run(species, nscans=4, fwhm=0.45, shift=0.15, noise=5.0, lo=500.0, hi=1400.0, seed=5):
+    """Ion-trap-like scans of `species`: uniform raster, wide peaks, reading `shift` Da high.
+
+    `height` may be a callable of the scan index, as in `_run`; `fwhm` may be a
+    callable of m/z, and `shift` a list with one value per scan.
+    """
+
+    rng = numpy.random.default_rng(seed)
+    x = numpy.arange(lo, hi, 0.06)
+    scans = []
+    for index in range(nscans):
+        y = numpy.clip(rng.normal(2.0 * noise, noise, len(x)), 0.0, None)
+        for mono, charge, height in species:
+            h = height(index) if callable(height) else height
+            width = fwhm(mono) if callable(fwhm) else fwhm
+            offset = shift[index] if isinstance(shift, list) else shift
+            y += _envelope(x, mono + offset, charge, h, width)
+        scan = mspy.scan(profile=numpy.column_stack([x, y]))
+        scan.scanNumber = 100 + index
+        scan.msLevel = 1
+        scan.retentionTime = index + 0.5
+        scans.append(scan)
+    return scans
+
+
+def test_guiding_groups_pair_a_coarse_set_with_a_fine_one_of_the_same_ions():
+    """Only a much finer set of the same MS level, polarity and precursor guides."""
+
+    fine = _run([(810.42, 2, 1000.0)], nscans=2, lo=780.0, hi=840.0)
+    coarse = _coarse_run([(810.42, 2, 1000.0)], nscans=2, lo=780.0, hi=840.0)
+    keys = [
+        (1, 1, "FTMS + p ESI Full ms", None),
+        (1, 1, "ITMS + p ESI Full ms", None),
+        (1, -1, "ITMS - p ESI Full ms", None),
+        (2, 1, "ITMS + p ESI Full ms2", 810.42),
+    ]
+
+    guides = mspy.guidinggroups([fine, coarse, coarse, coarse], keys)
+
+    assert guides == [None, 0, None, None]
+
+
+# a trap's scans jitter by a good part of a peak width around its offset
+_JITTER = [0.0, 0.15, 0.3, 0.15, 0.05, 0.25]
+
+
+@pytest.mark.parametrize(
+    "fwhm",
+    [lambda mz: 0.45, lambda mz: mz / 2000.0],
+    ids=["constant (trap)", "rising (TOF)"],
+)
+def test_cross_guide_measures_the_coarse_width_and_each_scans_offset(fwhm):
+    """The broadened fine pool finds the coarse FWHM and how far off each scan reads.
+
+    Pooled without removing the jitter, the coarse peaks read about 14% wider than
+    any scan records them.
+    """
+
+    fine = mspy.poolscans(_run(_GUIDED_SPECIES, nscans=3, lo=500.0, hi=1400.0))
+    scans = _coarse_run(_GUIDED_SPECIES, nscans=len(_JITTER), fwhm=fwhm, shift=_JITTER)
+
+    guide = mspy.crossguide(fine, scans)
+
+    assert guide is not None
+    for index, jitter in enumerate(_JITTER):
+        single = mspy.scanguide(guide, index)
+        for mz in (600.0, 900.0, 1300.0):
+            assert float(mpool._guide_fwhm(single, mz)) == pytest.approx(fwhm(mz), rel=0.07)
+            assert float(mpool._guide_shift(single, mz)) == pytest.approx(jitter, abs=0.03)
+    assert mspy.guidecovers(guide, scans[0].profile)
+
+    # scans of the same resolution have nothing to guide
+    assert mspy.crossguide(fine, fine) is None
+
+
+def test_guided_scans_are_labelled_with_the_fine_species():
+    """Coarse scans get the fine charges and their own positions and abundances.
+
+    Each peak sits on its envelope, where the coarse scan records it, and keeps
+    the fine m/z it was matched to; its height is the scan's.
+    """
+
+    abundance = lambda i: 500.0 * (1 + i)  # noqa: E731
+    species = [(mono, charge, abundance if mono == 810.42 else height)
+               for mono, charge, height in _GUIDED_SPECIES]
+    fine = mspy.poolscans(_run(_GUIDED_SPECIES, nscans=3, lo=500.0, hi=1400.0))
+    _pick(fine, snThreshold=10.0)
+    assert _find(fine.peaklist, 810.42, 2, ppm=5.0) is not None
+
+    scans = _coarse_run(species, nscans=len(_JITTER), shift=_JITTER)
+    guide = mspy.crossguide(fine, scans)
+    features = mspy.guidedfeatures(guide, fine.peaklist)
+
+    areas = []
+    for index, scan in enumerate(scans):
+        scan.labelpooled(features, snThreshold=3.0, baselineWindow=0.01, baselineOffset=0.5,
+                         averagineType="protein", guide=mspy.scanguide(guide, index))
+        assert len(scan.peaklist) == len(fine.peaklist)
+        for feature in fine.peaklist:
+            peak = _find(scan.peaklist, feature.mz + _JITTER[index], feature.charge, ppm=40.0)
+            assert peak is not None, (scan.scanNumber, feature.mz)
+            assert peak.attributes["referenceMz"] == feature.mz
+            assert peak.mz == peak.attributes["envelope"]["isotopes"][0][0]
+            assert peak.fwhm == pytest.approx(0.45, rel=0.07)
+
+        peak = _find(scan.peaklist, 810.42 + _JITTER[index], 2, ppm=40.0)
+        assert peak.intensity == pytest.approx(abundance(index), rel=0.1)
+        isotopes = peak.attributes["envelope"]["isotopes"]
+        assert [mz for mz, _w in isotopes[:3]] == pytest.approx(
+            [810.42 + _JITTER[index] + k * mpp.ISOTOPE_DISTANCE / 2 for k in range(3)], abs=0.03
+        )
+        areas.append(peak.attributes["envelope"]["area"])
+
+    assert areas[1] / areas[0] == pytest.approx(2.0, rel=0.1)
+    assert areas[3] / areas[0] == pytest.approx(4.0, rel=0.1)
+
+
+def test_guided_species_closer_than_the_coarse_width_share_by_reference_abundance():
+    """What the coarse scan cannot tell apart is split as the fine pool measured it."""
+
+    x = numpy.arange(1030.0, 1065.0, 0.06)
+    y = _envelope(x, 1046.54, 1, 1000.0, 0.45) + _envelope(x, 1046.60, 1, 1000.0 / 3.0, 0.45)
+    scan = mspy.scan(profile=numpy.column_stack([x, y]))
+
+    first = _stored_envelope_peak(1046.54, 1, 0.026)
+    second = _stored_envelope_peak(1046.60, 1, 0.026)
+    first.attributes["envelope"]["area"] = 3.0
+    second.attributes["envelope"]["area"] = 1.0
+
+    labelled = mspy.labelpooled(scan.profile, mspy.peaklist([first, second]),
+                                averagineType="protein", guide=_flat_guide(1030.0, 1065.0))
+
+    areaFirst = _find(labelled, 1046.54, 1, ppm=5.0).attributes["envelope"]["area"]
+    assert _find(labelled, 1046.54, 1, ppm=5.0).attributes["referenceMz"] == pytest.approx(1046.54)
+    areaSecond = _find(labelled, 1046.60, 1, ppm=5.0).attributes["envelope"]["area"]
+    assert areaFirst / areaSecond == pytest.approx(3.0, rel=0.05)
+
+
+def _flat_guide(lo, hi, fwhm=0.45):
+    """A guide with a constant coarse FWHM and no offset."""
+
+    return {"fwhm": (fwhm, 0.0), "shift": (0.0, 0.0, lo, hi), "range": (lo, hi), "offsets": [0.0]}
+
+
+def test_faint_neighbour_the_coarse_scan_cannot_separate_is_not_labelled():
+    """A fine species that is a sliver of a much stronger neighbour's coarse peak.
+
+    The coarse scan records it as part of the neighbour, so it is left out -- but
+    it keeps its share, so the neighbour's area does not grow. The same faint
+    species on its own is labelled.
+    """
+
+    x = numpy.arange(1030.0, 1065.0, 0.06)
+    y = _envelope(x, 1046.54, 1, 1000.0, 0.45) + _envelope(x, 1046.57, 1, 20.0, 0.45)
+    y += _envelope(x, 1055.00, 1, 20.0, 0.45)
+    scan = mspy.scan(profile=numpy.column_stack([x, y]))
+
+    strong = _stored_envelope_peak(1046.54, 1, 0.026)
+    faint = _stored_envelope_peak(1046.57, 1, 0.026)
+    alone = _stored_envelope_peak(1055.00, 1, 0.026)
+    strong.attributes["envelope"]["area"] = 50.0
+    faint.attributes["envelope"]["area"] = 1.0
+    alone.attributes["envelope"]["area"] = 1.0
+    guide = _flat_guide(1030.0, 1065.0)
+
+    labelled = mspy.labelpooled(scan.profile, mspy.peaklist([strong, faint, alone]),
+                                averagineType="protein", guide=guide)
+    without = mspy.labelpooled(scan.profile, mspy.peaklist([strong, alone]),
+                               averagineType="protein", guide=guide)
+
+    assert _find(labelled, 1046.57, 1, ppm=5.0) is None
+    assert _find(labelled, 1055.00, 1, ppm=5.0) is not None
+    area = _find(labelled, 1046.54, 1, ppm=5.0).attributes["envelope"]["area"]
+    assert area < _find(without, 1046.54, 1, ppm=5.0).attributes["envelope"]["area"]
+
+
+def test_guided_features_keep_own_peaks_where_the_reference_does_not_reach():
+    """Past the fine acquisition's m/z range, the coarse set's own peaks are used."""
+
+    reference = mspy.peaklist([mspy.peak(mz=810.4, ai=10.0), mspy.peak(mz=1200.0, ai=10.0)])
+    own = mspy.peaklist([mspy.peak(mz=811.0, ai=5.0), mspy.peak(mz=1600.0, ai=5.0)])
+    guide = {"fwhm": (0.45, 0.0), "shift": (0.0, 0.0, 500.0, 1400.0), "range": (500.0, 1400.0)}
+
+    features = mspy.guidedfeatures(guide, reference, own)
+
+    assert [peak.mz for peak in features] == [810.4, 1200.0, 1600.0]
+    assert reference[0].ri == 1.0  # the source lists are left alone

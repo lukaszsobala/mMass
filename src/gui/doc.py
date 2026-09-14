@@ -653,6 +653,9 @@ class document:
                 attributes += ' group="%s"' % self._escape(peak.group)
             if hasattr(peak, "attributes") and peak.attributes.get("_fwhmLocked"):
                 attributes += ' fwhmLocked="1"'
+            # the finer acquisition's m/z a guided peak was matched to
+            if hasattr(peak, "attributes") and peak.attributes.get("referenceMz") is not None:
+                attributes += ' referenceMz="%.6f"' % float(peak.attributes["referenceMz"])
             envelope = None
             if hasattr(peak, "attributes"):
                 envelope = peak.attributes.get("envelope")
@@ -1724,6 +1727,11 @@ class parseMSD:
             # save/reload (see panel_peaklist's FWHM lock checkbox).
             if peakTag.getAttribute("fwhmLocked") in ("1", "true", "True"):
                 peak.attributes["_fwhmLocked"] = True
+            if peakTag.hasAttribute("referenceMz"):
+                try:
+                    peak.attributes["referenceMz"] = float(peakTag.getAttribute("referenceMz"))
+                except ValueError:
+                    pass
 
             # Restore optional envelope metadata saved in mSD.
             envelopeTags = peakTag.getElementsByTagName("envelope")

@@ -775,6 +775,7 @@ class scan:
         averagineType=mod_peakpicking.DEFAULT_AVERAGINE,
         refinePattern=True,
         alignment=0.0,
+        guide=None,
     ):
         """Label peaks picked in a pooled spectrum (see mod_pooling) in this scan.
 
@@ -783,6 +784,8 @@ class scan:
         baselineWindow (float) - noise calculation window (in %/100)
         baselineOffset (float) - baseline offset, relative to noise width (in %/100)
         alignment (float) - this scan's m/z offset against the pool (ppm)
+        guide (dict or None) - from mspy.crossguide, when the features were
+            picked in a finer acquisition of the same run
 
         The current peaklist is replaced. Positions, charges, FWHM and envelope
         shapes come from the features; intensities and envelope areas are
@@ -805,6 +808,7 @@ class scan:
             averagineType=averagineType,
             refinePattern=refinePattern,
             alignment=alignment,
+            guide=guide,
         )
 
         return True

@@ -34,6 +34,11 @@ noise is lower and a species that is really there is seen consistently:
 4. ``labelpooled`` labels those species in each scan: position, charge, FWHM and
    envelope shape come from the pool, only the intensities (and envelope areas)
    are measured in the scan, and a species too weak in that scan is left out.
+5. ``guidinggroups`` / ``crossguide`` let a finer acquisition guide a coarser one
+   recording the same ions (Orbitrap and ion trap full scans of one run): the
+   coarse analyser cannot resolve isotopes, so its own pool gives blends with
+   wrong charges. The finer pool's species are labelled in the coarse scans
+   instead, at the coarse analyser's own peak width and calibration.
 """
 
 # load libs
@@ -91,6 +96,29 @@ POOL_ALIGN_ANCHORS = 40
 POOL_ALIGN_MIN_ANCHORS = 3
 POOL_ALIGN_MAX_PPM = 100.0
 POOL_ALIGN_ITERATIONS = 2
+
+# Guidance between acquisitions. The coarse analyser's width and m/z offset are
+# found by broadening the fine pool until it looks like the coarse one: offsets
+# are measured in this many stretches of equal coarse signal (an ion trap's offset
+# against an Orbitrap drifts by a fraction of a peak width along m/z), a stretch
+# counts only when the broadened reference correlates with it at least this well,
+# and the width read from the coarse peaks (those at least this fraction of the
+# strongest) is refined in each stretch by these factors.
+POOL_GUIDE_SEGMENTS = 6
+POOL_GUIDE_ANCHOR_FRACTION = 0.05
+POOL_GUIDE_NOISE_WIDTHS = 2.0
+POOL_GUIDE_MIN_CORRELATION = 0.5
+POOL_GUIDE_SCALES = tuple(2.0 ** (i / 6.0) for i in range(-12, 13))
+POOL_GUIDE_GRID_POINTS = 2000000
+POOL_GUIDE_ITERATIONS = 2
+
+# A species that the reference predicts to be less than this fraction of the
+# signal at its own tallest isotope is not labelled in a guided scan: that
+# analyser records it as part of a much stronger neighbour's peak.
+POOL_GUIDE_MIN_SHARE = 0.1
+
+# Area of a Gaussian peak of height 1 and FWHM 1.
+GAUSSIAN_AREA = math.sqrt(math.pi / (4.0 * math.log(2.0)))
 
 
 # SCAN GROUPING
@@ -223,6 +251,74 @@ def samplinggroups(scans):
             references.append(steps)
 
     return groups
+
+
+# ----
+
+
+def _set_steps(scans):
+    """Sampling step profile of a set of scans (median of its first few)."""
+
+    rows = [_sampling_profile(s.profile)[1] for s in scans[:5] if s.hasprofile()]
+    if not rows:
+        return None
+
+    stack = numpy.vstack(rows)
+    steps = numpy.full(stack.shape[1], numpy.nan)
+    for b in range(stack.shape[1]):
+        column = stack[:, b][~numpy.isnan(stack[:, b])]
+        if len(column):
+            steps[b] = float(numpy.median(column))
+
+    return steps
+
+
+# ----
+
+
+def guidinggroups(scanSets, keys):
+    """Pair each set of scans with a finer acquisition of the same ions.
+
+    scanSets (list of lists of mspy.scan) - the poolable scan sets of one run
+    keys (list) - acquisitionkey of each set
+
+    Returns, for each set, the index of the set whose species should be labelled
+    in it, or None when it is picked from its own pool. A set is guided by the
+    finest set of the same MS level, polarity and precursor that samples the m/z
+    both cover at least POOL_SAMPLING_RATIO times more densely. Whether its peaks
+    really are that much narrower is checked by `crossguide`.
+    """
+
+    steps = [_set_steps(scans) for scans in scanSets]
+    result = [None] * len(scanSets)
+
+    for i, key in enumerate(keys):
+        if steps[i] is None:
+            continue
+        bestRatio = POOL_SAMPLING_RATIO
+        for j, other in enumerate(keys):
+            if j == i or steps[j] is None:
+                continue
+            if (key[0], key[1], key[3]) != (other[0], other[1], other[3]):
+                continue
+            common = ~numpy.isnan(steps[i]) & ~numpy.isnan(steps[j])
+            if not numpy.any(common):
+                continue
+            ratio = float(numpy.median(steps[i][common] / steps[j][common]))
+            if ratio >= bestRatio:
+                result[i] = j
+                bestRatio = ratio
+
+    # a guide is picked from its own pool: follow a chain to its finest end
+    for i in range(len(result)):
+        seen = {i}
+        while result[i] is not None and result[result[i]] is not None:
+            if result[result[i]] in seen:
+                break
+            seen.add(result[result[i]])
+            result[i] = result[result[i]]
+
+    return result
 
 
 # POOLING
@@ -712,6 +808,525 @@ def poolwindows(scans, window, align=True):
         yield index, pooled
 
 
+# GUIDANCE BETWEEN ACQUISITIONS
+# -----------------------------
+
+
+def _peak_widths(profile):
+    """(m/z, FWHM) arrays of the strongest separated peaks of a profile.
+
+    Noise maxima are narrow too: only peaks that stand out, and that span more
+    than a couple of sampling steps, can tell the width.
+    """
+
+    anchors = _anchors(profile)
+    if anchors:
+        x = profile[:, 0]
+        steps = _native_spacing(x)
+        strongest = max(h for _mz, _w, h in anchors)
+        anchors = [
+            (mz, w)
+            for mz, w, h in anchors
+            if h >= POOL_GUIDE_ANCHOR_FRACTION * strongest
+            and w >= 2.0 * steps[min(len(x) - 1, int(numpy.searchsorted(x, mz)))]
+        ]
+    if len(anchors) < POOL_ALIGN_MIN_ANCHORS:
+        return None
+
+    return numpy.array([a[0] for a in anchors]), numpy.array([a[1] for a in anchors])
+
+
+# ----
+
+
+def _guide_fwhm(guide, mz):
+    """FWHM the guided analyser records at m/z."""
+
+    coefficient, exponent = guide["fwhm"]
+    return coefficient * numpy.power(mz, exponent)
+
+
+# ----
+
+
+def _guide_shift(guide, mz):
+    """How far above the reference the guided analyser reads m/z (in Da)."""
+
+    slope, intercept, first, last = guide["shift"]
+    return intercept + slope * numpy.clip(numpy.asarray(mz, dtype=float), first, last)
+
+
+# ----
+
+
+def _match(x, y, grid, model, reach, step):
+    """Shift of the model that correlates best with (x, y): (shift, correlation)."""
+
+    yNorm = math.sqrt(float(numpy.sum(y * y)))
+    if yNorm <= 0.0:
+        return 0.0, 0.0
+
+    shifts = numpy.arange(-reach, reach + 0.5 * step, step)
+    scores = numpy.zeros(len(shifts))
+    for k, shift in enumerate(shifts):
+        values = numpy.interp(x - shift, grid, model, left=0.0, right=0.0)
+        norm = math.sqrt(float(numpy.sum(values * values)))
+        if norm > 0.0:
+            scores[k] = float(numpy.sum(y * values)) / (yNorm * norm)
+
+    k = int(numpy.argmax(scores))
+    shift = float(shifts[k])
+    if 0 < k < len(shifts) - 1:
+        curvature = scores[k - 1] - 2.0 * scores[k] + scores[k + 1]
+        if curvature < 0.0:
+            shift += 0.5 * step * (scores[k - 1] - scores[k + 1]) / curvature
+
+    return shift, float(scores[k])
+
+
+# ----
+
+
+def _correlation(x, y, values):
+    """Normalised correlation of two signals sampled at the same points."""
+
+    norm = math.sqrt(float(numpy.sum(y * y)) * float(numpy.sum(values * values)))
+    return float(numpy.sum(y * values)) / norm if norm > 0.0 else 0.0
+
+
+# ----
+
+
+def _above_noise(profile):
+    """Profile with its noise removed: only what rises above baseline + noise width.
+
+    Broadening lowers a peak by the ratio of the two widths but leaves a noise
+    floor as it is, so a floor that is negligible in the fine pool would outweigh
+    its peaks once broadened, and decide the match.
+    """
+
+    points = numpy.array(profile, dtype=numpy.float64)
+    if len(points) < 2:
+        return points
+    baseline = mod_signal.baseline(points, window=0.1)
+    floor = baseline[:, 1] + POOL_GUIDE_NOISE_WIDTHS * baseline[:, 2]
+    points[:, 1] = numpy.clip(
+        points[:, 1] - numpy.interp(points[:, 0], baseline[:, 0], floor), 0.0, None
+    )
+    return points
+
+
+# ----
+
+
+def _reference_arrays(profile):
+    """(m/z, intensity, sampling step) of a reference profile, ready to broaden."""
+
+    points = _above_noise(profile)
+    mz = numpy.ascontiguousarray(points[:, 0], dtype=numpy.float64)
+    intensity = numpy.ascontiguousarray(points[:, 1], dtype=numpy.float64)
+    spacing = _native_spacing(mz)
+    spacing[~numpy.isfinite(spacing)] = 0.0
+    return mz, intensity, spacing
+
+
+# ----
+
+
+def _broadened(reference, positions, fwhm):
+    """The reference as the guided analyser would record it, at sorted positions."""
+
+    positions = numpy.ascontiguousarray(positions, dtype=numpy.float64)
+    sigma = numpy.broadcast_to(numpy.asarray(fwhm, dtype=numpy.float64), positions.shape)
+    sigma = numpy.ascontiguousarray(sigma / (2.0 * math.sqrt(2.0 * math.log(2.0))))
+    mz, intensity, spacing = reference
+    return calculations.signal_gaussian_blur(mz, intensity, spacing, positions, sigma)
+
+
+# ----
+
+
+def _guide_model(reference, guide):
+    """Broadened reference on a grid fine enough to shift it over: (positions, values)."""
+
+    lo, hi = guide["range"]
+    finest = float(min(_guide_fwhm(guide, lo), _guide_fwhm(guide, hi)))
+    count = int(min(POOL_GUIDE_GRID_POINTS, max(2, (hi - lo) / (0.1 * finest))))
+    positions = numpy.linspace(lo, hi, count)
+    return positions, _broadened(reference, positions, _guide_fwhm(guide, positions))
+
+
+# ----
+
+
+def _inside(profile, guide):
+    """(x, y) of the points of a noise-clipped profile inside the guide's range."""
+
+    lo, hi = guide["range"]
+    inside = (profile[:, 0] >= lo) & (profile[:, 0] <= hi)
+    return profile[inside, 0], profile[inside, 1]
+
+
+# ----
+
+
+def _segments(x, y):
+    """Stretches of equal signal: a list of (slice, signal-weighted centre)."""
+
+    cumulative = numpy.cumsum(y)
+    edges = numpy.searchsorted(
+        cumulative, numpy.linspace(0.0, cumulative[-1], POOL_GUIDE_SEGMENTS + 1)
+    )
+    edges[0] = 0
+    edges[-1] = len(x)
+
+    segments = []
+    for k in range(POOL_GUIDE_SEGMENTS):
+        if edges[k + 1] - edges[k] < 2:
+            continue
+        segment = slice(int(edges[k]), int(edges[k + 1]))
+        weight = max(float(numpy.sum(y[segment])), 1e-300)
+        segments.append((segment, float(numpy.sum(x[segment] * y[segment]) / weight)))
+
+    return segments
+
+
+# ----
+
+
+def _fit_shift(guide, x, y, segments, model):
+    """Straight line through the shifts of the stretches that match, or None.
+
+    model - (positions, values) of the broadened reference
+    """
+
+    positions = []
+    values = []
+    weights = []
+    for segment, centre in segments:
+
+        CHECK_FORCE_QUIT()
+
+        fwhm = float(_guide_fwhm(guide, centre))
+        shift, score = _match(x[segment], y[segment], model[0], model[1], 1.5 * fwhm, fwhm / 40.0)
+        if score >= POOL_GUIDE_MIN_CORRELATION:
+            positions.append(centre)
+            values.append(shift)
+            weights.append(score)
+    if not positions:
+        return None
+
+    # a calibration difference is smooth along m/z; a line through the stretches
+    # correlates as well as following each of them, with less noise
+    first = min(positions)
+    last = max(positions)
+    if len(positions) >= 3 and last > first:
+        slope, intercept = numpy.polyfit(positions, values, 1, w=weights)
+        return float(slope), float(intercept), first, last
+    return 0.0, float(numpy.average(values, weights=weights)), first, last
+
+
+# ----
+
+
+def _fit_width(reference, guide, x, y, anchors):
+    """(coefficient, exponent) of the guided FWHM, or None.
+
+    anchors - (m/z, FWHM) arrays of the guided pool's strongest separated peaks
+
+    Around each of those peaks the width is the one at which the broadened
+    reference, read where the guided analyser records it, correlates best. Only
+    about one peak is compared at a time: over a wider stretch, species whose
+    relative intensities differ between the analysers make a wider model fit
+    better, and a model wider than the peaks reads their tops too low. How the
+    width grows with m/z (constant in a trap, rising in a TOF, an Orbitrap or an
+    FT-ICR) is fitted through the peaks, after dropping those a blend or a
+    species missing from the reference sets far off the others.
+    """
+
+    positions = []
+    logWidths = []
+    weights = []
+    for mz in anchors[0]:
+        base = float(_guide_fwhm(guide, mz))
+        window = (x >= mz - 1.5 * base) & (x <= mz + 1.5 * base)
+        if numpy.count_nonzero(window) < 4:
+            continue
+        segX = x[window]
+        segY = y[window]
+        shifted = segX - _guide_shift(guide, segX)
+        scores = []
+        for scale in POOL_GUIDE_SCALES:
+
+            CHECK_FORCE_QUIT()
+
+            scores.append(_correlation(segX, segY, _broadened(reference, shifted, base * scale)))
+        k = int(numpy.argmax(scores))
+        if scores[k] < POOL_GUIDE_MIN_CORRELATION:
+            continue
+        logWidth = math.log(base * POOL_GUIDE_SCALES[k])
+        if 0 < k < len(scores) - 1:
+            curvature = scores[k - 1] - 2.0 * scores[k] + scores[k + 1]
+            if curvature < 0.0:
+                step = math.log(POOL_GUIDE_SCALES[k + 1] / POOL_GUIDE_SCALES[k])
+                logWidth += 0.5 * step * (scores[k - 1] - scores[k + 1]) / curvature
+        positions.append(math.log(mz))
+        logWidths.append(logWidth)
+        weights.append(scores[k])
+    if not positions:
+        return None
+
+    positions = numpy.array(positions)
+    logWidths = numpy.array(logWidths)
+    weights = numpy.array(weights)
+    keep = numpy.ones(len(positions), dtype=bool)
+    exponent = 0.0
+    intercept = 0.0
+    for _iteration in range(3):
+        exponent = 0.0
+        if numpy.count_nonzero(keep) >= 3 and numpy.ptp(positions[keep]) > 0.05:
+            exponent = float(
+                numpy.polyfit(positions[keep], logWidths[keep], 1, w=weights[keep])[0]
+            )
+            exponent = min(2.0, max(0.0, exponent))
+        intercept = _weighted_median(
+            logWidths[keep] - exponent * positions[keep], weights[keep]
+        )
+        residual = logWidths - (intercept + exponent * positions)
+        spread = 1.4826 * float(numpy.median(numpy.abs(residual[keep])))
+        # log-widths within 5% of each other need no trimming
+        updated = numpy.abs(residual) <= max(3.0 * spread, 0.05)
+        if numpy.array_equal(updated, keep) or numpy.count_nonzero(updated) == 0:
+            break
+        keep = updated
+
+    return math.exp(intercept), exponent
+
+
+# ----
+
+
+def _measure_guide(reference, own, guide):
+    """Refine a guide's shift and width against a noise-clipped guided pool."""
+
+    anchors = _peak_widths(own)
+    if anchors is None:
+        return None
+    x, y = _inside(own, guide)
+    if len(x) < 2 or float(numpy.sum(y)) <= 0.0:
+        return None
+    segments = _segments(x, y)
+
+    line = _fit_shift(guide, x, y, segments, _guide_model(reference, guide))
+    if line is None:
+        return None
+    guide["shift"] = line
+
+    fwhm = _fit_width(reference, guide, x, y, anchors)
+    if fwhm is not None:
+        guide["fwhm"] = fwhm
+
+    model = _guide_model(reference, guide)
+    line = _fit_shift(guide, x, y, segments, model)
+    if line is None:
+        return None
+    guide["shift"] = line
+    guide["correlation"] = _correlation(
+        x, y, numpy.interp(x - _guide_shift(guide, x), model[0], model[1], left=0.0, right=0.0)
+    )
+
+    return guide
+
+
+# ----
+
+
+def _scan_offsets(reference, guide, profiles):
+    """How far each guided scan reads above the guide's shift line (Da).
+
+    Scans of a trap jitter by a good fraction of their peak width, far more than
+    the ppm alignment of `alignmentoffsets` is built to follow. Each scan is
+    matched as a whole against the broadened reference; a scan that does not
+    match keeps the typical offset.
+    """
+
+    model = _guide_model(reference, guide)
+    offsets = [None] * len(profiles)
+    for i, profile in enumerate(profiles):
+
+        CHECK_FORCE_QUIT()
+
+        if len(profile) < 2:
+            continue
+        x, y = _inside(_above_noise(profile), guide)
+        if len(x) < 2 or float(numpy.sum(y)) <= 0.0:
+            continue
+        centre = float(numpy.sum(x * y) / numpy.sum(y))
+        fwhm = float(_guide_fwhm(guide, centre))
+        shift, score = _match(x - _guide_shift(guide, x), y, model[0], model[1], fwhm, fwhm / 10.0)
+        if score >= POOL_GUIDE_MIN_CORRELATION:
+            offsets[i] = shift
+
+    # the shift line is measured on the pool, which reads like the typical scan
+    matched = [offset for offset in offsets if offset is not None]
+    centre = float(numpy.median(matched)) if matched else 0.0
+    return [offset - centre if offset is not None else 0.0 for offset in offsets]
+
+
+# ----
+
+
+def crossguide(reference, guided):
+    """Measure how a coarser acquisition records the ions of a finer one.
+
+    reference (mspy.scan) - pooled scan of the finer acquisition
+    guided (mspy.scan or list of mspy.scan) - the coarser acquisition: its scans,
+        or one (pooled) scan
+
+    Returns a guide for `labelpooled` (take one scan's with `scanguide`), or None
+    when the two cannot be matched: the guided peaks are not POOL_SAMPLING_RATIO
+    times wider, there are too few peaks, or the reference broadened to the
+    guided width does not resemble the guided signal anywhere. The guide holds:
+
+    "fwhm" - (coefficient, exponent) of the guided FWHM = coefficient * mz**exponent
+    "shift" - (slope, intercept, first, last): the guided analyser reads m/z
+        intercept + slope * mz Da above the reference, held flat outside the
+        first..last m/z where it was measured
+    "offsets" - how many Da each guided scan reads above that line
+    "range" - (lo, hi) m/z both acquisitions cover
+    "correlation" - how well the broadened reference matches the guided pool
+
+    Given the scans, each scan's own offset is measured and removed before the
+    width is read from their pool: unaligned, a trap's jitter widens the pooled
+    peaks, and a model wider than the scans' peaks reads their tops too low.
+    """
+
+    scans = list(guided) if isinstance(guided, (list, tuple)) else [guided]
+    profiles = [s.profile if s.hasprofile() else numpy.empty((0, 2)) for s in scans]
+    if not reference.hasprofile() or not any(len(p) for p in profiles):
+        return None
+
+    def pooled(offsets):
+        moved = []
+        for profile, offset in zip(profiles, offsets, strict=True):
+            if len(profile):
+                profile = profile.copy()
+                profile[:, 0] -= offset
+                moved.append(profile)
+        if len(moved) == 1:
+            return _above_noise(moved[0])
+        return _above_noise(_pool(moved, commonraster(moved)))
+
+    ref = reference.profile
+    own = pooled([0.0] * len(profiles))
+    if len(own) < 2:
+        return None
+    lo = max(float(ref[0, 0]), float(own[0, 0]))
+    hi = min(float(ref[-1, 0]), float(own[-1, 0]))
+    if hi <= lo:
+        return None
+
+    widths = _peak_widths(own)
+    refWidths = _peak_widths(_above_noise(ref))
+    if widths is None or refWidths is None:
+        return None
+    relative = float(numpy.median(widths[1] / widths[0]))
+    if relative < POOL_SAMPLING_RATIO * float(numpy.median(refWidths[1] / refWidths[0])):
+        return None
+
+    CHECK_FORCE_QUIT()
+
+    arrays = _reference_arrays(ref)
+    guide = {
+        "fwhm": (float(numpy.median(widths[1])), 0.0),
+        "shift": (0.0, 0.0, lo, hi),
+        "range": (lo, hi),
+    }
+    guide = _measure_guide(arrays, own, guide)
+    if guide is None:
+        return None
+
+    offsets = [0.0] * len(profiles)
+    if len(profiles) > 1:
+        for _iteration in range(POOL_GUIDE_ITERATIONS):
+            offsets = _scan_offsets(arrays, guide, profiles)
+            measured = _measure_guide(arrays, pooled(offsets), dict(guide))
+            if measured is None:
+                break
+            guide = measured
+        offsets = _scan_offsets(arrays, guide, profiles)
+    guide["offsets"] = offsets
+
+    return guide
+
+
+# ----
+
+
+def scanguide(guide, index):
+    """The guide of one guided scan: the set's guide with that scan's offset."""
+
+    single = dict(guide)
+    slope, intercept, first, last = guide["shift"]
+    offsets = guide.get("offsets") or []
+    offset = offsets[index] if 0 <= index < len(offsets) else 0.0
+    single["shift"] = (slope, intercept + offset, first, last)
+    single["offsets"] = [0.0]
+    return single
+
+
+# ----
+
+
+def guidecovers(guide, profile):
+    """True when a guide's m/z range covers the whole profile of a scan."""
+
+    if len(profile) == 0:
+        return True
+
+    lo, hi = guide["range"]
+    first = float(profile[0, 0])
+    last = float(profile[-1, 0])
+    return first >= lo - float(_guide_fwhm(guide, lo)) and last <= hi + float(_guide_fwhm(guide, hi))
+
+
+# ----
+
+
+def _feature_position(peak):
+    """m/z a feature is placed by: its envelope's first isotope, or the peak."""
+
+    envelope = peak.attributes.get("envelope") if hasattr(peak, "attributes") else None
+    if isinstance(envelope, dict) and envelope.get("isotopes"):
+        return float(envelope["isotopes"][0][0])
+    return float(peak.mz)
+
+
+# ----
+
+
+def guidedfeatures(guide, reference, own=None):
+    """Features to label in a guided scan.
+
+    guide (dict) - as returned by crossguide
+    reference (mspy.peaklist) - peaks picked in the reference pool
+    own (mspy.peaklist or None) - peaks picked in the guided set's own pool, for
+        the m/z the reference does not cover
+
+    Returns a peaklist of the reference features inside the guide's range and
+    the own features outside it.
+    """
+
+    lo, hi = guide["range"]
+    peaks = [p for p in reference if lo <= _feature_position(p) <= hi]
+    if own is not None:
+        peaks += [p for p in own if not lo <= _feature_position(p) <= hi]
+
+    # a peaklist rescales the relative intensities of its peaks; one deep copy
+    # leaves the source lists alone and keeps envelope members sharing their dict
+    return obj_peaklist.peaklist(copy.deepcopy(peaks))
+
+
 # LABELLING POOLED PEAKS IN A SCAN
 # --------------------------------
 
@@ -816,6 +1431,7 @@ def labelpooled(
     averagineType=mod_peakpicking.DEFAULT_AVERAGINE,
     refinePattern=True,
     alignment=0.0,
+    guide=None,
 ):
     """Label peaks found in a pooled spectrum in one of the pooled scans.
 
@@ -828,6 +1444,9 @@ def labelpooled(
         read where this scan actually recorded them
     label, intensity, nonIdeality, averagineType, refinePattern - envelope
         labelling settings, as for relabelenvelopes
+    guide (dict or None) - this scan's guide (see crossguide and scanguide), when
+        the features inside its range were picked in a finer acquisition; those
+        are labelled as `_labelguided` describes, without `alignment`
 
     Every labelled peak keeps its pooled m/z, charge, isotope, FWHM and group;
     its intensity, baseline and S/N are measured in the scan. An envelope keeps
@@ -843,6 +1462,37 @@ def labelpooled(
 
     if signal is None or len(signal) == 0 or not len(features):
         return obj_peaklist.peaklist([])
+
+    if guide is not None:
+        lo, hi = guide["range"]
+        inside = []
+        outside = []
+        for index in range(len(features)):
+            peak = features[index]
+            if lo <= _feature_position(peak) <= hi:
+                inside.append(peak)
+            else:
+                outside.append(peak)
+
+        labelled = []
+        if outside:
+            labelled += list(
+                labelpooled(
+                    signal,
+                    obj_peaklist.peaklist(copy.deepcopy(outside)),
+                    baseline=baseline,
+                    snThreshold=snThreshold,
+                    label=label,
+                    intensity=intensity,
+                    nonIdeality=nonIdeality,
+                    averagineType=averagineType,
+                    refinePattern=refinePattern,
+                    alignment=alignment,
+                )
+            )
+        # the guide already maps the reference onto this scan's own m/z axis
+        labelled += _labelguided(signal, inside, baseline, guide, snThreshold, label, intensity)
+        return obj_peaklist.peaklist(labelled)
 
     # measure on the pool's m/z axis
     signal = _shifted(signal, alignment)
@@ -981,6 +1631,197 @@ def labelpooled(
                 labelled.append(new)
 
     return obj_peaklist.peaklist(labelled)
+
+
+# ----
+
+
+def _labelguided(signal, peaks, baseline, guide, snThreshold, label, intensity):
+    """Label species picked in a finer acquisition in a scan of a coarser one.
+
+    signal, baseline - the scan's profile and baseline
+    peaks (list of mspy.peak) - the finer acquisition's features
+    guide (dict) - this scan's guide (see scanguide)
+
+    Charges and isotope patterns come from the reference, which resolved them.
+    Every species is fitted where this analyser records it and at its FWHM, and
+    its envelope is stored there, so it is drawn over this scan's peaks. Where
+    species overlap, the scan's signal is shared among them in proportion to what
+    the reference measured: the coarse scan cannot tell apart species closer than
+    its peak width, and the reference did. Each species' area is then the fit of
+    its own pattern to its share.
+
+    Every labelled peak sits on its envelope, at the m/z this scan records, and
+    keeps the reference position it was matched to as its "referenceMz"
+    attribute: the two analysers disagree by more than a coarse peak's width
+    allows to hide, and the finer reference is the more accurate mass. A species
+    left out: one whose fitted tallest isotope stays below
+    `snThreshold`, and one that is only a sliver (below POOL_GUIDE_MIN_SHARE) of
+    the signal the reference predicts at its tallest isotope -- a faint neighbour
+    the reference resolved but this analyser records as part of another peak.
+    Both still take their share of the signal, so no neighbour absorbs it.
+    """
+
+    if not peaks:
+        return []
+
+    x = signal[:, 0]
+    y = numpy.asarray(signal[:, 1], dtype=float)
+    if baseline is not None and len(baseline):
+        y = y - numpy.interp(x, baseline[:, 0], baseline[:, 1])
+    y = numpy.clip(y, 0.0, None)
+
+    # one component per species: an envelope with all of its member peaks, or a
+    # plain peak
+    components = []
+    byEnvelope = {}
+    for peak in peaks:
+        envelope = peak.attributes.get("envelope") if hasattr(peak, "attributes") else None
+        if isinstance(envelope, dict) and envelope.get("isotopes"):
+            if id(envelope) in byEnvelope:
+                components[byEnvelope[id(envelope)]]["members"].append(peak)
+                continue
+            byEnvelope[id(envelope)] = len(components)
+            isotopes = [(float(mz), max(0.0, float(w))) for mz, w in envelope["isotopes"]]
+            prior = float(envelope.get("area") or 0.0)
+        else:
+            envelope = None
+            isotopes = [(float(peak.mz), 1.0)]
+            prior = max(0.0, peak.ai - peak.base) * (peak.fwhm or 0.0) * GAUSSIAN_AREA
+
+        total = math.fsum(w for _mz, w in isotopes) or 1.0
+        isotopes = [(mz + float(_guide_shift(guide, mz)), w / total) for mz, w in isotopes]
+        fwhm = float(_guide_fwhm(guide, isotopes[0][0]))
+        components.append(
+            {
+                "members": [peak],
+                "envelope": envelope,
+                "isotopes": isotopes,
+                "fwhm": fwhm,
+                "sigma": mod_peakpicking._fwhm_to_sigma(fwhm),
+                "prior": prior,
+                "apex": max(range(len(isotopes)), key=lambda i: isotopes[i][1]),
+            }
+        )
+
+    # a species the reference could not measure still gets a small share
+    largest = max(c["prior"] for c in components)
+    for component in components:
+        prior = component["prior"]
+        component["prior"] = max(prior, 1e-6 * largest) if largest > 0.0 else 1.0
+
+    intervals = []
+    for component in components:
+        mzs = [mz for mz, _w in component["isotopes"]]
+        reach = 4.0 * component["sigma"]
+        intervals.append((min(mzs) - reach, max(mzs) + reach))
+
+    areas = [0.0] * len(components)
+    shares = [1.0] * len(components)
+    for group in mod_peakpicking._overlap_groups(intervals):
+
+        CHECK_FORCE_QUIT()
+
+        members = [components[k] for k in group]
+
+        # the share of each species at its own tallest isotope, before any data
+        for k, component in zip(group, members, strict=True):
+            at = numpy.array([component["isotopes"][component["apex"]][0]])
+            predicted = [
+                other["prior"]
+                * float(mod_peakpicking._envelope_gaussian_column(at, other["isotopes"], other["sigma"])[0])
+                for other in members
+            ]
+            total = math.fsum(predicted)
+            shares[k] = predicted[group.index(k)] / total if total > 0.0 else 1.0
+
+        lo = min(intervals[k][0] for k in group)
+        hi = max(intervals[k][1] for k in group)
+        mask = (x >= lo) & (x <= hi)
+        if not numpy.any(mask):
+            continue
+        xs = x[mask]
+        ys = y[mask]
+
+        columns = [
+            mod_peakpicking._envelope_gaussian_column(xs, c["isotopes"], c["sigma"])
+            for c in members
+        ]
+        predicted = sum(c["prior"] * column for c, column in zip(members, columns, strict=True))
+        for k, component, column in zip(group, members, columns, strict=True):
+            share = numpy.divide(
+                component["prior"] * column,
+                predicted,
+                out=numpy.zeros(len(xs)),
+                where=predicted > 0.0,
+            )
+            energy = float(numpy.sum(column * column))
+            if energy > 0.0:
+                areas[k] = max(0.0, float(numpy.sum(column * ys * share)) / energy)
+
+    labelled = []
+    for k, component in enumerate(components):
+
+        CHECK_FORCE_QUIT()
+
+        area = areas[k]
+        isotopes = component["isotopes"]
+        fwhm = component["fwhm"]
+        norm = component["sigma"] * math.sqrt(2.0 * math.pi)
+        if area <= 0.0 or norm <= 0.0 or shares[k] < POOL_GUIDE_MIN_SHARE:
+            continue
+
+        # (ai, base, sn) of every isotope, as the fit draws it on the baseline
+        measured = []
+        for mz, w in isotopes:
+            base, noise = _baseline_at(baseline, mz)
+            height = area * w / norm
+            measured.append((base + height, base, height / noise if noise else None))
+        if not _is_present(*measured[component["apex"]], snThreshold):
+            continue
+
+        envelope = component["envelope"]
+        if envelope is None:
+            peak = component["members"][0]
+            new = copy.deepcopy(peak)
+            new.setmz(isotopes[0][0])
+            new.attributes["referenceMz"] = float(peak.mz)
+            new.setfwhm(fwhm)
+            new.setai(measured[0][0])
+            new.setbase(measured[0][1])
+            new.setsn(measured[0][2])
+            labelled.append(new)
+            continue
+
+        updated = dict(envelope)
+        updated["area"] = area
+        updated["sumint"] = area / norm
+        updated["isotopes"] = isotopes
+        updated["fwhm"] = fwhm
+
+        if label == "isotopes":
+            display = None
+        else:
+            display = _envelope_display(envelope, measured, label, intensity)
+
+        for peak in component["members"]:
+            new = copy.deepcopy(peak)
+            inScan = float(peak.mz) + float(_guide_shift(guide, peak.mz))
+            if display is None:
+                nearest = min(range(len(isotopes)), key=lambda i: abs(isotopes[i][0] - inScan))
+                ai, base, sn = measured[nearest]
+            else:
+                ai, base, sn = display
+            new.setmz(inScan)
+            new.attributes["referenceMz"] = float(peak.mz)
+            new.setfwhm(fwhm)
+            new.setai(ai)
+            new.setbase(base)
+            new.setsn(sn)
+            new.attributes["envelope"] = updated
+            labelled.append(new)
+
+    return labelled
 
 
 # ----

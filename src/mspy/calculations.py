@@ -657,3 +657,40 @@ def signal_common_raster(mz, spacing, fraction):
         i = j
 
     return out[:count].copy()
+
+
+@njit
+def signal_gaussian_blur(mz, intensity, spacing, grid, sigma):
+    """Profile as a coarser analyser would record it, evaluated on `grid`.
+
+    Each profile point contributes its intensity times its sampling step
+    (`spacing`) as a unit-area Gaussian of width sigma[i] at grid[i], so the
+    result keeps peak areas while widening every peak. sigma may change along
+    m/z (a trap's constant FWHM and a TOF's growing one both work); both mz and
+    grid must be sorted.
+    """
+
+    n = len(grid)
+    m = len(mz)
+    out = np.zeros(n, dtype=np.float64)
+    norm = np.sqrt(2.0 * np.pi)
+    lo = 0
+    for i in range(n):
+        s = sigma[i]
+        if s <= 0.0:
+            continue
+        start = grid[i] - 4.0 * s
+        while lo < m and mz[lo] < start:
+            lo += 1
+        while lo > 0 and mz[lo - 1] >= start:
+            lo -= 1
+        end = grid[i] + 4.0 * s
+        total = 0.0
+        j = lo
+        while j < m and mz[j] <= end:
+            d = (grid[i] - mz[j]) / s
+            total += intensity[j] * spacing[j] * np.exp(-0.5 * d * d)
+            j += 1
+        out[i] = total / (s * norm)
+
+    return out
