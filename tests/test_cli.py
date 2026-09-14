@@ -221,14 +221,17 @@ def _process_error(argv, capsys):
 
 def test_process_keeps_the_order_of_the_steps(files):
     options = _process(
-        ["--findpeaks", "a.mzML", "--crop", "500:1500.5", "--baseline", "-t", "msd", "--findpeaks"]
+        ["--findpeaks", "a.mzML", "--crop", "500:1500.5", "--math", "SquareRoot",
+         "--baseline", "-t", "msd", "--findpeaks", "--math", "multiply"]
     )
 
     assert options.steps == [
         ("findpeaks", None),
         ("crop", (500.0, 1500.5)),
+        ("math", "squareroot"),
         ("baseline", None),
         ("findpeaks", None),
+        ("math", "multiply"),
     ]
     assert options.command == cli.PROCESS_COMMAND
     assert options.inputs == [str(files / "a.mzML")]
@@ -271,6 +274,10 @@ def test_show_settings_needs_no_inputs():
         (["a.mzML", "--deisotope", "-t", "txt"], "peaks --deisotope"),
         (["a.mzML", "--findpeaks", "--baseline", "-t", "mgf"], "--baseline does not change"),
         (["a.mzML", "--smooth", "-t", "csv", "--peaklist"], "--smooth does not change"),
+        (["a.mzML", "--math", "subtract", "-t", "msd"], "more spectra than the one"),
+        (["a.mzML", "--math", "averageall", "-t", "msd"], "more spectra than the one"),
+        (["a.mzML", "--math", "log", "-t", "msd"], "unknown math operation"),
+        (["a.mzML", "--math", "-t", "msd"], "expected one argument"),
     ],
 )
 def test_process_refuses_impossible_requests(files, capsys, argv, message):
@@ -282,7 +289,7 @@ def test_process_refuses_impossible_requests(files, capsys, argv, message):
     [
         ["--baseline", "--findpeaks", "-t", "mgf"],
         ["--findpeaks", "-t", "csv", "--peaklist"],
-        ["--crop", "1:2", "--normalize", "-t", "mgf"],
+        ["--crop", "1:2", "--math", "normalize", "-t", "mgf"],
         ["--findpeaks", "--deisotope", "-t", "png"],
         ["--baseline", "--smooth", "-t", "txt"],
     ],

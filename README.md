@@ -82,9 +82,11 @@ mmass process --show-settings
 ```
 
 The steps are `--crop LOW:HIGH`, `--baseline`, `--smooth`, `--findpeaks`, `--deisotope` and
-`--normalize`. They use the settings of the Processing panel; `--preset NAME` starts from saved
-presets instead (`Default` is the built-in settings, the same on every computer), and `--set`
-changes single settings for this run only. `--show-settings` prints what the steps would use.
+`--math OPERATION`, where the operation is `normalize`, `multiply` (by the `math.multiplier`
+setting) or `squareroot`; math between spectra is left to the GUI. The steps use your own settings
+from the Processing panel; `--preset NAME` starts from saved presets instead (`Default` is the
+built-in settings, the same on every computer), and `--set` changes single settings for this run
+only. `--show-settings` prints what the steps would use.
 
 Each input is processed on its own and written to its own output, so a file that fails does not stop
 the others. An LC-MS run written whole has every scan processed. Results go to a new file unless

@@ -80,11 +80,26 @@ STEPS = {
         "peaks",
     ),
     "deisotope": ("find isotopes and charges of the peaks", "peaks"),
-    "normalize": ("scale intensities to a maximum of 100 %%", "both"),
+    "math": (
+        "apply a math operation to the profile and the peaks: normalize "
+        "(scale to a maximum of 100 %%), multiply (by the math.multiplier "
+        "setting) or squareroot",
+        "both",
+    ),
 }
 
+# gui.processing.SINGLE_SPECTRUM_MATH, repeated for the same reason as above
+MATH_OPERATIONS = ("normalize", "multiply", "squareroot")
+# math operations of the GUI that take other spectra than the one processed
+MULTI_SPECTRUM_MATH = (
+    "combine", "overlay", "subtract", "averageall", "combineall", "overlayall",
+)
+
 # settings sections the steps use, which --set can change
-SETTINGS_SECTIONS = ("baseline", "smoothing", "peakpicking", "deisotoping")
+SETTINGS_SECTIONS = ("math", "baseline", "smoothing", "peakpicking", "deisotoping")
+# settings of those sections no step uses: the math operation is the step's
+# argument, and no single-spectrum operation preserves peaks
+UNUSED_SETTINGS = {"math.operation", "math.preservePeaks"}
 
 
 @dataclass
@@ -303,6 +318,22 @@ def parse_columns(value):
     return columns
 
 
+def parse_math(value):
+    """Parse the operation of a --math step."""
+
+    operation = value.strip().lower()
+    if operation in MULTI_SPECTRUM_MATH:
+        raise argparse.ArgumentTypeError(
+            f"'{value}' takes more spectra than the one processed; the command "
+            f"line offers {', '.join(MATH_OPERATIONS)}"
+        )
+    if operation not in MATH_OPERATIONS:
+        raise argparse.ArgumentTypeError(
+            f"unknown math operation '{value}'; choose from {', '.join(MATH_OPERATIONS)}"
+        )
+    return operation
+
+
 class _StepAction(argparse.Action):
     """Collect processing steps in the order they are given."""
 
@@ -428,6 +459,16 @@ def make_convert_parser(command=CONVERT_COMMAND):
                     const=step,
                     type=parse_crop_range,
                     metavar="LOW:HIGH",
+                    help=text,
+                )
+            elif step == "math":
+                steps.add_argument(
+                    "--math",
+                    dest="steps",
+                    action=_StepAction,
+                    const=step,
+                    type=parse_math,
+                    metavar="OPERATION",
                     help=text,
                 )
             else:

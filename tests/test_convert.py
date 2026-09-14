@@ -270,6 +270,12 @@ def test_peak_list_columns_match_the_gui():
     assert tuple(doc.PEAKLIST_COLUMNS) == cli.PEAKLIST_COLUMNS
 
 
+def test_math_operations_match_the_gui():
+    from gui import processing
+
+    assert processing.SINGLE_SPECTRUM_MATH == cli.MATH_OPERATIONS
+
+
 def test_a_peak_list_is_written_as_text_with_a_header(files, tmp_path):
     target = tmp_path / "peaks.csv"
 
@@ -382,6 +388,7 @@ def test_settings_change_the_result_but_never_the_configuration(profiles, tmp_pa
         ("crop.lowMass=1", "settings sections"),
         ("smoothing.method=median", "choose from"),
         ("baseline.precision=-3", "out of range"),
+        ("math.multiplier=0", "out of range"),
         ("baseline.offset=high", "not a number"),
     ],
 )
@@ -396,7 +403,8 @@ def test_wrong_settings_stop_before_any_file(profiles, tmp_path, capsys, setting
 
 def test_show_settings(capsys):
     options = cli.parse_convert_args(
-        ["--show-settings", "--set", "deisotoping.maxCharge=3", "--set", "baseline.preservePeaks=no"],
+        ["--show-settings", "--set", "deisotoping.maxCharge=3", "--set", "baseline.preservePeaks=no",
+         "--set", "math.multiplier=2.5"],
         command=cli.PROCESS_COMMAND,
     )
 
@@ -406,6 +414,53 @@ def test_show_settings(capsys):
     assert set(shown) == set(cli.SETTINGS_SECTIONS)
     assert shown["deisotoping"]["maxCharge"] == 3
     assert shown["baseline"]["preservePeaks"] == 0
+    assert shown["math"] == {"multiplier": 2.5}
+
+
+def test_steps_start_from_the_users_settings(monkeypatch):
+    from gui import config
+
+    # the user's settings, as loaded from their config.json; setitem on the
+    # plain dict inside, so nothing is saved
+    changed = json.loads(json.dumps(config.processing))
+    changed["peakpicking"]["snThreshold"] = 7.5
+    changed["math"]["multiplier"] = 3
+    monkeypatch.setattr(config, "processing", changed)
+
+    settings = _settings()
+    default = _settings("--preset", "Default")
+
+    assert settings["peakpicking"]["snThreshold"] == 7.5
+    assert settings["math"]["multiplier"] == 3
+    assert default["peakpicking"]["snThreshold"] == config.processing_defaults["peakpicking"]["snThreshold"]
+
+
+def test_math_transforms_profile_and_peaks(profiles, tmp_path):
+    source = _read(profiles["msd"], "mSD").spectrum
+    targets = {}
+    for operation in ("normalize", "multiply", "squareroot"):
+        targets[operation] = tmp_path / f"{operation}.msd"
+        argv = [str(profiles["msd"]), "--findpeaks", "--math", operation, "-o", str(targets[operation])]
+        assert _process(*argv, "--set", "math.multiplier=2.5") == 0
+
+    top = source.profile[:, 1].max()
+    normalized = _read(targets["normalize"], "mSD").spectrum
+    multiplied = _read(targets["multiply"], "mSD").spectrum
+    rooted = _read(targets["squareroot"], "mSD").spectrum
+    assert normalized.profile[:, 1].max() == pytest.approx(100.0, rel=1e-5)
+    assert multiplied.profile[:, 1].max() == pytest.approx(2.5 * top, rel=1e-5)
+    assert rooted.profile[:, 1].max() == pytest.approx(numpy.sqrt(top), rel=1e-5)
+    assert all(spectrum.haspeaks() for spectrum in (normalized, multiplied, rooted))
+    assert max(p.ai for p in normalized.peaklist) == pytest.approx(100.0, rel=1e-5)
+
+
+@pytest.mark.parametrize(
+    "setting, message",
+    [("math.operation=subtract", "give the operation to --math"), ("math.preservePeaks=1", "no step uses")],
+)
+def test_math_settings_no_step_uses_are_refused(setting, message):
+    with pytest.raises(convert.ConversionError, match=message):
+        _settings("--set", setting)
 
 
 def test_steps_lacking_their_data_are_errors(files, profiles, tmp_path, capsys):
@@ -463,7 +518,7 @@ def test_in_place_text_keeps_its_separator(profiles):
     path = profiles["txt"]
     before = numpy.loadtxt(path, delimiter=",")
 
-    assert _process(str(path), "--normalize", "--in-place") == 0
+    assert _process(str(path), "--math", "normalize", "--in-place") == 0
 
     after = numpy.loadtxt(path, delimiter=",")
     assert after[:, 1].max() == pytest.approx(100.0)
@@ -489,7 +544,7 @@ def test_in_place_refuses_files_it_would_damage(files, profiles, capsys, kind, m
     path = str(profiles["run"] if kind == "run" else files["mgf"])
     original = open(path, "rb").read()
 
-    assert _process(path, "--normalize", "--in-place") == 1
+    assert _process(path, "--math", "normalize", "--in-place") == 1
 
     assert message in capsys.readouterr().err
     assert open(path, "rb").read() == original

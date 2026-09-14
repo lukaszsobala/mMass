@@ -2951,8 +2951,12 @@ class panelProcessing(wx.Frame, MakeModalMixin):
                 # process spectrum
                 preserve_peaks = bool(config.processing["math"]["preservePeaks"])
 
-                if config.processing["math"]["operation"] == "normalize":
-                    docA.spectrum.normalize()
+                if config.processing["math"]["operation"] in processing.SINGLE_SPECTRUM_MATH:
+                    processing.mathScan(
+                        docA.spectrum,
+                        config.processing["math"]["operation"],
+                        config.processing,
+                    )
 
                 elif config.processing["math"]["operation"] == "combine":
                     docA.spectrum.combine(spectrumB, preservePeaks=preserve_peaks)
@@ -2963,16 +2967,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
                 elif config.processing["math"]["operation"] == "subtract":
                     docA.spectrum.subtract(spectrumB, preservePeaks=preserve_peaks)
 
-                elif config.processing["math"]["operation"] == "multiply":
-                    docA.spectrum.multiply(y=config.processing["math"]["multiplier"])
-
-                elif config.processing["math"]["operation"] == "squareroot":
-                    docA.spectrum.squareroot(preservePeaks=preserve_peaks)
-
-                # remove notations
-                del docA.annotations[:]
-                for sequence in docA.sequences:
-                    del sequence.matches[:]
+                processing.clearNotations(docA)
 
         # task canceled
         except mspy.ForceQuit:

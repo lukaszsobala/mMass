@@ -37,6 +37,23 @@ def cropNotations(document, lowMass, highMass):
         ]
 
 
+# math operations of the Processing panel that need no other spectrum
+SINGLE_SPECTRUM_MATH = ("normalize", "multiply", "squareroot")
+
+
+def mathScan(scan, operation, settings):
+    """Apply a single-spectrum math operation to a scan's profile and peaks."""
+
+    if operation == "normalize":
+        scan.normalize()
+    elif operation == "multiply":
+        scan.multiply(y=settings["math"]["multiplier"])
+    elif operation == "squareroot":
+        scan.squareroot(preservePeaks=bool(settings["math"]["preservePeaks"]))
+    else:
+        raise ValueError(f"{operation} needs more than one spectrum")
+
+
 def subtractBaseline(scan, settings):
     """Subtract the baseline from a scan's profile."""
 

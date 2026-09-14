@@ -43,6 +43,7 @@ POSITIVE_SETTINGS = {
     "smoothing.cycles",
     "deisotoping.maxCharge",
     "peakpicking.poolWindow",
+    "math.multiplier",
 }
 
 
@@ -100,10 +101,13 @@ def processing_settings(options):
                 f"{', '.join(cli.SETTINGS_SECTIONS)}"
             )
         values = settings[section]
-        if name not in values or isinstance(values[name], (list, dict)):
-            known = ", ".join(
-                sorted(k for k, v in values.items() if not isinstance(v, (list, dict)))
+        if key in cli.UNUSED_SETTINGS:
+            raise ConversionError(
+                f"--set {key}: no step uses this setting"
+                + ("; give the operation to --math" if name == "operation" else "")
             )
+        if name not in values or isinstance(values[name], (list, dict)):
+            known = ", ".join(sorted(visible_settings(section, values)))
             raise ConversionError(f"--set {key}: {section} has no setting {name}; it has {known}")
         values[name] = setting_value(key, text, values[name])
 
@@ -136,11 +140,26 @@ def setting_value(key, text, current):
     return value
 
 
+def visible_settings(section, values):
+    """The settings of a section the steps use, which --set can change."""
+
+    return {
+        name: value
+        for name, value in values.items()
+        if not isinstance(value, (list, dict))
+        and f"{section}.{name}" not in cli.UNUSED_SETTINGS
+    }
+
+
 def shown_settings(settings):
     """The settings the steps use, as text."""
 
     return json.dumps(
-        {section: settings[section] for section in cli.SETTINGS_SECTIONS}, indent=2
+        {
+            section: visible_settings(section, settings[section])
+            for section in cli.SETTINGS_SECTIONS
+        },
+        indent=2,
     )
 
 
@@ -566,9 +585,9 @@ def apply_steps(document, scanID, options, settings):
             for scan in usable:
                 processing.deisotopeScan(scan, settings)
 
-        elif step == "normalize":
+        elif step == "math":
             for scan in scans:
-                scan.normalize()
+                processing.mathScan(scan, argument, settings)
 
         processing.clearNotations(document)
 
