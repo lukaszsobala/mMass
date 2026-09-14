@@ -1807,46 +1807,16 @@ class panelPeaklist(wx.Panel):
             dlg.Destroy()
 
             # export data
-            buff = ""
-            for row in selection:
-                peak = document.spectrum.peaklist[self.peakList.GetItemData(row)]
-
-                line = ""
-                if "mz" in config.export["peaklistColumns"]:
-                    line += str(peak.mz) + "\t"
-                if "ai" in config.export["peaklistColumns"]:
-                    line += str(peak.ai) + "\t"
-                if "base" in config.export["peaklistColumns"]:
-                    line += str(peak.base) + "\t"
-                if "int" in config.export["peaklistColumns"]:
-                    line += str(peak.intensity) + "\t"
-                if "rel" in config.export["peaklistColumns"]:
-                    line += str(peak.ri * 100) + "\t"
-                if "sn" in config.export["peaklistColumns"]:
-                    line += str(peak.sn) + "\t"
-                if "z" in config.export["peaklistColumns"]:
-                    line += str(peak.charge) + "\t"
-                if "mass" in config.export["peaklistColumns"]:
-                    line += str(peak.mass()) + "\t"
-                if "fwhm" in config.export["peaklistColumns"]:
-                    line += str(peak.fwhm) + "\t"
-                if "resol" in config.export["peaklistColumns"]:
-                    line += str(peak.resolution) + "\t"
-                if "envarea" in config.export["peaklistColumns"]:
-                    value = ""
-                    envelope = peak.attributes.get("envelope")
-                    if isinstance(envelope, dict) and "area" in envelope:
-                        value = str(envelope["area"])
-                    line += value + "\t"
-                if "envint" in config.export["peaklistColumns"]:
-                    value = ""
-                    envelope = peak.attributes.get("envelope")
-                    if isinstance(envelope, dict) and "sumint" in envelope:
-                        value = str(envelope["sumint"])
-                    line += value + "\t"
-                if "group" in config.export["peaklistColumns"]:
-                    line += str(peak.group) + "\t"
-                buff += "%s\n" % (line.rstrip())
+            columns = [
+                name
+                for name in doc.PEAKLIST_COLUMNS
+                if name in config.export["peaklistColumns"]
+            ]
+            peaks = [
+                document.spectrum.peaklist[self.peakList.GetItemData(row)]
+                for row in selection
+            ]
+            buff = doc.peaklistText(peaks, columns)
 
             # make text object for data
             obj = wx.TextDataObject()

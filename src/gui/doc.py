@@ -2575,6 +2575,55 @@ def readRun(path, docType, scanlist):
     return docData
 
 
+# PEAK LIST TEXT
+# --------------
+
+
+def _envelopeValue(peak, key):
+    envelope = peak.attributes.get("envelope")
+    if isinstance(envelope, dict):
+        return envelope.get(key)
+    return None
+
+
+# peak list columns in the order the GUI exports them: {name: (header, value)}
+PEAKLIST_COLUMNS = {
+    "mz": ("m/z", lambda peak: peak.mz),
+    "ai": ("a.i.", lambda peak: peak.ai),
+    "base": ("base", lambda peak: peak.base),
+    "int": ("int", lambda peak: peak.intensity),
+    "rel": ("r.int.", lambda peak: peak.ri * 100),
+    "sn": ("s/n", lambda peak: peak.sn),
+    "z": ("z", lambda peak: peak.charge),
+    "mass": ("mass", lambda peak: peak.mass()),
+    "fwhm": ("fwhm", lambda peak: peak.fwhm),
+    "resol": ("resol.", lambda peak: peak.resolution),
+    "envarea": ("env. area", lambda peak: _envelopeValue(peak, "area")),
+    "envint": ("sum. env. int.", lambda peak: _envelopeValue(peak, "sumint")),
+    "group": ("group", lambda peak: peak.group),
+}
+
+
+def peaklistText(peaklist, columns, separator="\t", headers=False):
+    """Format a peak list as text, one peak per line.
+
+    Columns are PEAKLIST_COLUMNS names, written in the order given; values a
+    peak does not have are left empty.
+    """
+
+    lines = []
+    if headers:
+        lines.append(separator.join(PEAKLIST_COLUMNS[name][0] for name in columns))
+
+    for peak in peaklist:
+        values = (PEAKLIST_COLUMNS[name][1](peak) for name in columns)
+        lines.append(
+            separator.join("" if value is None else str(value) for value in values)
+        )
+
+    return "".join(line.rstrip() + "\n" for line in lines)
+
+
 # REPORT
 # ------
 
