@@ -60,25 +60,68 @@ MSD_SCAN_ATTRIBUTES = {
 
 
 def makeChromatograms(scanlist):
-    """Build TIC/BPC traces (MS1 only, retention time in minutes) from a scan index."""
+    """Build TIC/BPC traces (MS1 only, retention time in minutes) from a scan index.
 
-    tic = []
-    bpc = []
+    Returns {"traces": [{"label", "tic", "bpc"}, ...]}, one trace per way the MS1
+    scans were acquired (see mspy.acquisitionkey). A run that interleaves two
+    kinds of full scan -- an Orbitrap and an ion trap one, say -- would otherwise
+    alternate between their very different ion currents in a single trace, which
+    draws as a zigzag. The label names the acquisition ("FTMS", "ITMS", ...) and
+    is empty when the run has only one.
+    """
+
+    groups = {}
     for _scanID, meta in scanlist.items():
         if meta.get("msLevel") not in (None, 1):
             continue
         rt = meta.get("retentionTime")
         if rt is None:
             continue
+        key = mspy.acquisitionkey(meta)
+        if key not in groups:
+            groups[key] = {"tic": [], "bpc": [], "filterString": meta.get("filterString")}
+        group = groups[key]
         if meta.get("totIonCurrent") is not None:
-            tic.append((rt / 60.0, meta["totIonCurrent"]))
+            group["tic"].append((rt / 60.0, meta["totIonCurrent"]))
         if meta.get("basePeakIntensity") is not None:
-            bpc.append((rt / 60.0, meta["basePeakIntensity"]))
+            group["bpc"].append((rt / 60.0, meta["basePeakIntensity"]))
 
-    tic.sort()
-    bpc.sort()
-    return {"tic": tic, "bpc": bpc}
+    labels = _acquisitionLabels(list(groups))
 
+    traces = []
+    for key, group in groups.items():
+        traces.append(
+            {
+                "label": labels[key] if len(groups) > 1 else "",
+                "tic": sorted(group["tic"]),
+                "bpc": sorted(group["bpc"]),
+            }
+        )
+
+    return {"traces": traces}
+
+
+def _acquisitionLabels(keys):
+    """Short names telling acquisition keys apart in a chromatogram legend.
+
+    The analyser token of the filter string ("FTMS + p ESI Full ms [...]" ->
+    "FTMS") when that alone tells the keys apart, then the whole filter string
+    (or instrument configuration), then that with the polarity added.
+    """
+
+    def _polarity(key):
+        return {1: "+", -1: "-"}.get(key[1], "")
+
+    candidates = (
+        lambda key: key[2].split(" ")[0],
+        lambda key: key[2],
+        lambda key: ("%s %s" % (key[2], _polarity(key))).strip(),
+    )
+    for name in candidates:
+        labels = {key: name(key) for key in keys}
+        if len(set(labels.values())) == len(keys):
+            return labels
+    return labels
 
 
 class document:
@@ -109,7 +152,8 @@ class document:
         self.scanlist: Any = None  # {scanNumber: metadata dict} or None
         self.scanCache: dict[Any, Any] = {}  # {scanNumber: mspy.scan}
         self.currentScanID: Any = None  # scanNumber currently shown
-        self.chromatograms: dict[str, list] = {}  # {"tic": [(rt, ai)..], "bpc": [..]}
+        # {"traces": [{"label": str, "tic": [(rt, ai)..], "bpc": [..]}, ..]}
+        self.chromatograms: dict[str, list] = {}
         # (path, format) of the raw file scans not yet in scanCache are read
         # from; None once every scan is held in the document (e.g. a run
         # reopened from .msd)

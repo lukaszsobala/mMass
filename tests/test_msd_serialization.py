@@ -203,3 +203,59 @@ def test_lcms_msd_opens_as_its_shown_scan_without_chromatogram_support(tmp_path)
     assert not older.islcms()
     assert numpy.allclose(older.spectrum.profile, original.spectrum.profile, rtol=1e-6)
     assert len(older.spectrum.peaklist) == 0
+
+
+# ---------------------------------------------------------------------------
+# Chromatogram traces
+# ---------------------------------------------------------------------------
+
+
+def _meta(rt, tic, filterString=None, msLevel=1, polarity=1):
+    return {"msLevel": msLevel, "polarity": polarity, "retentionTime": rt,
+            "totIonCurrent": tic, "basePeakIntensity": tic / 10.0,
+            "filterString": filterString, "spectrumType": "continuous"}
+
+
+def test_interleaved_scan_types_get_their_own_chromatogram_trace():
+    """Alternating Orbitrap and ion trap full scans do not zigzag in one trace.
+
+    Their ion currents differ, so a single TIC through both jumps between the
+    two levels at every scan.
+    """
+
+    scanlist = {}
+    for i in range(6):
+        scanlist[2 * i + 1] = _meta(10.0 * i, 1e7 + i, "FTMS + p ESI Full ms [200.00-2000.00]")
+        scanlist[2 * i + 2] = _meta(10.0 * i + 1, 1e6 + i, "ITMS + p ESI Full ms [200.00-2000.00]")
+    scanlist[99] = _meta(5.0, 5e5, "ITMS + c ESI d Full ms2 810.79@cid35.00", msLevel=2)
+
+    traces = gdoc.makeChromatograms(scanlist)["traces"]
+
+    assert sorted(t["label"] for t in traces) == ["FTMS", "ITMS"]
+    for trace in traces:
+        currents = [tic for _rt, tic in trace["tic"]]
+        assert len(currents) == 6
+        assert currents == sorted(currents)  # monotonic here: no zigzag
+        assert len(trace["bpc"]) == 6
+
+
+def test_single_acquisition_run_has_one_unlabelled_trace():
+    scanlist = {i: _meta(float(i), 100.0 + i, "FTMS + p ESI Full ms") for i in range(1, 5)}
+
+    traces = gdoc.makeChromatograms(scanlist)["traces"]
+
+    assert len(traces) == 1
+    assert traces[0]["label"] == ""
+    assert traces[0]["tic"][0] == pytest.approx((1.0 / 60.0, 101.0))
+
+
+def test_chromatogram_labels_fall_back_when_the_analyser_is_shared():
+    scanlist = {
+        1: _meta(1.0, 10.0, "FTMS + p ESI Full ms [200.00-2000.00]"),
+        2: _meta(2.0, 10.0, "FTMS + p ESI SIM ms [500.00-520.00]"),
+        3: _meta(3.0, 10.0, "FTMS + p ESI Full ms [200.00-2000.00]"),
+    }
+
+    labels = sorted(t["label"] for t in gdoc.makeChromatograms(scanlist)["traces"])
+
+    assert labels == ["FTMS + p ESI Full ms [200.00-2000.00]", "FTMS + p ESI SIM ms [500.00-520.00]"]

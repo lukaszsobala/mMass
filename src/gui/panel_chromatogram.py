@@ -24,6 +24,47 @@ from . import config
 from mspy.plot_canvas import canvas as plot_canvas
 from mspy.plot_objects import container as plot_container, points as plot_points
 
+# trace colours on a white canvas, one per acquisition of the run
+TIC_COLOURS = ((16, 71, 185), (200, 80, 0), (120, 40, 160), (0, 130, 130))
+BPC_COLOURS = ((50, 140, 0), (180, 40, 90), (130, 110, 0), (90, 90, 90))
+
+
+def makeChromatogramPlots(chromatograms, showTIC=True, showBPC=True, minPoints=1, legendSuffix=""):
+    """Plot objects for the traces of doc.makeChromatograms, one per acquisition.
+
+    Every trace is normalised on its own, so scans of different analysers (with
+    ion currents an order of magnitude apart) share the canvas without one
+    flattening the other. Traces with fewer than `minPoints` points are skipped.
+    """
+
+    plots = []
+    traces = (chromatograms or {}).get("traces", [])
+    for kind, show, colours in (("tic", showTIC, TIC_COLOURS), ("bpc", showBPC, BPC_COLOURS)):
+        if not show:
+            continue
+        for index, trace in enumerate(traces):
+            points = trace.get(kind) or []
+            if len(points) < minPoints:
+                continue
+            legend = kind.upper()
+            if trace.get("label"):
+                legend += " " + trace["label"]
+            legend += legendSuffix
+            plots.append(
+                plot_points(
+                    list(points),
+                    lineColour=mwx.themedPlotColour(colours[index % len(colours)]),
+                    legend=legend,
+                    showLines=True,
+                    showPoints=False,
+                    exactFit=True,
+                    normalized=True,
+                )
+            )
+
+    return plots
+
+
 # CHROMATOGRAM PANEL
 # ------------------
 
@@ -177,37 +218,10 @@ class panelChromatogram(wx.Panel):
             self.canvas.draw(container)
             return
 
-        chroms = self.currentDocument.chromatograms or {}
-
-        # trace colours follow the theme, matching the main spectrum view
-        ticColour = mwx.themedPlotColour((16, 71, 185))
-        bpcColour = mwx.themedPlotColour((50, 140, 0))
-
-        if self.showTIC and chroms.get("tic"):
-            container.append(
-                plot_points(
-                    list(chroms["tic"]),
-                    lineColour=ticColour,
-                    legend="TIC",
-                    showLines=True,
-                    showPoints=False,
-                    exactFit=True,
-                    normalized=True,
-                )
-            )
-
-        if self.showBPC and chroms.get("bpc"):
-            container.append(
-                plot_points(
-                    list(chroms["bpc"]),
-                    lineColour=bpcColour,
-                    legend="BPC",
-                    showLines=True,
-                    showPoints=False,
-                    exactFit=True,
-                    normalized=True,
-                )
-            )
+        for plot in makeChromatogramPlots(
+            self.currentDocument.chromatograms, self.showTIC, self.showBPC
+        ):
+            container.append(plot)
 
         self.canvas.draw(container)
 
