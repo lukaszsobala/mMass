@@ -29,6 +29,101 @@ from . import config
 import mspy
 import mspy.plot
 
+# SPECTRUM APPEARANCE
+# -------------------
+
+
+def applyCanvasConfig(canvas):
+    """Set how a spectrum canvas looks from the spectrum config.
+
+    Shared with images made outside the GUI (mmass convert), so they look like
+    the ones exported from the panel.
+    """
+
+    canvas.setProperties(xLabel=config.spectrum["xLabel"])
+    canvas.setProperties(yLabel=config.spectrum["yLabel"])
+    if config.spectrum["normalize"]:
+        canvas.setProperties(yLabel="r. int. (%)")
+    canvas.setProperties(showZero=True)
+    canvas.setProperties(gelHeight=config.spectrum["gelHeight"])
+    canvas.setProperties(xPosDigits=config.main["mzDigits"])
+    canvas.setProperties(yPosDigits=config.main["intDigits"])
+    canvas.setProperties(distanceDigits=config.main["mzDigits"])
+    canvas.setProperties(overlapLabels=config.spectrum["overlapLabels"])
+    canvas.setProperties(checkLimits=config.spectrum["checkLimits"])
+    canvas.setProperties(autoScaleY=config.spectrum["autoscale"])
+    canvas.setProperties(showGel=config.spectrum["showGel"])
+    canvas.setProperties(showXPosBar=config.spectrum["showPosBars"])
+    canvas.setProperties(showYPosBar=config.spectrum["showPosBars"])
+    canvas.setProperties(posBarSize=config.spectrum["posBarSize"])
+    canvas.setProperties(showLegend=config.spectrum["showLegend"])
+    canvas.setProperties(showGrid=config.spectrum["showGrid"])
+    canvas.setProperties(showMinorTicks=config.spectrum["showMinorTicks"])
+    canvas.setProperties(reverseDrawing=True)
+    canvas.setProperties(filterSize=config.spectrum.get("filterSize", 1.0))
+
+    axisFont = wx.Font(
+        config.spectrum["axisFontSize"],
+        wx.SWISS,
+        wx.FONTSTYLE_NORMAL,
+        wx.FONTWEIGHT_NORMAL,
+        0,
+    )
+    canvas.setProperties(axisFont=axisFont)
+
+
+def applySpectrumConfig(spectrum, docData, current=True):
+    """Set how a document's plot spectrum looks from the spectrum config.
+
+    current tells whether it is the selected document, whose labels are
+    always shown and whose ticks use the tick colour.
+    """
+
+    spectrum.setProperties(legend=docData.title)
+    spectrum.setProperties(visible=docData.visible)
+    spectrum.setProperties(flipped=docData.flipped)
+    spectrum.setProperties(xOffset=docData.offset[0])
+    spectrum.setProperties(yOffset=docData.offset[1])
+    spectrum.setProperties(normalized=config.spectrum["normalize"])
+    spectrum.setProperties(xOffsetDigits=config.main["mzDigits"])
+    spectrum.setProperties(yOffsetDigits=config.main["intDigits"])
+
+    spectrum.setProperties(showInGel=True)
+    spectrum.setProperties(showSpectrum=True)
+    spectrum.setProperties(showTicks=config.spectrum["showTicks"])
+    spectrum.setProperties(showPoints=config.spectrum["showDataPoints"])
+    spectrum.setProperties(showGelLegend=config.spectrum["showGelLegend"])
+    spectrum.setProperties(spectrumColour=docData.colour)
+    spectrum.setProperties(spectrumStyle=docData.style)
+
+    spectrum.setProperties(labelAngle=config.spectrum["labelAngle"])
+    spectrum.setProperties(labelCharge=config.spectrum["labelCharge"])
+    spectrum.setProperties(labelGroup=config.spectrum["labelGroup"])
+    spectrum.setProperties(labelDigits=config.main["mzDigits"])
+    spectrum.setProperties(labelBgr=config.spectrum["labelBgr"])
+    spectrum.setProperties(isotopeColour=None)
+
+    labelFont = wx.Font(
+        config.spectrum["labelFontSize"],
+        wx.SWISS,
+        wx.FONTSTYLE_NORMAL,
+        wx.FONTWEIGHT_NORMAL,
+        0,
+    )
+    spectrum.setProperties(labelFont=labelFont)
+
+    if current:
+        spectrum.setProperties(showLabels=config.spectrum["showLabels"])
+        spectrum.setProperties(tickColour=config.spectrum["tickColour"])
+    else:
+        spectrum.setProperties(
+            showLabels=(
+                config.spectrum["showLabels"] and config.spectrum["showAllLabels"]
+            )
+        )
+        spectrum.setProperties(tickColour=docData.colour)
+
+
 # SPECTRUM PANEL WITH CANVAS AND TOOLBAR
 # --------------------------------------
 
@@ -94,50 +189,17 @@ class panelSpectrum(wx.Panel):
         self.spectrumCanvas.draw(self.container)
 
         # set default params
-        self.spectrumCanvas.setProperties(xLabel=config.spectrum["xLabel"])
-        self.spectrumCanvas.setProperties(yLabel=config.spectrum["yLabel"])
-        self.spectrumCanvas.setProperties(showZero=True)
-        self.spectrumCanvas.setProperties(showGrid=config.spectrum["showGrid"])
-        self.spectrumCanvas.setProperties(
-            showMinorTicks=config.spectrum["showMinorTicks"]
-        )
-        self.spectrumCanvas.setProperties(showLegend=config.spectrum["showLegend"])
-        self.spectrumCanvas.setProperties(showXPosBar=config.spectrum["showPosBars"])
-        self.spectrumCanvas.setProperties(showYPosBar=config.spectrum["showPosBars"])
-        self.spectrumCanvas.setProperties(posBarSize=config.spectrum["posBarSize"])
-        self.spectrumCanvas.setProperties(showGel=config.spectrum["showGel"])
-        self.spectrumCanvas.setProperties(gelHeight=config.spectrum["gelHeight"])
+        applyCanvasConfig(self.spectrumCanvas)
         self.spectrumCanvas.setProperties(showCurXPos=True)
         self.spectrumCanvas.setProperties(showCurYPos=True)
         self.spectrumCanvas.setProperties(showCurCharge=True)
         self.spectrumCanvas.setProperties(
             showCurImage=config.spectrum["showCursorImage"]
         )
-        self.spectrumCanvas.setProperties(autoScaleY=config.spectrum["autoscale"])
-        self.spectrumCanvas.setProperties(
-            overlapLabels=config.spectrum["overlapLabels"]
-        )
         self.spectrumCanvas.setProperties(zoomAxis="x")
-        self.spectrumCanvas.setProperties(checkLimits=config.spectrum["checkLimits"])
-        self.spectrumCanvas.setProperties(xPosDigits=config.main["mzDigits"])
-        self.spectrumCanvas.setProperties(yPosDigits=config.main["intDigits"])
-        self.spectrumCanvas.setProperties(distanceDigits=config.main["mzDigits"])
         self.spectrumCanvas.setProperties(
             reverseScrolling=config.main["reverseScrolling"]
         )
-        self.spectrumCanvas.setProperties(reverseDrawing=True)
-        self.spectrumCanvas.setProperties(
-            filterSize=config.spectrum.get("filterSize", 1.0)
-        )
-
-        axisFont = wx.Font(
-            config.spectrum["axisFontSize"],
-            wx.SWISS,
-            wx.FONTSTYLE_NORMAL,
-            wx.FONTWEIGHT_NORMAL,
-            0,
-        )
-        self.spectrumCanvas.setProperties(axisFont=axisFont)
 
         # set events
         self.spectrumCanvas.Bind(wx.EVT_MOTION, self.onCanvasMMotion)
@@ -747,53 +809,11 @@ class panelSpectrum(wx.Panel):
         if docIndex is None:
             return
 
-        # get document
-        docData = self.documents[docIndex]
-        spectrum = self.container[docIndex + 2]
-
-        spectrum.setProperties(legend=docData.title)
-        spectrum.setProperties(visible=docData.visible)
-        spectrum.setProperties(flipped=docData.flipped)
-        spectrum.setProperties(xOffset=docData.offset[0])
-        spectrum.setProperties(yOffset=docData.offset[1])
-        spectrum.setProperties(normalized=config.spectrum["normalize"])
-        spectrum.setProperties(xOffsetDigits=config.main["mzDigits"])
-        spectrum.setProperties(yOffsetDigits=config.main["intDigits"])
-
-        spectrum.setProperties(showInGel=True)
-        spectrum.setProperties(showSpectrum=True)
-        spectrum.setProperties(showTicks=config.spectrum["showTicks"])
-        spectrum.setProperties(showPoints=config.spectrum["showDataPoints"])
-        spectrum.setProperties(showGelLegend=config.spectrum["showGelLegend"])
-        spectrum.setProperties(spectrumColour=docData.colour)
-        spectrum.setProperties(spectrumStyle=docData.style)
-
-        spectrum.setProperties(labelAngle=config.spectrum["labelAngle"])
-        spectrum.setProperties(labelCharge=config.spectrum["labelCharge"])
-        spectrum.setProperties(labelGroup=config.spectrum["labelGroup"])
-        spectrum.setProperties(labelDigits=config.main["mzDigits"])
-        spectrum.setProperties(labelBgr=config.spectrum["labelBgr"])
-        spectrum.setProperties(isotopeColour=None)
-
-        labelFont = wx.Font(
-            config.spectrum["labelFontSize"],
-            wx.SWISS,
-            wx.FONTSTYLE_NORMAL,
-            wx.FONTWEIGHT_NORMAL,
-            0,
+        applySpectrumConfig(
+            self.container[docIndex + 2],
+            self.documents[docIndex],
+            current=(docIndex == self.currentDocument),
         )
-        spectrum.setProperties(labelFont=labelFont)
-
-        if docIndex == self.currentDocument:
-            spectrum.setProperties(showLabels=config.spectrum["showLabels"])
-            spectrum.setProperties(tickColour=config.spectrum["tickColour"])
-        else:
-            spectrum.setProperties(
-                showLabels=(
-                    config.spectrum["showLabels"] and config.spectrum["showAllLabels"]
-                )
-            )
-            spectrum.setProperties(tickColour=docData.colour)
 
     # ----
 
@@ -862,40 +882,7 @@ class panelSpectrum(wx.Panel):
                 self.normalize_butt.SetBitmapLabel(image)
 
         # set canvas properties
-        self.spectrumCanvas.setProperties(gelHeight=config.spectrum["gelHeight"])
-        self.spectrumCanvas.setProperties(xPosDigits=config.main["mzDigits"])
-        self.spectrumCanvas.setProperties(yPosDigits=config.main["intDigits"])
-        self.spectrumCanvas.setProperties(distanceDigits=config.main["mzDigits"])
-        self.spectrumCanvas.setProperties(
-            overlapLabels=config.spectrum["overlapLabels"]
-        )
-        self.spectrumCanvas.setProperties(checkLimits=config.spectrum["checkLimits"])
-        self.spectrumCanvas.setProperties(autoScaleY=config.spectrum["autoscale"])
-        self.spectrumCanvas.setProperties(showGel=config.spectrum["showGel"])
-        self.spectrumCanvas.setProperties(showXPosBar=config.spectrum["showPosBars"])
-        self.spectrumCanvas.setProperties(showYPosBar=config.spectrum["showPosBars"])
-        self.spectrumCanvas.setProperties(posBarSize=config.spectrum["posBarSize"])
-        self.spectrumCanvas.setProperties(showLegend=config.spectrum["showLegend"])
-        self.spectrumCanvas.setProperties(showGrid=config.spectrum["showGrid"])
-        self.spectrumCanvas.setProperties(
-            showMinorTicks=config.spectrum["showMinorTicks"]
-        )
-        self.spectrumCanvas.setProperties(filterSize=config.spectrum.get("filterSize", 1.0))
-
-        # set y-axis label
-        self.spectrumCanvas.setProperties(yLabel=config.spectrum["yLabel"])
-        if config.spectrum["normalize"]:
-            self.spectrumCanvas.setProperties(yLabel="r. int. (%)")
-
-        # set font
-        axisFont = wx.Font(
-            config.spectrum["axisFontSize"],
-            wx.SWISS,
-            wx.FONTSTYLE_NORMAL,
-            wx.FONTWEIGHT_NORMAL,
-            0,
-        )
-        self.spectrumCanvas.setProperties(axisFont=axisFont)
+        applyCanvasConfig(self.spectrumCanvas)
 
         # set cursor tracker according to current tool
         self.setCurrentTool(self.currentTool)

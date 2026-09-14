@@ -29,6 +29,7 @@ from .ids import *
 from . import mwx
 from . import images
 from . import config
+from . import doc
 from .mixins import MakeModalMixin
 
 # FLOATING PANEL WITH EXPORTING TOOLS
@@ -1070,68 +1071,22 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
         # export to ascii
         if config.export["peaklistFormat"] in ("ASCII", "ASCII with Headers"):
 
-            buff = ""
-
             # set separator
             separator = config.export["peaklistSeparator"]
             if config.export["peaklistSeparator"] == "tab":
                 separator = "\t"
 
-            # export headers
-            if config.export["peaklistFormat"] == "ASCII with Headers":
-                header = ""
-                if "mz" in config.export["peaklistColumns"]:
-                    header += "m/z" + separator
-                if "ai" in config.export["peaklistColumns"]:
-                    header += "a.i." + separator
-                if "base" in config.export["peaklistColumns"]:
-                    header += "base" + separator
-                if "int" in config.export["peaklistColumns"]:
-                    header += "int" + separator
-                if "rel" in config.export["peaklistColumns"]:
-                    header += "r.int." + separator
-                if "sn" in config.export["peaklistColumns"]:
-                    header += "s/n" + separator
-                if "z" in config.export["peaklistColumns"]:
-                    header += "z" + separator
-                if "mass" in config.export["peaklistColumns"]:
-                    header += "mass" + separator
-                if "fwhm" in config.export["peaklistColumns"]:
-                    header += "fwhm" + separator
-                if "resol" in config.export["peaklistColumns"]:
-                    header += "resol." + separator
-                if "group" in config.export["peaklistColumns"]:
-                    header += "group" + separator
-
-                buff += "%s\n" % (header.rstrip())
-
-            # export data
-            for peak in peaklist:
-                line = ""
-                if "mz" in config.export["peaklistColumns"]:
-                    line += str(peak.mz) + separator
-                if "ai" in config.export["peaklistColumns"]:
-                    line += str(peak.ai) + separator
-                if "base" in config.export["peaklistColumns"]:
-                    line += str(peak.base) + separator
-                if "int" in config.export["peaklistColumns"]:
-                    line += str(peak.intensity) + separator
-                if "rel" in config.export["peaklistColumns"]:
-                    line += str(peak.ri * 100) + separator
-                if "sn" in config.export["peaklistColumns"]:
-                    line += str(peak.sn) + separator
-                if "z" in config.export["peaklistColumns"]:
-                    line += str(peak.charge) + separator
-                if "mass" in config.export["peaklistColumns"]:
-                    line += str(peak.mass()) + separator
-                if "fwhm" in config.export["peaklistColumns"]:
-                    line += str(peak.fwhm) + separator
-                if "resol" in config.export["peaklistColumns"]:
-                    line += str(peak.resolution) + separator
-                if "group" in config.export["peaklistColumns"]:
-                    line += str(peak.group) + separator
-
-                buff += "%s\n" % (line.replace("None", "").rstrip())
+            columns = [
+                name
+                for name in doc.PEAKLIST_COLUMNS
+                if name in config.export["peaklistColumns"]
+            ]
+            buff = doc.peaklistText(
+                peaklist,
+                columns,
+                separator,
+                headers=config.export["peaklistFormat"] == "ASCII with Headers",
+            )
 
         # export to mgf
         else:

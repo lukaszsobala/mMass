@@ -2092,12 +2092,9 @@ class mainFrame(wx.Frame):
     def onDocumentOpen(self, evt=None, path=None):
         """Open document."""
 
-        # add path to queue
-        if path:
-            self.tmpDocumentQueue.append(path)
-
         # open dialog if no path specified
-        else:
+        paths = [path]
+        if not path:
             lastDir = ""
             if os.path.exists(config.main["lastDir"]):
                 lastDir = config.main["lastDir"]
@@ -2111,15 +2108,14 @@ class mainFrame(wx.Frame):
                 style=wx.FD_OPEN | wx.FD_MULTIPLE | wx.FD_FILE_MUST_EXIST,
             )
             if dlg.ShowModal() == wx.ID_OK:
-                paths = dlg.GetPaths()
+                paths = list(dlg.GetPaths())
                 dlg.Destroy()
-                self.tmpDocumentQueue += list(paths)
             else:
                 dlg.Destroy()
                 return
 
-        # import documents in queue
-        self.importDocumentQueue()
+        # import documents (a session picked from "All files" opens as one)
+        self.openPaths(paths)
 
     # ----
 
@@ -2174,8 +2170,36 @@ class mainFrame(wx.Frame):
 
         # open documents
         if paths:
-            self.tmpDocumentQueue += list(paths)
-            wx.CallAfter(self.importDocumentQueue)
+            wx.CallAfter(self.openPaths, list(paths))
+
+    # ----
+
+    def openPaths(self, paths):
+        """Open documents, and a session among them, e.g. dropped together.
+
+        A session replaces the open documents, so it is opened first and the
+        other documents are added to it. It is never opened from within the
+        document queue, whose batch it would otherwise restore itself into.
+        """
+
+        sessions = []
+        documents = []
+        for path in paths:
+            if os.path.splitext(path)[1].lower() == session.SESSION_EXTENSION:
+                sessions.append(path)
+            else:
+                documents.append(path)
+
+        # only one session can be open
+        if sessions:
+            if self.processingDocumentQueue or len(sessions) > 1:
+                wx.Bell()
+            if not self.processingDocumentQueue:
+                self.onSessionOpen(path=sessions[0])
+
+        if documents:
+            self.tmpDocumentQueue += documents
+            self.importDocumentQueue()
 
     # ----
 
@@ -5202,82 +5226,7 @@ class mainFrame(wx.Frame):
     def runDocumentParser(self, path, docType, scan=None):
         """Load spectrum document."""
 
-        document = False
-        spectrum = False
-
-        # get data data
-        if docType == "mSD":
-            parser = doc.parseMSD(path)
-            document = parser.getDocument()
-        elif docType == "mzData":
-            parser = mspy.parseMZDATA(path)
-            spectrum = parser.scan(scan)
-        elif docType == "mzXML":
-            parser = mspy.parseMZXML(path)
-            spectrum = parser.scan(scan)
-        elif docType == "mzML":
-            parser = mspy.parseMZML(path)
-            spectrum = parser.scan(scan)
-        elif docType == "MGF":
-            parser = mspy.parseMGF(path)
-            spectrum = parser.scan(scan)
-        elif docType == "bruker":
-            parser = mspy.parseBruker(path)
-            spectrum = parser.scan(scan)
-        elif docType == "XY":
-            parser = mspy.parseXY(path)
-            spectrum = parser.scan()
-        else:
-            return
-
-        # make document for non-mSD formats
-        # a scan object is falsy without profile data (len() counts profile
-        # points), yet a centroided scan is a perfectly good document
-        if spectrum is not None and spectrum is not False:
-
-            # init document
-            document = doc.document()
-            document.format = docType
-            document.path = path
-            document.spectrum = spectrum
-
-            # get info
-            if docType == "bruker":
-                # a Bruker path can hold many acquisitions, each with its own
-                # operator, instrument and date - ask for this one's
-                info = parser.info(scan)
-            else:
-                info = parser.info()
-            if isinstance(info, dict):
-                document.title = info["title"]
-                document.operator = info["operator"]
-                document.contact = info["contact"]
-                document.institution = info["institution"]
-                document.date = info["date"]
-                document.instrument = info["instrument"]
-                document.notes = info["notes"]
-
-            # set date if empty
-            if not document.date and docType != "mSD":
-                document.date = time.ctime(os.path.getctime(path))
-
-            # set title if empty
-            if not document.title:
-                if document.spectrum.title != "":
-                    document.title = document.spectrum.title
-                else:
-                    dirName, fileName = os.path.split(path)
-                    baseName, extension = os.path.splitext(fileName)
-                    if baseName.lower() == "analysis":
-                        document.title = os.path.split(dirName)[1]
-                    else:
-                        document.title = baseName
-
-            # add scan number to title - a Bruker title already names the
-            # dataset and the spot, which identifies the acquisition better
-            # than its index in the tree does
-            if scan and docType != "bruker":
-                document.title += " [%s]" % scan
+        document = doc.readDocument(path, docType, scan)
 
         # finalize and append document
         if document:
@@ -5392,51 +5341,7 @@ class mainFrame(wx.Frame):
 
     def getDocumentType(self, path):
         """Get document type."""
-
-        # get filename and extension
-        dirName, fileName = os.path.split(path)
-        baseName, extension = os.path.splitext(fileName)
-        fileName = fileName.lower()
-        baseName = baseName.lower()
-        extension = extension.lower()
-
-        # get document type by filename or extension
-        if extension == ".msd":
-            return "mSD"
-        elif fileName == "fid":
-            return "bruker"
-        elif extension == ".mzdata":
-            return "mzData"
-        elif extension == ".mzxml":
-            return "mzXML"
-        elif extension == ".mzml":
-            return "mzML"
-        elif extension == ".mgf":
-            return "MGF"
-        elif extension in (".xy", ".txt", ".asc"):
-            return "XY"
-        elif extension in (".fa", ".fsa", ".faa", ".fasta"):
-            return "FASTA"
-
-        # a Bruker flex dataset is a directory tree of fid files
-        elif os.path.isdir(path):
-            if mspy.findFIDs(path):
-                return "bruker"
-
-        # get document type for xml files
-        if extension == ".xml":
-            document = open(path, "r")
-            data = document.read(500)
-            if "<mzData" in data:
-                return "mzData"
-            elif "<mzXML" in data:
-                return "mzXML"
-            elif "<mzML" in data:
-                return "mzML"
-            document.close()
-
-        # unknown document type
-        return False
+        return doc.documentType(path)
 
     # ----
 
@@ -5454,17 +5359,8 @@ class mainFrame(wx.Frame):
             return
 
         # set parser
-        if docType == "mzData":
-            parser = mspy.parseMZDATA(path)
-        elif docType == "mzXML":
-            parser = mspy.parseMZXML(path)
-        elif docType == "mzML":
-            parser = mspy.parseMZML(path)
-        elif docType == "MGF":
-            parser = mspy.parseMGF(path)
-        elif docType == "bruker":
-            parser = mspy.parseBruker(path)
-        else:
+        parser = doc.makeScanParser(path, docType)
+        if parser is None:
             return
 
         # load scans
@@ -5561,103 +5457,16 @@ class mainFrame(wx.Frame):
 
     def makeScanParser(self, path, docType):
         """Make an mspy parser for lazily loading scans from a run."""
-
-        if docType == "mzData":
-            return mspy.parseMZDATA(path)
-        elif docType == "mzXML":
-            return mspy.parseMZXML(path)
-        elif docType == "mzML":
-            return mspy.parseMZML(path)
-        elif docType == "MGF":
-            return mspy.parseMGF(path)
-        return None
-
-    # ----
-
-    def pickInitialScan(self, scanlist):
-        """Pick the scan first shown when a run is opened (TIC apex MS1)."""
-
-        best = None
-        bestTIC = None
-        firstMS1 = None
-        for scanID, meta in scanlist.items():
-            if meta.get("msLevel") not in (None, 1):
-                continue
-            if firstMS1 is None:
-                firstMS1 = scanID
-            tic = meta.get("totIonCurrent")
-            if tic is not None and (bestTIC is None or tic > bestTIC):
-                bestTIC = tic
-                best = scanID
-
-        if best is not None:
-            return best
-        if firstMS1 is not None:
-            return firstMS1
-        # no MS1 scans at all - use the first scan available
-        return next(iter(scanlist), None)
-
-    # ----
-
-    def buildChromatograms(self, scanlist):
-        """Build TIC/BPC traces (MS1 only) from a scan index."""
-
-        return doc.makeChromatograms(scanlist)
+        return doc.makeScanParser(path, docType)
 
     # ----
 
     def runChromatogramParser(self, path, docType, scanlist):
         """Build a browsable chromatogram document from a multiscan run."""
 
-        # make parser and load the initial scan
-        parser = self.makeScanParser(path, docType)
-        if parser is None:
+        document = doc.readRun(path, docType, scanlist)
+        if document is None:
             return
-
-        initialID = self.pickInitialScan(scanlist)
-        if initialID is None:
-            return
-
-        spectrum = parser.scan(initialID)
-        if spectrum is None or spectrum is False:
-            return
-
-        # init document
-        document = doc.document()
-        document.format = docType
-        document.path = path
-        document.spectrum = spectrum
-
-        # attach chromatogram / scan index
-        document.scanlist = scanlist
-        document.chromatograms = self.buildChromatograms(scanlist)
-        document.currentScanID = initialID
-        document.scanCache = {initialID: spectrum}
-        document.scanSource = (path, docType)
-
-        # get info
-        info = parser.info()
-        if isinstance(info, dict):
-            document.title = info["title"]
-            document.operator = info["operator"]
-            document.contact = info["contact"]
-            document.institution = info["institution"]
-            document.date = info["date"]
-            document.instrument = info["instrument"]
-            document.notes = info["notes"]
-
-        # set date if empty
-        if not document.date:
-            document.date = time.ctime(os.path.getctime(path))
-
-        # set title if empty
-        if not document.title:
-            dirName, fileName = os.path.split(path)
-            baseName, extension = os.path.splitext(fileName)
-            if baseName.lower() == "analysis":
-                document.title = os.path.split(dirName)[1]
-            else:
-                document.title = baseName
 
         # finalize document
         document.colour = self.getFreeColour()
@@ -5666,8 +5475,8 @@ class mainFrame(wx.Frame):
         self.documents.append(document)
 
         # precalculate baseline for the initial scan
-        if spectrum.hasprofile():
-            spectrum.baseline(
+        if document.spectrum.hasprofile():
+            document.spectrum.baseline(
                 window=(1.0 / config.processing["baseline"]["precision"]),
                 offset=config.processing["baseline"]["offset"],
             )

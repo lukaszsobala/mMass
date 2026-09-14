@@ -47,6 +47,87 @@ Once installed, the CLI wrapper is available globally within your virtual enviro
 mmass
 ```
 
+Documents, Bruker dataset folders or a saved session (`.mses`) given on the command line are opened at startup:
+
+```sh
+mmass spectrum.mzML spectrum2.msd bruker_dataset/
+mmass --help
+```
+
+`mmass convert` converts documents without opening the GUI, and also can draw spectra as images
+using the spectrum settings of the GUI:
+
+```sh
+mmass convert spectrum.mzML spectrum.msd
+mmass convert *.mzML bruker_dataset/ -f png -d images --size 1920x1080
+mmass convert run.mzML scan.txt --scan 42   # one spectrum of an LC-MS run
+mmass convert --help
+```
+
+Outputs are msd, mzML, mzXML, text (txt/xy/asc/csv; the profile, or the peak list with
+`--peak-list`), MGF (peak list) and images (PNG, JPEG, TIFF, BMP, SVG; light by default, `--dark`
+for a dark background, `--range 400-1500` to show part of the spectrum). A conversion that
+cannot work, such as a session or a FASTA file into a spectrum format, or several spectra into
+one text file, is refused with the reason. Image output needs a display; on a headless machine run
+it under `xvfb-run`.
+
+`mmass process` runs processing steps, in the order given, before writing the result:
+
+```sh
+mmass process sample.mzML --baseline --smooth --find-peaks sample.msd
+mmass process *.mzML --find-peaks -f csv --peak-list --columns mz,intensity,charge,envarea -d peaks
+mmass process spectra/*.msd --crop 500-3000 --find-peaks --in-place --dry-run
+mmass process run.mzML --find-peaks --preset Default --set snThreshold=10 -f mzml -d picked
+mmass process --show-settings
+```
+
+The steps are `--crop LOW-HIGH`, `--baseline`, `--smooth`, `--find-peaks`, `--deisotope` and
+`--math OPERATION`, where the operation is `normalize`, `multiply` (by the `math.multiplier`
+setting) or `squareroot` (`sqrt`); math between spectra is left to the GUI. The steps use your own
+settings from the Processing panel; `--preset NAME` starts from saved presets instead (`Default` is
+the built-in settings, the same on every computer), and `--set` changes single settings for this run
+only, e.g. `--set snThreshold=10` (a key that two sections share needs its section, as in
+`baseline.preservePeaks`). `--show-settings` prints what the steps would use.
+
+A recipe file holds the steps and settings, so that the same processing can be run on batch after
+batch. It lists them one per line, as on the command line without the dashes:
+
+```sh
+# MALDI peptides, as a peak list
+preset MALDI-TOF Peptides
+set snThreshold=8        # a little more sensitive than the preset
+
+crop 600-4000
+baseline
+smooth
+find-peaks
+math normalize
+
+peak-list
+columns mz, intensity, charge, envarea
+```
+
+```sh
+mmass process plate1/*.mzML --recipe peptides.recipe -f csv -d plate1-peaks
+```
+
+A recipe runs where `--recipe` stands among the other options, which can add steps before or after
+it or change its settings (a later `--set` wins). It says what to do with each spectrum, not which
+files to read or where to write, so `--format`, `--output`, `--output-dir`, `--in-place` and the like stay
+on the command line.
+
+Each input is processed on its own and written to its own output, so a file that fails does not stop
+the others. An LC-MS run written whole has every scan processed. Results go to a new file unless
+`--in-place` is given, which rewrites msd, txt/xy/asc and single-spectrum MGF files. Each is replaced
+only once it has been processed and written completely. mzML and mzXML files are never rewritten,
+since mMass would drop the metadata it does not read. Steps whose results the output cannot
+hold are refused, e.g. `--find-peaks` into a text profile. `--dry-run` reads and processes every
+input and reports what would be written, without writing anything.
+
+Both commands can write one input to standard output with `-o -` and the format given by `--format`,
+e.g. `mmass process sample.mzML --find-peaks --peak-list -f csv -o - | sort -t, -k2 -gr`. They exit
+with 0 when every input was written, 1 when some could not be, and 2 when the arguments are wrong.
+
 You can also run it generically:
 
 ```sh

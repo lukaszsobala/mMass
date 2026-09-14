@@ -55,6 +55,24 @@ def _is_dark_mode():
     return luminance < 128
 
 
+# canvas colours for a light (False) and a dark (True) theme; a caller can pass
+# one set as canvas properties to draw in that theme whatever the system uses
+THEME_COLOURS = {
+    False: {
+        "canvasColour": (255, 255, 255),
+        "plotColour": (255, 255, 255),
+        "axisColour": (0, 0, 0),
+        "gridColour": (235, 235, 235),
+    },
+    True: {
+        "canvasColour": (30, 30, 30),
+        "plotColour": (30, 30, 30),
+        "axisColour": (200, 200, 200),
+        "gridColour": (60, 60, 60),
+    },
+}
+
+
 # MAIN PLOT CANVAS OBJECT
 # -----------------------
 
@@ -235,16 +253,7 @@ class canvas(wx.Window):
         caller's own overrides go on last so they always win.
         """
 
-        if _is_dark_mode():
-            self.properties["canvasColour"] = (30, 30, 30)
-            self.properties["plotColour"] = (30, 30, 30)
-            self.properties["axisColour"] = (200, 200, 200)
-            self.properties["gridColour"] = (60, 60, 60)
-        else:
-            self.properties["canvasColour"] = (255, 255, 255)
-            self.properties["plotColour"] = (255, 255, 255)
-            self.properties["axisColour"] = (0, 0, 0)
-            self.properties["gridColour"] = (235, 235, 235)
+        self.properties.update(THEME_COLOURS[_is_dark_mode()])
 
         for name, value in self._callerProperties.items():
             self.properties[name] = value

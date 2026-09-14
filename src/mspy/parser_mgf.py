@@ -117,7 +117,7 @@ class parseMGF:
             return False
 
         headerPattern = re.compile("^([A-Z]+)=(.+)")
-        pointPattern = re.compile("[ \t]?")
+        pointPattern = re.compile(r"[ \t]+")
         currentID = None
 
         # parse each line

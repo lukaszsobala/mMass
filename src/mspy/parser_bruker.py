@@ -109,6 +109,7 @@ class parseBruker:
         self.path = path
         self._fids = None
         self._info = {}
+        self._datasetSizes = {}
 
         # check path
         if not os.path.exists(path):
@@ -179,9 +180,12 @@ class parseBruker:
         params = _readAcqu(fidPath)
 
         # name the dataset the acquisition belongs to, not the folder the user
-        # happened to open - those differ when several datasets were opened
+        # happened to open - those differ when several datasets were opened -
+        # plus the acquisition whenever there are others to tell it from: the
+        # other acquisitions opened, or the rest of its dataset, such as the
+        # MS1 spectrum a LIFT spectrum opened on its own was selected from
         data["title"] = _datasetName(fidPath)
-        if len(fids) > 1:
+        if len(fids) > 1 or self._datasetSize(fidPath) > 1:
             data["title"] = "%s %s" % (data["title"], _spotLabel(fidPath, params))
 
         data["operator"] = params.get("OWNER", "")
@@ -194,6 +198,16 @@ class parseBruker:
 
         self._info[scanID] = data
         return data
+
+    # ----
+
+    def _datasetSize(self, fidPath):
+        """Count the acquisitions of the dataset a fid belongs to."""
+
+        dataset = datasetDir(fidPath)
+        if dataset not in self._datasetSizes:
+            self._datasetSizes[dataset] = len(datasetFIDs(fidPath))
+        return self._datasetSizes[dataset]
 
     # ----
 
@@ -880,6 +894,15 @@ def _spotLabel(fidPath, params):
     return spot
 
 
+def acquisitionLabel(fidPath):
+    """Get the label of a single acquisition, as its dataset's scan list shows it.
+
+    The spot, and for LIFT the precursor, e.g. 'A1' and 'A1 LIFT 900.1235'.
+    """
+
+    return _spotLabel(fidPath, _readAcqu(fidPath))
+
+
 def _spotName(fidPath, params, qualify=False):
     """Get a human-readable name for a single acquisition.
 
@@ -928,13 +951,59 @@ def _spotDir(fidPath):
     return os.path.normpath(_levelsUp(_runDir(fidPath), 1))
 
 
+# flexControl names the run folder with a number and the spot folder with the
+# plate index and position, e.g. '1' and '0_A1'
+RUN_FOLDER = re.compile(r"\d+$")
+SPOT_FOLDER = re.compile(r"\d+_\w+$")
+
+
+def inDatasetLayout(fidPath):
+    """Tell whether a fid sits in the folder tree flexControl writes.
+
+    Only then is datasetDir() its dataset: for a fid copied out of that tree,
+    e.g. a lone '1SRef' folder, it is whatever folder happens to be three
+    levels up - the home folder, say.
+    """
+
+    return bool(
+        RUN_FOLDER.match(os.path.basename(_runDir(fidPath)))
+        and SPOT_FOLDER.match(os.path.basename(_spotDir(fidPath)))
+    )
+
+
+def datasetFIDs(fidPath):
+    """Get the sorted fids of the whole dataset a single acquisition belongs to.
+
+    A fid outside the flexControl tree is a dataset of its own, rather than
+    having some folder far above it walked for acquisitions.
+    """
+
+    if not inDatasetLayout(fidPath):
+        return [fidPath]
+
+    return findFIDs(datasetDir(fidPath)) or [fidPath]
+
+
+# the folder an acquisition's fid and acqu sit in, e.g. '1SRef' or '1SLin'
+ACQUISITION_FOLDER = re.compile(r"\d*S(Ref|Lin)$", re.IGNORECASE)
+
+
 def datasetDir(fidPath):
     """Get the dataset folder a single acquisition belongs to.
 
     Public because opening one fid directly still means working on the whole
     dataset it came from: the GUI needs the dataset folder to decide where
     results belong, not the '1SRef' the fid happens to sit in.
+
+    A fid copied out of the flexControl tree has no dataset above it, so it
+    is its own: the folder holding its '1SRef', or the folder holding the fid.
     """
+
+    if not inDatasetLayout(fidPath):
+        folder = os.path.dirname(fidPath)
+        if ACQUISITION_FOLDER.match(os.path.basename(folder)):
+            folder = os.path.dirname(folder) or folder
+        return os.path.normpath(folder)
 
     return os.path.normpath(_levelsUp(_runDir(fidPath), 2))
 
