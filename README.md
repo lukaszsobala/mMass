@@ -64,11 +64,34 @@ mmass convert run.mzML -o scan.txt --scan 42   # one spectrum of an LC-MS run
 mmass convert --help
 ```
 
-Outputs are msd, mzML, mzXML, text (txt/xy/asc/csv), MGF (peak list) and images
-(PNG, JPEG, TIFF, BMP, SVG; light by default, `--dark` for a dark background). A conversion
-that cannot work, such as a session or a FASTA file into a spectrum format, or several spectra into
+Outputs are msd, mzML, mzXML, text (txt/xy/asc/csv; the profile, or the peak list with
+`--peaklist`), MGF (peak list) and images (PNG, JPEG, TIFF, BMP, SVG; light by default, `--dark`
+for a dark background, `--mz-range 400:1500` to show part of the spectrum). A conversion that
+cannot work, such as a session or a FASTA file into a spectrum format, or several spectra into
 one text file, is refused with the reason. Image output needs a display; on a headless machine run
 it under `xvfb-run`.
+
+`mmass process` runs processing steps, in the order given, before writing the result:
+
+```sh
+mmass process sample.mzML --baseline --smooth --findpeaks -o sample.msd
+mmass process *.mzML --findpeaks -t csv --peaklist --columns mz,int,z,envarea -d peaks
+mmass process spectra/*.msd --crop 500:3000 --findpeaks --in-place
+mmass process run.mzML --findpeaks --preset Default --set peakpicking.snThreshold=10 -t mzml -d picked
+mmass process --show-settings
+```
+
+The steps are `--crop LOW:HIGH`, `--baseline`, `--smooth`, `--findpeaks`, `--deisotope` and
+`--normalize`. They use the settings of the Processing panel; `--preset NAME` starts from saved
+presets instead (`Default` is the built-in settings, the same on every computer), and `--set`
+changes single settings for this run only. `--show-settings` prints what the steps would use.
+
+Each input is processed on its own and written to its own output, so a file that fails does not stop
+the others. An LC-MS run written whole has every scan processed. Results go to a new file unless
+`--in-place` is given, which rewrites msd, txt/xy/asc and single-spectrum MGF files. Each is replaced
+only once it has been processed and written completely. mzML and mzXML files are never rewritten,
+since mMass would drop the metadata it does not read. Steps whose results the output cannot
+hold are refused, e.g. `--findpeaks` into a text profile.
 
 You can also run it generically:
 

@@ -2,7 +2,7 @@
 
 Only the arguments are parsed here. The GUI (gui_app) and the converter are
 imported once it is known which one is wanted, so --help answers at once and a
-conversion never starts the GUI.
+conversion or batch processing never starts the GUI.
 """
 
 import sys
@@ -14,8 +14,8 @@ def main(argv=None):
     if argv is None:
         argv = sys.argv[1:]
 
-    if argv[:1] == [cli.CONVERT_COMMAND]:
-        options = cli.parse_convert_args(argv[1:])
+    if argv[:1] in ([cli.CONVERT_COMMAND], [cli.PROCESS_COMMAND]):
+        options = cli.parse_convert_args(argv[1:], command=argv[0])
 
         from mmass_app import convert
 

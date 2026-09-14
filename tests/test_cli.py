@@ -175,3 +175,125 @@ def test_convert_warns_about_options_that_do_not_apply(files, capsys):
     assert options.separator == ";"
     err = capsys.readouterr().err
     assert "--size does not apply" in err and "--dark does not apply" in err
+
+
+def test_convert_image_range(files, capsys):
+    options = cli.parse_convert_args(["a.mzML", "-t", "png", "--mz-range", "400.5:"])
+    text = cli.parse_convert_args(["a.mzML", "-t", "txt", "--mz-range", "400:500"])
+
+    assert options.mzRange == (400.5, None)
+    assert text.mzRange is None
+    assert "--mz-range does not apply to txt" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("value", ["400", "500:400", ":", "a:b", "1:2:3"])
+def test_convert_refuses_ranges_that_are_none(files, capsys, value):
+    assert "--mz-range" in _convert_error(["a.mzML", "-t", "png", "--mz-range", value], capsys)
+
+
+def test_convert_writes_peak_lists_as_text(files, capsys):
+    options = cli.parse_convert_args(["a.mzML", "-t", "csv", "--peaklist", "--columns", "mz,z,envarea"])
+    image = cli.parse_convert_args(["a.mzML", "-t", "png", "--peaklist"])
+
+    assert options.peaklist and options.columns == ["mz", "z", "envarea"]
+    assert not image.peaklist
+    assert "--peaklist does not apply to png" in capsys.readouterr().err
+    assert "unknown peak list column" in _convert_error(
+        ["a.mzML", "-t", "csv", "--peaklist", "--columns", "mz,height"], capsys
+    )
+
+
+# ---------------------------------------------------------------------------
+# mmass process arguments
+# ---------------------------------------------------------------------------
+
+
+def _process(argv):
+    return cli.parse_convert_args(argv, command=cli.PROCESS_COMMAND)
+
+
+def _process_error(argv, capsys):
+    with pytest.raises(SystemExit) as exit_info:
+        _process(argv)
+    assert exit_info.value.code == 2
+    return capsys.readouterr().err
+
+
+def test_process_keeps_the_order_of_the_steps(files):
+    options = _process(
+        ["--findpeaks", "a.mzML", "--crop", "500:1500.5", "--baseline", "-t", "msd", "--findpeaks"]
+    )
+
+    assert options.steps == [
+        ("findpeaks", None),
+        ("crop", (500.0, 1500.5)),
+        ("baseline", None),
+        ("findpeaks", None),
+    ]
+    assert options.command == cli.PROCESS_COMMAND
+    assert options.inputs == [str(files / "a.mzML")]
+
+
+def test_process_in_place_leaves_the_format_to_each_input(files):
+    options = _process(["a.mzML", "b.msd", "--smooth", "--in-place"])
+
+    assert options.inPlace and options.format is None and options.kind is None
+
+
+def test_process_settings(files):
+    options = _process(
+        ["a.mzML", "--findpeaks", "-t", "msd", "--preset", "Default",
+         "--set", "peakpicking.snThreshold = 10", "--set", "smoothing.method=GA"]
+    )
+
+    assert options.preset == "Default"
+    assert options.settings == [("peakpicking.snThreshold", "10"), ("smoothing.method", "GA")]
+
+
+def test_show_settings_needs_no_inputs():
+    options = _process(["--show-settings", "--set", "baseline.offset=0"])
+
+    assert options.showSettings and options.settings == [("baseline.offset", "0")]
+
+
+@pytest.mark.parametrize(
+    "argv, message",
+    [
+        (["a.mzML", "-t", "msd"], "no processing steps"),
+        (["--baseline", "-t", "msd"], "no inputs"),
+        (["a.mzML", "--baseline"], "--in-place to replace"),
+        (["a.mzML", "--baseline", "--in-place", "-t", "msd"], "not allowed with"),
+        (["a.mzML", "--baseline", "--in-place", "-d", "out"], "not to --output-dir"),
+        (["a.mzML", "--baseline", "--in-place", "--scan", "3"], "cannot pick one"),
+        (["a.mzML", "--crop", "500:", "-t", "msd"], "both ends"),
+        (["a.mzML", "--set", "snThreshold=3", "--findpeaks", "-t", "msd"], "not a setting"),
+        (["a.mzML", "--findpeaks", "-t", "txt"], "peaks --findpeaks finds would be lost"),
+        (["a.mzML", "--deisotope", "-t", "txt"], "peaks --deisotope"),
+        (["a.mzML", "--findpeaks", "--baseline", "-t", "mgf"], "--baseline does not change"),
+        (["a.mzML", "--smooth", "-t", "csv", "--peaklist"], "--smooth does not change"),
+    ],
+)
+def test_process_refuses_impossible_requests(files, capsys, argv, message):
+    assert message in _process_error(argv, capsys)
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["--baseline", "--findpeaks", "-t", "mgf"],
+        ["--findpeaks", "-t", "csv", "--peaklist"],
+        ["--crop", "1:2", "--normalize", "-t", "mgf"],
+        ["--findpeaks", "--deisotope", "-t", "png"],
+        ["--baseline", "--smooth", "-t", "txt"],
+    ],
+)
+def test_process_accepts_steps_the_output_keeps(files, argv):
+    assert _process(["a.mzML", *argv]).steps
+
+
+def test_process_warns_about_options_that_do_not_apply(files, capsys):
+    options = _process(["a.mzML", "--baseline", "--in-place", "--overwrite", "--dark"])
+
+    assert not options.overwrite
+    err = capsys.readouterr().err
+    assert "--overwrite does not apply" in err and "--dark does not apply to in-place" in err
