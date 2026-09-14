@@ -19,6 +19,7 @@ import wx
 # load modules
 from gui import mwx
 from gui.main_frame import mainFrame
+from mmass_app import cli
 
 
 _FAULT_LOG_HANDLE = None
@@ -107,22 +108,6 @@ def _setup_faulthandler():
             pass
 
 
-def _collect_startup_document_paths(argv):
-    """Return only valid document paths from launcher command-line args."""
-
-    ignored_placeholders = {"%f", "%F", "%u", "%U", "%i", "%c", "%k"}
-    paths = []
-    for item in argv:
-        candidate = item.strip().strip('"')
-        if not candidate:
-            continue
-        if candidate in ignored_placeholders:
-            continue
-        if os.path.exists(candidate):
-            paths.append(candidate)
-    return paths
-
-
 def _show_dpi_debug(frame):
     """Show a HiDPI diagnostics dialog (enabled via MMASS_DPI_DEBUG=1)."""
 
@@ -159,6 +144,16 @@ def _show_dpi_debug(frame):
 class mMass(wx.App):
     """Run mMass run..."""
 
+    def __init__(self, options=None):
+        # documents given on the command line, opened once the frame is up
+        self.startupOptions = options or cli.StartupOptions()
+        self.startupPaths = set(self.startupOptions.documents)
+        if self.startupOptions.session:
+            self.startupPaths.add(self.startupOptions.session)
+        super().__init__(False)
+
+    # ----
+
     def OnInit(self):
         """Init application."""
 
@@ -179,13 +174,26 @@ class mMass(wx.App):
         except Exception:
             pass
 
-        # Open only valid file paths from command line. Some launchers
-        # (including Wine desktop integrations) pass non-file placeholders.
-        startup_paths = _collect_startup_document_paths(sys.argv[1:])
-        if startup_paths:
-            self.frame.onDocumentDropped(paths=startup_paths)
+        # open documents from the command line
+        options = self.startupOptions
+        if options.session or options.documents:
+            wx.CallAfter(self.openPaths, options)
 
         return True
+
+    # ----
+
+    def openPaths(self, options):
+        """Open a session and documents given as startup options."""
+
+        # the session first, since opening one closes the current documents;
+        # both run in one call so a document import cannot start while the
+        # session's own documents are still being read
+        if options.session:
+            self.frame.onSessionOpen(path=options.session)
+        if options.documents:
+            self.frame.tmpDocumentQueue += options.documents
+            self.frame.importDocumentQueue()
 
     # ----
 
@@ -199,8 +207,18 @@ class mMass(wx.App):
     def MacOpenFile(self, fileName):
         """ "Enable drag/drop under Mac."""
 
-        if fileName != "mmass.py":
-            self.frame.onDocumentOpen(path=fileName)
+        if fileName == "mmass.py":
+            return
+
+        # Cocoa also delivers command-line arguments here, which OnInit has
+        # already queued (before or after this event, so compare against a
+        # copy of them rather than the queued options)
+        path = os.path.abspath(fileName)
+        if path in self.startupPaths:
+            self.startupPaths.discard(path)
+            return
+
+        self.openPaths(cli.collect_paths([fileName]))
 
     # ----
 
@@ -268,6 +286,9 @@ class TCPServerHandler(socketserver.BaseRequestHandler):
 def main():
     server = None
 
+    # before any GUI work, so --help and --version need no display
+    options = cli.parse_args(sys.argv[1:])
+
     _filter_benign_gtk_warnings()
     _setup_faulthandler()
 
@@ -303,13 +324,13 @@ def main():
             server_thread.setDaemon(True)
             server_thread.start()
 
-            app = mMass(False)
+            app = mMass(options)
             server.app = app.frame
             app.MainLoop()
 
     # skip server
     else:
-        app = mMass(False)
+        app = mMass(options)
         app.MainLoop()
 
 

@@ -47,6 +47,13 @@ Once installed, the CLI wrapper is available globally within your virtual enviro
 mmass
 ```
 
+Documents or a saved session (`.mses`) given on the command line are opened at startup:
+
+```sh
+mmass spectrum.mzML spectrum2.msd
+mmass --help
+```
+
 You can also run it generically:
 
 ```sh
