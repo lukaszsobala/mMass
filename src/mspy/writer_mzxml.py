@@ -33,12 +33,18 @@ class writeMZXML:
     """Write spectrum data into an mzXML 3.2 document.
 
     The output is intended to round-trip with mspy.parseMZXML and to be readable
-    by common third-party tools. Each document holds a single spectrum, written
-    as profile data when available and as centroids (the peaklist) otherwise.
+    by common third-party tools. A document holds one scan per scan given -- a
+    single scan, or every scan of a run (written flat, not nested by precursor)
+    -- each written as profile data when available and as centroids (the
+    peaklist) otherwise.
     """
 
     def __init__(self, scan, info=None, precision=64, compression=True, index=True):
-        self.scan = scan
+        # one scan or a list of scans (e.g. an LC-MS run)
+        if isinstance(scan, (list, tuple)):
+            self.scans = list(scan)
+        else:
+            self.scans = [scan]
         self.info = info or {}
         self.precision = 64 if int(precision) == 64 else 32
         self.compression = bool(compression)
@@ -113,12 +119,16 @@ class writeMZXML:
     def _msRunString(self):
         """Return the msRun element (between the mzXML open and close tags)."""
 
-        # main scan data and the optional peak-list extension
-        points, spectrumType = self._mainData()
-        peakPoints = self._extraPeakPoints()
+        # main scan data and the optional peak-list extension of every scan
+        data = [
+            (scan, self._mainData(scan), self._extraPeakPoints(scan))
+            for scan in self.scans
+        ]
 
-        centroided = ' centroided="1"' if spectrumType == "discrete" else ""
-        buff = '  <msRun scanCount="1">\n'
+        # run-level flag only when every scan is centroided
+        types = set(spectrumType for _scan, (_points, spectrumType), _peaks in data)
+        centroided = ' centroided="1"' if types == {"discrete"} else ""
+        buff = '  <msRun scanCount="%d">\n' % len(self.scans)
 
         # instrument metadata
         instrument = self.info.get("instrument", "")
@@ -134,8 +144,16 @@ class writeMZXML:
         buff += '      <software type="conversion" name="mMass" version=""/>\n'
         buff += "    </dataProcessing>\n"
 
-        # scan
-        buff += self._scan(points, spectrumType, peakPoints)
+        # scans
+        usedNumbers = set()
+        for index, (scan, (points, spectrumType), peakPoints) in enumerate(data):
+            number = scan.scanNumber if scan.scanNumber is not None else index + 1
+            if number in usedNumbers:
+                number = len(self.scans) + index + 1
+                while number in usedNumbers:
+                    number += 1
+            usedNumbers.add(number)
+            buff += self._scan(scan, number, points, spectrumType, peakPoints)
 
         buff += "  </msRun>\n"
 
@@ -143,11 +161,9 @@ class writeMZXML:
 
     # ----
 
-    def _scan(self, points, spectrumType, peakPoints=None):
+    def _scan(self, scan, scanNumber, points, spectrumType, peakPoints=None):
         """Make scan block."""
 
-        scan = self.scan
-        scanNumber = scan.scanNumber if scan.scanNumber is not None else 1
         msLevel = scan.msLevel if scan.msLevel is not None else 1
 
         buff = '    <scan num="%s" msLevel="%d" peaksCount="%d"' % (
@@ -168,6 +184,11 @@ class writeMZXML:
         # retention time (ISO 8601 duration, in seconds)
         if scan.retentionTime is not None:
             buff += ' retentionTime="PT%fS"' % float(scan.retentionTime)
+
+        # vendor scan description
+        filterString = scan.attributes.get("filterString") if hasattr(scan, "attributes") else None
+        if filterString:
+            buff += " filterLine=%s" % quoteattr(str(filterString))
 
         # spectrum statistics
         if len(points):
@@ -229,41 +250,39 @@ class writeMZXML:
 
     # ----
 
-    def _mainData(self):
+    def _mainData(self, scan):
         """Return the main scan points and type.
 
         Profile data is used as the scan when present; otherwise the peak list
         is written as a centroided scan.
         """
 
-        scan = self.scan
 
         if scan.hasprofile():
             return numpy.asarray(scan.profile, dtype=numpy.float64), "continuous"
 
         if scan.haspeaks():
-            return self._peaklistPoints(), "discrete"
+            return self._peaklistPoints(scan), "discrete"
 
         return numpy.array([]).reshape(0, 2), "continuous"
 
     # ----
 
-    def _extraPeakPoints(self):
+    def _extraPeakPoints(self, scan):
         """Return the peak list to attach to a profile scan, or None.
 
         Only returned when both profile and peaks exist, so the peaks travel
         with the profile inside a single scan.
         """
 
-        scan = self.scan
         if scan.hasprofile() and scan.haspeaks():
-            return self._peaklistPoints()
+            return self._peaklistPoints(scan)
 
         return None
 
     # ----
 
-    def _peaklistPoints(self):
+    def _peaklistPoints(self, scan):
         """Return centroid points from the peak list.
 
         Peaks carrying an envelope (e.g. from charge-state deconvolution) are
@@ -272,7 +291,7 @@ class writeMZXML:
         """
 
         points = []
-        for peak in self.scan.peaklist:
+        for peak in scan.peaklist:
             point = self._envelopeMono(peak)
             if point is None:
                 point = [peak.mz, peak.intensity]

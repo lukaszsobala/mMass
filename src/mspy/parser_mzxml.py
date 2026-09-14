@@ -196,6 +196,10 @@ class parseMZXML:
         scan.precursorIntensity = scanData["precursorIntensity"]
         scan.precursorCharge = scanData["precursorCharge"]
 
+        # how the scan was acquired, used to decide which scans may be pooled
+        if scanData.get("filterString"):
+            scan.attributes["filterString"] = scanData["filterString"]
+
         return scan
 
     # ----
@@ -388,6 +392,11 @@ class scanlistHandler(ContentHandler):
             if attribute is not None:
                 scan["retentionTime"] = _convertRetentionTime(attribute)
 
+            # vendor scan description (e.g. Thermo filter line)
+            attribute = attrs.get("filterLine", None)
+            if attribute:
+                scan["filterString"] = attribute
+
             # get low m/z
             attribute = attrs.get("lowMz", None)
             if attribute is not None:
@@ -564,6 +573,11 @@ class scanHandler(ContentHandler):
                 attribute = attrs.get("retentionTime", None)
                 if attribute is not None:
                     self.data["retentionTime"] = _convertRetentionTime(attribute)
+
+                # vendor scan description (e.g. Thermo filter line)
+                attribute = attrs.get("filterLine", None)
+                if attribute:
+                    self.data["filterString"] = attribute
 
                 # get low m/z
                 attribute = attrs.get("lowMz", None)
@@ -774,6 +788,11 @@ class runHandler(ContentHandler):
             attribute = attrs.get("retentionTime", None)
             if attribute is not None:
                 scan["retentionTime"] = _convertRetentionTime(attribute)
+
+            # vendor scan description (e.g. Thermo filter line)
+            attribute = attrs.get("filterLine", None)
+            if attribute:
+                scan["filterString"] = attribute
 
             # get low m/z
             attribute = attrs.get("lowMz", None)

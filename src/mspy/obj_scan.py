@@ -26,6 +26,7 @@ from . import obj_peaklist
 # load modules
 from . import mod_signal
 from . import mod_peakpicking
+from . import mod_pooling
 
 # SCAN OBJECT DEFINITION
 # ----------------------
@@ -759,6 +760,54 @@ class scan:
             relaxed=relaxed,
             refinePattern=refinePattern,
         )
+
+    # ----
+
+    def labelpooled(
+        self,
+        features,
+        snThreshold=0.0,
+        baselineWindow=0.1,
+        baselineOffset=0.0,
+        label="1st",
+        intensity="maximum",
+        nonIdeality=None,
+        averagineType=mod_peakpicking.DEFAULT_AVERAGINE,
+        refinePattern=True,
+        alignment=0.0,
+    ):
+        """Label peaks picked in a pooled spectrum (see mod_pooling) in this scan.
+
+        features (mspy.peaklist) - peaks picked in the pooled spectrum
+        snThreshold (float) - minimal S/N a peak needs in this scan to be kept
+        baselineWindow (float) - noise calculation window (in %/100)
+        baselineOffset (float) - baseline offset, relative to noise width (in %/100)
+        alignment (float) - this scan's m/z offset against the pool (ppm)
+
+        The current peaklist is replaced. Positions, charges, FWHM and envelope
+        shapes come from the features; intensities and envelope areas are
+        measured in this scan.
+        """
+
+        if not self.hasprofile():
+            return False
+
+        baseline = self.baseline(window=baselineWindow, offset=baselineOffset)
+
+        self.peaklist = mod_pooling.labelpooled(
+            signal=self.profile,
+            features=features,
+            baseline=baseline,
+            snThreshold=snThreshold,
+            label=label,
+            intensity=intensity,
+            nonIdeality=nonIdeality,
+            averagineType=averagineType,
+            refinePattern=refinePattern,
+            alignment=alignment,
+        )
+
+        return True
 
     # ----
 

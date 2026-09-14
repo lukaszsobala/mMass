@@ -7,6 +7,7 @@ that is unavailable -- the rest of the suite stays headless.
 import os
 import tempfile
 
+import numpy
 import pytest
 
 import mspy
@@ -90,3 +91,115 @@ def test_detected_isotope_count_survives_msd_roundtrip():
     # an older envelope stays uncounted rather than gaining a fabricated one
     assert "detected" not in by_mz[1900].attributes["envelope"]
 
+
+
+# ---------------------------------------------------------------------------
+# LC-MS runs: every scan in one .msd
+# ---------------------------------------------------------------------------
+
+
+def _lcms_document():
+    """A browsable three-scan run: shown scan 2, peaks picked in scans 1 and 3."""
+
+    d = gdoc.document()
+    d.title = "run"
+    d.scanlist = {}
+    d.scanCache = {}
+    x = numpy.linspace(500.0, 510.0, 101)
+    for scanID in (1, 2, 3):
+        scan = mspy.scan(profile=numpy.column_stack([x, numpy.sin(x) + scanID * 2.0]))
+        scan.scanNumber = scanID
+        scan.msLevel = 1
+        scan.retentionTime = 10.0 * scanID
+        scan.polarity = 1
+        scan.attributes["filterString"] = "FTMS + p ESI Full ms"
+        if scanID != 2:
+            peak = mspy.peak(mz=505.0 + scanID, ai=10.0 * scanID, charge=2, isotope=0, fwhm=0.02)
+            peak.attributes["envelope"] = {
+                "area": 3.0 * scanID, "sumint": 9.0, "fwhm": 0.02, "shape": "gaussian",
+                "detected": 2, "averagineType": "protein",
+                "isotopes": [(505.0 + scanID, 0.6), (505.5 + scanID, 0.4)],
+            }
+            scan.setpeaklist(mspy.peaklist([peak]))
+        d.scanCache[scanID] = scan
+        d.scanlist[scanID] = {
+            "msLevel": 1, "retentionTime": 10.0 * scanID, "polarity": 1,
+            "totIonCurrent": 100.0 * scanID, "basePeakIntensity": 5.0 * scanID,
+            "spectrumType": "continuous", "filterString": "FTMS + p ESI Full ms",
+            "scanNumber": scanID, "title": "",
+        }
+    ms2 = mspy.scan(peaklist=mspy.peaklist([mspy.peak(mz=150.0, ai=4.0)]))
+    ms2.scanNumber = 4
+    ms2.msLevel = 2
+    ms2.precursorMZ = 506.0
+    d.scanCache[4] = ms2
+    d.scanlist[4] = {"msLevel": 2, "precursorMZ": 506.0, "spectrumType": "discrete",
+                     "scanNumber": 4, "title": ""}
+    d.currentScanID = 2
+    d.spectrum = d.scanCache[2]
+    return d
+
+
+def _save(document, tmp_path):
+    path = str(tmp_path / "run.msd")
+    xml = document.msd()
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write(xml)
+    return path, xml
+
+
+def test_lcms_run_roundtrips_through_msd(tmp_path):
+    original = _lcms_document()
+    path, xml = _save(original, tmp_path)
+
+    reloaded = gdoc.parseMSD(path).getDocument()
+
+    assert reloaded.islcms()
+    assert list(reloaded.scanlist) == [1, 2, 3, 4]
+    assert reloaded.currentScanID == 2
+    # the shown scan is the document's spectrum, not a second copy of it
+    assert reloaded.scanCache[2] is reloaded.spectrum
+    assert reloaded.scanSource is None
+    assert reloaded.chromatograms == gdoc.makeChromatograms(original.scanlist)
+
+    for scanID, scan in original.scanCache.items():
+        back = reloaded.scanCache[scanID]
+        assert back.msLevel == scan.msLevel
+        assert back.retentionTime == scan.retentionTime
+        assert back.precursorMZ == scan.precursorMZ
+        assert back.attributes.get("filterString") == scan.attributes.get("filterString")
+        if scan.hasprofile():
+            assert numpy.allclose(back.profile, scan.profile, rtol=1e-6)
+        assert len(back.peaklist) == len(scan.peaklist)
+        for a, b in zip(back.peaklist, scan.peaklist, strict=True):
+            assert a.mz == pytest.approx(b.mz)
+            assert a.charge == b.charge
+            assert a.attributes.get("envelope", {}).get("area") == b.attributes.get(
+                "envelope", {}
+            ).get("area")
+
+    # saving the reloaded document writes the same file
+    assert reloaded.msd() == xml
+
+
+def test_lcms_msd_opens_as_its_shown_scan_without_chromatogram_support(tmp_path):
+    """A reader that does not know <chromatogram> opens the shown scan, intact.
+
+    mSD sections are looked up by tag name anywhere in the file. The shown scan
+    here has no peaks, so its <peaklist> is not written at all -- if the other
+    scans' peak lists reused that tag, such a reader would hand the shown scan
+    the peaks of scan 1.
+    """
+
+    class olderParser(gdoc.parseMSD):
+        def handleChromatogram(self):
+            pass
+
+    original = _lcms_document()
+    path, _xml = _save(original, tmp_path)
+
+    older = olderParser(path).getDocument()
+
+    assert not older.islcms()
+    assert numpy.allclose(older.spectrum.profile, original.spectrum.profile, rtol=1e-6)
+    assert len(older.spectrum.peaklist) == 0

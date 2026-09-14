@@ -795,6 +795,83 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         self.peakpickingAllScans_check.SetValue(True)
         self.peakpickingAllScans_check.Enable(False)
 
+        peakpickingPool_label = wx.StaticText(panel, -1, "Find peaks using:")
+        peakpickingPool_label.SetToolTip(
+            wx.ToolTip(
+                "For LC-MS runs: which scans decide what the peaks are.\n\n"
+                "Whole run -- scans acquired the same way are aligned and "
+                "averaged, peaks, charges and envelopes are found once in the "
+                "average, and then labelled in each scan: positions and widths "
+                "come from the average, intensities and areas from the scan.\n\n"
+                "Neighbouring scans -- the same, averaging each scan with the "
+                "given number of scans on either side (for species that elute "
+                "over a few scans only).\n\n"
+                "Each scan alone -- every scan is picked on its own."
+            )
+        )
+        self.peakpickingPool_choice = wx.Choice(
+            panel,
+            -1,
+            choices=["Whole run", "Neighbouring scans", "Each scan alone"],
+            size=wx.Size(160, mwx.CHOICE_HEIGHT),
+        )
+        mwx.fitChoice(self.peakpickingPool_choice)
+        choices = ["run", "window", "off"]
+        poolScans = config.processing["peakpicking"].get("poolScans", "run")
+        self.peakpickingPool_choice.Select(
+            choices.index(poolScans) if poolScans in choices else 0
+        )
+        self.peakpickingPool_choice.Bind(wx.EVT_CHOICE, self.onPeakpickingPoolChanged)
+
+        peakpickingPoolWindow_label = wx.StaticText(panel, -1, "Neighbouring scans:")
+        self.peakpickingPoolWindow_value = wx.TextCtrl(
+            panel,
+            -1,
+            str(config.processing["peakpicking"].get("poolWindow", 5)),
+            size=wx.Size(70, -1),
+            validator=mwx.validator("intPos"),
+        )
+        peakpickingPoolWindowUnits_label = wx.StaticText(panel, -1, "each side")
+
+        peakpickingPoolSN_label = wx.StaticText(panel, -1, "S/N threshold in scan:")
+        peakpickingPoolSN_label.SetToolTip(
+            wx.ToolTip(
+                "A peak found in the averaged scans is labelled in a scan only "
+                "where it reaches this S/N there (envelopes are judged at their "
+                "tallest isotope). Its position is already known, so this can be "
+                "lower than the picking threshold."
+            )
+        )
+        self.peakpickingPoolSN_value = wx.TextCtrl(
+            panel,
+            -1,
+            str(config.processing["peakpicking"].get("poolSnThreshold", 3.0)),
+            size=wx.Size(70, -1),
+            validator=mwx.validator("floatPos"),
+        )
+
+        peakpickingPoolAlign_label = wx.StaticText(panel, -1, "Align scans:")
+        self.peakpickingPoolAlign_check = wx.CheckBox(panel, -1, " Correct m/z drift")
+        self.peakpickingPoolAlign_check.SetFont(wx.SMALL_FONT)
+        self.peakpickingPoolAlign_check.SetToolTip(
+            wx.ToolTip(
+                "Measure each scan's relative m/z offset on the strongest peaks "
+                "and remove it before averaging (up to 100 ppm)."
+            )
+        )
+        self.peakpickingPoolAlign_check.SetValue(
+            bool(config.processing["peakpicking"].get("poolAlign", 1))
+        )
+
+        # enabled by setData once an LC-MS run is selected
+        for control in (
+            self.peakpickingPool_choice,
+            self.peakpickingPoolWindow_value,
+            self.peakpickingPoolSN_value,
+            self.peakpickingPoolAlign_check,
+        ):
+            control.Enable(False)
+
         # pack elements
         grid = wx.GridBagSizer(mwx.GRIDBAG_VSPACE, mwx.GRIDBAG_HSPACE)
         grid.Add(
@@ -860,6 +937,33 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL,
         )
         grid.Add(self.peakpickingAllScans_check, (9, 1), (1, 2))
+        grid.Add(
+            peakpickingPool_label,
+            (10, 0),
+            flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL,
+        )
+        grid.Add(self.peakpickingPool_choice, (10, 1), (1, 2))
+        grid.Add(
+            peakpickingPoolWindow_label,
+            (11, 0),
+            flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL,
+        )
+        grid.Add(self.peakpickingPoolWindow_value, (11, 1))
+        grid.Add(
+            peakpickingPoolWindowUnits_label, (11, 2), flag=wx.ALIGN_CENTER_VERTICAL
+        )
+        grid.Add(
+            peakpickingPoolSN_label,
+            (12, 0),
+            flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL,
+        )
+        grid.Add(self.peakpickingPoolSN_value, (12, 1))
+        grid.Add(
+            peakpickingPoolAlign_label,
+            (13, 0),
+            flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL,
+        )
+        grid.Add(self.peakpickingPoolAlign_check, (13, 1), (1, 2))
         grid.AddGrowableCol(2)
 
         mainSizer = wx.BoxSizer(wx.VERTICAL)
@@ -1592,6 +1696,28 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             bool(presets["peakpicking"]["removeShoulders"])
         )
 
+        # LC-MS pooling (presets saved before it existed keep the defaults)
+        defaults = config.processing_defaults["peakpicking"]
+        choices = ["run", "window", "off"]
+        poolScans = presets["peakpicking"].get("poolScans", defaults["poolScans"])
+        self.peakpickingPool_choice.Select(
+            choices.index(poolScans) if poolScans in choices else 0
+        )
+        self.peakpickingPoolWindow_value.SetValue(
+            str(presets["peakpicking"].get("poolWindow", defaults["poolWindow"]))
+        )
+        self.peakpickingPoolSN_value.SetValue(
+            str(
+                presets["peakpicking"].get(
+                    "poolSnThreshold", defaults["poolSnThreshold"]
+                )
+            )
+        )
+        self.peakpickingPoolAlign_check.SetValue(
+            bool(presets["peakpicking"].get("poolAlign", defaults["poolAlign"]))
+        )
+        self.updatePeakpickingPoolControls()
+
         # the averagine model moved from deisotoping to peak picking in
         # 7.0.0-beta22; presets saved before that still carry the old key
         choices = ["protein", "carbohydrate", "lipid"]
@@ -1889,6 +2015,29 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
     # ----
 
+    def onPeakpickingPoolChanged(self, evt=None):
+        """Enable the pooling options that apply to the selected mode."""
+
+        self.updatePeakpickingPoolControls()
+        self.getParams()
+
+    # ----
+
+    def updatePeakpickingPoolControls(self):
+        """Enable LC-MS pooling controls for the current document and mode."""
+
+        document = self.currentDocument
+        isLCMS = bool(document is not None and document.islcms())
+        mode = self.peakpickingPool_choice.GetSelection()
+
+        self.peakpickingAllScans_check.Enable(isLCMS)
+        self.peakpickingPool_choice.Enable(isLCMS)
+        self.peakpickingPoolWindow_value.Enable(isLCMS and mode == 1)
+        self.peakpickingPoolSN_value.Enable(isLCMS and mode in (0, 1))
+        self.peakpickingPoolAlign_check.Enable(isLCMS and mode in (0, 1))
+
+    # ----
+
     def onPeakpickingChanged(self, evt=None):
         """Show intensity threshold while params are changing."""
 
@@ -2128,9 +2277,8 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         self.currentDocument = document
         self.updateCurrentDocument()
 
-        # enable the "all spectra" option only for LC-MS runs
-        isLCMS = bool(document is not None and document.islcms())
-        self.peakpickingAllScans_check.Enable(isLCMS)
+        # enable the "all spectra" and pooling options only for LC-MS runs
+        self.updatePeakpickingPoolControls()
 
         # clear preview
         self.clearPreview()
@@ -2238,6 +2386,19 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             )
             config.processing["peakpicking"]["removeShoulders"] = bool(
                 self.peakpickingRemoveShoulders_check.GetValue()
+            )
+
+            config.processing["peakpicking"]["poolScans"] = ("run", "window", "off")[
+                max(0, self.peakpickingPool_choice.GetSelection())
+            ]
+            config.processing["peakpicking"]["poolWindow"] = int(
+                self.peakpickingPoolWindow_value.GetValue()
+            )
+            config.processing["peakpicking"]["poolSnThreshold"] = float(
+                self.peakpickingPoolSN_value.GetValue()
+            )
+            config.processing["peakpicking"]["poolAlign"] = int(
+                self.peakpickingPoolAlign_check.GetValue()
             )
 
             averagineType = self.peakpickingAveragineType_choice.GetStringSelection()
@@ -3024,6 +3185,100 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
     # ----
 
+    def labelPooledOnScan(self, scan, features, alignment=0.0):
+        """Label peaks found in pooled scans in one scan of the run, in place."""
+
+        # nothing to do without profile data
+        if not scan.hasprofile():
+            return
+
+        # same baseline as picking uses
+        baselineWindow = 1.0
+        if config.processing["peakpicking"]["baseline"]:
+            baselineWindow = 1.0 / config.processing["baseline"]["precision"]
+
+        scan.labelpooled(
+            features,
+            snThreshold=config.processing["peakpicking"]["poolSnThreshold"],
+            baselineWindow=baselineWindow,
+            baselineOffset=config.processing["baseline"]["offset"],
+            label=config.processing["deisotoping"]["labelEnvelope"],
+            intensity=config.processing["deisotoping"]["envelopeIntensity"],
+            nonIdeality=config.processing["deisotoping"].get("envelopeNonIdeality"),
+            averagineType=config.processing["peakpicking"]["averagineType"],
+            refinePattern=bool(
+                config.processing["deisotoping"].get("envelopeRefinePattern", 1)
+            ),
+            alignment=alignment,
+        )
+
+    # ----
+
+    def pickPeaksPooled(self, document, allScans=True):
+        """Find peaks in an LC-MS run from pooled scans and label them per scan.
+
+        Scans acquired the same way are pooled (the whole group, or a moving
+        window of neighbours); the picking pipeline runs on the pooled spectrum
+        and its peaks are labelled in each scan (see mspy.mod_pooling). With
+        allScans False the pool is still built from the whole run, but only the
+        current scan is labelled.
+        """
+
+        mode = config.processing["peakpicking"]["poolScans"]
+        window = int(config.processing["peakpicking"]["poolWindow"])
+        align = bool(config.processing["peakpicking"]["poolAlign"])
+
+        for group in mspy.acquisitiongroups(document.scanlist or {}):
+            if not allScans and document.currentScanID not in group:
+                continue
+
+            # load the scans of the group (cached, GUI-free)
+            loaded = self.parent.loadScansRaw(document, group)
+            members = [
+                (scanID, loaded[scanID])
+                for scanID in group
+                if loaded.get(scanID) is not None and loaded[scanID].hasprofile()
+            ]
+
+            # without acquisition metadata, scans of different resolution can
+            # still share a group -- never average those
+            for indexes in mspy.samplinggroups([scan for _id, scan in members]):
+                subgroup = [members[i] for i in indexes]
+                scans = [scan for _id, scan in subgroup]
+                targets = [
+                    allScans or scanID == document.currentScanID
+                    for scanID, _scan in subgroup
+                ]
+                if not any(targets):
+                    continue
+
+                # a scan with nothing to pool with is picked on its own
+                if len(scans) == 1:
+                    self.pickPeaksOnScan(scans[0])
+                    continue
+
+                if mode == "window":
+                    for index, pooled in mspy.poolwindows(scans, window, align=align):
+                        if not targets[index]:
+                            continue
+                        self.pickPeaksOnScan(pooled)
+                        self.labelPooledOnScan(
+                            scans[index],
+                            pooled.peaklist,
+                            alignment=pooled.attributes["offset"],
+                        )
+                else:
+                    pooled = mspy.poolscans(scans, align=align)
+                    self.pickPeaksOnScan(pooled)
+                    offsets = pooled.attributes["alignment"]
+                    for index, scan in enumerate(scans):
+                        if targets[index]:
+                            self.labelPooledOnScan(
+                                scan, pooled.peaklist, alignment=offsets[index]
+                            )
+
+    # ----
+
     def runApplyPeakpicking(self, batch=False):
         """Find peaks."""
 
@@ -3032,11 +3287,15 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             wx.Bell()
             return
 
-        # for LC-MS runs, optionally pick peaks in every scan of the run
-        allScans = (
-            not batch
-            and self.currentDocument.islcms()
-            and self.peakpickingAllScans_check.GetValue()
+        document = self.currentDocument
+        isLCMS = not batch and document.islcms()
+
+        # for LC-MS runs, optionally pick peaks in every scan of the run, and
+        # optionally from scans pooled across the run
+        allScans = isLCMS and self.peakpickingAllScans_check.GetValue()
+        pooled = isLCMS and config.processing["peakpicking"]["poolScans"] in (
+            "run",
+            "window",
         )
 
         # run task
@@ -3044,25 +3303,31 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
             # backup document
             if not batch:
-                self.currentDocument.backup(("spectrum", "notations"))
+                document.backup(("spectrum", "notations"))
 
-            if allScans:
-                document = self.currentDocument
+            # the shown scan may have been edited since it was cached
+            if isLCMS and document.currentScanID is not None:
+                document.scanCache[document.currentScanID] = document.spectrum
+
+            if pooled:
+                self.pickPeaksPooled(document, allScans=allScans)
+            elif allScans:
                 scanlist = document.scanlist or {}
                 for scanID in scanlist:
                     # load the scan (cached, GUI-free) and pick its peaks
                     scan = self.parent.loadScanRaw(document, scanID)
                     if scan is not None and scan.hasprofile():
                         self.pickPeaksOnScan(scan)
-                # keep the displayed spectrum pointing at the current scan's peaks
-                if document.currentScanID in document.scanCache:
-                    document.spectrum = document.scanCache[document.currentScanID]
             else:
-                self.pickPeaksOnScan(self.currentDocument.spectrum)
+                self.pickPeaksOnScan(document.spectrum)
+
+            # keep the displayed spectrum pointing at the current scan's peaks
+            if isLCMS and document.currentScanID in document.scanCache:
+                document.spectrum = document.scanCache[document.currentScanID]
 
             # remove notations
-            del self.currentDocument.annotations[:]
-            for sequence in self.currentDocument.sequences:
+            del document.annotations[:]
+            for sequence in document.sequences:
                 del sequence.matches[:]
 
         # task canceled

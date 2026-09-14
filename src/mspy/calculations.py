@@ -621,3 +621,39 @@ def peaklist_filter_indices(array, resol):
     count += 1
 
     return keep[:count].copy()
+
+
+@njit
+def signal_common_raster(mz, spacing, fraction):
+    """Collapse sorted m/z values from several scans onto one shared raster.
+
+    mz holds the sorted union of every scan's m/z points and spacing the native
+    sampling step each point had in its own scan. A run of points closer than
+    `fraction` of their native step becomes a single raster node at their mean,
+    so scans sharing one acquisition raster reproduce it exactly, while scans on
+    slightly shifted rasters get one node per native step instead of a node per
+    scan. The distance is measured from the first point of the run (not the
+    previous one), so many shifted rasters cannot chain into one node.
+    """
+
+    n = len(mz)
+    out = np.empty(n, dtype=np.float64)
+    count = 0
+    i = 0
+    while i < n:
+        start = mz[i]
+        total = start
+        members = 1
+        j = i + 1
+        while j < n:
+            step = spacing[i] if spacing[i] < spacing[j] else spacing[j]
+            if mz[j] - start >= fraction * step:
+                break
+            total += mz[j]
+            members += 1
+            j += 1
+        out[count] = total / members
+        count += 1
+        i = j
+
+    return out[:count].copy()

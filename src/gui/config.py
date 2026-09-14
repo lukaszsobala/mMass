@@ -389,6 +389,8 @@ export = {
     "peaklistSeparator": "tab",
     "spectrumSeparator": "tab",
     "spectrumFormat": "ASCII",
+    # mzML/mzXML export of an LC-MS run: the shown scan or every scan
+    "spectrumScans": "current",
 }
 
 spectrum = {
@@ -473,6 +475,12 @@ processing = {
         "monoisotopic": 0,
         "removeShoulders": 0,
         "averagineType": "protein",
+        # LC-MS runs: find peaks on scans pooled across the run ("run"), on a
+        # moving window of neighbouring scans ("window"), or per scan ("off")
+        "poolScans": "run",
+        "poolWindow": 5,
+        "poolSnThreshold": 3.0,
+        "poolAlign": 1,
     },
     "deisotoping": {
         "maxCharge": 1,

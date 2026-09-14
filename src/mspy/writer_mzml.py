@@ -33,12 +33,18 @@ class writeMZML:
     """Write spectrum data into an mzML 1.1.0 document.
 
     The output is intended to round-trip with mspy.parseMZML and to be readable
-    by common third-party tools. Each document holds a single spectrum, written
-    as profile data when available and as centroids (the peaklist) otherwise.
+    by common third-party tools. A document holds one spectrum per scan given --
+    a single scan, or every scan of a run -- each written as profile data when
+    available and as centroids (the peaklist) otherwise. A run of several MS1
+    scans with retention times also gets its total ion current chromatogram.
     """
 
     def __init__(self, scan, info=None, precision=64, compression=True, index=True):
-        self.scan = scan
+        # one scan or a list of scans (e.g. an LC-MS run)
+        if isinstance(scan, (list, tuple)):
+            self.scans = list(scan)
+        else:
+            self.scans = [scan]
         self.info = info or {}
         self.precision = 64 if int(precision) == 64 else 32
         self.compression = bool(compression)
@@ -80,14 +86,19 @@ class writeMZML:
         body = prefix + mzml
         bodyBytes = body.encode("utf-8")
 
-        # byte offset of every <spectrum> element from the start of the file
+        # byte offset of every <spectrum> and <chromatogram> element from the
+        # start of the file
         offsets = [
             (m.group(1).decode("utf-8"), m.start())
             for m in re.finditer(rb'<spectrum index="\d+" id="([^"]*)"', bodyBytes)
         ]
+        chromatogramOffsets = [
+            (m.group(1).decode("utf-8"), m.start())
+            for m in re.finditer(rb'<chromatogram index="\d+" id="([^"]*)"', bodyBytes)
+        ]
 
         # index list (kept at column 0 so its byte offset needs no indent fix-up)
-        indexBlock = '<indexList count="1">\n'
+        indexBlock = '<indexList count="%d">\n' % (2 if chromatogramOffsets else 1)
         indexBlock += '  <index name="spectrum">\n'
         for idRef, offset in offsets:
             indexBlock += "    <offset idRef=%s>%d</offset>\n" % (
@@ -95,6 +106,14 @@ class writeMZML:
                 offset,
             )
         indexBlock += "  </index>\n"
+        if chromatogramOffsets:
+            indexBlock += '  <index name="chromatogram">\n'
+            for idRef, offset in chromatogramOffsets:
+                indexBlock += "    <offset idRef=%s>%d</offset>\n" % (
+                    quoteattr(idRef),
+                    offset,
+                )
+            indexBlock += "  </index>\n"
         indexBlock += "</indexList>\n"
 
         # byte offset of the <indexList> element
@@ -115,10 +134,6 @@ class writeMZML:
 
     def _mzmlString(self):
         """Return the mzML element (without the XML declaration)."""
-
-        # main spectrum data and the optional peak-list extension
-        points, spectrumType = self._mainData()
-        peakPoints = self._extraPeakPoints()
 
         buff = (
             '<mzML xmlns="http://psi.hupo.org/ms/mzml"'
@@ -178,9 +193,21 @@ class writeMZML:
             '  <run id=%s defaultInstrumentConfigurationRef="IC1">\n'
             % quoteattr(self._makeID(runID))
         )
-        buff += '    <spectrumList count="1" defaultDataProcessingRef="mMass_processing">\n'
-        buff += self._spectrum(points, spectrumType, peakPoints)
+        buff += (
+            '    <spectrumList count="%d" defaultDataProcessingRef="mMass_processing">\n'
+            % len(self.scans)
+        )
+        usedIDs = set()
+        for index, scan in enumerate(self.scans):
+            # main spectrum data and the optional peak-list extension
+            points, spectrumType = self._mainData(scan)
+            peakPoints = self._extraPeakPoints(scan)
+            spectrumID = self._spectrumID(scan, index, usedIDs)
+            buff += self._spectrum(
+                scan, index, spectrumID, points, spectrumType, peakPoints
+            )
         buff += "    </spectrumList>\n"
+        buff += self._chromatogramList()
         buff += "  </run>\n"
 
         buff += "</mzML>\n"
@@ -234,15 +261,32 @@ class writeMZML:
 
     # ----
 
-    def _spectrum(self, points, spectrumType, peakPoints=None):
+    def _spectrumID(self, scan, index, usedIDs):
+        """Unique native ID of a spectrum ("scan=N", as parseMZML reads it)."""
+
+        number = scan.scanNumber if scan.scanNumber is not None else index + 1
+        spectrumID = "scan=%s" % number
+
+        # a missing or repeated scan number gets the next free number past all
+        # the scans, so ids stay unique and numeric
+        if spectrumID in usedIDs:
+            number = len(self.scans) + index + 1
+            while "scan=%s" % number in usedIDs:
+                number += 1
+            spectrumID = "scan=%s" % number
+
+        usedIDs.add(spectrumID)
+        return spectrumID
+
+    # ----
+
+    def _spectrum(self, scan, index, spectrumID, points, spectrumType, peakPoints=None):
         """Make spectrum block."""
 
-        scan = self.scan
-        scanNumber = scan.scanNumber if scan.scanNumber is not None else 1
-
-        buff = (
-            '      <spectrum index="0" id=%s defaultArrayLength="%d">\n'
-            % (quoteattr("scan=%s" % scanNumber), len(points))
+        buff = '      <spectrum index="%d" id=%s defaultArrayLength="%d">\n' % (
+            index,
+            quoteattr(spectrumID),
+            len(points),
         )
 
         # spectrum type
@@ -302,12 +346,18 @@ class writeMZML:
                 ' unitCvRef="UO" unitAccession="UO:0000010" unitName="second"/>\n'
                 % float(scan.retentionTime)
             )
+        filterString = scan.attributes.get("filterString") if hasattr(scan, "attributes") else None
+        if filterString:
+            buff += (
+                '            <cvParam cvRef="MS" accession="MS:1000512" name="filter string" value=%s/>\n'
+                % quoteattr(str(filterString))
+            )
         buff += "          </scan>\n"
         buff += "        </scanList>\n"
 
         # precursor
         if scan.precursorMZ is not None:
-            buff += self._precursor()
+            buff += self._precursor(scan)
 
         # binary data
         buff += self._binaryDataArrayList(points, peakPoints)
@@ -318,10 +368,8 @@ class writeMZML:
 
     # ----
 
-    def _precursor(self):
+    def _precursor(self, scan):
         """Make precursor block."""
-
-        scan = self.scan
 
         buff = '        <precursorList count="1">\n'
         if scan.parentScanNumber is not None:
@@ -350,6 +398,8 @@ class writeMZML:
             )
         buff += "              </selectedIon>\n"
         buff += "            </selectedIonList>\n"
+        # required by the schema; the activation method is not known to mMass
+        buff += "            <activation/>\n"
         buff += "          </precursor>\n"
         buff += "        </precursorList>\n"
 
@@ -407,7 +457,12 @@ class writeMZML:
             buff += '            <cvParam cvRef="MS" accession="MS:1000576" name="no compression" value=""/>\n'
 
         # array type
-        if arrayType == "mz":
+        if arrayType == "time":
+            buff += (
+                '            <cvParam cvRef="MS" accession="MS:1000595" name="time array" value=""'
+                ' unitCvRef="UO" unitAccession="UO:0000010" unitName="second"/>\n'
+            )
+        elif arrayType == "mz":
             buff += (
                 '            <cvParam cvRef="MS" accession="MS:1000514" name="m/z array" value=""'
                 ' unitCvRef="MS" unitAccession="MS:1000040" unitName="m/z"/>\n'
@@ -437,41 +492,38 @@ class writeMZML:
 
     # ----
 
-    def _mainData(self):
+    def _mainData(self, scan):
         """Return the main spectrum points and type.
 
         Profile data is used as the spectrum when present; otherwise the peak
         list is written as a centroid spectrum.
         """
 
-        scan = self.scan
-
         if scan.hasprofile():
             return numpy.asarray(scan.profile, dtype=numpy.float64), "continuous"
 
         if scan.haspeaks():
-            return self._peaklistPoints(), "discrete"
+            return self._peaklistPoints(scan), "discrete"
 
         return numpy.array([]).reshape(0, 2), "continuous"
 
     # ----
 
-    def _extraPeakPoints(self):
+    def _extraPeakPoints(self, scan):
         """Return the peak list to attach to a profile spectrum, or None.
 
         Only returned when both profile and peaks exist, so the peaks travel
         with the profile inside a single spectrum.
         """
 
-        scan = self.scan
         if scan.hasprofile() and scan.haspeaks():
-            return self._peaklistPoints()
+            return self._peaklistPoints(scan)
 
         return None
 
     # ----
 
-    def _peaklistPoints(self):
+    def _peaklistPoints(self, scan):
         """Return centroid points from the peak list.
 
         Peaks carrying an envelope (e.g. from charge-state deconvolution) are
@@ -480,7 +532,7 @@ class writeMZML:
         """
 
         points = []
-        for peak in self.scan.peaklist:
+        for peak in scan.peaklist:
             point = self._envelopeMono(peak)
             if point is None:
                 point = [peak.mz, peak.intensity]
@@ -492,6 +544,41 @@ class writeMZML:
         # sort by m/z (centroid lists are expected to be ordered)
         points = numpy.array(points, dtype=numpy.float64)
         return points[points[:, 0].argsort()]
+
+    # ----
+
+    def _chromatogramList(self):
+        """Make the chromatogramList block: the TIC of the run's MS1 scans.
+
+        Written only for runs, i.e. when more than one MS1 scan has a retention
+        time; a single spectrum has no chromatogram to speak of.
+        """
+
+        trace = []
+        for scan in self.scans:
+            if scan.msLevel not in (None, 1) or scan.retentionTime is None:
+                continue
+            points, _spectrumType = self._mainData(scan)
+            tic = float(points[:, 1].sum()) if len(points) else 0.0
+            trace.append((float(scan.retentionTime), tic))
+
+        if len(trace) < 2:
+            return ""
+        trace.sort()
+        times = [t for t, _tic in trace]
+        intensities = [tic for _t, tic in trace]
+
+        buff = '    <chromatogramList count="1" defaultDataProcessingRef="mMass_processing">\n'
+        buff += '      <chromatogram index="0" id="TIC" defaultArrayLength="%d">\n' % len(trace)
+        buff += '        <cvParam cvRef="MS" accession="MS:1000235" name="total ion current chromatogram" value=""/>\n'
+        buff += '        <binaryDataArrayList count="2">\n'
+        buff += self._binaryDataArray(times, "time")
+        buff += self._binaryDataArray(intensities, "int")
+        buff += "        </binaryDataArrayList>\n"
+        buff += "      </chromatogram>\n"
+        buff += "    </chromatogramList>\n"
+
+        return buff
 
     # ----
 
