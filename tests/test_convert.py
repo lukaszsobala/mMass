@@ -259,6 +259,64 @@ def test_outputs_are_named_after_bruker_datasets(tmp_path):
         assert convert.output_path(path, options) == str(tmp_path / "out" / "dataset.png")
 
 
+def _acquisition(folder, spot, lift=None):
+    """A Bruker acquisition folder with an empty fid and an acqu naming it."""
+
+    folder.mkdir(parents=True)
+    (folder / "fid").write_bytes(b"")
+    acqu = "##$SPOTNO= <%s>\n##$TD= <1000>\n" % spot
+    if lift:
+        acqu += "##$SPType= 2\n##$Parent= %s\n" % lift
+    (folder / "acqu").write_text(acqu)
+    return folder / "fid"
+
+
+def test_bruker_outputs_tell_lift_from_ms1(tmp_path):
+    """The MS1 and LIFT acquisitions of a spot, and its spots, get outputs of their own."""
+
+    run = tmp_path / "PlateA" / "0_A1" / "1"
+    ms1 = _acquisition(run / "1SRef", "A1")
+    lift = _acquisition(run / "900.1234.LIFT" / "1SRef", "A1", lift="900.1234")
+    other = _acquisition(tmp_path / "PlateA" / "0_B2" / "1" / "1SRef", "B2")
+    options = cli.ConvertOptions(inputs=[], format="msd")
+
+    def name(path):
+        return os.path.relpath(convert.output_path(str(path), options), tmp_path)
+
+    # beside the dataset, never inside the acquisition tree
+    assert name(tmp_path / "PlateA") == "PlateA.msd"
+    assert name(ms1) == name(ms1.parent) == "PlateA_A1.msd"
+    assert name(lift) == name(lift.parent.parent) == "PlateA_A1_LIFT_900.1234.msd"
+    assert name(other) == "PlateA_B2.msd"
+    assert name(run.parent) == "PlateA_0_A1.msd"
+    assert name(run) == "PlateA_0_A1_1.msd"
+
+    # a folder holding several datasets is named after itself
+    _acquisition(tmp_path / "PlateB" / "0_A1" / "1" / "1SRef", "A1")
+    assert name(tmp_path) == os.path.join("..", os.path.basename(tmp_path) + ".msd")
+
+    # a dataset holding one acquisition keeps the plain name
+    single = _acquisition(tmp_path / "Single" / "0_C3" / "1" / "1SRef", "C3")
+    assert name(single) == "Single.msd"
+
+
+def test_the_ms1_and_lift_fids_of_a_spot_convert_side_by_side(tmp_path):
+    run = tmp_path / "PlateA" / "0_A1" / "1"
+    ms1 = _acquisition(run / "1SRef", "A1")
+    lift = _acquisition(run / "900.1234.LIFT" / "1SRef", "A1", lift="900.1234")
+    options = cli.ConvertOptions(
+        inputs=[str(ms1), str(lift)], format="msd", outputDir=str(tmp_path / "out")
+    )
+
+    jobs = convert.plan(options)
+
+    assert [job.problem for job in jobs] == [None, None]
+    assert [os.path.basename(job.output) for job in jobs] == [
+        "PlateA_A1.msd",
+        "PlateA_A1_LIFT_900.1234.msd",
+    ]
+
+
 def test_the_command_dispatches_to_convert(files, tmp_path):
     target = tmp_path / "single.msd"
 

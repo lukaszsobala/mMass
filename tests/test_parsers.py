@@ -562,6 +562,77 @@ def test_parse_bruker_lift_sits_in_the_same_dataset_as_its_spot(tmp_path):
     assert mspy.parser_bruker._precursorMZ({"SPType": "0", "Parent": "1000"}) is None
 
 
+def _write_lift_beside(ms1, precursor="900.123456789"):
+    """Add a LIFT acquisition to the run an MS1 fid belongs to."""
+
+    run = ms1.parent.parent
+    folder = run / ("%.4f.LIFT" % float(precursor)) / "1SRef"
+    folder.mkdir(parents=True)
+    (folder / "fid").write_bytes(b"")
+    (folder / "acqu").write_text(
+        (ms1.parent / "acqu").read_text() + "##$SPType= 2\n##$Parent= %s\n" % precursor
+    )
+    return folder / "fid"
+
+
+def test_parse_bruker_titles_tell_a_lone_lift_from_its_ms1(tmp_path):
+    """One acquisition opened from a dataset holding others says which it is.
+
+    The MS1 and the LIFT spectrum of a spot are otherwise both just 'PlateA',
+    as documents and as the files they are saved to.
+    """
+
+    ms1 = _write_fake_dataset(tmp_path, "PlateA", "A1", "alice", "2026-01-01T12:00:00")
+    lift = _write_lift_beside(ms1)
+
+    for opened, title, level in (
+        (ms1, "PlateA A1", 1),
+        (ms1.parent, "PlateA A1", 1),
+        (lift, "PlateA A1 LIFT 900.1235", 2),
+        (lift.parent.parent, "PlateA A1 LIFT 900.1235", 2),
+    ):
+        parser = mspy.parseBruker(str(opened))
+        scanlist = parser.scanlist()
+        assert scanlist, opened  # parsers return False on failure
+        assert parser.info()["title"] == title, opened
+        assert scanlist[1]["msLevel"] == level, opened
+
+    assert mspy.acquisitionLabel(str(lift)) == "A1 LIFT 900.1235"
+    assert mspy.datasetFIDs(str(lift)) == [str(ms1), str(lift)]
+
+
+def test_parse_bruker_a_lone_acquisition_keeps_the_dataset_name(tmp_path):
+    fid = _write_fake_dataset(tmp_path, "PlateA", "A1", "alice", "2026-01-01T12:00:00")
+
+    assert mspy.parseBruker(str(fid)).info()["title"] == "PlateA"
+
+
+def test_bruker_acquisition_copied_out_of_its_dataset(tmp_path):
+    """A '1SRef' copied out of the flexControl tree is a dataset of its own.
+
+    Three levels up is no dataset then, and must not be walked for
+    acquisitions, nor lend its name.
+    """
+
+    _write_fake_dataset(tmp_path, "Elsewhere", "B2", "bob", "2026-01-01T12:00:00")
+    copied = _write_fake_dataset(tmp_path / "home" / "desk", "Sample", "A1", "alice", "2026-01-01T12:00:00")
+    flat = tmp_path / "home" / "desk" / "Copy" / "1SRef"
+    flat.parent.mkdir(parents=True)
+    copied.parent.rename(flat)
+    fid = flat / "fid"
+
+    assert not mspy.inDatasetLayout(str(fid))
+    assert mspy.datasetDir(str(fid)) == str(flat.parent)
+    assert mspy.datasetFIDs(str(fid)) == [str(fid)]
+    assert mspy.parseBruker(str(fid)).info()["title"] == "Copy"
+
+    # a fid lying loose, without a '1SRef' around it
+    loose = tmp_path / "loose"
+    loose.mkdir()
+    (loose / "fid").write_bytes(b"")
+    assert mspy.datasetDir(str(loose / "fid")) == str(loose)
+
+
 def test_parse_bruker_ignores_folder_without_data(tmp_path):
     assert mspy.findFIDs(str(tmp_path)) == []
 

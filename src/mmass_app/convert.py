@@ -16,6 +16,7 @@ import dataclasses
 import json
 import math
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -237,14 +238,9 @@ def output_path(path, options):
     if options.output:
         return options.output
 
-    import mspy
-
     normalised = os.path.normpath(path)
-    if os.path.isdir(normalised):
-        folder, baseName = os.path.split(normalised)
-    elif os.path.basename(normalised).lower() == "fid":
-        # name a single acquisition after its dataset, not after "fid"
-        folder, baseName = os.path.split(mspy.datasetDir(normalised))
+    if os.path.isdir(normalised) or os.path.basename(normalised).lower() == "fid":
+        folder, baseName = bruker_output(normalised)
     else:
         folder, fileName = os.path.split(normalised)
         baseName = os.path.splitext(fileName)[0]
@@ -252,6 +248,36 @@ def output_path(path, options):
     return os.path.join(
         options.outputDir or folder, baseName + cli.output_extension(options.format)
     )
+
+
+def bruker_output(path):
+    """(folder, base name) of the output for Bruker data opened at path.
+
+    Results go beside the dataset folder, where the GUI saves them too, under
+    the dataset's name - never inside the acquisition tree. When only part of
+    a dataset was opened, the name says which part, so that the MS1 and LIFT
+    acquisitions of one spot, or its spots, are not written over each other: a
+    single acquisition by its label ('PlateA_A1_LIFT_900.1235'), a folder by
+    where it sits in the dataset. A folder holding several datasets is named
+    after itself, beside it.
+    """
+
+    import mspy
+
+    fids = mspy.findFIDs(path)
+    datasets = {mspy.datasetDir(fid) for fid in fids}
+    if len(datasets) != 1:
+        return os.path.split(path)
+
+    dataset = datasets.pop()
+    folder, name = os.path.split(dataset)
+    if len(fids) < len(mspy.datasetFIDs(fids[0])):
+        if len(fids) == 1:
+            part = mspy.acquisitionLabel(fids[0])
+        else:
+            part = os.path.relpath(path, dataset)
+        name += "_" + re.sub(r"[\s/\\]+", "_", part)
+    return folder, name
 
 
 def check_input(path, docType):
