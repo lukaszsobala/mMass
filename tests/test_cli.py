@@ -119,7 +119,7 @@ def test_convert_takes_the_format_from_the_output_name(files):
 
 
 def test_convert_inputs_may_follow_options(files):
-    options = cli.parse_convert_args(["-t", ".CSV", "a.mzML", "--overwrite", "b.msd"])
+    options = cli.parse_convert_args(["-f", ".CSV", "a.mzML", "--overwrite", "b.msd"])
 
     assert options.inputs == [str(files / "a.mzML"), str(files / "b.msd")]
     assert options.format == "csv"
@@ -146,12 +146,12 @@ def test_convert_refuses_formats_it_cannot_write(files, capsys, output, message)
     "argv, message",
     [
         (["a.mzML", "b.msd", "-o", "x.png"], "one input"),
-        (["a.mzML", "-o", "x.png", "-d", "out"], "--output-dir works with --to"),
+        (["a.mzML", "-o", "x.png", "-d", "out"], "--output-dir works with --format"),
         (["a.mzML"], "say where to write"),
-        (["a.mzML", "missing.mzML", "-t", "png"], "inputs not found"),
-        (["a.mzML", "-t", "png", "-d", "b.msd"], "not a folder"),
-        (["a.mzML", "-t", "png", "--size", "1920"], "not a size"),
-        (["a.mzML", "-t", "png", "--size", "0x100"], "between 1 and"),
+        (["a.mzML", "missing.mzML", "-f", "png"], "inputs not found"),
+        (["a.mzML", "-f", "png", "-d", "b.msd"], "not a folder"),
+        (["a.mzML", "-f", "png", "--size", "1920"], "not a size"),
+        (["a.mzML", "-f", "png", "--size", "0x100"], "between 1 and"),
     ],
 )
 def test_convert_refuses_impossible_requests(files, capsys, argv, message):
@@ -159,8 +159,8 @@ def test_convert_refuses_impossible_requests(files, capsys, argv, message):
 
 
 def test_convert_image_options(files, capsys):
-    raster = cli.parse_convert_args(["a.mzML", "-t", "jpg", "--size", "800x600", "--dark"])
-    svg = cli.parse_convert_args(["a.mzML", "-t", "svg", "--size", "800x600"])
+    raster = cli.parse_convert_args(["a.mzML", "-f", "jpg", "--size", "800x600", "--dark"])
+    svg = cli.parse_convert_args(["a.mzML", "-f", "svg", "--size", "800x600"])
 
     assert (raster.size, raster.dark) == ((800, 600), True)
     assert svg.size == cli.SVG_SIZE
@@ -169,7 +169,7 @@ def test_convert_image_options(files, capsys):
 
 def test_convert_warns_about_options_that_do_not_apply(files, capsys):
     options = cli.parse_convert_args(
-        ["a.mzML", "-t", "txt", "--size", "800x600", "--dark", "--separator", "semicolon"]
+        ["a.mzML", "-f", "txt", "--size", "800x600", "--dark", "--separator", "semicolon"]
     )
 
     assert options.separator == ";"
@@ -178,8 +178,8 @@ def test_convert_warns_about_options_that_do_not_apply(files, capsys):
 
 
 def test_convert_image_range(files, capsys):
-    options = cli.parse_convert_args(["a.mzML", "-t", "png", "--mz-range", "400.5:"])
-    text = cli.parse_convert_args(["a.mzML", "-t", "txt", "--mz-range", "400:500"])
+    options = cli.parse_convert_args(["a.mzML", "-f", "png", "--mz-range", "400.5:"])
+    text = cli.parse_convert_args(["a.mzML", "-f", "txt", "--mz-range", "400:500"])
 
     assert options.mzRange == (400.5, None)
     assert text.mzRange is None
@@ -188,18 +188,18 @@ def test_convert_image_range(files, capsys):
 
 @pytest.mark.parametrize("value", ["400", "500:400", ":", "a:b", "1:2:3"])
 def test_convert_refuses_ranges_that_are_none(files, capsys, value):
-    assert "--mz-range" in _convert_error(["a.mzML", "-t", "png", "--mz-range", value], capsys)
+    assert "--mz-range" in _convert_error(["a.mzML", "-f", "png", "--mz-range", value], capsys)
 
 
 def test_convert_writes_peak_lists_as_text(files, capsys):
-    options = cli.parse_convert_args(["a.mzML", "-t", "csv", "--peak-list", "--columns", "mz,z,envarea"])
-    image = cli.parse_convert_args(["a.mzML", "-t", "png", "--peak-list"])
+    options = cli.parse_convert_args(["a.mzML", "-f", "csv", "--peak-list", "--columns", "mz,z,envarea"])
+    image = cli.parse_convert_args(["a.mzML", "-f", "png", "--peak-list"])
 
     assert options.peaklist and options.columns == ["mz", "z", "envarea"]
     assert not image.peaklist
     assert "--peak-list does not apply to png" in capsys.readouterr().err
     assert "unknown peak list column" in _convert_error(
-        ["a.mzML", "-t", "csv", "--peak-list", "--columns", "mz,height"], capsys
+        ["a.mzML", "-f", "csv", "--peak-list", "--columns", "mz,height"], capsys
     )
 
 
@@ -222,7 +222,7 @@ def _process_error(argv, capsys):
 def test_process_keeps_the_order_of_the_steps(files):
     options = _process(
         ["--find-peaks", "a.mzML", "--crop", "500:1500.5", "--math", "SquareRoot",
-         "--baseline", "-t", "msd", "--find-peaks", "--math", "multiply", "--math", "SQRT"]
+         "--baseline", "-f", "msd", "--find-peaks", "--math", "multiply", "--math", "SQRT"]
     )
 
     assert options.steps == [
@@ -246,7 +246,7 @@ def test_process_in_place_leaves_the_format_to_each_input(files):
 
 def test_process_settings(files):
     options = _process(
-        ["a.mzML", "--find-peaks", "-t", "msd", "--preset", "Default",
+        ["a.mzML", "--find-peaks", "-f", "msd", "--preset", "Default",
          "--set", "peakpicking.snThreshold = 10", "--set", "smoothing.method=GA"]
     )
 
@@ -266,22 +266,22 @@ def test_show_settings_needs_no_inputs():
 @pytest.mark.parametrize(
     "argv, message",
     [
-        (["a.mzML", "-t", "msd"], "no processing steps"),
-        (["--baseline", "-t", "msd"], "no inputs"),
+        (["a.mzML", "-f", "msd"], "no processing steps"),
+        (["--baseline", "-f", "msd"], "no inputs"),
         (["a.mzML", "--baseline"], "--in-place to replace"),
-        (["a.mzML", "--baseline", "--in-place", "-t", "msd"], "only one of --to and --in-place"),
+        (["a.mzML", "--baseline", "--in-place", "-f", "msd"], "only one of --format and --in-place"),
         (["a.mzML", "--baseline", "--in-place", "-d", "out"], "not to --output-dir"),
         (["a.mzML", "--baseline", "--in-place", "--scan", "3"], "cannot pick one"),
-        (["a.mzML", "--crop", "500:", "-t", "msd"], "both ends"),
-        (["a.mzML", "--set", "snThreshold", "--find-peaks", "-t", "msd"], "not a setting"),
-        (["a.mzML", "--find-peaks", "-t", "txt"], "peaks --find-peaks finds would be lost"),
-        (["a.mzML", "--deisotope", "-t", "txt"], "peaks --deisotope"),
-        (["a.mzML", "--find-peaks", "--baseline", "-t", "mgf"], "--baseline does not change"),
-        (["a.mzML", "--smooth", "-t", "csv", "--peak-list"], "--smooth does not change"),
-        (["a.mzML", "--math", "subtract", "-t", "msd"], "more spectra than the one"),
-        (["a.mzML", "--math", "averageall", "-t", "msd"], "more spectra than the one"),
-        (["a.mzML", "--math", "log", "-t", "msd"], "unknown math operation"),
-        (["a.mzML", "--math", "-t", "msd"], "expected one argument"),
+        (["a.mzML", "--crop", "500:", "-f", "msd"], "both ends"),
+        (["a.mzML", "--set", "snThreshold", "--find-peaks", "-f", "msd"], "not a setting"),
+        (["a.mzML", "--find-peaks", "-f", "txt"], "peaks --find-peaks finds would be lost"),
+        (["a.mzML", "--deisotope", "-f", "txt"], "peaks --deisotope"),
+        (["a.mzML", "--find-peaks", "--baseline", "-f", "mgf"], "--baseline does not change"),
+        (["a.mzML", "--smooth", "-f", "csv", "--peak-list"], "--smooth does not change"),
+        (["a.mzML", "--math", "subtract", "-f", "msd"], "more spectra than the one"),
+        (["a.mzML", "--math", "averageall", "-f", "msd"], "more spectra than the one"),
+        (["a.mzML", "--math", "log", "-f", "msd"], "unknown math operation"),
+        (["a.mzML", "--math", "-f", "msd"], "expected one argument"),
     ],
 )
 def test_process_refuses_impossible_requests(files, capsys, argv, message):
@@ -291,11 +291,11 @@ def test_process_refuses_impossible_requests(files, capsys, argv, message):
 @pytest.mark.parametrize(
     "argv",
     [
-        ["--baseline", "--find-peaks", "-t", "mgf"],
-        ["--find-peaks", "-t", "csv", "--peak-list"],
-        ["--crop", "1:2", "--math", "normalize", "-t", "mgf"],
-        ["--find-peaks", "--deisotope", "-t", "png"],
-        ["--baseline", "--smooth", "-t", "txt"],
+        ["--baseline", "--find-peaks", "-f", "mgf"],
+        ["--find-peaks", "-f", "csv", "--peak-list"],
+        ["--crop", "1:2", "--math", "normalize", "-f", "mgf"],
+        ["--find-peaks", "--deisotope", "-f", "png"],
+        ["--baseline", "--smooth", "-f", "txt"],
     ],
 )
 def test_process_accepts_steps_the_output_keeps(files, argv):
@@ -361,7 +361,7 @@ def test_errors_are_short(files, capsys):
 
 def test_options_cannot_be_abbreviated(files, capsys):
     assert "unrecognized arguments: --mz" in _convert_error(
-        ["a.mzML", "-t", "png", "--mz", "400:500"], capsys
+        ["a.mzML", "-f", "png", "--mz", "400:500"], capsys
     )
 
 
@@ -369,13 +369,13 @@ def test_options_cannot_be_abbreviated(files, capsys):
     "argv, message",
     [
         (["a.mzML", "a.png"], "give it as the output: --output a.png"),
-        (["a.mzML", "b.msd", "-o", "out/"], "use --to FORMAT --output-dir out/"),
+        (["a.mzML", "b.msd", "-o", "out/"], "use --format FORMAT --output-dir out/"),
         (["a.mzML", "-o", "bruker"], "bruker is a folder"),
-        (["a.mzML", "--find-peaks", "-t", "csv"], "use mmass process instead"),
-        (["a.mzML", "--set=snThreshold=3", "-t", "csv"], "--set belongs to processing"),
-        (["a.mzML", "-t", "csv", "-o", "b.csv"], "only one of --output and --to"),
-        (["a.mzML", "-o", "-"], "needs --to FORMAT"),
-        (["a.mzML", "b.msd", "-o", "-", "-t", "csv"], "only one input"),
+        (["a.mzML", "--find-peaks", "-f", "csv"], "use mmass process instead"),
+        (["a.mzML", "--set=snThreshold=3", "-f", "csv"], "--set belongs to processing"),
+        (["a.mzML", "-f", "csv", "-o", "b.csv"], "only one of --output and --format"),
+        (["a.mzML", "-o", "-"], "needs --format FORMAT"),
+        (["a.mzML", "b.msd", "-o", "-", "-f", "csv"], "only one input"),
     ],
 )
 def test_likely_mistakes_get_a_hint(files, capsys, argv, message):
@@ -383,7 +383,7 @@ def test_likely_mistakes_get_a_hint(files, capsys, argv, message):
 
 
 def test_standard_output_takes_the_format_from_to(files):
-    options = cli.parse_convert_args(["a.mzML", "-o", "-", "-t", "CSV", "--peak-list"])
+    options = cli.parse_convert_args(["a.mzML", "-o", "-", "-f", "CSV", "--peak-list"])
 
     assert (options.output, options.format, options.peaklist) == ("-", "csv", True)
 
@@ -393,27 +393,27 @@ def test_standard_output_takes_the_format_from_to(files):
     [("400-1500", (400.0, 1500.0)), ("400.5-", (400.5, None)), ("-1500", (None, 1500.0))],
 )
 def test_ranges_take_a_dash(files, value, expected):
-    options = cli.parse_convert_args(["a.mzML", "-t", "png", "--mz-range", value])
+    options = cli.parse_convert_args(["a.mzML", "-f", "png", "--mz-range", value])
 
     assert options.mzRange == expected
 
 
 def test_columns_take_readable_names_in_any_case(files):
     options = cli.parse_convert_args(
-        ["a.mzML", "-t", "csv", "--peak-list", "--columns", "MZ, Intensity,charge,resolution"]
+        ["a.mzML", "-f", "csv", "--peak-list", "--columns", "MZ, Intensity,charge,resolution"]
     )
 
     assert options.columns == ["mz", "int", "z", "resol"]
 
 
 def test_mgf_is_a_peak_list_already(files, capsys):
-    cli.parse_convert_args(["a.mzML", "-t", "mgf", "--peak-list"])
+    cli.parse_convert_args(["a.mzML", "-f", "mgf", "--peak-list"])
 
     assert capsys.readouterr().err == ""
 
 
 def test_old_spellings_still_work_but_are_not_listed(files, capsys):
-    options = _process(["a.mzML", "--findpeaks", "-t", "csv", "--peaklist", "--math", "normalise"])
+    options = _process(["a.mzML", "--findpeaks", "-f", "csv", "--peaklist", "--math", "normalise"])
 
     assert options.steps == [("find-peaks", None), ("math", "normalize")]
     assert options.peaklist
@@ -424,13 +424,13 @@ def test_old_spellings_still_work_but_are_not_listed(files, capsys):
 
 
 def test_warnings_name_the_command(files, capsys):
-    cli.parse_convert_args(["a.mzML", "-t", "txt", "--dark"])
+    cli.parse_convert_args(["a.mzML", "-f", "txt", "--dark"])
 
     assert capsys.readouterr().err.startswith("mmass convert: warning:")
 
 
 def test_bare_setting_keys(files):
-    options = _process(["a.mzML", "--find-peaks", "-t", "msd", "--set", "snThreshold=4"])
+    options = _process(["a.mzML", "--find-peaks", "-f", "msd", "--set", "snThreshold=4"])
 
     assert options.settings == [("snThreshold", "4", "--set")]
 
@@ -471,7 +471,7 @@ def test_a_recipe_runs_where_it_is_given(files):
     )
 
     options = _process(
-        ["a.mzML", "--smooth", "--recipe", recipe, "--deisotope", "-t", "csv", "--set", "snThreshold=9"]
+        ["a.mzML", "--smooth", "--recipe", recipe, "--deisotope", "-f", "csv", "--set", "snThreshold=9"]
     )
 
     assert options.steps == [
@@ -501,7 +501,7 @@ def test_a_recipe_alone_is_enough_for_show_settings(files):
 @pytest.mark.parametrize(
     "text, message",
     [
-        ("find-peaks\nto csv\n", "line 2: --to belongs on the command line"),
+        ("find-peaks\nformat csv\n", "line 2: --format belongs on the command line"),
         ("in-place\n", "line 1: --in-place belongs on the command line"),
         ("output-dir out\n", "--output-dir belongs on the command line"),
         ("recipe other\n", "cannot include another recipe"),
@@ -516,12 +516,12 @@ def test_a_recipe_alone_is_enough_for_show_settings(files):
 def test_recipe_mistakes_name_their_line(files, capsys, text, message):
     recipe = _recipe(files, text)
 
-    err = _process_error(["a.mzML", "--recipe", recipe, "--find-peaks", "-t", "msd"], capsys)
+    err = _process_error(["a.mzML", "--recipe", recipe, "--find-peaks", "-f", "msd"], capsys)
 
     assert f"recipe {recipe}, " in err and message in err
 
 
 def test_a_missing_recipe(files, capsys):
     assert "cannot read the recipe nope.txt" in _process_error(
-        ["a.mzML", "--recipe", "nope.txt", "-t", "msd"], capsys
+        ["a.mzML", "--recipe", "nope.txt", "-f", "msd"], capsys
     )

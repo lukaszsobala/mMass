@@ -26,7 +26,7 @@ PROCESS_COMMAND = "process"
 # the output name that writes to standard output
 STDOUT = "-"
 
-# formats mmass convert writes, by the name --to takes (the file extension
+# formats mmass convert writes, by the name --format takes (the file extension
 # without its dot, lowercase), with the kind of output each one is
 OUTPUT_FORMATS = {
     "msd": "mSD",
@@ -215,9 +215,9 @@ def make_parser():
         prog="mmass",
         usage=(
             "mmass [FILE ...]\n"
-            f"       mmass {CONVERT_COMMAND} INPUT ... (-o FILE | -t FORMAT) [options]\n"
+            f"       mmass {CONVERT_COMMAND} INPUT ... (-o FILE | -f FORMAT) [options]\n"
             f"       mmass {PROCESS_COMMAND} INPUT ... STEP ... "
-            "(-o FILE | -t FORMAT | --in-place) [options]"
+            "(-o FILE | -f FORMAT | --in-place) [options]"
         ),
         description=(
             "mMass - Open Source Mass Spectrometry Tool.\n\n"
@@ -570,7 +570,7 @@ def steps_problem(steps, kind, name, peaklist, inPlace=False):
         changes = STEPS[step][1]
         if changes == "peaks" and "peaks" not in stored:
             advice = (
-                "write them with --to csv --peak-list or --to msd instead"
+                "write them with --format csv --peak-list or --format msd instead"
                 if inPlace
                 else "add --peak-list to write the peak list as text, or write msd"
             )
@@ -616,9 +616,9 @@ def make_convert_parser(command=CONVERT_COMMAND):
             prog=f"mmass {PROCESS_COMMAND}",
             usage=(
                 f"mmass {PROCESS_COMMAND} INPUT ... STEP ... "
-                "(-o FILE | -t FORMAT [-d DIR] | --in-place) [options]\n"
+                "(-o FILE | -f FORMAT [-d DIR] | --in-place) [options]\n"
                 f"       mmass {PROCESS_COMMAND} INPUT ... --recipe FILE "
-                "(-o FILE | -t FORMAT [-d DIR] | --in-place) [options]\n"
+                "(-o FILE | -f FORMAT [-d DIR] | --in-place) [options]\n"
                 f"       mmass {PROCESS_COMMAND} --show-settings [--recipe FILE] "
                 "[--preset NAME] [--set KEY=VALUE ...]"
             ),
@@ -645,7 +645,7 @@ def make_convert_parser(command=CONVERT_COMMAND):
         parser = Parser(
             prog=f"mmass {CONVERT_COMMAND}",
             usage=(
-                f"mmass {CONVERT_COMMAND} INPUT ... (-o FILE | -t FORMAT [-d DIR]) [options]"
+                f"mmass {CONVERT_COMMAND} INPUT ... (-o FILE | -f FORMAT [-d DIR]) [options]"
             ),
             description=(
                 "Convert spectra to another format or draw them as images, "
@@ -723,12 +723,12 @@ def make_convert_parser(command=CONVERT_COMMAND):
         metavar="FILE",
         help=(
             "output file, its format given by the extension (one input only); "
-            "- writes to standard output, in the format given by --to"
+            "- writes to standard output, in the format given by --format"
         ),
     )
     outputs.add_argument(
-        "-t",
-        "--to",
+        "-f",
+        "--format",
         metavar="FORMAT",
         help=(
             "output format; each input is written beside it under the same "
@@ -745,7 +745,7 @@ def make_convert_parser(command=CONVERT_COMMAND):
         "-d",
         "--output-dir",
         metavar="DIR",
-        help="folder to write --to outputs into (created if missing)",
+        help="folder to write --format outputs into (created if missing)",
     )
     outputs.add_argument(
         "--scan",
@@ -857,7 +857,7 @@ def parse_convert_args(argv, command=CONVERT_COMMAND):
                     f"instead of mmass {CONVERT_COMMAND}"
                 )
 
-    # inputs may follow options, as in: mmass convert -t png *.mzML more.msd
+    # inputs may follow options, as in: mmass convert -f png *.mzML more.msd
     args = parser.parse_intermixed_args(argv)
 
     steps = getattr(args, "steps", None) or []
@@ -879,13 +879,13 @@ def parse_convert_args(argv, command=CONVERT_COMMAND):
         )
 
     # where to write
-    if not (args.output or args.to or inPlace):
+    if not (args.output or args.format or inPlace):
         last = args.inputs[-1] if args.inputs else ""
         extension = os.path.splitext(last)[1].lower().lstrip(".")
         if len(args.inputs) > 1 and extension in OUTPUT_FORMATS and not os.path.exists(last):
             parser.error(f"to write {last}, give it as the output: --output {last}")
         parser.error(
-            "say where to write the results: --output FILE or --to FORMAT"
+            "say where to write the results: --output FILE or --format FORMAT"
             + (", or --in-place to replace the inputs" if process else "")
         )
     if process and not steps:
@@ -899,7 +899,7 @@ def parse_convert_args(argv, command=CONVERT_COMMAND):
     toStdout = args.output == STDOUT
     targets = [
         name for name, given in
-        (("--output", args.output and not toStdout), ("--to", args.to), ("--in-place", inPlace))
+        (("--output", args.output and not toStdout), ("--format", args.format), ("--in-place", inPlace))
         if given
     ]
     if len(targets) > 1:
@@ -916,35 +916,35 @@ def parse_convert_args(argv, command=CONVERT_COMMAND):
         if args.scan is not None:
             parser.error(
                 "--in-place rewrites whole files, so --scan cannot pick one "
-                "spectrum of them; write it out with --output or --to instead"
+                "spectrum of them; write it out with --output or --format instead"
             )
         if args.overwrite:
             warn("--overwrite does not apply to --in-place, ignoring it", prog)
     elif toStdout:
-        if not args.to:
-            parser.error("writing to standard output (--output -) needs --to FORMAT")
+        if not args.format:
+            parser.error("writing to standard output (--output -) needs --format FORMAT")
         if len(args.inputs) > 1:
             parser.error("only one input can be written to standard output")
         if args.output_dir:
             parser.error("--output - writes to standard output, not to --output-dir")
-        name = args.to.lower().lstrip(".")
-        what = f"format '{args.to}'"
+        name = args.format.lower().lstrip(".")
+        what = f"format '{args.format}'"
     elif args.output:
         folder = args.output.endswith(("/", os.sep)) or os.path.isdir(args.output)
         if len(args.inputs) > 1 or folder:
             parser.error(
                 ("--output takes one input" if not folder else f"--output {args.output} is a folder")
-                + f"; to write into a folder, use --to FORMAT --output-dir {args.output}"
+                + f"; to write into a folder, use --format FORMAT --output-dir {args.output}"
             )
         if args.output_dir:
-            parser.error("--output-dir works with --to; give --output a full path")
+            parser.error("--output-dir works with --format; give --output a full path")
         name = os.path.splitext(args.output)[1].lower().lstrip(".")
         if os.path.basename(args.output).lower() == "fid":
             name = "fid"
         what = f"output file {args.output}"
     else:
-        name = args.to.lower().lstrip(".")
-        what = f"format '{args.to}'"
+        name = args.format.lower().lstrip(".")
+        what = f"format '{args.format}'"
 
     if name is not None:
         if name not in OUTPUT_FORMATS:

@@ -277,14 +277,14 @@ def in_place_options(path, docType, options):
         raise ConversionError(
             f"mMass would rewrite the {docType} file with only the spectra and "
             "the few details it reads, dropping everything else; write the "
-            f"results beside it instead, e.g. --to {docType.lower()} "
+            f"results beside it instead, e.g. --format {docType.lower()} "
             "--output-dir processed"
         )
     if docType not in IN_PLACE_FORMATS:
         what = "Bruker fid data" if docType == "bruker" else f"{docType} files"
         raise ConversionError(
             f"mMass reads {what} but cannot write them; write the results "
-            "with --to msd or --to mzml instead"
+            "with --format msd or --format mzml instead"
         )
 
     name = IN_PLACE_FORMATS[docType]
@@ -295,7 +295,7 @@ def in_place_options(path, docType, options):
     if options.peaklist and kind == "ASCII":
         raise ConversionError(
             "--peak-list would replace the spectrum in the file with its peak "
-            "list; write the peak list with --to csv --peak-list instead"
+            "list; write the peak list with --format csv --peak-list instead"
         )
     problem = cli.steps_problem(options.steps, kind, name, False, inPlace=True)
     if problem:
@@ -539,7 +539,7 @@ def read(path, docType, options, settings=None):
         if options.inPlace:
             raise ConversionError(
                 f"the file holds {len(scanlist)} spectra, and mMass writes "
-                f"{options.format} files of one; write the results with --to "
+                f"{options.format} files of one; write the results with --format "
                 "mzml instead"
             )
         raise ConversionError(

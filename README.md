@@ -59,7 +59,7 @@ using the spectrum settings of the GUI:
 
 ```sh
 mmass convert spectrum.mzML -o spectrum.msd
-mmass convert *.mzML bruker_dataset/ -t png -d images --size 1920x1080
+mmass convert *.mzML bruker_dataset/ -f png -d images --size 1920x1080
 mmass convert run.mzML -o scan.txt --scan 42   # one spectrum of an LC-MS run
 mmass convert --help
 ```
@@ -75,9 +75,9 @@ it under `xvfb-run`.
 
 ```sh
 mmass process sample.mzML --baseline --smooth --find-peaks -o sample.msd
-mmass process *.mzML --find-peaks -t csv --peak-list --columns mz,intensity,charge,envarea -d peaks
+mmass process *.mzML --find-peaks -f csv --peak-list --columns mz,intensity,charge,envarea -d peaks
 mmass process spectra/*.msd --crop 500-3000 --find-peaks --in-place --dry-run
-mmass process run.mzML --find-peaks --preset Default --set snThreshold=10 -t mzml -d picked
+mmass process run.mzML --find-peaks --preset Default --set snThreshold=10 -f mzml -d picked
 mmass process --show-settings
 ```
 
@@ -108,12 +108,12 @@ columns mz, intensity, charge, envarea
 ```
 
 ```sh
-mmass process plate1/*.mzML --recipe peptides.recipe -t csv -d plate1-peaks
+mmass process plate1/*.mzML --recipe peptides.recipe -f csv -d plate1-peaks
 ```
 
 A recipe runs where `--recipe` stands among the other options, which can add steps before or after
 it or change its settings (a later `--set` wins). It says what to do with each spectrum, not which
-files to read or where to write, so `--to`, `--output`, `--output-dir`, `--in-place` and the like stay
+files to read or where to write, so `--format`, `--output`, `--output-dir`, `--in-place` and the like stay
 on the command line.
 
 Each input is processed on its own and written to its own output, so a file that fails does not stop
@@ -124,8 +124,8 @@ since mMass would drop the metadata it does not read. Steps whose results the ou
 hold are refused, e.g. `--find-peaks` into a text profile. `--dry-run` reads and processes every
 input and reports what would be written, without writing anything.
 
-Both commands can write one input to standard output with `-o -` and the format given by `--to`,
-e.g. `mmass process sample.mzML --find-peaks --peak-list -t csv -o - | sort -t, -k2 -gr`. They exit
+Both commands can write one input to standard output with `-o -` and the format given by `--format`,
+e.g. `mmass process sample.mzML --find-peaks --peak-list -f csv -o - | sort -t, -k2 -gr`. They exit
 with 0 when every input was written, 1 when some could not be, and 2 when the arguments are wrong.
 
 You can also run it generically:

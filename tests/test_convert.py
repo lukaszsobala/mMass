@@ -94,7 +94,7 @@ def _process(*argv):
 
 @pytest.mark.parametrize("kind, reason", [("session", "session"), ("fasta", "sequences")])
 def test_documents_without_spectra_are_refused(files, tmp_path, capsys, kind, reason):
-    status, _ = _convert(files[kind], "-t", "mzml", "-d", str(tmp_path / "out"))
+    status, _ = _convert(files[kind], "-f", "mzml", "-d", str(tmp_path / "out"))
 
     assert status == 1
     assert reason in capsys.readouterr().err
@@ -102,7 +102,7 @@ def test_documents_without_spectra_are_refused(files, tmp_path, capsys, kind, re
 
 
 def test_output_never_replaces_its_input(files, capsys):
-    status, _ = _convert(files["single"], "-t", "mzml")
+    status, _ = _convert(files["single"], "-f", "mzml")
 
     assert status == 1
     assert "replace the input" in capsys.readouterr().err
@@ -124,11 +124,11 @@ def test_inputs_written_to_the_same_output_are_refused(files, tmp_path, capsys):
     other = tmp_path / "other"
     other.mkdir()
     copy = other / "single.msd"
-    status, _ = _convert(files["single"], "-t", "msd", "-d", str(tmp_path / "out"))
+    status, _ = _convert(files["single"], "-f", "msd", "-d", str(tmp_path / "out"))
     assert status == 0
     copy.write_bytes((tmp_path / "out" / "single.msd").read_bytes())
 
-    status, _ = _convert(files["single"], str(copy), "-t", "txt", "-d", str(tmp_path / "txt"))
+    status, _ = _convert(files["single"], str(copy), "-f", "txt", "-d", str(tmp_path / "txt"))
 
     assert status == 1
     assert "same" in capsys.readouterr().err
@@ -576,7 +576,7 @@ def test_in_place_refuses_files_it_would_damage(files, profiles, capsys, kind, m
 def test_one_failing_input_does_not_stop_the_others(files, profiles, tmp_path, capsys):
     out = tmp_path / "out"
 
-    status = _process(files["fasta"], str(profiles["msd"]), str(profiles["txt"]), "--find-peaks", "-t", "msd", "-d", str(out))
+    status = _process(files["fasta"], str(profiles["msd"]), str(profiles["txt"]), "--find-peaks", "-f", "msd", "-d", str(out))
 
     assert status == 1
     assert sorted(os.listdir(out)) == ["profile.msd"]
@@ -590,7 +590,7 @@ def test_a_dry_run_writes_nothing(profiles, tmp_path, capsys):
     out = tmp_path / "out"
     original = profiles["msd"].read_bytes()
 
-    assert _process(str(profiles["msd"]), "--find-peaks", "-t", "msd", "-d", str(out), "--dry-run") == 0
+    assert _process(str(profiles["msd"]), "--find-peaks", "-f", "msd", "-d", str(out), "--dry-run") == 0
     assert _process(str(profiles["msd"]), "--find-peaks", "--in-place", "--dry-run") == 0
 
     assert not out.exists()
@@ -606,7 +606,7 @@ def test_a_dry_run_still_finds_what_would_fail(profiles, tmp_path, capsys):
 
 
 def test_standard_output_gets_the_output_alone(profiles, capfdbinary):
-    status = _process(str(profiles["msd"]), "--find-peaks", "-o", "-", "-t", "csv", "--peak-list", "--columns", "mz,z")
+    status = _process(str(profiles["msd"]), "--find-peaks", "-o", "-", "-f", "csv", "--peak-list", "--columns", "mz,z")
 
     assert status == 0
     captured = capfdbinary.readouterr()
@@ -619,8 +619,8 @@ def test_messages_show_paths_relative_to_the_current_folder(profiles, tmp_path, 
     monkeypatch.chdir(tmp_path)
     (tmp_path / "profile.png").write_text("")
 
-    assert _convert("profile.msd", "-t", "msd", "-d", "out")[0] == 0
-    assert _convert("profile.msd", "-t", "png")[0] == 1
+    assert _convert("profile.msd", "-f", "msd", "-d", "out")[0] == 0
+    assert _convert("profile.msd", "-f", "png")[0] == 1
 
     captured = capsys.readouterr()
     assert captured.out == f"profile.msd -> {os.path.join('out', 'profile.msd')}\n"
