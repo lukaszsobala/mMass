@@ -104,6 +104,16 @@ def invalidate_dark_mode_cache():
     _DARK_MODE = None
 
 
+def force_dark_mode(dark):
+    """Draw plot objects for the given theme instead of the system's.
+
+    For images made outside the GUI, which choose their own background.
+    """
+
+    global _DARK_MODE
+    _DARK_MODE = bool(dark)
+
+
 def apply_theme_label_colours(properties):
     """Set a plot object's label colours for the current system theme.
 

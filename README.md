@@ -47,12 +47,28 @@ Once installed, the CLI wrapper is available globally within your virtual enviro
 mmass
 ```
 
-Documents or a saved session (`.mses`) given on the command line are opened at startup:
+Documents, Bruker dataset folders or a saved session (`.mses`) given on the command line are opened at startup:
 
 ```sh
-mmass spectrum.mzML spectrum2.msd
+mmass spectrum.mzML spectrum2.msd bruker_dataset/
 mmass --help
 ```
+
+`mmass convert` converts documents without opening the GUI, and draws spectra as images
+using the spectrum settings of the GUI:
+
+```sh
+mmass convert spectrum.mzML -o spectrum.msd
+mmass convert *.mzML bruker_dataset/ -t png -d images --size 1920x1080
+mmass convert run.mzML -o scan.txt --scan 42   # one spectrum of an LC-MS run
+mmass convert --help
+```
+
+Outputs are msd, mzML, mzXML, text (txt/xy/asc/csv), MGF (peak list) and images
+(PNG, JPEG, TIFF, BMP, SVG; light by default, `--dark` for a dark background). A conversion
+that cannot work, such as a session or a FASTA file into a spectrum format, or several spectra into
+one text file, is refused with the reason. Image output needs a display; on a headless machine run
+it under `xvfb-run`.
 
 You can also run it generically:
 

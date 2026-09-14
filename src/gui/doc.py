@@ -24,12 +24,14 @@ import copy
 import xml.dom.minidom
 import os.path
 import re
+import time
 import numpy
 import wx
 from typing import Any
 
 # load modules
 from . import config
+from . import session
 import mspy
 
 # DOCUMENT STRUCTURE
@@ -2346,6 +2348,231 @@ class parseMSD:
             return False
 
     # ----
+
+
+# READING DOCUMENTS
+# -----------------
+
+# multiscan formats opened as a single browsable LC-MS run
+RUN_FORMATS = ("mzXML", "mzData", "mzML")
+
+
+def documentType(path):
+    """Get the type of document at path, or False if it is not recognised.
+
+    Besides the spectrum formats this recognises "FASTA" sequences and
+    "session" files, which are opened by their own code paths.
+    """
+
+    # get filename and extension
+    fileName = os.path.split(path)[1]
+    extension = os.path.splitext(fileName)[1].lower()
+    fileName = fileName.lower()
+
+    # get document type by filename or extension
+    if extension == ".msd":
+        return "mSD"
+    elif fileName == "fid":
+        return "bruker"
+    elif extension == ".mzdata":
+        return "mzData"
+    elif extension == ".mzxml":
+        return "mzXML"
+    elif extension == ".mzml":
+        return "mzML"
+    elif extension == ".mgf":
+        return "MGF"
+    elif extension in (".xy", ".txt", ".asc"):
+        return "XY"
+    elif extension in (".fa", ".fsa", ".faa", ".fasta"):
+        return "FASTA"
+    elif extension == session.SESSION_EXTENSION:
+        return "session"
+
+    # a Bruker flex dataset is a directory tree of fid files
+    elif os.path.isdir(path):
+        if mspy.findFIDs(path):
+            return "bruker"
+
+    # get document type for xml files
+    if extension == ".xml":
+        with open(path, "r", errors="replace") as document:
+            data = document.read(500)
+        if "<mzData" in data:
+            return "mzData"
+        elif "<mzXML" in data:
+            return "mzXML"
+        elif "<mzML" in data:
+            return "mzML"
+
+    # unknown document type
+    return False
+
+
+def makeScanParser(path, docType):
+    """Make an mspy parser for a document holding several scans."""
+
+    if docType == "mzData":
+        return mspy.parseMZDATA(path)
+    elif docType == "mzXML":
+        return mspy.parseMZXML(path)
+    elif docType == "mzML":
+        return mspy.parseMZML(path)
+    elif docType == "MGF":
+        return mspy.parseMGF(path)
+    elif docType == "bruker":
+        return mspy.parseBruker(path)
+    return None
+
+
+def initialScanID(scanlist):
+    """Pick the scan first shown when a run is opened (TIC apex MS1)."""
+
+    best = None
+    bestTIC = None
+    firstMS1 = None
+    for scanID, meta in scanlist.items():
+        if meta.get("msLevel") not in (None, 1):
+            continue
+        if firstMS1 is None:
+            firstMS1 = scanID
+        tic = meta.get("totIonCurrent")
+        if tic is not None and (bestTIC is None or tic > bestTIC):
+            bestTIC = tic
+            best = scanID
+
+    if best is not None:
+        return best
+    if firstMS1 is not None:
+        return firstMS1
+    # no MS1 scans at all - use the first scan available
+    return next(iter(scanlist), None)
+
+
+def _applyInfo(document, info):
+    """Copy the description a parser reads into a document."""
+
+    if isinstance(info, dict):
+        document.title = info["title"]
+        document.operator = info["operator"]
+        document.contact = info["contact"]
+        document.institution = info["institution"]
+        document.date = info["date"]
+        document.instrument = info["instrument"]
+        document.notes = info["notes"]
+
+
+def _titleFromPath(path):
+    """Make a document title from its file name."""
+
+    dirName, fileName = os.path.split(path)
+    baseName = os.path.splitext(fileName)[0]
+    if baseName.lower() == "analysis":
+        return os.path.split(dirName)[1]
+    return baseName
+
+
+def readDocument(path, docType, scan=None):
+    """Read one spectrum document, or the given scan of a multiscan one.
+
+    Returns the document, or None if it cannot be read. Nothing here touches
+    the GUI, so it is safe to call from worker threads.
+    """
+
+    # get data data
+    spectrum = False
+    if docType == "mSD":
+        return parseMSD(path).getDocument() or None
+    elif docType == "XY":
+        parser = mspy.parseXY(path)
+        spectrum = parser.scan()
+    else:
+        parser = makeScanParser(path, docType)
+        if parser is None:
+            return None
+        spectrum = parser.scan(scan)
+
+    # a scan object is falsy without profile data (len() counts profile
+    # points), yet a centroided scan is a perfectly good document
+    if spectrum is None or spectrum is False:
+        return None
+
+    # init document
+    docData = document()
+    docData.format = docType
+    docData.path = path
+    docData.spectrum = spectrum
+
+    # get info
+    if isinstance(parser, mspy.parseBruker):
+        # a Bruker path can hold many acquisitions, each with its own
+        # operator, instrument and date - ask for this one's
+        _applyInfo(docData, parser.info(scan))
+    else:
+        _applyInfo(docData, parser.info())
+
+    # set date if empty
+    if not docData.date:
+        docData.date = time.ctime(os.path.getctime(path))
+
+    # set title if empty
+    if not docData.title:
+        if docData.spectrum.title != "":
+            docData.title = docData.spectrum.title
+        else:
+            docData.title = _titleFromPath(path)
+
+    # add scan number to title - a Bruker title already names the dataset
+    # and the spot, which identifies the acquisition better than its index
+    # in the tree does
+    if scan and docType != "bruker":
+        docData.title += " [%s]" % scan
+
+    return docData
+
+
+def readRun(path, docType, scanlist):
+    """Read a multiscan run as a browsable LC-MS document.
+
+    Only the initially shown scan is loaded; the rest are read on demand from
+    the scan source. Returns None if the run cannot be read.
+    """
+
+    parser = makeScanParser(path, docType)
+    if parser is None:
+        return None
+
+    initialID = initialScanID(scanlist)
+    if initialID is None:
+        return None
+
+    spectrum = parser.scan(initialID)
+    if spectrum is None or spectrum is False:
+        return None
+
+    # init document
+    docData = document()
+    docData.format = docType
+    docData.path = path
+    docData.spectrum = spectrum
+
+    # attach chromatogram / scan index
+    docData.scanlist = scanlist
+    docData.chromatograms = makeChromatograms(scanlist)
+    docData.currentScanID = initialID
+    docData.scanCache = {initialID: spectrum}
+    docData.scanSource = (path, docType)
+
+    # get info
+    _applyInfo(docData, parser.info())
+
+    # set date and title if empty
+    if not docData.date:
+        docData.date = time.ctime(os.path.getctime(path))
+    if not docData.title:
+        docData.title = _titleFromPath(path)
+
+    return docData
 
 
 # REPORT
