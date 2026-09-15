@@ -203,6 +203,27 @@ elif wx.Platform == "__WXMSW__":
     SMALL_BUTTON_HEIGHT = 22
     SMALL_SEARCH_HEIGHT = 22
 
+    # No rules on wxMSW. The native list control has no such feature, so
+    # wxWidgets emulates them in a paint handler layered over it, and that
+    # handler repaints the whole client area on every scroll step instead of
+    # letting the control blit its contents and draw only the newly exposed
+    # strip. Vertical rules were by far the worse of the two -- 13.5 ms per
+    # one-row scroll against 2.5 ms without, the same at 500 rows as at 12000,
+    # so a fixed repaint rather than a walk over the data -- which is what made
+    # dragging the scrollbar visibly redraw the rows one by one. Horizontal
+    # rules cost only 1-2 ms and go once the rows are told apart by the
+    # alternating background anyway; nothing is lost by dropping them, and both
+    # are drawn in a system colour wx picks itself that is nearly invisible
+    # against the cells in light mode ((227,227,227) on white).
+    #
+    # Note this is not where dark mode's scrolling cost lives: with wxWidgets
+    # 3.3 MSW dark mode on, the same list costs ~88 ms per horizontal scroll
+    # step and ~11 ms per vertical one with no rules and no theming of ours at
+    # all, against ~18 ms and ~1.8 ms with dark mode off. That one is wx's, not
+    # ours, and there is nothing to turn off here to avoid it.
+    LISTCTRL_STYLE_SINGLE = LISTCTRL_STYLE_SINGLE & ~(wx.LC_VRULES | wx.LC_HRULES)
+    LISTCTRL_STYLE_MULTI = LISTCTRL_STYLE_MULTI & ~(wx.LC_VRULES | wx.LC_HRULES)
+
     DASHED_LINE = _WX_DASH_DOT
 
 # set gtk
