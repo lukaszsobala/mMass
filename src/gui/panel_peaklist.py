@@ -1537,10 +1537,13 @@ class panelPeaklist(wx.Panel):
         if len(shownTexts) != columnCount:
             shownTexts = None
 
-        dc = wx.ClientDC(self.peakList)
-        dc.SetFont(self.peakList.GetFont())
-        padding = dc.GetTextExtent("MM")[0]
-        emptyColumnWidth = dc.GetTextExtent("00000")[0]
+        # measured through the list itself rather than a DC of our own: it
+        # already carries the font the cells are drawn in, and the DPI of the
+        # display it is actually on (a wx.ScreenDC would answer for the primary
+        # one, and means little under Wayland)
+        measure = self.peakList.GetTextExtent
+        padding = measure("MM")[0]
+        emptyColumnWidth = measure("00000")[0]
 
         self.peakList.Freeze()
         try:
@@ -1553,12 +1556,12 @@ class panelPeaklist(wx.Panel):
                     fitted = 0
                     if shownTexts is not None and shownTexts[colIndex]:
                         fitted = padding + max(
-                            dc.GetTextExtent(text)[0] for text in shownTexts[colIndex]
+                            measure(text)[0] for text in shownTexts[colIndex]
                         )
                     width = max(
                         fitted,
                         self._peakListColumnWidths.get(name, 0),
-                        min(dc.GetTextExtent(name)[0] + padding, emptyColumnWidth),
+                        min(measure(name)[0] + padding, emptyColumnWidth),
                     )
                     self._peakListColumnWidths[name] = width
 
