@@ -33,7 +33,7 @@ from . import obj_peaklist
 from . import obj_scan
 
 # compile basic patterns
-SCAN_NUMBER_PATTERN = re.compile("scan=([0-9]+)")
+SCAN_NUMBER_PATTERN = re.compile(r'="{0,1}([0-9]*)"{0,1}>{0,1}$')
 
 
 # PARSE mzML DATA
