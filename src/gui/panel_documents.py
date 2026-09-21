@@ -255,6 +255,8 @@ class panelDocuments(wx.Panel):
             menu.AppendSeparator()
             menu.Append(ID_documentInfo, "Notes and Information...")
             menu.Append(ID_documentNotationsDelete, "Delete All Notations")
+            menu.Append(ID_documentRulersDelete, "Delete Difference Rulers")
+            menu.Enable(ID_documentRulersDelete, bool(itemData.rulers))
             menu.AppendSeparator()
             menu.Append(ID_documentColour, "Change Colour...")
             style = wx.Menu()
@@ -385,6 +387,9 @@ class panelDocuments(wx.Panel):
             wx.EVT_MENU,
             self.parent.onDocumentNotationsDelete,
             id=ID_documentNotationsDelete,
+        )
+        self.Bind(
+            wx.EVT_MENU, self.parent.onDocumentRulersDelete, id=ID_documentRulersDelete
         )
         self.Bind(wx.EVT_MENU, self.parent.onDocumentDuplicate, id=ID_documentDuplicate)
         self.Bind(wx.EVT_MENU, self.onDocumentMoveUp, id=ID_documentMoveUp)
@@ -792,6 +797,7 @@ class panelDocuments(wx.Panel):
         menu.Append(ID_sequenceMatchesDelete, "Delete All Matches")
         menu.AppendSeparator()
         menu.Append(ID_documentNotationsDelete, "Delete All Notations")
+        menu.Append(ID_documentRulersDelete, "Delete Difference Rulers")
         menu.AppendSeparator()
         menu.Append(ID_documentClose, "Close Document")
         menu.Append(ID_documentCloseAll, "Close All Documents")
@@ -803,6 +809,7 @@ class panelDocuments(wx.Panel):
         menu.Enable(ID_sequenceMatchDelete, False)
         menu.Enable(ID_sequenceMatchesDelete, False)
         menu.Enable(ID_documentNotationsDelete, False)
+        menu.Enable(ID_documentRulersDelete, False)
         menu.Enable(ID_documentClose, False)
         menu.Enable(ID_documentCloseAll, bool(self.documents))
 
@@ -826,6 +833,9 @@ class panelDocuments(wx.Panel):
             wx.EVT_MENU,
             self.parent.onDocumentNotationsDelete,
             id=ID_documentNotationsDelete,
+        )
+        self.Bind(
+            wx.EVT_MENU, self.parent.onDocumentRulersDelete, id=ID_documentRulersDelete
         )
         self.Bind(wx.EVT_MENU, self.parent.onDocumentClose, id=ID_documentClose)
         self.Bind(wx.EVT_MENU, self.parent.onDocumentCloseAll, id=ID_documentCloseAll)
@@ -856,6 +866,7 @@ class panelDocuments(wx.Panel):
                 menu.Enable(ID_sequenceMatchesDelete, True)
             if itemType is not None:
                 menu.Enable(ID_documentNotationsDelete, True)
+                menu.Enable(ID_documentRulersDelete, bool(self.documents[docIndex].rulers))
                 menu.Enable(ID_documentClose, True)
 
         self.PopupMenu(menu)

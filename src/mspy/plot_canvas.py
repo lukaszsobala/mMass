@@ -133,6 +133,8 @@ class canvas(wx.Window):
             "gridColour": (235, 235, 235),
             "highlightColour": (255, 0, 0),
             "zoomBoxColour": wx.TheColourDatabase.Find("sky blue"),
+            "rulerColour": (230, 120, 0),
+            "snapDistance": 12,
             "axisFont": wx.Font(
                 10, wx.SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL, 0
             ),
@@ -147,6 +149,13 @@ class canvas(wx.Window):
         self.mouseFnLMB = None
         self.mouseFnRMB = "zoom"
         self.mouseTracker = False
+
+        # difference ruler: snapFn(x, tolerance) lists the peaks (x, y) within
+        # tolerance of x, rulerLabelFn(start, end) says what to write over the
+        # ruler being dragged; both in plot coordinates
+        self.snapFn = None
+        self.rulerLabelFn = None
+        self.rulerStart = None
 
         self.currentObject = None
         self.currentCharge = 1
@@ -435,6 +444,12 @@ class canvas(wx.Window):
             self.mouseEvent = "distance"
             self.drawDistanceTracker(dc)
 
+        # start difference ruler at the nearest peak
+        elif location == "plot" and self.mouseFnLMB == "peakRuler":
+            self.mouseEvent = "peakRuler"
+            self.rulerStart = self.snapPosition()
+            self.drawPeakRuler(dc)
+
         # set axis dragging
         elif location == "xAxis":
             self.mouseEvent = "xShift"
@@ -495,6 +510,7 @@ class canvas(wx.Window):
             "rectangle",
             "range",
             "distance",
+            "peakRuler",
             "xShift",
             "yShift",
             "xPosBar",
@@ -754,6 +770,10 @@ class canvas(wx.Window):
         # draw distance arrow
         elif self.mouseEvent == "distance":
             self.drawDistanceTracker(dc)
+
+        # draw difference ruler
+        elif self.mouseEvent == "peakRuler":
+            self.drawPeakRuler(dc)
 
         # move x axis
         elif self.mouseEvent == "xShift":
@@ -1293,6 +1313,76 @@ class canvas(wx.Window):
 
         # return distance
         return [x2 - x1, y2 - y1]
+
+    # ----
+
+    def getRuler(self):
+        """Get the ends of the difference ruler being dragged.
+
+        Returns ((x, y, snapped), (x, y, snapped)) in plot coordinates, where
+        snapped tells whether the end sits on a peak, or False when no ruler is
+        being dragged.
+        """
+
+        if self.mouseEvent != "peakRuler" or not self.rulerStart:
+            return False
+
+        return self.rulerStart, self.snapPosition()
+
+    # ----
+
+    def snapPosition(self, position=None):
+        """Nearest peak to a position (the cursor's by default).
+
+        Returns (x, y, True) for a peak within snapDistance pixels, else the
+        position itself as (x, y, False). A cursor anywhere along a peak's stem
+        counts as being on it, so tall peaks do not have to be hit at the top.
+        """
+
+        if position is None:
+            position = self.cursorPosition[0], self.cursorPosition[1]
+        x, y = position
+
+        if self.snapFn is None or numpy.ndim(self.pointScale) == 0:
+            return (x, y, False)
+
+        xScale = abs(self.pointScale[0])
+        if not xScale:
+            return (x, y, False)
+        limit = self.properties["snapDistance"] * self.printerScale["drawings"]
+
+        cursorX, cursorY = self.positionUserToScreen((x, y))
+        zeroY = self.positionUserToScreen((x, 0))[1]
+
+        best = None
+        for peakX, peakY in self.snapFn(x, limit / xScale):
+            screenX, screenY = self.positionUserToScreen((peakX, peakY))
+            dx = abs(screenX - cursorX)
+            if dx > limit:
+                continue
+            if min(zeroY, screenY) <= cursorY <= max(zeroY, screenY):
+                dy = 0.0
+            else:
+                dy = min(abs(cursorY - screenY), abs(cursorY - zeroY))
+            distance = (dx * dx + dy * dy) ** 0.5
+            if best is None or distance < best[0]:
+                best = (distance, peakX, peakY)
+
+        if best is None:
+            return (x, y, False)
+        return (best[1], best[2], True)
+
+    # ----
+
+    def setSnapFunction(self, fn):
+        """Set the function listing the peaks a difference ruler can snap to."""
+        self.snapFn = fn
+
+    # ----
+
+    def setRulerLabelFunction(self, fn):
+        """Set the function giving the text over a dragged difference ruler."""
+        self.rulerLabelFn = fn
 
     # ----
 
@@ -1961,6 +2051,10 @@ class canvas(wx.Window):
         elif self.mouseFn == "isotoperuler":
             self.drawIsotopeRuler(dc)
 
+        # mark the peak a difference ruler would start at
+        elif self.mouseFn == "peaksnap":
+            self.drawSnapTracker(dc)
+
         # no tracker set
         else:
             return
@@ -2123,6 +2217,79 @@ class canvas(wx.Window):
 
             # draw text
             self.drawInvertedText(dc, distance, x, y, self.properties["axisFont"])
+
+    # ----
+
+    def drawSnapTracker(self, dc):
+        """Circle the peak under the cursor a difference ruler would snap to."""
+
+        x, y, snapped = self.snapPosition()
+        if not snapped:
+            return
+
+        screenX, screenY = self.positionUserToScreen((x, y))
+        scale = self.printerScale["drawings"]
+        dc.SetPen(wx.Pen(self.properties["rulerColour"], max(1, int(round(scale)))))
+        dc.SetBrush(wx.TRANSPARENT_BRUSH)
+        dc.DrawCircle(int(screenX), int(screenY), int(5 * scale))
+
+    # ----
+
+    def drawPeakRuler(self, dc):
+        """Draw the difference ruler being dragged between two peaks."""
+
+        # check cursor position
+        if self.getCursorLocation() != "plot" or not self.rulerStart:
+            return
+
+        start = self.rulerStart
+        end = self.snapPosition()
+
+        x1, y1 = self.positionUserToScreen(start[:2])
+        x2, y2 = self.positionUserToScreen(end[:2])
+        scale = self.printerScale["drawings"]
+        colour = self.properties["rulerColour"]
+
+        # guide lines over the whole plot height, as the spectrum ruler has
+        minY = self.plotCoords[1]
+        maxY = self.plotCoords[3]
+        dc.SetPen(wx.Pen(colour, 1, wx.PENSTYLE_SHORT_DASH))
+        dc.DrawLine(int(x1), int(minY), int(x1), int(maxY))
+        dc.DrawLine(int(x2), int(minY), int(x2), int(maxY))
+
+        # circle the ends that sit on a peak
+        dc.SetPen(wx.Pen(colour, max(1, int(round(scale)))))
+        dc.SetBrush(wx.TRANSPARENT_BRUSH)
+        for point, (screenX, screenY) in ((start, (x1, y1)), (end, (x2, y2))):
+            if point[2]:
+                dc.DrawCircle(int(screenX), int(screenY), int(5 * scale))
+
+        if start[0] == end[0]:
+            return
+
+        # ruler with its text
+        text = ""
+        if self.rulerLabelFn is not None:
+            text = self.rulerLabelFn(start, end)
+        else:
+            format = "%0." + repr(self.properties["xPosDigits"]) + "f"
+            text = format % abs(end[0] - start[0])
+
+        from mspy import plot_objects
+
+        plot_objects.drawRuler(
+            dc,
+            x1,
+            y1,
+            x2,
+            y2,
+            text,
+            colour=colour,
+            font=_scaleFont(self.properties["axisFont"], self.printerScale["fonts"]),
+            bgrColour=self.properties["plotColour"],
+            printerScale=self.printerScale,
+            flipped=bool(max(start[1], end[1]) < 0),
+        )
 
     # ----
 

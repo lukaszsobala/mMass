@@ -286,6 +286,11 @@ class container:
         # draw object's labels
         self.drawLabels(dc, printerScale, overlapLabels)
 
+        # draw what goes over the labels (difference rulers)
+        for obj in self.objects:
+            if obj.properties["visible"] and hasattr(obj, "drawOverlays"):
+                obj.drawOverlays(dc, printerScale)
+
         # reverse back order
         if reverse:
             self.objects.reverse()
@@ -1235,10 +1240,15 @@ class spectrum:
             "tickStyle": _WX_PENSTYLE_SOLID,
             "xOffsetDigits": 2,
             "yOffsetDigits": 0,
+            # difference rulers as (mz1, ai1, mz2, ai2, text) in real units
+            "rulers": [],
+            "showRulers": True,
+            "rulerColour": (230, 120, 0),
         }
 
         self.currentScale = (1.0, 1.0)
         self.currentShift = (0.0, 0.0)
+        self.currentTransform = None
         self.normalization = 1.0
 
         # get new attributes
@@ -1513,6 +1523,9 @@ class spectrum:
             xShift += self.properties["xOffset"] * xScale
             yShift += self.properties["yOffset"] * yScale
 
+        # remember the data-to-screen mapping for the overlays
+        self.currentTransform = (xScale, yScale, xShift, yShift)
+
         # filter and scale spectrum data
         if filterSize and len(self.spectrumCropped) and self.properties["showSpectrum"]:
             data_res = filterSize / abs(xScale)
@@ -1695,6 +1708,72 @@ class spectrum:
             labels.append((source.ai, label, textCoords, properties))
 
         return labels
+
+    # ----
+
+    def drawOverlays(self, dc, printerScale):
+        """Draw difference rulers over the spectrum and its labels."""
+
+        rulers = self.properties["rulers"]
+        if not rulers or not self.properties["showRulers"]:
+            return
+        if self.currentTransform is None:
+            return
+
+        xScale, yScale, xShift, yShift = self.currentTransform
+        font = _scaleFont(self.properties["labelFont"], printerScale["fonts"])
+
+        placed = []
+        for mz1, ai1, mz2, ai2, text in sorted(rulers, key=lambda r: min(r[0], r[2])):
+            ai1 = self._rulerHeight(mz1, ai1)
+            ai2 = self._rulerHeight(mz2, ai2)
+            x1 = _clampScreen(mz1 * xScale + xShift)
+            x2 = _clampScreen(mz2 * xScale + xShift)
+            y1 = _clampScreen(ai1 * yScale + yShift)
+            y2 = _clampScreen(ai2 * yScale + yShift)
+
+            drawRuler(
+                dc,
+                x1,
+                y1,
+                x2,
+                y2,
+                text,
+                colour=self.properties["rulerColour"],
+                font=font,
+                bgrColour=self.properties["labelBgrColour"],
+                labelBgr=self.properties["labelBgr"],
+                printerScale=printerScale,
+                flipped=self.properties["flipped"],
+                placed=placed,
+            )
+
+    # ----
+
+    def _rulerHeight(self, mz, ai):
+        """Current intensity at a ruler end.
+
+        A ruler keeps the intensity it was drawn at, but smoothing, baseline
+        subtraction or a math operation can change it later. The peak still
+        sitting at that m/z has the current value, else the profile does; the
+        stored one is only used when there is neither.
+        """
+
+        points = self.peaklistPoints
+        if len(points):
+            i = mod_signal.locate(points, mz)
+            for j in (i - 1, i):
+                if 0 <= j < len(points) and abs(points[j][0] - mz) <= max(1e-4, mz * 1e-6):
+                    return points[j][1]
+
+        points = self.spectrumPoints
+        if len(points) and points[0][0] <= mz <= points[-1][0]:
+            try:
+                return mod_signal.intensity(points, mz)
+            except Exception:
+                pass
+
+        return ai
 
     # ----
 
@@ -2057,6 +2136,114 @@ class spectrum:
 
 # HELPERS
 # -------
+
+
+def _clampScreen(value):
+    """Keep a screen coordinate within what a device context can take."""
+
+    return min(max(float(value), -1e6), 1e6)
+
+
+def drawRuler(
+    dc,
+    x1,
+    y1,
+    x2,
+    y2,
+    text,
+    colour,
+    font,
+    bgrColour,
+    labelBgr=True,
+    printerScale=None,
+    flipped=False,
+    placed=None,
+):
+    """Draw a difference ruler between two peak tops, in screen coordinates.
+
+    The bar sits just above the lower of the two peaks (below, for a flipped
+    spectrum), with its text over the middle. When placed -- a list of the
+    boxes other rulers already took -- is given, the ruler is lifted until it
+    no longer collides with them, and its own box is added to the list.
+    """
+
+    scale = printerScale["drawings"] if printerScale else 1.0
+    gap = 6 * scale
+    tick = 4 * scale
+    head = 4 * scale
+    away = 1 if flipped else -1
+
+    if x2 < x1:
+        x1, y1, x2, y2 = x2, y2, x1, y1
+
+    dc.SetFont(font)
+    textWidth, textHeight = dc.GetTextExtent(text) if text else (0, 0)
+    step = textHeight + 3 * tick
+    mid = (x1 + x2) / 2.0
+    textX = mid - textWidth / 2.0
+    near = max(y1, y2) if not flipped else min(y1, y2)
+
+    # lift above the rulers already drawn
+    level = 0
+    while True:
+        yBar = near + away * (gap + level * step)
+        if flipped:
+            box = (min(x1, textX), yBar - tick, max(x2, textX + textWidth), yBar + tick + textHeight)
+        else:
+            box = (min(x1, textX), yBar - tick - textHeight, max(x2, textX + textWidth), yBar + tick)
+        if placed is None or level >= 10 or not any(_overlaps(box, other) for other in placed):
+            break
+        level += 1
+    if placed is not None:
+        placed.append(box)
+
+    width = max(1, int(round(scale)))
+    dc.SetPen(wx.Pen(colour, width, _WX_PENSTYLE_SOLID))
+    dc.SetBrush(wx.Brush(colour, _WX_BRUSHSTYLE_SOLID))
+
+    # bar with arrowheads pointing at the peaks
+    dc.DrawLine(int(x1), int(yBar), int(x2), int(yBar))
+    if x2 - x1 > 3 * head:
+        dc.DrawPolygon(
+            [
+                wx.Point(int(x1), int(yBar)),
+                wx.Point(int(x1 + head * 1.5), int(yBar - head)),
+                wx.Point(int(x1 + head * 1.5), int(yBar + head)),
+            ]
+        )
+        dc.DrawPolygon(
+            [
+                wx.Point(int(x2), int(yBar)),
+                wx.Point(int(x2 - head * 1.5), int(yBar - head)),
+                wx.Point(int(x2 - head * 1.5), int(yBar + head)),
+            ]
+        )
+
+    # end ticks, and dotted leads down (up) to both peak tops
+    dc.DrawLine(int(x1), int(yBar - tick), int(x1), int(yBar + tick))
+    dc.DrawLine(int(x2), int(yBar - tick), int(x2), int(yBar + tick))
+    dc.SetPen(wx.Pen(colour, width, wx.PENSTYLE_DOT))
+    dc.DrawLine(int(x1), int(yBar), int(x1), int(y1))
+    dc.DrawLine(int(x2), int(yBar), int(x2), int(y2))
+
+    # text
+    if text:
+        textY = yBar - tick - textHeight if not flipped else yBar + tick
+        if labelBgr:
+            dc.SetBackgroundMode(_WX_BRUSHSTYLE_SOLID)
+            dc.SetTextBackground(bgrColour)
+        else:
+            dc.SetBackgroundMode(_WX_BRUSHSTYLE_TRANSPARENT)
+        dc.SetTextForeground(colour)
+        dc.DrawText(text, int(textX), int(textY))
+        dc.SetBackgroundMode(_WX_BRUSHSTYLE_TRANSPARENT)
+
+
+def _overlaps(a, b):
+    """Whether two (x1, y1, x2, y2) boxes overlap."""
+
+    return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
+
 
 
 # Measured text extents, keyed by output device, font and string. A dense

@@ -581,6 +581,11 @@ references = {
 
 compounds = {}
 
+# mass difference lists for the difference ruler and Peak Differences:
+# {group: [(name, monoisotopic mass, average mass), ...]}. The defaults come
+# from the bundled differences.json, which is seeded on first start.
+differences = {}
+
 mascot = {
     "Matrix Science": {
         "protocol": "http",
@@ -994,6 +999,65 @@ def loadReferences(path=None, clear=True):
 # ----
 
 
+def saveDifferences(path=None):
+    """Serialize the mass differences library to JSON."""
+
+    if path is None:
+        path = config.getLibraryPath("differences")
+
+    data = {
+        group: [
+            [item[0], float(item[1]), float(item[2])] for item in differences[group]
+        ]
+        for group in sorted(differences.keys())
+    }
+
+    return _writeJSON(path, {"schemaVersion": 1, "differences": data})
+
+
+def parseDifferences(groups):
+    """Read the "differences" object of a library file into library form.
+
+    An entry is [name, mono] or [name, mono, avg]; a missing average mass is
+    taken to be the monoisotopic one. Malformed entries are skipped.
+    """
+
+    container = {}
+    for group, items in groups.items():
+        if not isinstance(items, list):
+            continue
+        entries = []
+        for item in items:
+            if not isinstance(item, (list, tuple)) or len(item) < 2:
+                continue
+            try:
+                mono = float(item[1])
+                avg = float(item[2]) if len(item) > 2 else mono
+            except (TypeError, ValueError):
+                continue
+            entries.append((str(item[0]), mono, avg))
+        container[str(group)] = entries
+
+    return container
+
+
+def loadDifferences(path=None, clear=True):
+    """Read a JSON mass differences library."""
+
+    if path is None:
+        path = config.getLibraryPath("differences")
+
+    container = parseDifferences(_readJSON(path, "differences"))
+
+    if clear:
+        differences.clear()
+    for group in container:
+        differences[group] = container[group]
+
+
+# ----
+
+
 def saveCompounds(path=None):
     """Serialize the compounds library to JSON."""
 
@@ -1166,3 +1230,15 @@ try:
     loadMascot()
 except Exception:
     saveMascot()
+
+# new in this release, so there is no legacy XML to migrate. An unreadable
+# file is left alone rather than overwritten with the (empty) in-code default.
+if not os.path.exists(config.getLibraryPath("differences")):
+    config.copy_default_config_file(
+        "differences.json", config.getLibraryPath("differences")
+    )
+
+try:
+    loadDifferences()
+except Exception:
+    pass

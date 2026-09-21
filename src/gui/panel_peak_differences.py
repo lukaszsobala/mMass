@@ -25,6 +25,8 @@ from typing import Any
 from . import mwx
 from . import images
 from . import config
+from . import libs
+from . import differences
 from .mixins import MakeModalMixin
 import mspy
 
@@ -42,6 +44,7 @@ MATCH_COLOURS = {
     "dipep": wx.Colour(100, 255, 255),
     "sugar": wx.Colour(255, 170, 0),
     "permesugar": wx.Colour(255, 210, 100),
+    "user": wx.Colour(190, 120, 255),
 }
 
 
@@ -72,6 +75,9 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
 
         # init sugars and permethylated sugars
         self.initSugars()
+
+        # init the user's own lists
+        self.initUserLists()
 
         # make gui items
         self.makeGUI()
@@ -146,6 +152,13 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
         self.permesugars_check.SetFont(wx.SMALL_FONT)
         self.permesugars_check.SetValue(config.peakDifferences["permesugars"])
 
+        self.userLists_check = wx.CheckBox(panel, -1, "User lists")
+        self.userLists_check.SetFont(wx.SMALL_FONT)
+        self.userLists_check.SetValue(config.peakDifferences["userLists"])
+        self.userLists_check.SetToolTip(
+            wx.ToolTip("Match the lists of the Mass Differences library (Libraries menu)")
+        )
+
         massType_label = wx.StaticText(panel, -1, "Mass:")
         massType_label.SetFont(wx.SMALL_FONT)
 
@@ -191,6 +204,8 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
         sizer.AddSpacer(20)
         sizer.Add(self.sugars_check, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         sizer.Add(self.permesugars_check, 0, wx.ALIGN_CENTER_VERTICAL)
+        sizer.AddSpacer(20)
+        sizer.Add(self.userLists_check, 0, wx.ALIGN_CENTER_VERTICAL)
         sizer.AddSpacer(20)
         sizer.Add(massType_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         sizer.Add(self.massTypeMo_radio, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
@@ -521,6 +536,7 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
             config.peakDifferences["permesugars"] = int(
                 self.permesugars_check.GetValue()
             )
+            config.peakDifferences["userLists"] = int(self.userLists_check.GetValue())
             config.peakDifferences["tolerance"] = float(self.tolerance_value.GetValue())
             config.peakDifferences["massType"] = int(self.massTypeAv_radio.GetValue())
             config.peakDifferences["consolidate"] = int(
@@ -701,6 +717,13 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
                 if abs(error) <= config.peakDifferences["tolerance"]:
                     self.currentMatches.append([sug, error])
 
+        # search for the user's own differences
+        if config.peakDifferences["userLists"]:
+            for name, masses in self._userMasses.items():
+                error = diff - masses[config.peakDifferences["massType"]]
+                if abs(error) <= config.peakDifferences["tolerance"]:
+                    self.currentMatches.append([name, error])
+
     # ----
 
     def runSearch(self):
@@ -732,6 +755,8 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
             sugMax = self._sugarLimits[1] + config.peakDifferences["tolerance"]
             permeMin = self._permeSugarLimits[0] - config.peakDifferences["tolerance"]
             permeMax = self._permeSugarLimits[1] + config.peakDifferences["tolerance"]
+            userMin = self._userLimits[0] - config.peakDifferences["tolerance"]
+            userMax = self._userLimits[1] + config.peakDifferences["tolerance"]
 
             # calc differences
             self.currentDifferences = []
@@ -816,6 +841,18 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
                                 match = "permesugar"
                                 break
 
+                    # match the user's own differences
+                    if (
+                        not match
+                        and config.peakDifferences["userLists"]
+                        and (userMin <= diff <= userMax)
+                    ):
+                        for masses in self._userMasses.values():
+                            error = diff - masses[config.peakDifferences["massType"]]
+                            if abs(error) <= config.peakDifferences["tolerance"]:
+                                match = "user"
+                                break
+
                     # append difference
                     rowBuff.append((diff, match))
 
@@ -836,84 +873,40 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
     def initAminoacids(self):
         """Calculate amino acids / dipeptides masses and ranges."""
 
-        self._aaLimits = [0.0, 1000.0]
-        self._dipLimits = [0.0, 1000.0]
-        self._aaMasses = {}
-        self._dipMasses = {}
-
-        # get amino acids
-        aminoacids = []
-        for abbr in mspy.monomers:
-            if mspy.monomers[abbr].category == "_InternalAA":
-                aminoacids.append(abbr)
-                self._aaMasses[abbr] = self._to_mass_pair(mspy.monomers[abbr].mass)
+        self._aaMasses = differences.aminoacidMasses()
+        self._dipMasses = differences.dipeptideMasses(self._aaMasses)
 
         # approximate mass limits
-        masses = []
-        for aa in aminoacids:
-            masses.append(self._to_mass_pair(mspy.monomers[aa].mass)[1])
+        masses = [mass[1] for mass in self._aaMasses.values()]
         self._aaLimits = [min(masses) - 1, max(masses) + 1]
         self._dipLimits = [2 * self._aaLimits[0] - 1, 2 * self._aaLimits[1] + 1]
-
-        # generate dipeptides
-        for x in range(len(aminoacids)):
-            for y in range(x, len(aminoacids)):
-
-                aX = aminoacids[x]
-                aY = aminoacids[y]
-
-                massX = self._to_mass_pair(mspy.monomers[aX].mass)
-                massY = self._to_mass_pair(mspy.monomers[aY].mass)
-                mass = (massX[0] + massY[0], massX[1] + massY[1])
-
-                if aX != aY:
-                    label = "%s%s/%s%s" % (aX, aY, aY, aX)
-                else:
-                    label = aX + aY
-
-                self._dipMasses[label] = mass
 
     # ----
 
     def initSugars(self):
         """Calculate sugar / permethylated sugar masses and ranges."""
 
-        # elemental formulas of residue (glycosidic) masses
-        sugarFormulas = {
-            "Hex": "C6H10O5",
-            "dHex": "C6H10O4",
-            "HexNAc": "C8H13NO5",
-            "NeuAc": "C11H17NO8",
-            "NeuGc": "C11H17NO9",
-            "KDN": "C9H14O8",
-            "HexA": "C6H8O6",
-            "HexN": "C6H11NO4",
-            "Pent": "C5H8O4",
-        }
-        permeSugarFormulas = {
-            "Hex-PM": "C9H16O5",
-            "dHex-PM": "C8H14O4",
-            "HexNAc-PM": "C11H19NO5",
-            "NeuAc-PM": "C16H27NO8",
-            "NeuGc-PM": "C17H29NO9",
-            "KDN-PM": "C14H24O8",
-            "HexA-PM": "C9H14O6",
-            "Pent-PM": "C7H12O4",
-        }
-
-        self._sugarMasses = {}
-        for abbr, formula in sugarFormulas.items():
-            mass = mspy.obj_compound.compound(formula).mass()
-            self._sugarMasses[abbr] = self._to_mass_pair(mass)
-
-        self._permeSugarMasses = {}
-        for abbr, formula in permeSugarFormulas.items():
-            mass = mspy.obj_compound.compound(formula).mass()
-            self._permeSugarMasses[abbr] = self._to_mass_pair(mass)
+        self._sugarMasses = differences.formulaMasses(differences.SUGAR_FORMULAS)
+        self._permeSugarMasses = differences.formulaMasses(
+            differences.PERMESUGAR_FORMULAS
+        )
 
         # approximate mass limits (span mono..avg to cover both mass types)
         self._sugarLimits = self._massLimits(self._sugarMasses)
         self._permeSugarLimits = self._massLimits(self._permeSugarMasses)
+
+    # ----
+
+    def initUserLists(self):
+        """Collect the masses of the user's own difference lists."""
+
+        # an entry that is in more than one list is matched once, by name
+        self._userMasses = {}
+        for items in libs.differences.values():
+            for name, mono, avg in items:
+                self._userMasses[name] = (mono, avg)
+
+        self._userLimits = self._massLimits(self._userMasses)
 
     # ----
 
@@ -963,19 +956,3 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
 
     # ----
 
-    def _to_mass_pair(self, mass):
-        """Normalize monomer mass into (mono, avg) tuple."""
-
-        if isinstance(mass, (tuple, list)) and len(mass) >= 2:
-            return (float(mass[0]), float(mass[1]))
-        if isinstance(mass, (tuple, list)) and len(mass) == 1:
-            value = float(mass[0])
-            return (value, value)
-        if isinstance(mass, (tuple, list)):
-            return (0.0, 0.0)
-        if mass is None:
-            return (0.0, 0.0)
-        value = float(mass)
-        return (value, value)
-
-    # ----

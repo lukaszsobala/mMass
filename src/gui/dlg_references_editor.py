@@ -737,7 +737,7 @@ class dlgGroupName(wx.Dialog):
 class dlgSelectItemsToImport(wx.Dialog):
     """Select items to import."""
 
-    def __init__(self, parent, items):
+    def __init__(self, parent, items, countLabel="references"):
         wx.Dialog.__init__(
             self,
             parent,
@@ -747,6 +747,7 @@ class dlgSelectItemsToImport(wx.Dialog):
         )
 
         self.items = items
+        self.countLabel = countLabel
         self.itemsMap = []
         self.selected = None
 
@@ -822,7 +823,7 @@ class dlgSelectItemsToImport(wx.Dialog):
 
         # make columns
         self.itemsList.InsertColumn(0, "group title", wx.LIST_FORMAT_LEFT)
-        self.itemsList.InsertColumn(1, "references", wx.LIST_FORMAT_RIGHT)
+        self.itemsList.InsertColumn(1, self.countLabel, wx.LIST_FORMAT_RIGHT)
 
         # set column widths
         for col, width in enumerate((350, 90)):

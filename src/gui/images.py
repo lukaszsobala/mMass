@@ -148,6 +148,44 @@ def _badge_multi(bitmap):
     return wx.Bitmap(image)
 
 
+def _diff_ruler_icon(template):
+    """Return the difference ruler tool icon, drawn in the ink of template.
+
+    Two peaks with a double-headed arrow between their tops, on the same
+    29x22 canvas and baseline as the other spectrum tool icons. template (the
+    spectrum ruler icon of the same state) supplies the size and the colour,
+    so the off/on pair matches the rest of the bottom bar.
+    """
+
+    source = template.ConvertToImage()
+    w, h = source.GetWidth(), source.GetHeight()
+    srcRgb = np.frombuffer(source.GetDataBuffer(), dtype=np.uint8).reshape((h, w, 3))
+    if source.HasAlpha():
+        srcAlpha = np.frombuffer(source.GetAlphaBuffer(), dtype=np.uint8)
+        ink = srcRgb[srcAlpha.reshape((h, w)) > 128]
+    else:
+        ink = srcRgb.reshape((-1, 3))
+    colour = ink[0] if len(ink) else np.zeros(3, dtype=np.uint8)
+
+    image = wx.Image(w, h)
+    image.InitAlpha()
+    rgb = np.frombuffer(image.GetDataBuffer(), dtype=np.uint8).reshape((h, w, 3))
+    alpha = np.frombuffer(image.GetAlphaBuffer(), dtype=np.uint8).reshape((h, w))
+    alpha[:] = 0
+
+    pixels = [(x, 7) for x in range(8, 21)]  # arrow shaft
+    pixels += [(9, 6), (9, 8), (19, 6), (19, 8)]  # arrow heads
+    pixels += [(8, y) for y in range(9, 16)]  # taller peak
+    pixels += [(20, y) for y in range(11, 16)]  # lower peak
+    pixels += [(x, 16) for x in range(6, 23)]  # baseline
+    for x, y in pixels:
+        if 0 <= x < w and 0 <= y < h:
+            rgb[y, x] = colour
+            alpha[y, x] = 255
+
+    return wx.Bitmap(image)
+
+
 def _is_colored_image(image, sat_threshold=50, frac_threshold=0.12):
     """True if a meaningful fraction of opaque pixels are saturated (coloured).
 
@@ -608,6 +646,8 @@ def loadImages():
 
     lib["spectrumRulerOn"] = bottombarsOn.GetSubBitmap(wx.Rect(0, 66, 29, 22))
     lib["spectrumRulerOff"] = bottombarsOff.GetSubBitmap(wx.Rect(0, 66, 29, 22))
+    lib["spectrumDiffRulerOn"] = _diff_ruler_icon(lib["spectrumRulerOn"])
+    lib["spectrumDiffRulerOff"] = _diff_ruler_icon(lib["spectrumRulerOff"])
     lib["spectrumLabelPeakOn"] = bottombarsOn.GetSubBitmap(wx.Rect(29, 66, 29, 22))
     lib["spectrumLabelPeakOff"] = bottombarsOff.GetSubBitmap(wx.Rect(29, 66, 29, 22))
     lib["spectrumMultiLabelPeakOn"] = _badge_multi(lib["spectrumLabelPeakOn"])

@@ -146,6 +146,7 @@ class document:
         self.spectrum: Any = mspy.scan()
         self.annotations = []
         self.sequences = []
+        self.rulers = []
 
         # LC-MS / chromatogram support
         # When a multi-scan file is opened as a single browsable run, the
@@ -175,12 +176,14 @@ class document:
         self._spectrumBuff: Any = None
         self._annotationsBuff: Any = None
         self._sequencesBuff: Any = None
+        self._rulersBuff: Any = None
         self._infoBuff: dict[str, Any] | None = None
 
         # redo buffers
         self._redoSpectrumBuff: Any = None
         self._redoAnnotationsBuff: Any = None
         self._redoSequencesBuff: Any = None
+        self._redoRulersBuff: Any = None
         self._redoInfoBuff: dict[str, Any] | None = None
 
     # ----
@@ -201,10 +204,12 @@ class document:
         self._spectrumBuff = None
         self._annotationsBuff = None
         self._sequencesBuff = None
+        self._rulersBuff = None
         self._infoBuff = None
         self._redoSpectrumBuff = None
         self._redoAnnotationsBuff = None
         self._redoSequencesBuff = None
+        self._redoRulersBuff = None
         self._redoInfoBuff = None
 
         if not items:
@@ -217,6 +222,8 @@ class document:
             self._annotationsBuff = copy.deepcopy(self.annotations)
         if "sequences" in items:
             self._sequencesBuff = copy.deepcopy(self.sequences)
+        if "rulers" in items:
+            self._rulersBuff = copy.deepcopy(self.rulers)
         if "notations" in items:
             self._annotationsBuff = copy.deepcopy(self.annotations)
             self._sequencesBuff = copy.deepcopy(self.sequences)
@@ -254,6 +261,7 @@ class document:
         self._redoSpectrumBuff = None
         self._redoAnnotationsBuff = None
         self._redoSequencesBuff = None
+        self._redoRulersBuff = None
         self._redoInfoBuff = None
         if "spectrum" in items:
             self._redoSpectrumBuff = copy.deepcopy(self.spectrum)
@@ -261,6 +269,8 @@ class document:
             self._redoAnnotationsBuff = copy.deepcopy(self.annotations)
         if "sequences" in items:
             self._redoSequencesBuff = copy.deepcopy(self.sequences)
+        if "rulers" in items:
+            self._redoRulersBuff = copy.deepcopy(self.rulers)
         if "notations" in items:
             self._redoAnnotationsBuff = copy.deepcopy(self.annotations)
             self._redoSequencesBuff = copy.deepcopy(self.sequences)
@@ -293,6 +303,9 @@ class document:
         if "sequences" in items:
             if self._sequencesBuff is not None:
                 self.sequences[:] = self._sequencesBuff[:]
+        if "rulers" in items:
+            if self._rulersBuff is not None:
+                self.rulers[:] = self._rulersBuff[:]
         if "notations" in items:
             if self._annotationsBuff is not None and self._sequencesBuff is not None:
                 self.annotations[:] = self._annotationsBuff[:]
@@ -323,6 +336,7 @@ class document:
         self._spectrumBuff = None
         self._annotationsBuff = None
         self._sequencesBuff = None
+        self._rulersBuff = None
         self._infoBuff = None
 
         return items
@@ -342,6 +356,7 @@ class document:
         self._spectrumBuff = None
         self._annotationsBuff = None
         self._sequencesBuff = None
+        self._rulersBuff = None
         self._infoBuff = None
         if "spectrum" in items:
             self._spectrumBuff = copy.deepcopy(self.spectrum)
@@ -349,6 +364,8 @@ class document:
             self._annotationsBuff = copy.deepcopy(self.annotations)
         if "sequences" in items:
             self._sequencesBuff = copy.deepcopy(self.sequences)
+        if "rulers" in items:
+            self._rulersBuff = copy.deepcopy(self.rulers)
         if "notations" in items:
             self._annotationsBuff = copy.deepcopy(self.annotations)
             self._sequencesBuff = copy.deepcopy(self.sequences)
@@ -381,6 +398,9 @@ class document:
         if "sequences" in items:
             if self._redoSequencesBuff is not None:
                 self.sequences[:] = self._redoSequencesBuff[:]
+        if "rulers" in items:
+            if self._redoRulersBuff is not None:
+                self.rulers[:] = self._redoRulersBuff[:]
         if "notations" in items:
             if self._redoAnnotationsBuff is not None and self._redoSequencesBuff is not None:
                 self.annotations[:] = self._redoAnnotationsBuff[:]
@@ -411,6 +431,7 @@ class document:
         self._redoSpectrumBuff = None
         self._redoAnnotationsBuff = None
         self._redoSequencesBuff = None
+        self._redoRulersBuff = None
         self._redoInfoBuff = None
 
         return items
@@ -546,6 +567,23 @@ class document:
                     self._escape(annot.label),
                 )
             buff += "  </annotations>\n\n"
+
+        # format difference rulers (new in this release; older readers skip the
+        # element, and no other format has anywhere to keep them)
+        if len(self.rulers):
+            buff += "  <rulers>\n"
+            for ruler in self.rulers:
+                attributes = (
+                    'mz1="%.6f" ai1="%.6f" mz2="%.6f" ai2="%.6f" charge="%d"'
+                    % (ruler.mz1, ruler.ai1, ruler.mz2, ruler.ai2, ruler.charge)
+                )
+                if ruler.scanID is not None:
+                    attributes += ' scanID="%s"' % self._escape(str(ruler.scanID))
+                buff += "    <ruler %s>%s</ruler>\n" % (
+                    attributes,
+                    self._escape(ruler.label),
+                )
+            buff += "  </rulers>\n\n"
 
         # format sequences
         if len(self.sequences):
@@ -967,6 +1005,37 @@ class document:
             buff += "    </tbody>\n"
             buff += "  </table>\n"
 
+        # difference rulers
+        if self.rulers:
+            tableID = "tableRulers1"
+            buff += "  <h2>Difference Rulers</h2>\n"
+            buff += '  <table id="tableRulers">\n'
+            buff += "    <thead>\n"
+            buff += "      <tr>\n"
+            for col, title in enumerate(
+                ("m/z&nbsp;1", "m/z&nbsp;2", "&Delta;&nbsp;m/z", "z", "Match")
+            ):
+                buff += (
+                    '        <th><a href="" onclick="return sortTable(\'%s\', %d);" title="Sort by">%s</a></th>\n'
+                    % (tableID, col, title)
+                )
+            buff += "      </tr>\n"
+            buff += "    </thead>\n"
+            buff += '    <tbody id="%s">\n' % tableID
+            for ruler in self.rulers:
+                buff += (
+                    '      <tr><td class="right nowrap">%s</td><td class="right nowrap">%s</td><td class="right nowrap">%s</td><td class="center nowrap">%s</td><td>%s</td></tr>\n'
+                    % (
+                        mzFormat % ruler.mz1,
+                        mzFormat % ruler.mz2,
+                        mzFormat % ruler.diff,
+                        ruler.charge if abs(ruler.charge) > 1 else "",
+                        self._escape(ruler.label),
+                    )
+                )
+            buff += "    </tbody>\n"
+            buff += "  </table>\n"
+
         # sequences
         if self.sequences:
             for x, sequence in enumerate(self.sequences):
@@ -1361,6 +1430,45 @@ class annotation:
     # ----
 
 
+# DIFFERENCE RULER OBJECT
+# -----------------------
+
+
+class ruler:
+    """Difference ruler between two peaks.
+
+    Kept in real m/z and intensity (no offset, normalization or flipping). The
+    label holds the names of the differences it matched when it was drawn ("" if
+    none), so a later change to the difference lists does not silently relabel
+    a saved document; the text shown is made from it by differences.rulerText.
+    charge is the charge the match was made at. scanID ties a ruler to the scan
+    of an LC-MS run it was drawn on; None for single scans.
+    """
+
+    def __init__(self, mz1, ai1, mz2, ai2, label="", charge=1, scanID=None):
+
+        # keep the lower m/z first
+        if mz2 < mz1:
+            mz1, ai1, mz2, ai2 = mz2, ai2, mz1, ai1
+
+        self.mz1 = mz1
+        self.ai1 = ai1
+        self.mz2 = mz2
+        self.ai2 = ai2
+        self.label = label
+        self.charge = charge
+        self.scanID = scanID
+
+    # ----
+
+    @property
+    def diff(self):
+        """m/z difference."""
+        return self.mz2 - self.mz1
+
+    # ----
+
+
 # SEQUENCE MATCH OBJECT
 # ---------------------
 
@@ -1454,6 +1562,7 @@ class parseMSD:
             self.handleSpectrum()
             self.handlePeaklist()
             self.handleAnnotations()
+            self.handleRulers()
             self.handleSequences()
             self.handleChromatogram()
 
@@ -1985,6 +2094,34 @@ class parseMSD:
 
             # sort annotations by mz
             self.document.sortAnnotations()
+
+    # ----
+
+    def handleRulers(self):
+        """Get difference rulers."""
+
+        rulersTags = self._parsedData.getElementsByTagName("rulers")
+        if not rulersTags:
+            return
+
+        for rulerTag in rulersTags[0].getElementsByTagName("ruler"):
+            try:
+                item = ruler(
+                    mz1=float(rulerTag.getAttribute("mz1")),
+                    ai1=float(rulerTag.getAttribute("ai1") or 0),
+                    mz2=float(rulerTag.getAttribute("mz2")),
+                    ai2=float(rulerTag.getAttribute("ai2") or 0),
+                    label=self._getNodeText(rulerTag),
+                    charge=int(rulerTag.getAttribute("charge") or 1),
+                )
+            except ValueError:
+                self.errors.append("Incorrect ruler data.")
+                continue
+
+            if rulerTag.hasAttribute("scanID"):
+                item.scanID = self._convertScanID(rulerTag.getAttribute("scanID"))
+
+            self.document.rulers.append(item)
 
     # ----
 

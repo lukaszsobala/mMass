@@ -640,6 +640,13 @@ peakDifferences = {
     "massType": 0,
     "tolerance": 0.1,
     "consolidate": 0,
+    # match against the user's lists from the mass differences library
+    "userLists": 0,
+    # difference ruler: the lists it matches against (built-in or user list
+    # names), whether a matched ruler also shows the difference, and its colour
+    "rulerLists": ["Amino acids", "Sugars", "Modifications", "Adducts and Losses"],
+    "rulerShowDiff": 1,
+    "rulerColour": [230, 120, 0],
 }
 
 comparePeaklists = {

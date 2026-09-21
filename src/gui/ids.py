@@ -59,6 +59,7 @@ ID_documentAnnotationSendToEnvelopeFit = wx.NewId()
 ID_documentAnnotationsDelete = wx.NewId()
 ID_documentAnnotationsCalibrateBy = wx.NewId()
 ID_documentNotationsDelete = wx.NewId()
+ID_documentRulersDelete = wx.NewId()
 
 ID_documentRecent0 = wx.NewId()
 ID_documentRecent1 = wx.NewId()
@@ -201,6 +202,7 @@ ID_toolsProcessing = wx.NewId()
 ID_toolsCalibration = wx.NewId()
 ID_toolsSequence = wx.NewId()
 ID_toolsRuler = wx.NewId()
+ID_toolsDiffRuler = wx.NewId()
 ID_toolsLabelPeak = wx.NewId()
 ID_toolsMultiLabelPeak = wx.NewId()
 ID_toolsLabelPoint = wx.NewId()
@@ -226,6 +228,7 @@ ID_toolsDocumentExport = wx.NewId()
 
 HK_toolsCalibration = "\tCtrl+R"
 HK_toolsRuler = "\tShift+Ctrl+H"
+HK_toolsDiffRuler = "\tShift+Ctrl+L"
 HK_toolsLabelPeak = "\tShift+Ctrl+P"
 HK_toolsMultiLabelPeak = "\tShift+Alt+P"
 HK_toolsLabelPoint = "\tShift+Ctrl+I"
@@ -248,6 +251,7 @@ ID_libraryModifications = wx.NewId()
 ID_libraryMonomers = wx.NewId()
 ID_libraryEnzymes = wx.NewId()
 ID_libraryReferences = wx.NewId()
+ID_libraryDifferences = wx.NewId()
 ID_libraryMascot = wx.NewId()
 ID_libraryPresets = wx.NewId()
 
