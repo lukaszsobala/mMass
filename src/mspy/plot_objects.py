@@ -1240,9 +1240,14 @@ class spectrum:
             "tickStyle": _WX_PENSTYLE_SOLID,
             "xOffsetDigits": 2,
             "yOffsetDigits": 0,
-            # difference rulers as (mz1, ai1, mz2, ai2, text) in real units
+            # difference rulers as (mz1, ai1, mz2, ai2, text[, key[, height]])
+            # in real units; the key is handed back by rulerAt() and names the
+            # ruler to leave out while it is being edited (hiddenRuler), and
+            # height is the intensity to put the bar at (None: just above the
+            # peaks, clear of the other rulers)
             "rulers": [],
             "showRulers": True,
+            "hiddenRuler": None,
             "rulerColour": (230, 120, 0),
         }
 
@@ -1714,6 +1719,7 @@ class spectrum:
     def drawOverlays(self, dc, printerScale):
         """Draw difference rulers over the spectrum and its labels."""
 
+        self.rulerGeometry = []
         rulers = self.properties["rulers"]
         if not rulers or not self.properties["showRulers"]:
             return
@@ -1722,9 +1728,20 @@ class spectrum:
 
         xScale, yScale, xShift, yShift = self.currentTransform
         font = _scaleFont(self.properties["labelFont"], printerScale["fonts"])
+        hidden = self.properties["hiddenRuler"]
 
         placed = []
-        for mz1, ai1, mz2, ai2, text in sorted(rulers, key=lambda r: min(r[0], r[2])):
+        # rulers put at a height by hand first, so the others stack clear of them
+        def order(entry):
+            item = entry[1]
+            return (len(item) < 7 or item[6] is None, min(item[0], item[2]))
+
+        for index, item in sorted(enumerate(rulers), key=order):
+            mz1, ai1, mz2, ai2, text = item[:5]
+            key = item[5] if len(item) > 5 else index
+            height = item[6] if len(item) > 6 else None
+            if hidden is not None and key == hidden:
+                continue
             ai1 = self._rulerHeight(mz1, ai1)
             ai2 = self._rulerHeight(mz2, ai2)
             x1 = _clampScreen(mz1 * xScale + xShift)
@@ -1732,7 +1749,7 @@ class spectrum:
             y1 = _clampScreen(ai1 * yScale + yShift)
             y2 = _clampScreen(ai2 * yScale + yShift)
 
-            drawRuler(
+            geometry = drawRuler(
                 dc,
                 x1,
                 y1,
@@ -1746,7 +1763,27 @@ class spectrum:
                 printerScale=printerScale,
                 flipped=self.properties["flipped"],
                 placed=placed,
+                yBar=None if height is None else _clampScreen(height * yScale + yShift),
             )
+            self.rulerGeometry.append((key, geometry))
+
+    # ----
+
+    def rulerAt(self, x, y, tolerance=5):
+        """Ruler drawn under a screen position, as (key, part) or None.
+
+        part is 1 or 2 for the lead of the lower or higher m/z end (the end
+        to drag), or 0 for the bar and its text.
+        """
+
+        for key, (x1, y1, x2, y2, yBar, box) in reversed(getattr(self, "rulerGeometry", [])):
+            for part, (endX, endY) in ((1, (x1, y1)), (2, (x2, y2))):
+                if abs(x - endX) <= tolerance and min(endY, yBar) - tolerance <= y <= max(endY, yBar) + tolerance:
+                    return key, part
+            if box[0] - tolerance <= x <= box[2] + tolerance and box[1] - tolerance <= y <= box[3] + tolerance:
+                return key, 0
+
+        return None
 
     # ----
 
@@ -2158,6 +2195,7 @@ def drawRuler(
     printerScale=None,
     flipped=False,
     placed=None,
+    yBar=None,
 ):
     """Draw a difference ruler between two peak tops, in screen coordinates.
 
@@ -2165,6 +2203,8 @@ def drawRuler(
     spectrum), with its text over the middle. When placed -- a list of the
     boxes other rulers already took -- is given, the ruler is lifted until it
     no longer collides with them, and its own box is added to the list.
+    A bar put at a given height (yBar) stays there, and only takes its box.
+    Returns (x1, y1, x2, y2, yBar, box) as drawn, ends ordered left to right.
     """
 
     scale = printerScale["drawings"] if printerScale else 1.0
@@ -2184,14 +2224,15 @@ def drawRuler(
     near = max(y1, y2) if not flipped else min(y1, y2)
 
     # lift above the rulers already drawn
+    fixed = yBar
     level = 0
     while True:
-        yBar = near + away * (gap + level * step)
+        yBar = fixed if fixed is not None else near + away * (gap + level * step)
         if flipped:
             box = (min(x1, textX), yBar - tick, max(x2, textX + textWidth), yBar + tick + textHeight)
         else:
             box = (min(x1, textX), yBar - tick - textHeight, max(x2, textX + textWidth), yBar + tick)
-        if placed is None or level >= 10 or not any(_overlaps(box, other) for other in placed):
+        if fixed is not None or placed is None or level >= 10 or not any(_overlaps(box, other) for other in placed):
             break
         level += 1
     if placed is not None:
@@ -2237,6 +2278,8 @@ def drawRuler(
         dc.SetTextForeground(colour)
         dc.DrawText(text, int(textX), int(textY))
         dc.SetBackgroundMode(_WX_BRUSHSTYLE_TRANSPARENT)
+
+    return (x1, y1, x2, y2, yBar, box)
 
 
 def _overlaps(a, b):

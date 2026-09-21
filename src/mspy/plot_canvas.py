@@ -157,6 +157,17 @@ class canvas(wx.Window):
         self.rulerLabelFn = None
         self.rulerStart = None
 
+        # rulerGrabFn(screenX, screenY) says which drawn ruler a press picks
+        # up, as (plot object, key, part, ends, text, apexes) or None: part is
+        # 1 or 2 for an end (dragged along the peaks from the other one), 0 for
+        # the bar (dragged up and down, snapping to the apexes); ends are both
+        # peak tops, text is the ruler's and apexes the tops of the peaks it
+        # spans (or a function listing them, called on a press), in plot
+        # coordinates. The ruler is hidden while rulerEdit =
+        # (plot object, key, ends, text, apexes) is dragged, see getRulerEdit()
+        self.rulerGrabFn = None
+        self.rulerEdit = None
+
         self.currentObject = None
         self.currentCharge = 1
         self.currentIsotopes = []
@@ -448,7 +459,30 @@ class canvas(wx.Window):
         elif location == "plot" and self.mouseFnLMB == "peakRuler":
             self.mouseEvent = "peakRuler"
             self.rulerStart = self.snapPosition()
-            self.drawPeakRuler(dc)
+            self.rulerEdit = None
+
+            # or pick up an end of a ruler already drawn, dragging it from its
+            # other end
+            grab = None
+            if self.rulerGrabFn is not None:
+                grab = self.rulerGrabFn(self.cursorPosition[2], self.cursorPosition[3])
+            if grab:
+                obj, key, part, ends, text, apexes = grab
+                if callable(apexes):
+                    apexes = apexes()
+                self.rulerEdit = (obj, key, ends, text, apexes)
+                obj.setProperties(hiddenRuler=key)
+                self.draw(self.lastDraw[0], self.lastDraw[1], self.lastDraw[2], dc)
+                if part:
+                    other = ends[2 - part]
+                    self.rulerStart = (other[0], other[1], True)
+                else:
+                    self.mouseEvent = "rulerBar"
+
+            if self.mouseEvent == "rulerBar":
+                self.drawRulerBar(dc)
+            else:
+                self.drawPeakRuler(dc)
 
         # set axis dragging
         elif location == "xAxis":
@@ -511,6 +545,7 @@ class canvas(wx.Window):
             "range",
             "distance",
             "peakRuler",
+            "rulerBar",
             "xShift",
             "yShift",
             "xPosBar",
@@ -747,6 +782,13 @@ class canvas(wx.Window):
             if self.getCursorLocation() == "plot":
                 self.drawMouseTracker(dc)
 
+                # a ruler end a press would pick up
+                if self.mouseFnLMB == "peakRuler" and self.rulerGrabFn is not None:
+                    grab = self.rulerGrabFn(self.cursorPosition[2], self.cursorPosition[3])
+                    if grab:
+                        cursor = wx.CURSOR_SIZEWE if grab[2] else wx.CURSOR_SIZENS
+                        self.SetCursor(wx.Cursor(cursor))
+
         # draw zoombox
         elif self.mouseEvent == "zoom":
             self.drawZoomBox(dc)
@@ -774,6 +816,10 @@ class canvas(wx.Window):
         # draw difference ruler
         elif self.mouseEvent == "peakRuler":
             self.drawPeakRuler(dc)
+
+        # draw difference ruler being lifted or lowered
+        elif self.mouseEvent == "rulerBar":
+            self.drawRulerBar(dc)
 
         # move x axis
         elif self.mouseEvent == "xShift":
@@ -1313,6 +1359,73 @@ class canvas(wx.Window):
 
         # return distance
         return [x2 - x1, y2 - y1]
+
+    # ----
+
+    def getRulerEdit(self):
+        """Key of the drawn ruler being dragged, or None."""
+
+        if self.mouseEvent not in ("peakRuler", "rulerBar") or not self.rulerEdit:
+            return None
+        return self.rulerEdit[1]
+
+    # ----
+
+    def getRulerBarHeight(self):
+        """Height the bar of the ruler being lifted or lowered is at.
+
+        Returns the plot y of the cursor, kept within the plot, or None when
+        no bar is being dragged or it has not moved from where it was pressed.
+        """
+
+        if self.mouseEvent != "rulerBar" or not self.rulerEdit:
+            return None
+        if abs(self.cursorPosition[3] - self.draggingStart[3]) < 3:
+            return None
+
+        y, apex = self._rulerBarPosition()
+        if apex is not None:
+            return apex[1]
+        return self.positionScreenToUser((self.cursorPosition[2], y))[1]
+
+    # ----
+
+    def _rulerBarPosition(self):
+        """Screen y of the bar being dragged, and the apex it snapped to.
+
+        The bar snaps to the top of a peak the ruler spans when the cursor is
+        within snapDistance pixels of it (the nearest such, if several), else
+        it follows the cursor within the plot. Returns (y, apex or None).
+        """
+
+        y = min(max(self.cursorPosition[3], self.plotCoords[1]), self.plotCoords[3])
+        limit = self.properties["snapDistance"] * self.printerScale["drawings"]
+
+        best = None
+        for apex in self.rulerEdit[4]:
+            apexY = self.positionUserToScreen(apex)[1]
+            distance = abs(apexY - self.cursorPosition[3])
+            if distance <= limit and (best is None or distance < best[0]):
+                best = (distance, apexY, apex)
+
+        if best is None:
+            return y, None
+        return best[1], best[2]
+
+    # ----
+
+    def endRulerEdit(self):
+        """Show the ruler that was being edited again (no redraw)."""
+
+        if self.rulerEdit:
+            self.rulerEdit[0].setProperties(hiddenRuler=None)
+        self.rulerEdit = None
+
+    # ----
+
+    def setRulerGrabFunction(self, fn):
+        """Set the function telling which ruler end a press picks up."""
+        self.rulerGrabFn = fn
 
     # ----
 
@@ -2047,6 +2160,11 @@ class canvas(wx.Window):
         if self.mouseFn == "cross":
             self.drawCursorTracker(dc)
 
+        # cross tracker marking the peak a difference ruler would start at
+        elif self.mouseFn == "crosssnap":
+            self.drawCursorTracker(dc)
+            self.drawSnapTracker(dc)
+
         # draw isotope ruler
         elif self.mouseFn == "isotoperuler":
             self.drawIsotopeRuler(dc)
@@ -2289,6 +2407,45 @@ class canvas(wx.Window):
             bgrColour=self.properties["plotColour"],
             printerScale=self.printerScale,
             flipped=bool(max(start[1], end[1]) < 0),
+        )
+
+    # ----
+
+    def drawRulerBar(self, dc):
+        """Draw the difference ruler whose bar is being dragged up or down."""
+
+        if not self.rulerEdit:
+            return
+
+        ends, text = self.rulerEdit[2], self.rulerEdit[3]
+        x1, y1 = self.positionUserToScreen(ends[0])
+        x2, y2 = self.positionUserToScreen(ends[1])
+        y, apex = self._rulerBarPosition()
+        colour = self.properties["rulerColour"]
+
+        # circle the apex the bar snapped to
+        if apex is not None:
+            scale = self.printerScale["drawings"]
+            apexX = self.positionUserToScreen(apex)[0]
+            dc.SetPen(wx.Pen(colour, max(1, int(round(scale)))))
+            dc.SetBrush(wx.TRANSPARENT_BRUSH)
+            dc.DrawCircle(int(apexX), int(y), int(5 * scale))
+
+        from mspy import plot_objects
+
+        plot_objects.drawRuler(
+            dc,
+            x1,
+            y1,
+            x2,
+            y2,
+            text,
+            colour=colour,
+            font=_scaleFont(self.properties["axisFont"], self.printerScale["fonts"]),
+            bgrColour=self.properties["plotColour"],
+            printerScale=self.printerScale,
+            flipped=bool(max(ends[0][1], ends[1][1]) < 0),
+            yBar=y,
         )
 
     # ----
@@ -2953,6 +3110,12 @@ class canvas(wx.Window):
         # # clear distance arrow
         # elif self.mouseEvent == "distance":
         #     self.drawDistanceTracker()
+
+        # a ruler end being dragged goes back where it was
+        if self.rulerEdit:
+            self.endRulerEdit()
+            if self.lastDraw:
+                wx.CallAfter(self.refresh)
 
         # reset mouse event flag
         self.mouseEvent = False

@@ -48,6 +48,7 @@ _SECTIONS = (
     "massDefectPlot",
     "compoundsSearch",
     "peakDifferences",
+    "differenceRuler",
     "comparePeaklists",
     "spectrumGenerator",
     "envelopeFit",

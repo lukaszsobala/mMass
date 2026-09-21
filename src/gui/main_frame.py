@@ -798,7 +798,7 @@ class mainFrame(wx.Frame):
         tools.Append(ID_toolsRuler, "Spectrum Ruler" + HK_toolsRuler, "", wx.ITEM_RADIO)
         tools.Append(
             ID_toolsDiffRuler,
-            "Difference Ruler" + HK_toolsDiffRuler,
+            "Label Difference" + HK_toolsDiffRuler,
             "Drag between two peaks to mark and name their mass difference",
             wx.ITEM_RADIO,
         )
@@ -824,6 +824,11 @@ class mainFrame(wx.Frame):
             ID_toolsDeleteLabel, "Delete Label" + HK_toolsDeleteLabel, "", wx.ITEM_RADIO
         )
         tools.Append(ID_toolsOffset, "Offset Spectrum", "", wx.ITEM_RADIO)
+        tools.Append(
+            ID_toolsDiffRulerSettings,
+            "Difference Label Settings...",
+            "Lists, tolerance and text of difference labels",
+        )
         tools.AppendSeparator()
         tools.Append(
             ID_toolsPeriodicTable, "Periodic Table" + HK_toolsPeriodicTable, ""
@@ -882,6 +887,11 @@ class mainFrame(wx.Frame):
 
         self.Bind(wx.EVT_MENU, self.onToolsSpectrum, id=ID_toolsRuler)
         self.Bind(wx.EVT_MENU, self.onToolsSpectrum, id=ID_toolsDiffRuler)
+        self.Bind(
+            wx.EVT_MENU,
+            lambda evt: self.spectrumPanel.onDiffRulerSettings(),
+            id=ID_toolsDiffRulerSettings,
+        )
         self.Bind(wx.EVT_MENU, self.onToolsSpectrum, id=ID_toolsLabelPeak)
         self.Bind(wx.EVT_MENU, self.onToolsSpectrum, id=ID_toolsMultiLabelPeak)
         self.Bind(wx.EVT_MENU, self.onToolsSpectrum, id=ID_toolsLabelPoint)
@@ -4740,9 +4750,9 @@ class mainFrame(wx.Frame):
         if library in ("differences", "monomers"):
             differences.invalidate()
             available = differences.availableLists()
-            config.peakDifferences["rulerLists"] = [
+            config.differenceRuler["lists"] = [
                 name
-                for name in config.peakDifferences["rulerLists"]
+                for name in config.differenceRuler["lists"]
                 if name in available
             ]
 

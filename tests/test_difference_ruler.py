@@ -13,6 +13,7 @@ put back afterwards -- see test_library_io.
 import json
 import os
 
+import numpy
 import pytest
 
 import mspy
@@ -129,12 +130,87 @@ def test_user_lists_follow_builtin_ones(user_lists):
     assert differences.getList("gone") == {}
 
 
-def test_ruler_text():
+def test_ppm_tolerance_applies_at_each_peak():
+    candidates = differences.entries([differences.SUGARS])
+    peaks = (1000.0, 1000.0 + HEX)
+
+    # each peak may be 10 ppm off at its own m/z: 0.0100 + 0.0116 = 0.0216
+    assert differences.match(HEX + 0.021, candidates, 10, units="ppm", mzs=peaks)
+    assert not differences.match(HEX + 0.022, candidates, 10, units="ppm", mzs=peaks)
+    # 10 ppm of the higher peak alone (0.0116) would have missed this one
+    assert differences.match(HEX + 0.015, candidates, 10, units="ppm", mzs=peaks)
+    # the same ppm are tighter lower down the m/z scale
+    assert not differences.match(HEX + 0.015, candidates, 10, units="ppm", mzs=(400.0, 400.0 + HEX))
+
+    # each match carries the theoretical mass it was matched against
+    name, error, listName, theoretical = differences.match(
+        HEX + 0.015, candidates, 10, units="ppm", mzs=peaks
+    )[0]
+    assert (name, listName) == ("Hex", differences.SUGARS)
+    assert theoretical == pytest.approx(HEX, abs=1e-5)
+    assert error == pytest.approx(0.015, abs=1e-5)
+
+
+def test_ppm_tolerance_scales_with_charge():
+    candidates = differences.entries([differences.SUGARS])
+    peaks = (1000.0, 1000.0 + HEX / 2)  # 5 ppm: 0.0050 + 0.0054 = 0.0104 m/z
+
+    # at 2+ the m/z step is half the mass step, and so is the m/z tolerance
+    assert differences.match(HEX / 2 + 0.010, candidates, 5, charge=2, units="ppm", mzs=peaks)
+    assert not differences.match(HEX / 2 + 0.011, candidates, 5, charge=2, units="ppm", mzs=peaks)
+
+
+def test_da_tolerance_ignores_the_peaks():
+    candidates = differences.entries([differences.SUGARS])
+    assert differences.match(HEX + 0.05, candidates, 0.06, mzs=(1.0, 2.0))
+    assert differences.toleranceMz(0.06, "Da", (1000.0, 1162.0)) == 0.06
+
+
+def test_error_text():
+    assert differences.errorText(0.0012, digits=4) == "+0.0012"
+    assert differences.errorText(-0.0012, digits=3) == "-0.001"
+    # ppm on the tolerance's footing: of both peaks' m/z, per m/z unit
+    assert differences.errorText(0.002, units="ppm", mzs=(400.0, 600.0)) == "+2.0 ppm"
+    assert differences.errorText(0.004, charge=2, units="ppm", mzs=(400.0, 600.0)) == "+2.0 ppm"
+
+
+def test_ppm_error_within_tolerance_means_matched():
+    candidates = differences.entries([differences.SUGARS])
+    peaks = (1000.0, 1000.0 + HEX)
+    ((name, error, _list, _theoretical),) = differences.match(
+        HEX + 0.02, candidates, 10, units="ppm", mzs=peaks
+    )
+    shown = float(differences.errorText(error, units="ppm", mzs=peaks).split()[0])
+    assert abs(shown) <= 10
+
+
+def test_ruler_text_unmatched_shows_the_difference():
     assert differences.rulerText("", 162.05282, digits=3) == "162.053"
-    assert differences.rulerText("Hex", 162.05282, digits=3) == "Hex"
-    assert differences.rulerText("Hex", 162.05282, showDiff=True, digits=2) == "Hex  162.05"
-    assert differences.rulerText("Hex", 81.02641, charge=2, digits=2) == "Hex (2+)"
-    assert differences.rulerText("Hex", 81.02641, charge=-2, digits=2) == "Hex (2-)"
+    assert differences.rulerText("", 162.05282, options={"labelDiff": 0}, digits=3) == "162.053"
+
+
+def test_ruler_text_follows_the_label_options():
+    def text(**options):
+        return differences.rulerText(
+            "K / Q", (128.094963 + 0.0012) / 2, charge=2, theoretical=128.094963,
+            mzs=(736.0, 800.0), options=options, digits=4,
+        )
+
+    assert text() == "K / Q (2+)  64.0481"
+    assert text(labelDiff=0) == "K / Q (2+)"
+    assert text(labelAllNames=0) == "K (2+)  64.0481"
+    assert text(labelCharge=0, labelDiff=0) == "K / Q"
+    assert text(labelDiff=0, labelError=1) == "K / Q (2+)  +0.0012"
+    assert text(labelName=0, labelError=1) == "64.0481  +0.0012"
+    # nothing ticked: still the names, never a blank ruler
+    assert text(labelName=0, labelDiff=0) == "K / Q"
+    # error in ppm of the peak m/z
+    assert differences.rulerText(
+        "Hex", HEX + 0.002, theoretical=HEX, mzs=(400.0, 600.0),
+        options={"labelDiff": 0, "labelError": 1}, units="ppm",
+    ) == "Hex  +2.0 ppm"
+    # negative ions
+    assert differences.rulerText("Hex", HEX / 2, charge=-2, options={"labelDiff": 0}) == "Hex (2-)"
 
 
 def test_match_names_keeps_the_closest_few():
@@ -212,8 +288,12 @@ def test_ruler_keeps_lower_mz_first():
 def test_rulers_survive_msd_round_trip(tmp_path):
     document = gdoc.document()
     document.spectrum.setpeaklist(mspy.peaklist([mspy.peak(mz=1000.0, ai=10.0)]))
-    document.rulers.append(gdoc.ruler(1000.0, 10.0, 1162.052824, 5.0, label="Hex <1>", charge=1))
-    document.rulers.append(gdoc.ruler(500.0, 1.0, 540.5, 2.0, label="", charge=2, scanID=7))
+    document.rulers.append(
+        gdoc.ruler(1000.0, 10.0, 1162.052824, 5.0, label="Hex <1>", charge=1, theoretical=HEX)
+    )
+    document.rulers.append(
+        gdoc.ruler(500.0, 1.0, 540.5, 2.0, label="", charge=2, scanID=7, height=12.5)
+    )
 
     path = str(tmp_path / "rulers.msd")
     with open(path, "w", encoding="utf-8") as handle:
@@ -231,7 +311,11 @@ def test_rulers_survive_msd_round_trip(tmp_path):
         None,
     )
     assert (first.ai1, first.ai2) == (pytest.approx(10.0), pytest.approx(5.0))
-    assert (second.label, second.charge, second.scanID) == ("", 2, 7)
+    assert first.theoretical == pytest.approx(HEX)
+    assert (second.label, second.charge, second.scanID, second.theoretical) == ("", 2, 7, None)
+    # a bar put at a height by hand stays there; the others are placed as drawn
+    assert first.height is None
+    assert second.height == pytest.approx(12.5)
 
 
 def test_document_without_rulers_writes_no_element():
@@ -240,13 +324,16 @@ def test_document_without_rulers_writes_no_element():
 
 def test_report_lists_rulers():
     document = gdoc.document()
-    document.rulers.append(gdoc.ruler(1000.0, 1.0, 1162.052824, 1.0, label="Hex", charge=1))
+    document.rulers.append(
+        gdoc.ruler(1000.0, 1.0, 1162.055824, 1.0, label="Hex", charge=1, theoretical=HEX)
+    )
 
     html = document.report()
 
-    assert "Difference Rulers" in html
+    assert "Difference Labels" in html
     assert "<td>Hex</td>" in html
     assert "162.05" in html
+    assert "0.0030" in html  # observed minus theoretical
 
 
 def test_rulers_undo_and_redo():
@@ -331,3 +418,77 @@ def test_overlapping_rulers_are_stacked(wx_app):
     assert second[3] <= first[1]
     # the third is clear of both and stays down
     assert third[1] == first[1]
+
+
+def test_drawn_rulers_can_be_found_and_hidden(wx_app):
+    import wx
+
+    from mspy import plot_objects
+
+    scan = mspy.scan(
+        peaklist=[mspy.peak(mz=1000.0, ai=40.0), mspy.peak(mz=1162.0, ai=30.0)],
+    )
+    spectrum = plot_objects.spectrum(scan)
+    # 1 px per m/z unit from x = -900, and 5 px per intensity unit upwards
+    spectrum.currentTransform = (1.0, -5.0, -900.0, 280.0)
+    spectrum.peaklistPoints = numpy.array([[1000.0, 40.0], [1162.0, 30.0]])
+    spectrum.setProperties(rulers=[(1000.0, 40.0, 1162.0, 30.0, "Hex", 7)])
+
+    def draw():
+        bitmap = wx.Bitmap(400, 300)
+        dc = wx.MemoryDC(bitmap)
+        spectrum.drawOverlays(dc, {"drawings": 1.0, "fonts": 1.0})
+        dc.SelectObject(wx.NullBitmap)
+
+    draw()
+    (key, (x1, y1, x2, y2, yBar, box)), = spectrum.rulerGeometry
+    assert key == 7
+    assert (x1, x2) == (100.0, 262.0)
+
+    # the leads of either end pick that end up, the bar and text the ruler
+    assert spectrum.rulerAt(x1, (y1 + yBar) / 2) == (7, 1)
+    assert spectrum.rulerAt(x2 + 2, (y2 + yBar) / 2) == (7, 2)
+    assert spectrum.rulerAt((x1 + x2) / 2, yBar) == (7, 0)
+    assert spectrum.rulerAt((x1 + x2) / 2, yBar + 60) is None
+
+    # a ruler being edited is left out, and cannot be picked up
+    spectrum.setProperties(hiddenRuler=7)
+    draw()
+    assert spectrum.rulerGeometry == []
+    assert spectrum.rulerAt(x1, (y1 + yBar) / 2) is None
+
+    # neither can hidden rulers
+    spectrum.setProperties(hiddenRuler=None, showRulers=False)
+    draw()
+    assert spectrum.rulerAt(x1, (y1 + yBar) / 2) is None
+
+
+def test_ruler_put_at_a_height_stays_there_and_others_stack_clear(wx_app):
+    import wx
+
+    from mspy import plot_objects
+
+    scan = mspy.scan(
+        peaklist=[mspy.peak(mz=1000.0, ai=40.0), mspy.peak(mz=1162.0, ai=30.0)],
+    )
+    spectrum = plot_objects.spectrum(scan)
+    spectrum.currentTransform = (1.0, -5.0, -900.0, 280.0)
+    spectrum.peaklistPoints = numpy.array([[1000.0, 40.0], [1162.0, 30.0]])
+    # the automatic one comes first by m/z, the one put at intensity 30
+    # (screen y 130) sits exactly where it would go
+    spectrum.setProperties(
+        rulers=[
+            (1000.0, 40.0, 1162.0, 30.0, "Hex", 0, None),
+            (1010.0, 40.0, 1150.0, 30.0, "Hex", 1, 26.0),
+        ]
+    )
+
+    bitmap = wx.Bitmap(400, 300)
+    dc = wx.MemoryDC(bitmap)
+    spectrum.drawOverlays(dc, {"drawings": 1.0, "fonts": 1.0})
+    dc.SelectObject(wx.NullBitmap)
+
+    geometry = dict(spectrum.rulerGeometry)
+    assert geometry[1][4] == pytest.approx(26.0 * -5.0 + 280.0)
+    # the automatic one is lifted clear of it
+    assert geometry[0][5][3] <= geometry[1][5][1]

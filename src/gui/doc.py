@@ -577,6 +577,10 @@ class document:
                     'mz1="%.6f" ai1="%.6f" mz2="%.6f" ai2="%.6f" charge="%d"'
                     % (ruler.mz1, ruler.ai1, ruler.mz2, ruler.ai2, ruler.charge)
                 )
+                if ruler.theoretical is not None:
+                    attributes += ' calcDiff="%.6f"' % ruler.theoretical
+                if ruler.height is not None:
+                    attributes += ' height="%.6f"' % ruler.height
                 if ruler.scanID is not None:
                     attributes += ' scanID="%s"' % self._escape(str(ruler.scanID))
                 buff += "    <ruler %s>%s</ruler>\n" % (
@@ -1008,12 +1012,20 @@ class document:
         # difference rulers
         if self.rulers:
             tableID = "tableRulers1"
-            buff += "  <h2>Difference Rulers</h2>\n"
+            buff += "  <h2>Difference Labels</h2>\n"
             buff += '  <table id="tableRulers">\n'
             buff += "    <thead>\n"
             buff += "      <tr>\n"
             for col, title in enumerate(
-                ("m/z&nbsp;1", "m/z&nbsp;2", "&Delta;&nbsp;m/z", "z", "Match")
+                (
+                    "m/z&nbsp;1",
+                    "m/z&nbsp;2",
+                    "&Delta;&nbsp;m/z",
+                    "z",
+                    "Match",
+                    "Calc.&nbsp;&Delta;&nbsp;(Da)",
+                    "&delta;&nbsp;(Da)",
+                )
             ):
                 buff += (
                     '        <th><a href="" onclick="return sortTable(\'%s\', %d);" title="Sort by">%s</a></th>\n'
@@ -1023,14 +1035,23 @@ class document:
             buff += "    </thead>\n"
             buff += '    <tbody id="%s">\n' % tableID
             for ruler in self.rulers:
+                theoretical = ""
+                error = ""
+                if ruler.theoretical is not None:
+                    theoretical = mzFormat % ruler.theoretical
+                    error = mzFormat % (
+                        ruler.diff * max(1, abs(ruler.charge)) - ruler.theoretical
+                    )
                 buff += (
-                    '      <tr><td class="right nowrap">%s</td><td class="right nowrap">%s</td><td class="right nowrap">%s</td><td class="center nowrap">%s</td><td>%s</td></tr>\n'
+                    '      <tr><td class="right nowrap">%s</td><td class="right nowrap">%s</td><td class="right nowrap">%s</td><td class="center nowrap">%s</td><td>%s</td><td class="right nowrap">%s</td><td class="right nowrap">%s</td></tr>\n'
                     % (
                         mzFormat % ruler.mz1,
                         mzFormat % ruler.mz2,
                         mzFormat % ruler.diff,
                         ruler.charge if abs(ruler.charge) > 1 else "",
                         self._escape(ruler.label),
+                        theoretical,
+                        error,
                     )
                 )
             buff += "    </tbody>\n"
@@ -1441,23 +1462,40 @@ class ruler:
     label holds the names of the differences it matched when it was drawn ("" if
     none), so a later change to the difference lists does not silently relabel
     a saved document; the text shown is made from it by differences.rulerText.
-    charge is the charge the match was made at. scanID ties a ruler to the scan
-    of an LC-MS run it was drawn on; None for single scans.
+    charge is the charge the match was made at, and theoretical the neutral
+    mass difference of the closest match (None when unmatched), which the label
+    can show the error against. scanID ties a ruler to the scan of an LC-MS run
+    it was drawn on; None for single scans. height is the intensity the bar
+    was put at by hand, or None to draw it just above the peaks.
     """
 
-    def __init__(self, mz1, ai1, mz2, ai2, label="", charge=1, scanID=None):
+    def __init__(
+        self,
+        mz1,
+        ai1,
+        mz2,
+        ai2,
+        label="",
+        charge=1,
+        scanID=None,
+        theoretical=None,
+        height=None,
+    ):
 
         # keep the lower m/z first
         if mz2 < mz1:
             mz1, ai1, mz2, ai2 = mz2, ai2, mz1, ai1
 
-        self.mz1 = mz1
-        self.ai1 = ai1
-        self.mz2 = mz2
-        self.ai2 = ai2
+        # plain floats: canvas positions arrive as numpy scalars
+        self.mz1 = float(mz1)
+        self.ai1 = float(ai1)
+        self.mz2 = float(mz2)
+        self.ai2 = float(ai2)
         self.label = label
-        self.charge = charge
+        self.charge = int(charge)
         self.scanID = scanID
+        self.theoretical = None if theoretical is None else float(theoretical)
+        self.height = None if height is None else float(height)
 
     # ----
 
@@ -2115,11 +2153,21 @@ class parseMSD:
                     charge=int(rulerTag.getAttribute("charge") or 1),
                 )
             except ValueError:
-                self.errors.append("Incorrect ruler data.")
+                self.errors.append("Incorrect difference label data.")
                 continue
 
             if rulerTag.hasAttribute("scanID"):
                 item.scanID = self._convertScanID(rulerTag.getAttribute("scanID"))
+            if rulerTag.hasAttribute("calcDiff"):
+                try:
+                    item.theoretical = float(rulerTag.getAttribute("calcDiff"))
+                except ValueError:
+                    self.errors.append("Incorrect difference label data.")
+            if rulerTag.hasAttribute("height"):
+                try:
+                    item.height = float(rulerTag.getAttribute("height"))
+                except ValueError:
+                    self.errors.append("Incorrect difference label data.")
 
             self.document.rulers.append(item)
 

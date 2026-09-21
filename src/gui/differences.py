@@ -185,24 +185,46 @@ def entries(names):
 # --------
 
 
-def match(diff, candidates, tolerance, massType=0, charge=1):
+def ppmBase(mzs):
+    """What a ppm tolerance or error of a difference is taken of.
+
+    Each of the two peaks can be off by the ppm at its own m/z, and in the
+    worst case the two errors run in opposite directions, so a difference can
+    be off by that many ppm of the sum of both m/z values.
+    """
+
+    return sum(abs(mz) for mz in (mzs or ()))
+
+
+def toleranceMz(tolerance, units="Da", mzs=None):
+    """Tolerance of an m/z difference between peaks at mzs, in m/z."""
+
+    if units == "ppm":
+        return tolerance * 1e-6 * ppmBase(mzs)
+    return tolerance
+
+
+def match(diff, candidates, tolerance, massType=0, charge=1, units="Da", mzs=None):
     """Entries matching an m/z difference, best first.
 
     diff is an m/z difference between two peaks of the same charge; it is
     multiplied by that charge to get the neutral mass difference the entries
-    are given in, and so is the m/z tolerance. candidates is the output of
-    entries(). Returns [(name, error, list name)], error in Da.
+    are given in, and so is the tolerance. The tolerance is in Da, or in ppm
+    applied at each of the two peaks' m/z (mzs, see ppmBase). candidates is the
+    output of entries(). Returns [(name, error, list name, theoretical)], with
+    error and theoretical as neutral masses in Da.
     """
 
     charge = max(1, abs(int(charge or 1)))
     mass = abs(diff) * charge
-    tolerance = tolerance * charge
+    tolerance = toleranceMz(tolerance, units, mzs) * charge
 
     matches = []
     for name, mono, avg, listName in candidates:
-        error = mass - (avg if massType else mono)
+        theoretical = avg if massType else mono
+        error = mass - theoretical
         if abs(error) <= tolerance:
-            matches.append((name, error, listName))
+            matches.append((name, error, listName, theoretical))
 
     matches.sort(key=lambda item: abs(item[1]))
     return matches
@@ -212,9 +234,9 @@ def matchNames(matches, maxNames=3):
     """Names of the closest matches, as a ruler is labelled with them."""
 
     names = []
-    for name, _error, _listName in matches:
-        if name not in names:
-            names.append(name)
+    for item in matches:
+        if item[0] not in names:
+            names.append(item[0])
 
     text = " / ".join(names[:maxNames])
     if len(names) > maxNames:
@@ -222,28 +244,75 @@ def matchNames(matches, maxNames=3):
     return text
 
 
-def rulerText(names, diff, charge=1, showDiff=False, digits=4):
+def errorText(error, charge=1, units="Da", mzs=None, digits=4, ppmDigits=1):
+    """Observed minus theoretical difference, in Da or in ppm.
+
+    ppm are on the same footing as a ppm tolerance (see ppmBase): the error
+    each peak would have to carry, so a ruler matches exactly when this is
+    within the tolerance.
+    """
+
+    base = ppmBase(mzs)
+    if units == "ppm" and base:
+        charge = max(1, abs(int(charge or 1)))
+        return "%+0.*f ppm" % (ppmDigits, error / charge / base * 1e6)
+    return "%+0.*f" % (digits, error)
+
+
+# what a matched ruler's label shows unless told otherwise
+LABEL_DEFAULTS = {
+    "labelName": 1,
+    "labelAllNames": 1,
+    "labelCharge": 1,
+    "labelDiff": 1,
+    "labelError": 0,
+}
+
+
+def rulerText(
+    names,
+    diff,
+    charge=1,
+    theoretical=None,
+    mzs=None,
+    options=None,
+    units="Da",
+    digits=4,
+    ppmDigits=1,
+):
     """Text a difference ruler shows.
 
-    An unmatched ruler (no names) shows the m/z difference itself; a matched one
-    shows the names, followed by the difference when showDiff is set. A charge
-    above one is added so a ruler across a multiply-charged series says which
-    charge its match was computed for.
+    An unmatched ruler (no names) shows the m/z difference itself. What a
+    matched one shows is chosen by options (keys as in LABEL_DEFAULTS): the
+    names of the closest or of all matches, the charge the match was made at
+    when above one, the difference, and the observed minus theoretical error
+    in the tolerance units. With every part switched off the names are shown,
+    so a matched ruler never goes blank.
     """
 
     diffText = "%0.*f" % (digits, abs(diff))
     if not names:
         return diffText
 
-    text = names
-    charge = int(charge or 1)
-    if abs(charge) > 1:
-        text += " (%d%s)" % (abs(charge), "-" if charge < 0 else "+")
+    settings = dict(LABEL_DEFAULTS)
+    settings.update(options or {})
 
-    if showDiff:
-        text += "  %s" % diffText
+    parts = []
+    if settings["labelName"]:
+        text = names if settings["labelAllNames"] else names.split(" / ")[0]
+        charge = int(charge or 1)
+        if settings["labelCharge"] and abs(charge) > 1:
+            text += " (%d%s)" % (abs(charge), "-" if charge < 0 else "+")
+        parts.append(text)
+    if settings["labelDiff"]:
+        parts.append(diffText)
+    if settings["labelError"] and theoretical is not None:
+        error = abs(diff) * max(1, abs(int(charge or 1))) - theoretical
+        parts.append(errorText(error, charge, units, mzs, digits, ppmDigits))
 
-    return text
+    if not parts:
+        return names
+    return "  ".join(parts)
 
 
 def rulerCharge(charge1, charge2):

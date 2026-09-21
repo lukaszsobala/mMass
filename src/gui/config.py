@@ -642,11 +642,25 @@ peakDifferences = {
     "consolidate": 0,
     # match against the user's lists from the mass differences library
     "userLists": 0,
-    # difference ruler: the lists it matches against (built-in or user list
-    # names), whether a matched ruler also shows the difference, and its colour
-    "rulerLists": ["Amino acids", "Sugars", "Modifications", "Adducts and Losses"],
-    "rulerShowDiff": 1,
-    "rulerColour": [230, 120, 0],
+}
+
+differenceRuler = {
+    # lists to match against (built-in or user list names)
+    "lists": ["Amino acids", "Sugars", "Modifications", "Adducts and Losses"],
+    "massType": 0,
+    # largest observed-minus-theoretical difference that still matches; in
+    # "Da", or in "ppm" applied at each of the two peaks' own m/z
+    "tolerance": 0.1,
+    "units": "Da",
+    # what a matched ruler's label shows (an unmatched one shows the difference)
+    "labelName": 1,
+    "labelAllNames": 1,
+    "labelCharge": 1,
+    "labelDiff": 1,
+    "labelError": 0,
+    "colour": [230, 120, 0],
+    # rulers are annotations of their own, shown or hidden apart from notations
+    "show": 1,
 }
 
 comparePeaklists = {
@@ -1476,6 +1490,11 @@ def _validateConfig():
     ):
         processing["peakpicking"]["averagineType"] = "protein"
 
+    if differenceRuler["units"] not in ("Da", "ppm"):
+        differenceRuler["units"] = "Da"
+    if differenceRuler["tolerance"] <= 0:
+        differenceRuler["tolerance"] = 0.1
+
 
 
 def _getParams(sectionTag, section):
@@ -1673,6 +1692,7 @@ _CONFIG_SECTIONS = (
     "massDefectPlot",
     "compoundsSearch",
     "peakDifferences",
+    "differenceRuler",
     "comparePeaklists",
     "spectrumGenerator",
     "envelopeFit",
@@ -1843,6 +1863,7 @@ massToFormula = ConfigDict(massToFormula)
 massDefectPlot = ConfigDict(massDefectPlot)
 compoundsSearch = ConfigDict(compoundsSearch)
 peakDifferences = ConfigDict(peakDifferences)
+differenceRuler = ConfigDict(differenceRuler)
 comparePeaklists = ConfigDict(comparePeaklists)
 spectrumGenerator = ConfigDict(spectrumGenerator)
 envelopeFit = ConfigDict(envelopeFit)
