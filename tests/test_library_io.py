@@ -101,6 +101,74 @@ def test_enzymes_round_trip(tmp_path):
         mspy.enzymes.pop("ZzCutter", None)
 
 
+_LEGACY_ENZYMES_XML = """<?xml version="1.0" encoding="utf-8" ?>
+<mspyEnzymes version="1.0">
+  <enzyme name="Trypsin">
+    <expression><![CDATA[[KR][^P]]]></expression>
+    <formula nTerm="H" cTerm="OH" />
+    <allowMods before="0" after="1" />
+  </enzyme>
+  <enzyme name="ZzCutter">
+    <expression><![CDATA[[W][A-Z]]]></expression>
+    <formula nTerm="H" cTerm="OH" />
+    <allowMods before="1" after="1" />
+  </enzyme>
+</mspyEnzymes>
+"""
+
+
+def test_legacy_enzyme_expressions_in_cdata_are_read(tmp_path):
+    """The pre-7.0 enzymes.xml keeps every cleavage expression in CDATA."""
+
+    path = tmp_path / "enzymes.xml"
+    path.write_text(_LEGACY_ENZYMES_XML, encoding="utf-8")
+
+    enzymes = mspy.readEnzymesXML(str(path))
+
+    assert enzymes["Trypsin"].expression == "[KR][^P]"
+    assert enzymes["ZzCutter"].expression == "[W][A-Z]"
+
+
+def test_bundled_enzymes_can_digest(libs_modules):
+    """The bundled enzymes.json once shipped with every expression empty."""
+
+    config, libs = libs_modules
+    path = os.path.join(config.get_default_config_source_dir(), "enzymes.json")
+    mspy.loadEnzymes(path, clear=True)
+
+    assert all(item.expression for item in mspy.enzymes.values())
+    peptides = mspy.digest(mspy.sequence("ACDEFGHIKLMNPQRSTVWY"), "Trypsin")
+    assert sorted(p.format("S") for p in peptides) == ["ACDEFGHIK", "LMNPQR", "STVWY"]
+
+
+def test_enzymes_emptied_by_migration_are_repaired(tmp_path, libs_modules):
+    """Empty expressions come back from the migrated-aside XML, else built-ins."""
+
+    config, libs = libs_modules
+    legacy = tmp_path / "enzymes.xml.migrated"
+    legacy.write_text(_LEGACY_ENZYMES_XML, encoding="utf-8")
+
+    builtin = {name: item.expression for name, item in mspy.enzymes.items()}
+    mspy.enzymes["ZzCutter"] = mspy.enzyme(name="ZzCutter", nTermFormula="H", cTermFormula="OH")
+    mspy.enzymes["Trypsin"].expression = ""
+    mspy.enzymes["Lys-C"].expression = ""
+    mspy.enzymes["Arg-C"].expression = "[R][A-Z]"
+
+    try:
+        repaired = libs.repairEnzymeExpressions(str(legacy), builtin)
+
+        assert sorted(repaired) == ["Lys-C", "Trypsin", "ZzCutter"]
+        assert mspy.enzymes["ZzCutter"].expression == "[W][A-Z]"  # user's own, from XML
+        assert mspy.enzymes["Trypsin"].expression == "[KR][^P]"
+        assert mspy.enzymes["Lys-C"].expression == builtin["Lys-C"]  # not in the XML
+        # nothing is repaired twice
+        assert libs.repairEnzymeExpressions(str(legacy), builtin) == []
+    finally:
+        mspy.enzymes.pop("ZzCutter", None)
+        mspy.enzymes["Trypsin"].expression = builtin["Trypsin"]
+        mspy.enzymes["Lys-C"].expression = builtin["Lys-C"]
+
+
 def test_modifications_round_trip(tmp_path):
     """Characters that needed XML escaping must come back verbatim."""
 
