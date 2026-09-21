@@ -157,10 +157,6 @@ class canvas(wx.Window):
         self.rulerLabelFn = None
         self.rulerStart = None
 
-        # rulerEndFn(x) gives the plot y a ruler end not on a peak is drawn
-        # down to (the spectrum's), so the lead goes where it will end up
-        self.rulerEndFn = None
-
         # rulerGrabFn(screenX, screenY) says which drawn ruler a press picks
         # up, as (plot object, key, part, ends, text, apexes) or None: part is
         # 1 or 2 for an end (dragged along the peaks from the other one, the
@@ -464,7 +460,7 @@ class canvas(wx.Window):
         # start difference ruler at the nearest peak
         elif location == "plot" and self.mouseFnLMB == "peakRuler":
             self.mouseEvent = "peakRuler"
-            self.rulerStart = self._rulerEnd(self.snapPosition())
+            self.rulerStart = self.snapPosition()
             self.rulerEdit = None
 
             # or pick up an end of a ruler already drawn, dragging it from its
@@ -796,7 +792,7 @@ class canvas(wx.Window):
                 if self.mouseFnLMB == "peakRuler" and self.rulerGrabFn is not None:
                     grab = self.rulerGrabFn(self.cursorPosition[2], self.cursorPosition[3])
                     if grab:
-                        cursor = wx.CURSOR_SIZING if grab[2] else wx.CURSOR_SIZENS
+                        cursor = wx.CURSOR_SIZEWE if grab[2] else wx.CURSOR_SIZENS
                         self.SetCursor(wx.Cursor(cursor))
 
         # draw zoombox
@@ -1389,66 +1385,78 @@ class canvas(wx.Window):
     def getRulerBarHeight(self):
         """Height the bar of the ruler being edited is at.
 
-        While an end is dragged, the bar follows the cursor up and down from
-        where it was, snapping to the top of either end's peak. While the
-        bar is lifted or lowered, it is the plot y of the cursor, kept within
-        the plot, or the apex it snapped to. None when no ruler is edited, or
+        A new ruler's bar stays just over the peak it was started from. While
+        an end is dragged, the bar follows the cursor up and down from
+        where it was. While the bar is lifted or lowered, it is at the cursor.
+        Either way it is kept within the plot, and snaps to a peak top or the
+        bar of another ruler (see _snapBar). None when no ruler is edited, or
         its bar has not moved from where it was pressed.
         """
 
+        if self.mouseEvent == "peakRuler" and not self.rulerEdit and self.rulerStart:
+            y = self._rulerNewBar()
+            return self.positionScreenToUser((self.cursorPosition[2], y))[1]
         if not self.rulerEdit:
             return None
         if self.mouseEvent == "peakRuler":
-            end = self._rulerEnd(self.snapPosition())
-            y, apex = self._rulerEndBarPosition(end)
-            if apex is not None:
-                return apex[1]
+            end = self.snapPosition()
+            y, snap = self._rulerEndBarPosition(end)
             if y is None:
                 return None
-            return self.positionScreenToUser((self.cursorPosition[2], y))[1]
-        if self.mouseEvent != "rulerBar":
-            return None
-        if abs(self.cursorPosition[3] - self.draggingStart[3]) < 3:
+        elif self.mouseEvent == "rulerBar":
+            if abs(self.cursorPosition[3] - self.draggingStart[3]) < 3:
+                return None
+            y, snap = self._rulerBarPosition()
+        else:
             return None
 
-        y, apex = self._rulerBarPosition()
-        if apex is not None:
-            return apex[1]
+        if snap is not None:
+            return snap[1]
         return self.positionScreenToUser((self.cursorPosition[2], y))[1]
 
     # ----
 
-    def _rulerBarPosition(self):
-        """Screen y of the bar being dragged, and the apex it snapped to.
+    def _rulerNewBar(self):
+        """Screen y of the bar of a new ruler: just over the point it was
+        started from, whatever the other end does.
+        """
 
-        The bar snaps to the top of a peak the ruler spans when the cursor is
-        within snapDistance pixels of it (the nearest such, if several), else
-        it follows the cursor within the plot. Returns (y, apex or None).
+        return self.rulerBarOver(self.rulerStart)
+
+    # ----
+
+    def rulerBarOver(self, point):
+        """Screen y of a ruler bar put just over (under, for a flipped
+        spectrum) a plot point, as it is drawn over its peaks, kept within the
+        plot.
+        """
+
+        y = self.positionUserToScreen(point[:2])[1]
+        gap = 6 * self.printerScale["drawings"]
+        y += gap if point[1] < 0 else -gap
+        return min(max(y, self.plotCoords[1]), self.plotCoords[3])
+
+    # ----
+
+    def _rulerBarPosition(self):
+        """Screen y of the bar being dragged, and what it snapped to.
+
+        The bar follows the cursor within the plot, snapping to the tops of
+        the peaks the ruler spans (see _snapBar).
         """
 
         y = min(max(self.cursorPosition[3], self.plotCoords[1]), self.plotCoords[3])
-        limit = self.properties["snapDistance"] * self.printerScale["drawings"]
-
-        best = None
-        for apex in self.rulerEdit[4]:
-            apexY = self.positionUserToScreen(apex)[1]
-            distance = abs(apexY - self.cursorPosition[3])
-            if distance <= limit and (best is None or distance < best[0]):
-                best = (distance, apexY, apex)
-
-        if best is None:
-            return y, None
-        return best[1], best[2]
+        return self._snapBar(y, self.rulerEdit[4])
 
     # ----
 
     def _rulerEndBarPosition(self, end):
-        """Screen y of the bar of a ruler whose end is dragged, and the apex.
+        """Screen y of the bar of a ruler whose end is dragged, and the snap.
 
         The bar moves up and down with the cursor from where it was pressed,
-        kept within the plot, and snaps to the top of the peak either end is
-        on when it comes within snapDistance pixels of it (the nearer one).
-        Returns (y or None, apex or None); None y leaves it to drawRuler.
+        kept within the plot, and snaps to the tops of the peaks the ends are
+        on (see _snapBar). Returns (y or None, snap); None y leaves it to
+        drawRuler.
         """
 
         bar = self.rulerEdit[5]
@@ -1463,15 +1471,38 @@ class canvas(wx.Window):
         if abs(shift) < 3:
             return y, None
 
+        apexes = [point[:2] for point in (self.rulerStart, end) if point[2]]
+        return self._snapBar(y, apexes)
+
+    # ----
+
+    def _snapBar(self, y, apexes):
+        """Snap a ruler bar at screen y to a peak top or another ruler's bar.
+
+        A peak top (plot point in apexes) snaps within snapDistance pixels,
+        the bar of another ruler drawn by the same plot object within a bit
+        less, so peaks win when both are near. Returns (y, snap): snap is None,
+        or (x, plot y) with a third item, the other bar's (x1, x2) on screen,
+        when it lines up with another ruler.
+        """
+
         limit = self.properties["snapDistance"] * self.printerScale["drawings"]
         best = None
-        for point in (self.rulerStart, end):
-            if not point[2]:
-                continue
-            apexY = self.positionUserToScreen(point[:2])[1]
+        for apex in apexes:
+            apexY = self.positionUserToScreen(apex)[1]
             distance = abs(apexY - y)
             if distance <= limit and (best is None or distance < best[0]):
-                best = (distance, apexY, point[:2])
+                best = (distance, apexY, tuple(apex[:2]))
+
+        limit *= 0.6
+        for key, geometry in getattr(self.rulerEdit[0], "rulerGeometry", []):
+            if key == self.rulerEdit[1]:
+                continue
+            x1, x2, barY = geometry[0], geometry[2], geometry[4]
+            distance = abs(barY - y)
+            if distance <= limit and (best is None or distance < best[0]):
+                plotY = self.positionScreenToUser((x1, barY))[1]
+                best = (distance, barY, (x1, plotY, (x1, x2)))
 
         if best is None:
             return y, None
@@ -1479,21 +1510,15 @@ class canvas(wx.Window):
 
     # ----
 
-    def _rulerEnd(self, point):
-        """A ruler end (x, y, snapped), put on the spectrum if not on a peak."""
+    def _drawBarGuide(self, dc, x1, x2, y, snap):
+        """Dashed line joining a bar to the bar of the ruler it lines up with."""
 
-        if point[2] or self.rulerEndFn is None:
-            return point
-        y = self.rulerEndFn(point[0])
-        if y is None:
-            return point
-        return (point[0], y, False)
-
-    # ----
-
-    def setRulerEndFunction(self, fn):
-        """Set the function giving the height a free ruler end is drawn at."""
-        self.rulerEndFn = fn
+        if snap is None or len(snap) < 3:
+            return
+        left = min(x1, x2, *snap[2])
+        right = max(x1, x2, *snap[2])
+        dc.SetPen(wx.Pen(self.properties["rulerColour"], 1, wx.PENSTYLE_SHORT_DASH))
+        dc.DrawLine(int(left), int(y), int(right), int(y))
 
     # ----
 
@@ -1523,7 +1548,7 @@ class canvas(wx.Window):
         if self.mouseEvent != "peakRuler" or not self.rulerStart:
             return False
 
-        return self.rulerStart, self._rulerEnd(self.snapPosition())
+        return self.rulerStart, self.snapPosition()
 
     # ----
 
@@ -2456,12 +2481,15 @@ class canvas(wx.Window):
             return
 
         start = self.rulerStart
-        end = self._rulerEnd(self.snapPosition())
+        end = self.snapPosition()
 
-        # an end being moved keeps the bar where it was
-        yBar = None
+        # an end being moved takes the bar along up and down, a new ruler's
+        # stays over the peak it was started from
+        snap = None
         if self.rulerEdit:
-            yBar = self._rulerEndBarPosition(end)[0]
+            yBar, snap = self._rulerEndBarPosition(end)
+        else:
+            yBar = self._rulerNewBar()
 
         x1, y1 = self.positionUserToScreen(start[:2])
         x2, y2 = self.positionUserToScreen(end[:2])
@@ -2509,6 +2537,8 @@ class canvas(wx.Window):
             flipped=bool(max(start[1], end[1]) < 0),
             yBar=yBar,
         )
+        if yBar is not None:
+            self._drawBarGuide(dc, x1, x2, yBar, snap)
 
     # ----
 
@@ -2521,13 +2551,15 @@ class canvas(wx.Window):
         ends, text = self.rulerEdit[2], self.rulerEdit[3]
         x1, y1 = self.positionUserToScreen(ends[0])
         x2, y2 = self.positionUserToScreen(ends[1])
-        y, apex = self._rulerBarPosition()
+        y, snap = self._rulerBarPosition()
         colour = self.properties["rulerColour"]
 
-        # circle the apex the bar snapped to
-        if apex is not None:
+        # circle the apex the bar snapped to, or join it to the bar it lines
+        # up with
+        self._drawBarGuide(dc, x1, x2, y, snap)
+        if snap is not None and len(snap) < 3:
             scale = self.printerScale["drawings"]
-            apexX = self.positionUserToScreen(apex)[0]
+            apexX = self.positionUserToScreen(snap)[0]
             dc.SetPen(wx.Pen(colour, max(1, int(round(scale)))))
             dc.SetBrush(wx.TRANSPARENT_BRUSH)
             dc.DrawCircle(int(apexX), int(y), int(5 * scale))

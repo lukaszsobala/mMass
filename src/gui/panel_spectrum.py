@@ -277,7 +277,6 @@ class panelSpectrum(wx.Panel):
         self.spectrumCanvas.setSnapFunction(self.getSnapCandidates)
         self.spectrumCanvas.setRulerLabelFunction(self.getRulerText)
         self.spectrumCanvas.setRulerGrabFunction(self.grabRuler)
-        self.spectrumCanvas.setRulerEndFunction(self.getRulerEndHeight)
 
         # set events
         self.spectrumCanvas.Bind(wx.EVT_MOTION, self.onCanvasMMotion)
@@ -720,9 +719,12 @@ class panelSpectrum(wx.Panel):
         elif self.currentTool == "diffruler" and ruler and evt.ShiftDown():
             self.addRulerSeries(*ruler)
 
-        # add difference ruler
+        # add difference ruler, its bar where it was drawn
         elif self.currentTool == "diffruler" and ruler:
-            self.addRuler(*ruler)
+            height = None
+            if rulerHeight is not None:
+                height = self._toReal((0, rulerHeight))[1]
+            self.addRuler(*ruler, height=height)
 
         # label peak in every visible spectrum
         elif self.currentTool == "multilabelpeak" and rawSelection:
@@ -1144,7 +1146,7 @@ class panelSpectrum(wx.Panel):
                     for name, error, _listName, _theoretical in matches[:3]
                 )
             else:
-                label += "no match"
+                label += "no match within %s" % self._rulerToleranceText()
             if start[2] and end[2]:
                 label += "   (Shift: label each step)"
 
@@ -1872,24 +1874,6 @@ class panelSpectrum(wx.Panel):
 
     # ----
 
-    def getRulerEndHeight(self, x):
-        """Plot y a difference ruler end off any peak is drawn down to.
-
-        That is the spectrum's intensity there, as the drawn label has it
-        (see the plot object's rulerEndIntensity), or None outside it.
-        """
-
-        if self.currentDocument is None:
-            return None
-
-        mz = self._toReal((x, 0))[0]
-        ai = self.container[self.currentDocument + 2].rulerEndIntensity(mz, None)
-        if ai is None:
-            return None
-        return self._toDisplay(mz, ai)[1]
-
-    # ----
-
     def getRulerMatch(self, start, end):
         """Difference, charge and matches of a ruler between two canvas points.
 
@@ -1926,8 +1910,11 @@ class panelSpectrum(wx.Panel):
 
     # ----
 
-    def addRuler(self, start, end):
-        """Add a difference ruler between two canvas points to the document."""
+    def addRuler(self, start, end, height=None):
+        """Add a difference ruler between two canvas points to the document.
+
+        height is the intensity to put its bar at, None to place it itself.
+        """
 
         # check document
         if self.currentDocument is None:
@@ -1943,6 +1930,8 @@ class panelSpectrum(wx.Panel):
         ruler = self._makeRuler(
             start, end, scanID=docData.currentScanID if docData.islcms() else None
         )
+        if height is not None:
+            ruler.height = float(height)
 
         docData.backup(("rulers",))
         docData.rulers.append(ruler)
@@ -1994,11 +1983,16 @@ class panelSpectrum(wx.Panel):
             self.addRuler(start, end)
             return
 
+        # each step's bar just over its taller peak, as if drawn from there
+        canvas = self.spectrumCanvas
         scanID = docData.currentScanID if docData.islcms() else None
         rulers = []
         for i, j in zip(path[:-1], path[1:], strict=True):
             a, b = peaklist[i], peaklist[j]
             matches = matchRuler(b.mz - a.mz, charge, (a.mz, b.mz))
+            taller = a if a.ai >= b.ai else b
+            barY = canvas.rulerBarOver(self._toDisplay(taller.mz, taller.ai))
+            height = self._toReal(canvas.positionScreenToUser((0, barY)))[1]
             rulers.append(
                 doc.ruler(
                     a.mz,
@@ -2009,6 +2003,7 @@ class panelSpectrum(wx.Panel):
                     charge=charge,
                     scanID=scanID,
                     theoretical=matches[0][3] if matches else None,
+                    height=height,
                 )
             )
 
@@ -2405,6 +2400,16 @@ class panelSpectrum(wx.Panel):
 
     # ----
 
+    def _rulerToleranceText(self):
+        """Matching tolerance as shown to the user, e.g. "±100 ppm"."""
+
+        return "\u00b1%g %s" % (
+            config.differenceRuler["tolerance"],
+            config.differenceRuler["units"],
+        )
+
+    # ----
+
     def onDiffRulerMenu(self, evt=None):
         """Show difference ruler options."""
 
@@ -2420,7 +2425,9 @@ class panelSpectrum(wx.Panel):
             handlers[int(itemID)] = handler
 
         # difference lists
-        header = menu.Append(wx.ID_ANY, "Match Against:")
+        header = menu.Append(
+            wx.ID_ANY, "Match Within %s:" % self._rulerToleranceText()
+        )
         header.Enable(False)
         enabled = config.differenceRuler["lists"]
         for name in differences.availableLists():
@@ -2455,8 +2462,7 @@ class panelSpectrum(wx.Panel):
             bool(config.differenceRuler["labelDiff"]),
         )
         append(
-            "Settings (%s %s)..."
-            % (config.differenceRuler["tolerance"], config.differenceRuler["units"]),
+            "Settings...",
             self.onDiffRulerSettings,
         )
 

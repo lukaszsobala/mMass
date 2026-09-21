@@ -1791,9 +1791,9 @@ class spectrum:
         """Current intensity at a ruler end.
 
         A ruler keeps the intensity it was drawn at, but smoothing, baseline
-        subtraction or a math operation can change it later. The peak still
-        sitting at that m/z has the current value, else the profile does; the
-        stored one is only used when there is neither.
+        subtraction or a math operation can change it later: the peak still
+        sitting at that m/z has the current value. An end on no peak stays
+        where it was put, as it was drawn while being dragged.
         """
 
         points = self.peaklistPoints
@@ -1802,13 +1802,6 @@ class spectrum:
             for j in (i - 1, i):
                 if 0 <= j < len(points) and abs(points[j][0] - mz) <= max(1e-4, mz * 1e-6):
                     return points[j][1]
-
-        points = self.spectrumPoints
-        if len(points) and points[0][0] <= mz <= points[-1][0]:
-            try:
-                return mod_signal.intensity(points, mz)
-            except Exception:
-                pass
 
         return ai
 

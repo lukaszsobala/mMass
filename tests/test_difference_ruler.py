@@ -403,9 +403,8 @@ def test_ruler_ends_follow_the_current_peak_heights(wx_app):
 
     # a peak at the end: its intensity now, not the stored one
     assert spectrum.rulerEndIntensity(1000.0, 99.0) == pytest.approx(40.0)
-    # no peak there: the profile
-    assert spectrum.rulerEndIntensity(1162.0, 99.0) == pytest.approx(30.0)
-    # neither: what was stored
+    # no peak there: where it was put, not the profile
+    assert spectrum.rulerEndIntensity(1162.0, 99.0) == pytest.approx(99.0)
     assert spectrum.rulerEndIntensity(2000.0, 99.0) == pytest.approx(99.0)
 
 
