@@ -326,3 +326,93 @@ def rulerCharge(charge1, charge2):
     if charge1 and charge2:
         return charge1 if charge1 == charge2 else 1
     return charge1 or charge2 or 1
+
+
+# SERIES
+# ------
+
+
+def findSeries(mzs, ais, start, end, candidates, tolerance, massType=0, charge=1, units="Da"):
+    """Chain of peaks from start to end whose every step matches an entry.
+
+    mzs are the peaks' m/z in ascending order and ais their intensities;
+    start < end are indexes into them, candidates the output of entries().
+    Of all the chains through at least one peak in between, the one whose
+    weakest peak in between is strongest is taken, so a ladder is followed
+    through its peaks rather than through noise that happens to fit; of
+    those, the one with the most steps. Returns the list of indexes, from
+    start to end, or None when there is no such chain.
+    """
+
+    import numpy
+
+    if not 0 <= start < end < len(mzs):
+        return None
+
+    charge = max(1, abs(int(charge or 1)))
+    masses = numpy.unique(
+        numpy.array([(avg if massType else mono) for _n, mono, avg, _l in candidates], dtype=float)
+    )
+    masses = masses[masses > 0]
+    if not len(masses):
+        return None
+
+    span = numpy.asarray(mzs[start : end + 1], dtype=float)
+    steps = masses / charge
+
+    # every step between two peaks of the span that matches an entry
+    edges = [[] for _ in range(len(span))]
+    for i in range(len(span) - 1):
+        targets = span[i] + steps
+        if units == "ppm":
+            limits = tolerance * 1e-6 * (span[i] + targets)
+        else:
+            limits = numpy.full(len(targets), float(tolerance))
+        lower = numpy.searchsorted(span, targets - limits, side="left")
+        upper = numpy.searchsorted(span, targets + limits, side="right")
+        hits = upper > lower
+        reached = set()
+        for first, stop in zip(lower[hits], upper[hits], strict=True):
+            reached.update(range(max(int(first), i + 1), int(stop)))
+        edges[i] = sorted(reached)
+
+    last = len(span) - 1
+    heights = [ais[start + k] for k in range(len(span))]
+
+    def longest(threshold):
+        """Most steps from the first peak to the last through peaks >= threshold."""
+
+        best = [None] * len(span)
+        back = [None] * len(span)
+        best[0] = 0
+        for i in range(len(span)):
+            if best[i] is None:
+                continue
+            for j in edges[i]:
+                if j != last and heights[j] < threshold:
+                    continue
+                if best[j] is None or best[i] + 1 > best[j]:
+                    best[j] = best[i] + 1
+                    back[j] = i
+        return best[last], back
+
+    # the strongest weakest peak in between that still lets a chain through
+    levels = sorted({heights[k] for k in range(1, last)}, reverse=True)
+    lo, hi = 0, len(levels) - 1
+    found = None
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        count, back = longest(levels[mid])
+        if count is not None and count >= 2:
+            found = back
+            hi = mid - 1
+        else:
+            lo = mid + 1
+
+    if found is None:
+        return None
+
+    path = [last]
+    while path[-1] != 0:
+        path.append(found[path[-1]])
+    return [start + k for k in reversed(path)]

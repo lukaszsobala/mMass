@@ -1742,8 +1742,8 @@ class spectrum:
             height = item[6] if len(item) > 6 else None
             if hidden is not None and key == hidden:
                 continue
-            ai1 = self._rulerHeight(mz1, ai1)
-            ai2 = self._rulerHeight(mz2, ai2)
+            ai1 = self.rulerEndIntensity(mz1, ai1)
+            ai2 = self.rulerEndIntensity(mz2, ai2)
             x1 = _clampScreen(mz1 * xScale + xShift)
             x2 = _clampScreen(mz2 * xScale + xShift)
             y1 = _clampScreen(ai1 * yScale + yShift)
@@ -1787,7 +1787,7 @@ class spectrum:
 
     # ----
 
-    def _rulerHeight(self, mz, ai):
+    def rulerEndIntensity(self, mz, ai):
         """Current intensity at a ruler end.
 
         A ruler keeps the intensity it was drawn at, but smoothing, baseline

@@ -1862,6 +1862,8 @@ class mainFrame(wx.Frame):
         # update difference rulers
         if "rulers" in items and "spectrum" not in items:
             self.spectrumPanel.updateSpectrumProperties(self.currentDocument)
+        if "rulers" in items or "notations" in items:
+            self.documentsPanel.updateRulers(self.currentDocument)
 
         # update data-dependent panels
         if "spectrum" in items:
@@ -1967,6 +1969,9 @@ class mainFrame(wx.Frame):
         if "notations" in items or "annotations" in items:
             for docIndex in indexes:
                 self.documentsPanel.updateAnnotations(docIndex)
+        if "notations" in items or "rulers" in items:
+            for docIndex in indexes:
+                self.documentsPanel.updateRulers(docIndex)
         if "notations" in items or "matches" in items:
             for docIndex in indexes:
                 for seqIndex in range(len(self.documents[docIndex].sequences)):

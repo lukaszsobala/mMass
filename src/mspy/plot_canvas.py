@@ -157,14 +157,20 @@ class canvas(wx.Window):
         self.rulerLabelFn = None
         self.rulerStart = None
 
+        # rulerEndFn(x) gives the plot y a ruler end not on a peak is drawn
+        # down to (the spectrum's), so the lead goes where it will end up
+        self.rulerEndFn = None
+
         # rulerGrabFn(screenX, screenY) says which drawn ruler a press picks
         # up, as (plot object, key, part, ends, text, apexes) or None: part is
-        # 1 or 2 for an end (dragged along the peaks from the other one), 0 for
-        # the bar (dragged up and down, snapping to the apexes); ends are both
+        # 1 or 2 for an end (dragged along the peaks from the other one, the
+        # bar following up and down), 0 for the bar (dragged up and down only,
+        # snapping to the apexes); ends are both
         # peak tops, text is the ruler's and apexes the tops of the peaks it
         # spans (or a function listing them, called on a press), in plot
         # coordinates. The ruler is hidden while rulerEdit =
-        # (plot object, key, ends, text, apexes) is dragged, see getRulerEdit()
+        # (plot object, key, ends, text, apexes, bar) is dragged, bar being the
+        # plot y its bar was drawn at, see getRulerEdit()
         self.rulerGrabFn = None
         self.rulerEdit = None
 
@@ -458,7 +464,7 @@ class canvas(wx.Window):
         # start difference ruler at the nearest peak
         elif location == "plot" and self.mouseFnLMB == "peakRuler":
             self.mouseEvent = "peakRuler"
-            self.rulerStart = self.snapPosition()
+            self.rulerStart = self._rulerEnd(self.snapPosition())
             self.rulerEdit = None
 
             # or pick up an end of a ruler already drawn, dragging it from its
@@ -470,7 +476,11 @@ class canvas(wx.Window):
                 obj, key, part, ends, text, apexes = grab
                 if callable(apexes):
                     apexes = apexes()
-                self.rulerEdit = (obj, key, ends, text, apexes)
+                bar = None
+                for drawnKey, geometry in getattr(obj, "rulerGeometry", []):
+                    if drawnKey == key:
+                        bar = self.positionScreenToUser((geometry[0], geometry[4]))[1]
+                self.rulerEdit = (obj, key, ends, text, apexes, bar)
                 obj.setProperties(hiddenRuler=key)
                 self.draw(self.lastDraw[0], self.lastDraw[1], self.lastDraw[2], dc)
                 if part:
@@ -786,7 +796,7 @@ class canvas(wx.Window):
                 if self.mouseFnLMB == "peakRuler" and self.rulerGrabFn is not None:
                     grab = self.rulerGrabFn(self.cursorPosition[2], self.cursorPosition[3])
                     if grab:
-                        cursor = wx.CURSOR_SIZEWE if grab[2] else wx.CURSOR_SIZENS
+                        cursor = wx.CURSOR_SIZING if grab[2] else wx.CURSOR_SIZENS
                         self.SetCursor(wx.Cursor(cursor))
 
         # draw zoombox
@@ -974,9 +984,14 @@ class canvas(wx.Window):
         # get key
         key = evt.GetKeyCode()
 
-        # escape current mouse events
+        # escape current mouse events, wiping what they drew
         if key == wx.WXK_ESCAPE:
             self.escMouseEvents()
+            if self.lastDraw:
+                dc = wx.MemoryDC(self.plotBuffer)
+                self.quickRefresh(dc)
+                dc.SelectObject(wx.NullBitmap)
+                self.Refresh(False)
             return
 
         # stop if any mouse event set
@@ -1372,13 +1387,26 @@ class canvas(wx.Window):
     # ----
 
     def getRulerBarHeight(self):
-        """Height the bar of the ruler being lifted or lowered is at.
+        """Height the bar of the ruler being edited is at.
 
-        Returns the plot y of the cursor, kept within the plot, or None when
-        no bar is being dragged or it has not moved from where it was pressed.
+        While an end is dragged, the bar follows the cursor up and down from
+        where it was, snapping to the top of either end's peak. While the
+        bar is lifted or lowered, it is the plot y of the cursor, kept within
+        the plot, or the apex it snapped to. None when no ruler is edited, or
+        its bar has not moved from where it was pressed.
         """
 
-        if self.mouseEvent != "rulerBar" or not self.rulerEdit:
+        if not self.rulerEdit:
+            return None
+        if self.mouseEvent == "peakRuler":
+            end = self._rulerEnd(self.snapPosition())
+            y, apex = self._rulerEndBarPosition(end)
+            if apex is not None:
+                return apex[1]
+            if y is None:
+                return None
+            return self.positionScreenToUser((self.cursorPosition[2], y))[1]
+        if self.mouseEvent != "rulerBar":
             return None
         if abs(self.cursorPosition[3] - self.draggingStart[3]) < 3:
             return None
@@ -1414,6 +1442,61 @@ class canvas(wx.Window):
 
     # ----
 
+    def _rulerEndBarPosition(self, end):
+        """Screen y of the bar of a ruler whose end is dragged, and the apex.
+
+        The bar moves up and down with the cursor from where it was pressed,
+        kept within the plot, and snaps to the top of the peak either end is
+        on when it comes within snapDistance pixels of it (the nearer one).
+        Returns (y or None, apex or None); None y leaves it to drawRuler.
+        """
+
+        bar = self.rulerEdit[5]
+        if bar is None:
+            return None, None
+
+        # only once the cursor went up or down, so a bar drawn just over a peak
+        # does not jump onto it as the end is picked up
+        shift = self.cursorPosition[3] - self.draggingStart[3]
+        y = self.positionUserToScreen((end[0], bar))[1] + shift
+        y = min(max(y, self.plotCoords[1]), self.plotCoords[3])
+        if abs(shift) < 3:
+            return y, None
+
+        limit = self.properties["snapDistance"] * self.printerScale["drawings"]
+        best = None
+        for point in (self.rulerStart, end):
+            if not point[2]:
+                continue
+            apexY = self.positionUserToScreen(point[:2])[1]
+            distance = abs(apexY - y)
+            if distance <= limit and (best is None or distance < best[0]):
+                best = (distance, apexY, point[:2])
+
+        if best is None:
+            return y, None
+        return best[1], best[2]
+
+    # ----
+
+    def _rulerEnd(self, point):
+        """A ruler end (x, y, snapped), put on the spectrum if not on a peak."""
+
+        if point[2] or self.rulerEndFn is None:
+            return point
+        y = self.rulerEndFn(point[0])
+        if y is None:
+            return point
+        return (point[0], y, False)
+
+    # ----
+
+    def setRulerEndFunction(self, fn):
+        """Set the function giving the height a free ruler end is drawn at."""
+        self.rulerEndFn = fn
+
+    # ----
+
     def endRulerEdit(self):
         """Show the ruler that was being edited again (no redraw)."""
 
@@ -1440,7 +1523,7 @@ class canvas(wx.Window):
         if self.mouseEvent != "peakRuler" or not self.rulerStart:
             return False
 
-        return self.rulerStart, self.snapPosition()
+        return self.rulerStart, self._rulerEnd(self.snapPosition())
 
     # ----
 
@@ -2361,7 +2444,12 @@ class canvas(wx.Window):
             return
 
         start = self.rulerStart
-        end = self.snapPosition()
+        end = self._rulerEnd(self.snapPosition())
+
+        # an end being moved keeps the bar where it was
+        yBar = None
+        if self.rulerEdit:
+            yBar = self._rulerEndBarPosition(end)[0]
 
         x1, y1 = self.positionUserToScreen(start[:2])
         x2, y2 = self.positionUserToScreen(end[:2])
@@ -2407,6 +2495,7 @@ class canvas(wx.Window):
             bgrColour=self.properties["plotColour"],
             printerScale=self.printerScale,
             flipped=bool(max(start[1], end[1]) < 0),
+            yBar=yBar,
         )
 
     # ----

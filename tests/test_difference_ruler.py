@@ -402,11 +402,11 @@ def test_ruler_ends_follow_the_current_peak_heights(wx_app):
     spectrum = plot_objects.spectrum(scan)
 
     # a peak at the end: its intensity now, not the stored one
-    assert spectrum._rulerHeight(1000.0, 99.0) == pytest.approx(40.0)
+    assert spectrum.rulerEndIntensity(1000.0, 99.0) == pytest.approx(40.0)
     # no peak there: the profile
-    assert spectrum._rulerHeight(1162.0, 99.0) == pytest.approx(30.0)
+    assert spectrum.rulerEndIntensity(1162.0, 99.0) == pytest.approx(30.0)
     # neither: what was stored
-    assert spectrum._rulerHeight(2000.0, 99.0) == pytest.approx(99.0)
+    assert spectrum.rulerEndIntensity(2000.0, 99.0) == pytest.approx(99.0)
 
 
 def test_overlapping_rulers_are_stacked(wx_app):
@@ -505,3 +505,49 @@ def test_ruler_put_at_a_height_stays_there_and_others_stack_clear(wx_app):
     assert geometry[1][4] == pytest.approx(26.0 * -5.0 + 280.0)
     # the automatic one is lifted clear of it
     assert geometry[0][5][3] <= geometry[1][5][1]
+
+
+# SERIES
+# ------
+
+LADDER = [("Hex", HEX, HEX, "Sugars")]
+
+
+def test_series_follows_the_ladder_through_its_peaks():
+    # a Hex ladder 1000 -> 1162 -> 1324 -> 1486, with a weak peak at 1144
+    # (1162 - H2O) that nothing matches from here, and one at 1081 halfway
+    mzs = [1000.0, 1081.0, 1144.0, 1000.0 + HEX, 1000.0 + 2 * HEX, 1000.0 + 3 * HEX]
+    ais = [50.0, 1.0, 2.0, 40.0, 30.0, 20.0]
+
+    path = differences.findSeries(mzs, ais, 0, 5, LADDER, 0.01)
+
+    assert path == [0, 3, 4, 5]
+
+
+def test_series_prefers_strong_peaks_over_noise_that_fits():
+    # the ladder 1000 -> 1162 -> 1324 has a weak alternative middle peak just
+    # within tolerance of the strong one; the strong one is taken
+    mzs = [1000.0, 1000.0 + HEX - 0.004, 1000.0 + HEX + 0.001, 1000.0 + 2 * HEX]
+    ais = [50.0, 0.5, 40.0, 30.0]
+
+    path = differences.findSeries(mzs, ais, 0, 3, LADDER, 0.01)
+
+    assert path == [0, 2, 3]
+
+
+def test_series_needs_a_peak_in_between():
+    mzs = [1000.0, 1100.0, 1000.0 + HEX]
+    ais = [50.0, 10.0, 40.0]
+
+    # one direct step is not a series
+    assert differences.findSeries(mzs, ais, 0, 2, LADDER, 0.01) is None
+
+
+def test_series_at_charge_two_in_ppm():
+    step = HEX / 2
+    mzs = [800.0, 800.0 + step, 800.0 + 2 * step + 0.002]
+    ais = [10.0, 9.0, 8.0]
+
+    assert differences.findSeries(mzs, ais, 0, 2, LADDER, 5, charge=2, units="ppm") == [0, 1, 2]
+    # 0.002 m/z at 2+ is 0.004 Da, beyond 1 ppm of ~2100 m/z
+    assert differences.findSeries(mzs, ais, 0, 2, LADDER, 1, charge=2, units="ppm") is None
