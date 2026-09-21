@@ -662,9 +662,13 @@ def formulaMasses(text):
         return None
 
     try:
-        gain = mspy.compound(parts[0]).mass()
-        loss = mspy.compound(parts[1]).mass() if len(parts) > 1 else (0.0, 0.0)
+        gain = mspy.compound(parts[0])
+        gainMo, gainAv = gain.mass(0), gain.mass(1)
+        lossMo = lossAv = 0.0
+        if len(parts) > 1:
+            loss = mspy.compound(parts[1])
+            lossMo, lossAv = loss.mass(0), loss.mass(1)
     except Exception:
         return None
 
-    return (gain[0] - loss[0], gain[1] - loss[1])
+    return (gainMo - lossMo, gainAv - lossAv)

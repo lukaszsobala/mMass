@@ -332,7 +332,9 @@ def rulerCharge(charge1, charge2):
 # ------
 
 
-def findSeries(mzs, ais, start, end, candidates, tolerance, massType=0, charge=1, units="Da"):
+def findSeries(
+    mzs, ais, start, end, candidates, tolerance, massType=0, charge=1, units="Da", minStep=0
+):
     """Chain of peaks from start to end whose every step matches an entry.
 
     mzs are the peaks' m/z in ascending order and ais their intensities;
@@ -340,8 +342,10 @@ def findSeries(mzs, ais, start, end, candidates, tolerance, massType=0, charge=1
     Of all the chains through at least one peak in between, the one whose
     weakest peak in between is strongest is taken, so a ladder is followed
     through its peaks rather than through noise that happens to fit; of
-    those, the one with the most steps. Returns the list of indexes, from
-    start to end, or None when there is no such chain.
+    those, the one with the most steps. Steps under minStep (in m/z) are not
+    taken, so a series is not stitched out of tiny differences that fit
+    almost anywhere. Returns the list of indexes, from start to end, or None
+    when there is no such chain.
     """
 
     import numpy
@@ -359,6 +363,9 @@ def findSeries(mzs, ais, start, end, candidates, tolerance, massType=0, charge=1
 
     span = numpy.asarray(mzs[start : end + 1], dtype=float)
     steps = masses / charge
+    steps = steps[steps >= minStep]
+    if not len(steps):
+        return None
 
     # every step between two peaks of the span that matches an entry
     edges = [[] for _ in range(len(span))]
@@ -382,17 +389,19 @@ def findSeries(mzs, ais, start, end, candidates, tolerance, massType=0, charge=1
     def longest(threshold):
         """Most steps from the first peak to the last through peaks >= threshold."""
 
-        best = [None] * len(span)
-        back = [None] * len(span)
+        best: list[int | None] = [None] * len(span)
+        back: list[int | None] = [None] * len(span)
         best[0] = 0
         for i in range(len(span)):
-            if best[i] is None:
+            steps = best[i]
+            if steps is None:
                 continue
             for j in edges[i]:
                 if j != last and heights[j] < threshold:
                     continue
-                if best[j] is None or best[i] + 1 > best[j]:
-                    best[j] = best[i] + 1
+                reached = best[j]
+                if reached is None or steps + 1 > reached:
+                    best[j] = steps + 1
                     back[j] = i
         return best[last], back
 
@@ -414,5 +423,67 @@ def findSeries(mzs, ais, start, end, candidates, tolerance, massType=0, charge=1
 
     path = [last]
     while path[-1] != 0:
-        path.append(found[path[-1]])
+        previous = found[path[-1]]
+        if previous is None:
+            return None
+        path.append(previous)
     return [start + k for k in reversed(path)]
+
+
+# smallest step (in m/z) a series or a multiple is made of: below it, some
+# entry or other fits almost any difference
+MIN_SERIES_STEP = 14.0
+
+
+def matchMultiples(
+    diff,
+    candidates,
+    tolerance,
+    massType=0,
+    charge=1,
+    units="Da",
+    mzs=None,
+    minStep=MIN_SERIES_STEP,
+    maxCount=50,
+):
+    """Entries an m/z difference is a whole multiple (two or more) of.
+
+    As match(), but each name is written as the multiple, e.g. "3\u00d7Hex",
+    and theoretical is the multiple's mass. Entries whose step is under
+    minStep m/z are left out. Returns [(name, error, list name,
+    theoretical)], best first.
+    """
+
+    charge = max(1, abs(int(charge or 1)))
+    mass = abs(diff) * charge
+    limit = toleranceMz(tolerance, units, mzs) * charge
+
+    matches = []
+    for name, mono, avg, listName in candidates:
+        unit = avg if massType else mono
+        if unit <= 0 or unit / charge < minStep:
+            continue
+        count = int(round(mass / unit))
+        if not 2 <= count <= maxCount:
+            continue
+        theoretical = count * unit
+        error = mass - theoretical
+        if abs(error) <= limit:
+            matches.append(("%d\u00d7%s" % (count, name), error, listName, theoretical))
+
+    matches.sort(key=lambda item: abs(item[1]))
+    return matches
+
+
+def seriesName(names):
+    """Name of a series from the names of its steps, e.g. "2\u00d7Hex + HexNAc".
+
+    Steps named alike are counted together, in the order they first come.
+    """
+
+    counts = {}
+    for name in names:
+        counts[name] = counts.get(name, 0) + 1
+    return " + ".join(
+        name if count == 1 else "%d\u00d7%s" % (count, name) for name, count in counts.items()
+    )

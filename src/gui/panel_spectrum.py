@@ -276,6 +276,7 @@ class panelSpectrum(wx.Panel):
         )
         self.spectrumCanvas.setSnapFunction(self.getSnapCandidates)
         self.spectrumCanvas.setRulerLabelFunction(self.getRulerText)
+        self.spectrumCanvas.setRulerSeriesFunction(self.getRulerSeriesText)
         self.spectrumCanvas.setRulerGrabFunction(self.grabRuler)
 
         # set events
@@ -701,12 +702,13 @@ class panelSpectrum(wx.Panel):
         if self.currentTool == "labelpeak" and selection:
             self.labelPeak(selection)
 
-        # move an end of a difference ruler
+        # move an end of a difference ruler (with Shift, making it a series)
         elif self.currentTool == "diffruler" and ruler and rulerEdit is not None:
             height = None
             if rulerHeight is not None:
                 height = self._toReal((0, rulerHeight))[1]
-            self.moveRuler(rulerEdit, *ruler, height=height)
+            if not (evt.ShiftDown() and self.addRulerSeries(*ruler, height=height, replace=rulerEdit)):
+                self.moveRuler(rulerEdit, *ruler, height=height)
 
         # lift or lower a difference ruler, or show it again where it was
         elif self.currentTool == "diffruler" and rulerEdit is not None:
@@ -715,16 +717,18 @@ class panelSpectrum(wx.Panel):
             else:
                 self.refresh()
 
-        # label every step of a series between the two peaks (with Shift)
-        elif self.currentTool == "diffruler" and ruler and evt.ShiftDown():
-            self.addRulerSeries(*ruler)
-
-        # add difference ruler, its bar where it was drawn
+        # add difference ruler, its bar where it was drawn; with Shift, label
+        # every step of a series between the two peaks
         elif self.currentTool == "diffruler" and ruler:
             height = None
             if rulerHeight is not None:
                 height = self._toReal((0, rulerHeight))[1]
-            self.addRuler(*ruler, height=height)
+            if evt.ShiftDown():
+                if not self.addRulerSeries(*ruler, height=height):
+                    wx.Bell()
+                    self.addRuler(*ruler, height=height)
+            else:
+                self.addRuler(*ruler, height=height)
 
         # label peak in every visible spectrum
         elif self.currentTool == "multilabelpeak" and rawSelection:
@@ -1129,7 +1133,26 @@ class panelSpectrum(wx.Panel):
             label = "dist: %s   " % (distFormat % diff)
             if abs(charge) > 1:
                 label += "z: %d   " % charge
-            if matches:
+            series = None
+            if self.spectrumCanvas.rulerShift:
+                series = self.getRulerSeriesMatch(start, end)
+            if series is not None:
+                name, seriesCharge, theoretical = series
+                error = diff * max(1, abs(seriesCharge)) - theoretical
+                label += "series: %s (%s)" % (
+                    name,
+                    differences.errorText(
+                        error,
+                        seriesCharge,
+                        config.differenceRuler["units"],
+                        mzs,
+                        config.main["mzDigits"],
+                        config.main["ppmDigits"],
+                    ),
+                )
+            elif self.spectrumCanvas.rulerShift:
+                label += "no series within %s" % self._rulerToleranceText()
+            elif matches:
                 label += "match: " + ",  ".join(
                     "%s (%s)"
                     % (
@@ -1147,8 +1170,8 @@ class panelSpectrum(wx.Panel):
                 )
             else:
                 label += "no match within %s" % self._rulerToleranceText()
-            if start[2] and end[2]:
-                label += "   (Shift: label each step)"
+            if not self.spectrumCanvas.rulerShift:
+                label += "   (Shift: series)"
 
         # distance measurement
         elif distance and position:
@@ -1811,7 +1834,7 @@ class panelSpectrum(wx.Panel):
                 deleted_mzs.append(peak.mz)
 
         # remove rulers whose middle is within the selection and whose bar
-        # (put at its own height, else drawn just above the lower of its two
+        # (put at its own height, else drawn just above the taller of its two
         # peaks) the selection reaches
         rulers = [
             ruler
@@ -1820,7 +1843,7 @@ class panelSpectrum(wx.Panel):
             and (
                 selection[1] <= ruler.height <= selection[3]
                 if ruler.height is not None
-                else selection[3] >= min(ruler.ai1, ruler.ai2)
+                else selection[3] >= max(ruler.ai1, ruler.ai2)
             )
         ]
 
@@ -1939,77 +1962,201 @@ class panelSpectrum(wx.Panel):
 
     # ----
 
-    def addRulerSeries(self, start, end):
-        """Label every step of a series between two peaks (see findSeries).
+    def _rulerSeries(self, start, end):
+        """Series between two canvas points, both on a peak (see findSeries).
 
-        Without a chain of matching steps through the peaks in between, a
-        single label is added as without Shift.
+        Returns (path of peak indexes, charge), or None when the ends are not
+        on two peaks or no chain of matching steps of at least
+        MIN_SERIES_STEP joins them. The last one found is remembered, as it
+        is asked for on every move of a drag.
         """
 
-        if self.currentDocument is None:
-            return
+        if self.currentDocument is None or not (start[2] and end[2]):
+            return None
 
-        docData = self.documents[self.currentDocument]
         mz1 = self._toReal(start[:2])[0]
         mz2 = self._toReal(end[:2])[0]
-        peak1 = self._peakAt(mz1) if start[2] else None
-        peak2 = self._peakAt(mz2) if end[2] else None
+        peak1 = self._peakAt(mz1)
+        peak2 = self._peakAt(mz2)
         if peak1 is None or peak2 is None or peak1 is peak2:
-            self.addRuler(start, end)
-            return
-
+            return None
         if peak2.mz < peak1.mz:
             peak1, peak2 = peak2, peak1
 
+        docData = self.documents[self.currentDocument]
         peaklist = docData.spectrum.peaklist
-        mzs = self._getPeakMzs()
-        first = self._peakIndex(peak1.mz)
-        last = self._peakIndex(peak2.mz)
         settings = config.differenceRuler
+        key = (
+            id(peaklist),
+            len(peaklist),
+            peak1.mz,
+            peak2.mz,
+            tuple(settings["lists"]),
+            settings["tolerance"],
+            settings["massType"],
+            settings["units"],
+        )
+        if getattr(self, "_rulerSeriesCache", (None,))[0] == key:
+            return self._rulerSeriesCache[1]
+
         charge = differences.rulerCharge(peak1.charge, peak2.charge)
         path = differences.findSeries(
-            mzs,
+            self._getPeakMzs(),
             [peak.ai for peak in peaklist],
-            first,
-            last,
+            self._peakIndex(peak1.mz),
+            self._peakIndex(peak2.mz),
             differences.entries(settings["lists"]),
             settings["tolerance"],
             settings["massType"],
             charge,
             settings["units"],
+            minStep=differences.MIN_SERIES_STEP,
         )
-        if path is None:
-            wx.Bell()
-            self.addRuler(start, end)
-            return
+        result = None if path is None else (path, charge)
+        self._rulerSeriesCache = (key, result)
+        return result
 
-        # each step's bar just over its taller peak, as if drawn from there
-        canvas = self.spectrumCanvas
+    # ----
+
+    def _rulerMultiples(self, start, end):
+        """Matches of a ruler between two canvas points as a whole multiple of
+        an entry (e.g. 3\u00d7Hex), with its charge; see matchMultiples.
+        """
+
+        diff, charge, _matches = self.getRulerMatch(start, end)
+        mzs = (self._toReal(start[:2])[0], self._toReal(end[:2])[0])
+        settings = config.differenceRuler
+        matches = differences.matchMultiples(
+            diff,
+            differences.entries(settings["lists"]),
+            settings["tolerance"],
+            settings["massType"],
+            charge,
+            settings["units"],
+            mzs,
+        )
+        return matches, charge
+
+    # ----
+
+    def getRulerSeriesMatch(self, start, end):
+        """What the series between two canvas points is, for Shift.
+
+        Returns (name, charge, theoretical): name is that of the chain of
+        steps through the peaks in between (e.g. 2\u00d7Hex + HexNAc), which
+        is labelled step by step once dropped, or of the multiple of an entry
+        the whole difference is; theoretical the neutral mass it stands for.
+        None when it is neither.
+        """
+
+        if self.currentDocument is None:
+            return None
+
+        series = self._rulerSeries(start, end)
+        if series is not None:
+            path, charge = series
+            peaklist = self.documents[self.currentDocument].spectrum.peaklist
+            names = []
+            theoretical = 0.0
+            for i, j in zip(path[:-1], path[1:], strict=True):
+                a, b = peaklist[i], peaklist[j]
+                matches = matchRuler(b.mz - a.mz, charge, (a.mz, b.mz))
+                names.append(matches[0][0] if matches else "?")
+                theoretical += matches[0][3] if matches else 0.0
+            return differences.seriesName(names), charge, theoretical
+
+        matches, charge = self._rulerMultiples(start, end)
+        if matches:
+            return differences.matchNames(matches), charge, matches[0][3]
+        return None
+
+    # ----
+
+    def getRulerSeriesText(self, start, end):
+        """Text over a ruler dragged with Shift (see getRulerSeriesMatch)."""
+
+        found = self.getRulerSeriesMatch(start, end)
+        if found is None:
+            return None
+        name, charge, theoretical = found
+        mzs = (self._toReal(start[:2])[0], self._toReal(end[:2])[0])
+        return rulerText(name, abs(mzs[1] - mzs[0]), charge, theoretical, mzs)
+
+    # ----
+
+    def addRulerSeries(self, start, end, height=None, replace=None):
+        """Label a series between two canvas points (with Shift).
+
+        Every step of a chain of matching steps through the peaks in between
+        (see findSeries) gets its own label, its bar just over its taller
+        peak. Without such a chain, a difference that is a whole multiple of
+        an entry gets one label naming it (e.g. 3\u00d7Hex), its bar at
+        height. replace is the index of a label the series takes the place
+        of, as one undoable step. Returns False, adding nothing, when it is
+        neither.
+        """
+
+        if self.currentDocument is None:
+            return False
+
+        docData = self.documents[self.currentDocument]
         scanID = docData.currentScanID if docData.islcms() else None
         rulers = []
-        for i, j in zip(path[:-1], path[1:], strict=True):
-            a, b = peaklist[i], peaklist[j]
-            matches = matchRuler(b.mz - a.mz, charge, (a.mz, b.mz))
-            taller = a if a.ai >= b.ai else b
-            barY = canvas.rulerBarOver(self._toDisplay(taller.mz, taller.ai))
-            height = self._toReal(canvas.positionScreenToUser((0, barY)))[1]
+
+        series = self._rulerSeries(start, end)
+        if series is not None:
+            path, charge = series
+            peaklist = docData.spectrum.peaklist
+            canvas = self.spectrumCanvas
+            for i, j in zip(path[:-1], path[1:], strict=True):
+                a, b = peaklist[i], peaklist[j]
+                matches = matchRuler(b.mz - a.mz, charge, (a.mz, b.mz))
+
+                # each step's bar just over its taller peak
+                taller = a if a.ai >= b.ai else b
+                barY = canvas.rulerBarOver(self._toDisplay(taller.mz, taller.ai))
+                barHeight = self._toReal(canvas.positionScreenToUser((0, barY)))[1]
+                rulers.append(
+                    doc.ruler(
+                        a.mz,
+                        a.ai,
+                        b.mz,
+                        b.ai,
+                        label=differences.matchNames(matches),
+                        charge=charge,
+                        scanID=scanID,
+                        theoretical=matches[0][3] if matches else None,
+                        height=barHeight,
+                    )
+                )
+
+        else:
+            matches, charge = self._rulerMultiples(start, end)
+            if not matches:
+                return False
+            mz1, ai1 = self._toReal(start[:2])
+            mz2, ai2 = self._toReal(end[:2])
             rulers.append(
                 doc.ruler(
-                    a.mz,
-                    a.ai,
-                    b.mz,
-                    b.ai,
+                    mz1,
+                    ai1,
+                    mz2,
+                    ai2,
                     label=differences.matchNames(matches),
                     charge=charge,
                     scanID=scanID,
-                    theoretical=matches[0][3] if matches else None,
+                    theoretical=matches[0][3],
                     height=height,
                 )
             )
 
         docData.backup(("rulers",))
-        docData.rulers.extend(rulers)
+        if replace is not None and 0 <= replace < len(docData.rulers):
+            docData.rulers[replace : replace + 1] = rulers
+        else:
+            docData.rulers.extend(rulers)
         self.parent.onDocumentChanged(items=("rulers",))
+        return True
 
     # ----
 
@@ -2076,8 +2223,11 @@ class panelSpectrum(wx.Panel):
         if hit is None:
             return None
 
-        ruler = self.documents[self.currentDocument].rulers[hit[0]]
-        obj = self.container[self.currentDocument + 2]
+        docIndex = self.currentDocument
+        if docIndex is None:
+            return None
+        ruler = self.documents[docIndex].rulers[hit[0]]
+        obj = self.container[docIndex + 2]
 
         # the ends where the label draws them
         ends = []
@@ -2578,10 +2728,11 @@ class panelSpectrum(wx.Panel):
 
         peaklist = self.documents[self.currentDocument].spectrum.peaklist
         key = (id(peaklist), len(peaklist), self.currentDocument)
-        if key != self._peakMzsKey:
-            self._peakMzs = [peak.mz for peak in peaklist]
+        mzs = self._peakMzs
+        if key != self._peakMzsKey or mzs is None:
+            mzs = self._peakMzs = [peak.mz for peak in peaklist]
             self._peakMzsKey = key
-        return self._peakMzs
+        return mzs
 
     # ----
 

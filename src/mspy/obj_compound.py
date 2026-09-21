@@ -15,6 +15,8 @@
 #     main directory of the program.
 # -------------------------------------------------------------------------
 
+from typing import Literal, overload
+
 # load objects
 from . import blocks
 
@@ -177,8 +179,14 @@ class compound:
 
     # ----
 
+    @overload
+    def mass(self, massType: Literal[0, 1]) -> float: ...
+
+    @overload
+    def mass(self, massType: None = None) -> tuple[float, float]: ...
+
     def mass(self, massType=None):
-        """Get mass."""
+        """Get mass: monoisotopic (massType 0), average (1), or both."""
 
         # get mass
         if self._mass is None:

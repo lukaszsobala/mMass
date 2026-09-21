@@ -157,6 +157,12 @@ class canvas(wx.Window):
         self.rulerLabelFn = None
         self.rulerStart = None
 
+        # rulerSeriesFn(start, end) gives the text over a ruler dragged with
+        # Shift held (rulerShift): what the series between the two points is,
+        # or None to label it as without Shift
+        self.rulerSeriesFn = None
+        self.rulerShift = False
+
         # rulerGrabFn(screenX, screenY) says which drawn ruler a press picks
         # up, as (plot object, key, part, ends, text, apexes) or None: part is
         # 1 or 2 for an end (dragged along the peaks from the other one, the
@@ -221,6 +227,7 @@ class canvas(wx.Window):
         self.Bind(wx.EVT_MOTION, self.onMMotion)
         self.Bind(wx.EVT_MOUSEWHEEL, self.onMScroll)
         self.Bind(wx.EVT_KEY_DOWN, self.onChar)
+        self.Bind(wx.EVT_KEY_UP, self.onKeyUp)
         self.Bind(wx.EVT_SYS_COLOUR_CHANGED, self.onSysColourChanged)
 
         # initialize bitmap buffer and set initial size based on client size
@@ -726,6 +733,7 @@ class canvas(wx.Window):
         # Always update cursor position so any eventual draw uses latest coords
         self.cursorPosition[0], self.cursorPosition[1] = self.getXY(evt)
         self.cursorPosition[2], self.cursorPosition[3] = evt.GetPosition()
+        self.rulerShift = evt.ShiftDown()
 
         now = time.time()
         if self.mouseEvent in (
@@ -974,6 +982,29 @@ class canvas(wx.Window):
 
     # ----
 
+    def onKeyUp(self, evt):
+        """Show the one difference ruler again when Shift is let go."""
+
+        if evt.GetKeyCode() == wx.WXK_SHIFT:
+            self.rulerShift = False
+            self._redrawRulerOverlay()
+        evt.Skip()
+
+    # ----
+
+    def _redrawRulerOverlay(self):
+        """Draw the difference ruler being dragged again, as it is now."""
+
+        if self.mouseEvent != "peakRuler" or not self.lastDraw:
+            return
+        dc = wx.MemoryDC(self.plotBuffer)
+        self.quickRefresh(dc)
+        self.drawPeakRuler(dc)
+        dc.SelectObject(wx.NullBitmap)
+        self.Refresh(False)
+
+    # ----
+
     def onChar(self, evt):
         """Set zoom or position according to pressed key."""
 
@@ -988,6 +1019,12 @@ class canvas(wx.Window):
                 self.quickRefresh(dc)
                 dc.SelectObject(wx.NullBitmap)
                 self.Refresh(False)
+            return
+
+        # Shift shows the series a difference ruler would label
+        elif key == wx.WXK_SHIFT:
+            self.rulerShift = True
+            self._redrawRulerOverlay()
             return
 
         # stop if any mouse event set
@@ -1385,7 +1422,8 @@ class canvas(wx.Window):
     def getRulerBarHeight(self):
         """Height the bar of the ruler being edited is at.
 
-        A new ruler's bar stays just over the peak it was started from. While
+        A new ruler's bar stays just over the peak it was started from, or the
+        one its other end is on when that is taller. While
         an end is dragged, the bar follows the cursor up and down from
         where it was. While the bar is lifted or lowered, it is at the cursor.
         Either way it is kept within the plot, and snaps to a peak top or the
@@ -1394,7 +1432,7 @@ class canvas(wx.Window):
         """
 
         if self.mouseEvent == "peakRuler" and not self.rulerEdit and self.rulerStart:
-            y = self._rulerNewBar()
+            y = self._rulerNewBar(self.snapPosition())
             return self.positionScreenToUser((self.cursorPosition[2], y))[1]
         if not self.rulerEdit:
             return None
@@ -1416,12 +1454,17 @@ class canvas(wx.Window):
 
     # ----
 
-    def _rulerNewBar(self):
+    def _rulerNewBar(self, end):
         """Screen y of the bar of a new ruler: just over the point it was
-        started from, whatever the other end does.
+        started from, or over the peak the other end is on when that is the
+        taller; it does not follow the other end anywhere else.
         """
 
-        return self.rulerBarOver(self.rulerStart)
+        y = self.rulerBarOver(self.rulerStart)
+        if end[2]:
+            other = self.rulerBarOver(end)
+            y = max(y, other) if self.rulerStart[1] < 0 else min(y, other)
+        return y
 
     # ----
 
@@ -1598,6 +1641,12 @@ class canvas(wx.Window):
     def setSnapFunction(self, fn):
         """Set the function listing the peaks a difference ruler can snap to."""
         self.snapFn = fn
+
+    # ----
+
+    def setRulerSeriesFunction(self, fn):
+        """Set the function giving the text over a ruler dragged with Shift."""
+        self.rulerSeriesFn = fn
 
     # ----
 
@@ -2489,7 +2538,7 @@ class canvas(wx.Window):
         if self.rulerEdit:
             yBar, snap = self._rulerEndBarPosition(end)
         else:
-            yBar = self._rulerNewBar()
+            yBar = self._rulerNewBar(end)
 
         x1, y1 = self.positionUserToScreen(start[:2])
         x2, y2 = self.positionUserToScreen(end[:2])
@@ -2513,9 +2562,14 @@ class canvas(wx.Window):
         if start[0] == end[0]:
             return
 
-        # ruler with its text
-        text = ""
-        if self.rulerLabelFn is not None:
+        # ruler with its text; with Shift, what the series between the peaks
+        # is (e.g. 3xHex), labelled step by step once dropped
+        text = None
+        if self.rulerShift and self.rulerSeriesFn is not None:
+            text = self.rulerSeriesFn(start, end)
+        if text is not None:
+            pass
+        elif self.rulerLabelFn is not None:
             text = self.rulerLabelFn(start, end)
         else:
             format = "%0." + repr(self.properties["xPosDigits"]) + "f"

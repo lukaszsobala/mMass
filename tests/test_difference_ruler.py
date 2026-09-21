@@ -550,3 +550,59 @@ def test_series_at_charge_two_in_ppm():
     assert differences.findSeries(mzs, ais, 0, 2, LADDER, 5, charge=2, units="ppm") == [0, 1, 2]
     # 0.002 m/z at 2+ is 0.004 Da, beyond 1 ppm of ~2100 m/z
     assert differences.findSeries(mzs, ais, 0, 2, LADDER, 1, charge=2, units="ppm") is None
+
+
+def test_series_skips_steps_under_the_minimum():
+    # 1000 -> 1002 -> 1004 would chain on H2, but not with a 14 m/z minimum
+    small = [("H2", 2.01565, 2.01588, "test")]
+    mzs = [1000.0, 1002.01565, 1004.0313]
+    ais = [10.0, 10.0, 10.0]
+
+    assert differences.findSeries(mzs, ais, 0, 2, small, 0.01) == [0, 1, 2]
+    assert differences.findSeries(mzs, ais, 0, 2, small, 0.01, minStep=14) is None
+
+
+def test_multiples_name_whole_multiples_of_an_entry():
+    matches = differences.matchMultiples(3 * HEX + 0.002, LADDER, 0.01)
+
+    assert matches[0][0] == "3×Hex"
+    assert matches[0][3] == pytest.approx(3 * HEX)
+    # a single step is not a multiple, nor is a difference off the grid
+    assert not differences.matchMultiples(HEX, LADDER, 0.01)
+    assert not differences.matchMultiples(2.5 * HEX, LADDER, 0.01)
+
+
+def test_multiples_skip_small_entries():
+    small = [("H2", 2.01565, 2.01588, "test")]
+
+    assert not differences.matchMultiples(10 * 2.01565, small, 0.01)
+    assert differences.matchMultiples(10 * 2.01565, small, 0.01, minStep=0)
+
+
+def test_series_name_counts_alike_steps():
+    assert differences.seriesName(["Hex", "Hex", "Hex"]) == "3×Hex"
+    assert differences.seriesName(["Hex", "HexNAc", "Hex"]) == "2×Hex + HexNAc"
+
+
+def test_ruler_bar_sits_over_the_taller_peak(wx_app):
+    import wx
+
+    from mspy import plot_objects
+
+    bitmap = wx.Bitmap(400, 300)
+    dc = wx.MemoryDC(bitmap)
+    font = wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
+    # screen y grows downwards: the peak at y=100 is the taller one
+    geometry = plot_objects.drawRuler(
+        dc, 50, 200, 250, 100, "Hex", colour=(230, 120, 0), font=font,
+        bgrColour=(255, 255, 255),
+    )
+    flipped = plot_objects.drawRuler(
+        dc, 50, 200, 250, 100, "Hex", colour=(230, 120, 0), font=font,
+        bgrColour=(255, 255, 255), flipped=True,
+    )
+    dc.SelectObject(wx.NullBitmap)
+
+    assert geometry[4] < 100
+    # flipped: peaks hang down, the one reaching y=200 is the taller
+    assert flipped[4] > 200

@@ -2192,7 +2192,7 @@ def drawRuler(
 ):
     """Draw a difference ruler between two peak tops, in screen coordinates.
 
-    The bar sits just above the lower of the two peaks (below, for a flipped
+    The bar sits just above the taller of the two peaks (below, for a flipped
     spectrum), with its text over the middle. When placed -- a list of the
     boxes other rulers already took -- is given, the ruler is lifted until it
     no longer collides with them, and its own box is added to the list.
@@ -2214,7 +2214,7 @@ def drawRuler(
     step = textHeight + 3 * tick
     mid = (x1 + x2) / 2.0
     textX = mid - textWidth / 2.0
-    near = max(y1, y2) if not flipped else min(y1, y2)
+    near = min(y1, y2) if not flipped else max(y1, y2)
 
     # lift above the rulers already drawn
     fixed = yBar
