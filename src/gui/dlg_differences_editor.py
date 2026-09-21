@@ -44,6 +44,7 @@ class dlgDifferencesEditor(wx.Dialog):
         )
 
         self.group = None
+        self.builtin = None
         self.itemsMap = []
 
         # make GUI
@@ -60,9 +61,9 @@ class dlgDifferencesEditor(wx.Dialog):
 
         self.Centre()
 
-        # show data
+        # show data, opening on the first of the user's own lists
         self.updateGroups()
-        self.groupName_choice.Select(0)
+        self.groupName_choice.Select(len(differences.BUILTIN) if libs.differences else 0)
         self.onGroupSelected()
 
     # ----
@@ -100,10 +101,10 @@ class dlgDifferencesEditor(wx.Dialog):
         groupNew_butt = wx.Button(self, -1, "New")
         groupNew_butt.Bind(wx.EVT_BUTTON, self.onAddGroup)
 
-        groupRename_butt = wx.Button(self, -1, "Rename")
+        self.groupRename_butt = groupRename_butt = wx.Button(self, -1, "Rename")
         groupRename_butt.Bind(wx.EVT_BUTTON, self.onRenameGroup)
 
-        groupDelete_butt = wx.Button(self, -1, "Delete")
+        self.groupDelete_butt = groupDelete_butt = wx.Button(self, -1, "Delete")
         groupDelete_butt.Bind(wx.EVT_BUTTON, self.onDeleteGroup)
 
         # pack elements
@@ -209,6 +210,21 @@ class dlgDifferencesEditor(wx.Dialog):
         grid.Add(replace_butt, (1, 5), flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL)
         grid.Add(delete_butt, (2, 5), flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL)
 
+        self.builtin_label = wx.StaticText(self, -1, "")
+        self.builtin_label.SetFont(wx.SMALL_FONT)
+        self.editorControls = (
+            self.itemName_value,
+            self.itemFormula_value,
+            self.itemMoMass_value,
+            self.itemAvMass_value,
+            add_butt,
+            replace_butt,
+            delete_butt,
+            self.groupRename_butt,
+            self.groupDelete_butt,
+        )
+
+        mainSizer.Add(self.builtin_label, 0, wx.ALIGN_CENTER | wx.TOP, 5)
         mainSizer.Add(grid, 0, wx.ALIGN_CENTER | wx.ALL, 10)
 
         return mainSizer
@@ -218,16 +234,30 @@ class dlgDifferencesEditor(wx.Dialog):
     def onGroupSelected(self, evt=None):
         """Update items for selected group."""
 
-        # get selected group
-        group = self.groupName_choice.GetStringSelection()
-        if group in libs.differences:
-            self.group = group
-        else:
-            self.group = None
+        # get selected group; the built-in lists are shown but not edited
+        index = self.groupName_choice.GetSelection()
+        self.builtin = None
+        self.group = None
+        if 0 <= index < len(differences.BUILTIN):
+            self.builtin = differences.BUILTIN[index]
+        elif index != wx.NOT_FOUND:
+            self.group = self.groupName_choice.GetString(index)
 
         # update gui
         self.updateItemsList()
         self.clearEditor()
+        for control in self.editorControls:
+            control.Enable(self.builtin is None)
+        if self.builtin in (differences.AMINOACIDS, differences.DIPEPTIDES):
+            self.builtin_label.SetLabel(
+                "Built-in list, made from Libraries > Monomers; it is edited there."
+            )
+        elif self.builtin:
+            self.builtin_label.SetLabel(
+                "Built-in list of residue masses; it cannot be edited."
+            )
+        self.builtin_label.Show(self.builtin is not None)
+        self.Layout()
 
     # ----
 
@@ -416,7 +446,7 @@ class dlgDifferencesEditor(wx.Dialog):
 
         # update gui
         self.updateGroups()
-        self.groupName_choice.Select(0)
+        self.groupName_choice.Select(len(differences.BUILTIN) if libs.differences else 0)
         self.onGroupSelected()
 
     # ----
@@ -532,7 +562,8 @@ class dlgDifferencesEditor(wx.Dialog):
         """Update groups combo."""
 
         self.groupName_choice.Clear()
-        self.groupName_choice.Append("Difference lists")
+        for name in differences.BUILTIN:
+            self.groupName_choice.Append("%s (built-in)" % name)
         for choice in sorted(libs.differences.keys()):
             self.groupName_choice.Append(choice)
 
@@ -542,7 +573,13 @@ class dlgDifferencesEditor(wx.Dialog):
         """Update items list."""
 
         # clear previous data and set new
-        self.itemsMap = libs.differences[self.group] if self.group else []
+        if self.builtin:
+            self.itemsMap = [
+                (name, mono, avg)
+                for name, (mono, avg) in differences.getList(self.builtin).items()
+            ]
+        else:
+            self.itemsMap = libs.differences[self.group] if self.group else []
         self.itemsList.DeleteAllItems()
         self.itemsList.setDataMap(self.itemsMap)
 

@@ -294,6 +294,9 @@ def test_rulers_survive_msd_round_trip(tmp_path):
     document.rulers.append(
         gdoc.ruler(500.0, 1.0, 540.5, 2.0, label="", charge=2, scanID=7, height=12.5)
     )
+    document.rulers.append(
+        gdoc.ruler(700.0, 1.0, 828.095, 1.0, label="K", picked=True, note='loss of "K" & <more>')
+    )
 
     path = str(tmp_path / "rulers.msd")
     with open(path, "w", encoding="utf-8") as handle:
@@ -301,8 +304,8 @@ def test_rulers_survive_msd_round_trip(tmp_path):
 
     reloaded = gdoc.parseMSD(path).getDocument().rulers
 
-    assert len(reloaded) == 2
-    first, second = reloaded
+    assert len(reloaded) == 3
+    first, second, third = reloaded
     assert (first.mz1, first.mz2, first.label, first.charge, first.scanID) == (
         pytest.approx(1000.0),
         pytest.approx(1162.052824),
@@ -316,6 +319,9 @@ def test_rulers_survive_msd_round_trip(tmp_path):
     # a bar put at a height by hand stays there; the others are placed as drawn
     assert first.height is None
     assert second.height == pytest.approx(12.5)
+    # the user's own text and the match they picked
+    assert (first.note, first.picked) == (None, False)
+    assert (third.label, third.picked, third.note) == ("K", True, 'loss of "K" & <more>')
 
 
 def test_document_without_rulers_writes_no_element():
@@ -334,6 +340,13 @@ def test_report_lists_rulers():
     assert "<td>Hex</td>" in html
     assert "162.05" in html
     assert "0.0030" in html  # observed minus theoretical
+
+
+def test_report_shows_notes():
+    document = gdoc.document()
+    document.rulers.append(gdoc.ruler(1000.0, 1.0, 1162.0, 1.0, label="Hex", note="core <Fuc>"))
+
+    assert "<td>core &lt;Fuc&gt;</td>" in document.report()
 
 
 def test_rulers_undo_and_redo():

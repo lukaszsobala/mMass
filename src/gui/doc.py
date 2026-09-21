@@ -581,6 +581,10 @@ class document:
                     attributes += ' calcDiff="%.6f"' % ruler.theoretical
                 if ruler.height is not None:
                     attributes += ' height="%.6f"' % ruler.height
+                if ruler.note:
+                    attributes += ' note="%s"' % self._escape(ruler.note)
+                if ruler.picked:
+                    attributes += ' picked="1"'
                 if ruler.scanID is not None:
                     attributes += ' scanID="%s"' % self._escape(str(ruler.scanID))
                 buff += "    <ruler %s>%s</ruler>\n" % (
@@ -1025,6 +1029,7 @@ class document:
                     "Match",
                     "Calc.&nbsp;&Delta;&nbsp;(Da)",
                     "&delta;&nbsp;(Da)",
+                    "Note",
                 )
             ):
                 buff += (
@@ -1043,7 +1048,7 @@ class document:
                         ruler.diff * max(1, abs(ruler.charge)) - ruler.theoretical
                     )
                 buff += (
-                    '      <tr><td class="right nowrap">%s</td><td class="right nowrap">%s</td><td class="right nowrap">%s</td><td class="center nowrap">%s</td><td>%s</td><td class="right nowrap">%s</td><td class="right nowrap">%s</td></tr>\n'
+                    '      <tr><td class="right nowrap">%s</td><td class="right nowrap">%s</td><td class="right nowrap">%s</td><td class="center nowrap">%s</td><td>%s</td><td class="right nowrap">%s</td><td class="right nowrap">%s</td><td>%s</td></tr>\n'
                     % (
                         mzFormat % ruler.mz1,
                         mzFormat % ruler.mz2,
@@ -1052,6 +1057,7 @@ class document:
                         self._escape(ruler.label),
                         theoretical,
                         error,
+                        self._escape(ruler.note or ""),
                     )
                 )
             buff += "    </tbody>\n"
@@ -1466,7 +1472,10 @@ class ruler:
     mass difference of the closest match (None when unmatched), which the label
     can show the error against. scanID ties a ruler to the scan of an LC-MS run
     it was drawn on; None for single scans. height is the intensity the bar
-    was put at by hand, or None to draw it just above the peaks.
+    was put at by hand, or None to draw it just above the peaks. note is text
+    the user wrote to show instead of the one made from the match, or None;
+    picked tells the label names the one match the user chose among several,
+    which matching again keeps while it still matches.
     """
 
     def __init__(
@@ -1480,6 +1489,8 @@ class ruler:
         scanID=None,
         theoretical=None,
         height=None,
+        note=None,
+        picked=False,
     ):
 
         # keep the lower m/z first
@@ -1496,6 +1507,8 @@ class ruler:
         self.scanID = scanID
         self.theoretical = None if theoretical is None else float(theoretical)
         self.height = None if height is None else float(height)
+        self.note = note or None
+        self.picked = bool(picked)
 
     # ----
 
@@ -2163,6 +2176,9 @@ class parseMSD:
                     item.theoretical = float(rulerTag.getAttribute("calcDiff"))
                 except ValueError:
                     self.errors.append("Incorrect difference label data.")
+            item.picked = rulerTag.getAttribute("picked") == "1"
+            if rulerTag.getAttribute("note"):
+                item.note = rulerTag.getAttribute("note")
             if rulerTag.hasAttribute("height"):
                 try:
                     item.height = float(rulerTag.getAttribute("height"))
