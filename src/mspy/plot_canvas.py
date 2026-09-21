@@ -1878,8 +1878,20 @@ class canvas(wx.Window):
         if wx.Platform == "__WXMSW__":
             self.cleanPlotBuffer = self.plotBuffer.ConvertToImage().ConvertToBitmap()
         else:
+            # GTK3 takes the region in logical units and multiplies it by the
+            # scale factor itself, while GetWidth/GetHeight report device
+            # pixels -- passing those overshoots the bitmap whenever the scale
+            # is above 1 (HiDPI Wayland, GDK_SCALE over ssh). Floor so that a
+            # fractional scale can't round the region past the edge.
+            scale = self.plotBuffer.GetScaleFactor() if hasattr(self.plotBuffer, "GetScaleFactor") else 1.0
+            scale = scale if scale and scale > 0 else 1.0
             self.cleanPlotBuffer = self.plotBuffer.GetSubBitmap(
-                wx.Rect(0, 0, self.plotBuffer.GetWidth(), self.plotBuffer.GetHeight())
+                wx.Rect(
+                    0,
+                    0,
+                    max(1, int(self.plotBuffer.GetWidth() / scale + 1e-6)),
+                    max(1, int(self.plotBuffer.GetHeight() / scale + 1e-6)),
+                )
             )
         if hasattr(self.plotBuffer, "GetScaleFactor"):
             self.cleanPlotBuffer.SetScaleFactor(self.plotBuffer.GetScaleFactor())
