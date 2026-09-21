@@ -2168,6 +2168,19 @@ def loadMonomersXML(
 def loadEnzymesXML(path=os.path.join(blocksdir, "enzymes.xml"), clear=False, replace=True):  # noqa: B008
     """Parse enzymes XML and get data."""
 
+    container = readEnzymesXML(path)
+
+    # update current lib
+    if container and clear:
+        enzymes.clear()
+    for key in container:
+        if replace or key not in enzymes:
+            enzymes[key] = container[key]
+
+
+def readEnzymesXML(path):
+    """Parse enzymes XML into {name: enzyme} without touching the library."""
+
     container = {}
 
     # parse XML
@@ -2204,12 +2217,7 @@ def loadEnzymesXML(path=os.path.join(blocksdir, "enzymes.xml"), clear=False, rep
             modsAfter=modsAfter,
         )
 
-    # update current lib
-    if container and clear:
-        enzymes.clear()
-    for key in container:
-        if replace or key not in enzymes:
-            enzymes[key] = container[key]
+    return container
 
 
 # ----
@@ -2270,9 +2278,10 @@ def loadModificationsXML(
 def _getNodeText(node):
     """Get text from node list."""
 
+    # enzyme expressions are stored as CDATA ("[KR][^P]" is not valid text)
     buff = ""
     for child in node.childNodes:
-        if child.nodeType == child.TEXT_NODE:
+        if child.nodeType in (child.TEXT_NODE, child.CDATA_SECTION_NODE):
             buff += child.data
 
     return buff

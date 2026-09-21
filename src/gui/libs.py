@@ -79,10 +79,60 @@ try:
 except Exception:
     mspy.saveModifications(config.getLibraryPath("modifications"))
 
+# the built-in expressions, taken before the user's library replaces them
+_builtinEnzymeExpressions = {
+    name: item.expression for name, item in mspy.enzymes.items()
+}
+
 try:
     mspy.loadEnzymes(config.getLibraryPath("enzymes"), clear=False)
 except Exception:
     mspy.saveEnzymes(config.getLibraryPath("enzymes"))
+
+
+def repairEnzymeExpressions(legacyPath, builtin):
+    """Refill cleavage expressions the XML-to-JSON migration dropped.
+
+    The legacy reader skipped CDATA, which is where every enzyme expression
+    lived, so each migrated enzymes.json (and, once, the bundled one) came out
+    with all its expressions empty and digestion failed. Empty expressions
+    are taken from the renamed-aside legacy file when it has them, otherwise
+    from mspy's own definition of the enzyme. Returns the names repaired.
+    """
+
+    empty = [name for name, item in mspy.enzymes.items() if not item.expression]
+    if not empty:
+        return []
+
+    legacy = {}
+    if os.path.exists(legacyPath):
+        try:
+            legacy = mspy.readEnzymesXML(legacyPath)
+        except Exception:
+            legacy = {}
+
+    repaired = []
+    for name in empty:
+        expression = ""
+        if name in legacy:
+            expression = legacy[name].expression
+        if not expression:
+            expression = builtin.get(name, "")
+        if expression:
+            mspy.enzymes[name].expression = expression
+            repaired.append(name)
+
+    return repaired
+
+
+try:
+    if repairEnzymeExpressions(
+        config.getLegacyLibraryPath("enzymes") + ".migrated",
+        _builtinEnzymeExpressions,
+    ):
+        mspy.saveEnzymes(config.getLibraryPath("enzymes"))
+except Exception:
+    pass
 
 
 # INIT DEFAULT VALUES

@@ -3,7 +3,7 @@
   "enzymes": {
     "Arg-C": {
       "name": "Arg-C",
-      "expression": "",
+      "expression": "[R][A-Z]",
       "nTermFormula": "H",
       "cTermFormula": "OH",
       "modsBefore": false,
@@ -11,7 +11,7 @@
     },
     "Asp-N": {
       "name": "Asp-N",
-      "expression": "",
+      "expression": "[A-Z][D]",
       "nTermFormula": "H",
       "cTermFormula": "OH",
       "modsBefore": true,
@@ -19,7 +19,7 @@
     },
     "Bromelain": {
       "name": "Bromelain",
-      "expression": "",
+      "expression": "[KAY][A-Z]",
       "nTermFormula": "H",
       "cTermFormula": "OH",
       "modsBefore": false,
@@ -27,7 +27,7 @@
     },
     "CNBr-HSerLac": {
       "name": "CNBr-HSerLac",
-      "expression": "",
+      "expression": "[M][A-Z]",
       "nTermFormula": "H",
       "cTermFormula": "O-1C-1H-3",
       "modsBefore": false,
@@ -35,7 +35,7 @@
     },
     "Cathepsin B": {
       "name": "Cathepsin B",
-      "expression": "",
+      "expression": "[R][A-Z]",
       "nTermFormula": "H",
       "cTermFormula": "OH",
       "modsBefore": false,
@@ -43,7 +43,7 @@
     },
     "Cathepsin D": {
       "name": "Cathepsin D",
-      "expression": "",
+      "expression": "[LF][^VAG]",
       "nTermFormula": "H",
       "cTermFormula": "OH",
       "modsBefore": false,
@@ -51,7 +51,7 @@
     },
     "Cathepsin G": {
       "name": "Cathepsin G",
-      "expression": "",
+      "expression": "[YWF][A-Z]",
       "nTermFormula": "H",
       "cTermFormula": "OH",
       "modsBefore": false,
@@ -59,7 +59,7 @@
     },
     "Chymotrypsin": {
       "name": "Chymotrypsin",
-      "expression": "",
+      "expression": "[YWFL][^P]",
       "nTermFormula": "H",
       "cTermFormula": "OH",
       "modsBefore": false,
@@ -67,7 +67,7 @@
     },
     "Clostripain": {
       "name": "Clostripain",
-      "expression": "",
+      "expression": "[R][^P]",
       "nTermFormula": "H",
       "cTermFormula": "OH",
       "modsBefore": false,
@@ -75,7 +75,7 @@
     },
     "Elastase": {
       "name": "Elastase",
-      "expression": "",
+      "expression": "[AVLIGS][A-Z]",
       "nTermFormula": "H",
       "cTermFormula": "OH",
       "modsBefore": false,
@@ -83,7 +83,7 @@
     },
     "Glu-C Bic": {
       "name": "Glu-C Bic",
-      "expression": "",
+      "expression": "[E][A-Z]",
       "nTermFormula": "H",
       "cTermFormula": "OH",
       "modsBefore": false,
@@ -91,7 +91,7 @@
     },
     "Glu-C Phos": {
       "name": "Glu-C Phos",
-      "expression": "",
+      "expression": "[ED][A-Z]",
       "nTermFormula": "H",
       "cTermFormula": "OH",
       "modsBefore": false,
@@ -99,7 +99,7 @@
     },
     "Hydroxylamine": {
       "name": "Hydroxylamine",
-      "expression": "",
+      "expression": "[N][G]",
       "nTermFormula": "H",
       "cTermFormula": "OH",
       "modsBefore": false,
@@ -107,7 +107,7 @@
     },
     "Lys-C": {
       "name": "Lys-C",
-      "expression": "",
+      "expression": "[K][A-Z]",
       "nTermFormula": "H",
       "cTermFormula": "OH",
       "modsBefore": false,
@@ -115,7 +115,7 @@
     },
     "Lys-N": {
       "name": "Lys-N",
-      "expression": "",
+      "expression": "[A-Z][K]",
       "nTermFormula": "H",
       "cTermFormula": "OH",
       "modsBefore": true,
@@ -123,7 +123,7 @@
     },
     "Non-Specific": {
       "name": "Non-Specific",
-      "expression": "",
+      "expression": "[A-Z][A-Z]",
       "nTermFormula": "H",
       "cTermFormula": "OH",
       "modsBefore": true,
@@ -131,7 +131,7 @@
     },
     "Papain": {
       "name": "Papain",
-      "expression": "",
+      "expression": "[RK][A-Z]",
       "nTermFormula": "H",
       "cTermFormula": "OH",
       "modsBefore": false,
@@ -139,7 +139,7 @@
     },
     "Pepsin": {
       "name": "Pepsin",
-      "expression": "",
+      "expression": "[LF][^VAG]",
       "nTermFormula": "H",
       "cTermFormula": "OH",
       "modsBefore": false,
@@ -147,7 +147,7 @@
     },
     "Proteinase K": {
       "name": "Proteinase K",
-      "expression": "",
+      "expression": "[YWF][A-Z]",
       "nTermFormula": "H",
       "cTermFormula": "OH",
       "modsBefore": false,
@@ -155,7 +155,7 @@
     },
     "Subtilisin": {
       "name": "Subtilisin",
-      "expression": "",
+      "expression": "[^RHK][A-Z]",
       "nTermFormula": "H",
       "cTermFormula": "OH",
       "modsBefore": false,
@@ -163,7 +163,7 @@
     },
     "Thermolysin": {
       "name": "Thermolysin",
-      "expression": "",
+      "expression": "[A-Z][LFIVMA]",
       "nTermFormula": "H",
       "cTermFormula": "OH",
       "modsBefore": true,
@@ -171,7 +171,7 @@
     },
     "TrypAspN": {
       "name": "TrypAspN",
-      "expression": "",
+      "expression": "(([KR][^P])|([A-Z][D]))",
       "nTermFormula": "H",
       "cTermFormula": "OH",
       "modsBefore": false,
@@ -179,7 +179,7 @@
     },
     "TrypChymo": {
       "name": "TrypChymo",
-      "expression": "",
+      "expression": "[FYWLKR][^P]",
       "nTermFormula": "H",
       "cTermFormula": "OH",
       "modsBefore": false,
@@ -187,7 +187,7 @@
     },
     "Trypsin": {
       "name": "Trypsin",
-      "expression": "",
+      "expression": "[KR][^P]",
       "nTermFormula": "H",
       "cTermFormula": "OH",
       "modsBefore": false,
@@ -195,7 +195,7 @@
     },
     "Trypsin/P": {
       "name": "Trypsin/P",
-      "expression": "",
+      "expression": "[KR][A-Z]",
       "nTermFormula": "H",
       "cTermFormula": "OH",
       "modsBefore": false,
