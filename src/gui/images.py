@@ -122,59 +122,63 @@ def _invert_bitmap(bitmap):
     return wx.Bitmap(image)
 
 
-def _badge_multi(bitmap):
-    """Return a copy of a tool bitmap badged with a small stacked-lines glyph.
+def _ink_icon(template, pixels):
+    """Return template with its glyph replaced by the given pixels.
 
-    Used to derive the "multi-label peak" tool icon from the single "label peak"
-    icon so the two toolbar buttons read as distinct. The badge is drawn in
-    monochrome (opaque black) in the top-right corner; dark mode inverts it along
-    with the rest of the glyph, exactly like every other monochrome icon.
+    template (a bottom bar icon of the same state) supplies the button around
+    the glyph -- the framed, shaded button on the Mac, the separator lines
+    elsewhere -- and the glyph's ink and emboss, so an off/on pair drawn here
+    matches the rest of the bottom bar on every platform.
     """
 
-    image = bitmap.ConvertToImage()
+    image = template.ConvertToImage()
     if not image.HasAlpha():
         image.InitAlpha()
     w, h = image.GetWidth(), image.GetHeight()
     rgb = np.frombuffer(image.GetDataBuffer(), dtype=np.uint8).reshape((h, w, 3))
     alpha = np.frombuffer(image.GetAlphaBuffer(), dtype=np.uint8).reshape((h, w))
 
-    # three short horizontal bars in the top-right corner -> "multiple spectra"
-    x0, x1 = max(0, w - 7), w - 1
-    for y in (1, 3, 5):
-        if 0 <= y < h:
-            rgb[y, x0:x1] = 0
-            alpha[y, x0:x1] = 255
+    # glyph area, clear of the button frame and separators; the column just
+    # left of it holds each row's plain background
+    x0, x1, y0, y1 = 5, min(w - 4, 25), 4, min(h - 2, 20)
+    bgRgb = rgb[:, x0 - 1].astype(int)
+    bgAlpha = alpha[:, x0 - 1].copy()
 
-    return wx.Bitmap(image)
+    # the template's glyph: opaque pixels well off their row's background
+    box = rgb[y0:y1, x0:x1].astype(int)
+    diff = np.abs(box - bgRgb[y0:y1, None]).sum(axis=2)
+    opaque = alpha[y0:y1, x0:x1] > 128
+    glyph = opaque & ((diff > 180) | (bgAlpha[y0:y1, None] <= 128))
 
-
-def _ink_icon(template, pixels):
-    """Return a bitmap of the given pixels, in the ink of template.
-
-    template (a bottom bar icon of the same state) supplies the size and the
-    colour, so an off/on pair drawn here matches the rest of the bottom bar.
-    """
-
-    source = template.ConvertToImage()
-    w, h = source.GetWidth(), source.GetHeight()
-    srcRgb = np.frombuffer(source.GetDataBuffer(), dtype=np.uint8).reshape((h, w, 3))
-    if source.HasAlpha():
-        srcAlpha = np.frombuffer(source.GetAlphaBuffer(), dtype=np.uint8)
-        ink = srcRgb[srcAlpha.reshape((h, w)) > 128]
+    # ink: the glyph's commonest colour
+    if glyph.any():
+        colours, counts = np.unique(box[glyph], axis=0, return_counts=True)
+        ink = colours[counts.argmax()]
     else:
-        ink = srcRgb.reshape((-1, 3))
-    colour = ink[0] if len(ink) else np.zeros(3, dtype=np.uint8)
+        ink = np.zeros(3, dtype=int)
 
-    image = wx.Image(w, h)
-    image.InitAlpha()
-    rgb = np.frombuffer(image.GetDataBuffer(), dtype=np.uint8).reshape((h, w, 3))
-    alpha = np.frombuffer(image.GetAlphaBuffer(), dtype=np.uint8).reshape((h, w))
-    alpha[:] = 0
+    # emboss: how the pixels just below the glyph differ from the background
+    # (the Mac draws a highlight or a shadow there, other platforms nothing)
+    below = np.zeros_like(glyph)
+    below[1:] = glyph[:-1] & ~glyph[1:] & opaque[1:] & (bgAlpha[y0 + 1 : y1, None] > 128)
+    if below.any():
+        emboss = (box[below] - np.broadcast_to(bgRgb[y0:y1, None], box.shape)[below]).mean(axis=0)
+    else:
+        emboss = None
 
-    for x, y in pixels:
-        if 0 <= x < w and 0 <= y < h:
-            rgb[y, x] = colour
-            alpha[y, x] = 255
+    # wipe the old glyph
+    rgb[y0:y1, x0:x1] = bgRgb[y0:y1, None].astype(np.uint8)
+    alpha[y0:y1, x0:x1] = bgAlpha[y0:y1, None]
+
+    # draw the new one
+    drawn = set((x, y) for x, y in pixels if 0 <= x < w and 0 <= y < h)
+    if emboss is not None:
+        for x, y in drawn:
+            if (x, y + 1) not in drawn and y + 1 < h and alpha[y + 1, x] > 128:
+                rgb[y + 1, x] = np.clip(bgRgb[y + 1] + emboss, 0, 255).astype(np.uint8)
+    for x, y in drawn:
+        rgb[y, x] = ink.astype(np.uint8)
+        alpha[y, x] = 255
 
     return wx.Bitmap(image)
 
@@ -675,8 +679,6 @@ def loadImages():
     lib["spectrumDiffRulerOff"] = _diff_ruler_icon(lib["spectrumRulerOff"])
     lib["spectrumLabelPeakOn"] = bottombarsOn.GetSubBitmap(wx.Rect(29, 66, 29, 22))
     lib["spectrumLabelPeakOff"] = bottombarsOff.GetSubBitmap(wx.Rect(29, 66, 29, 22))
-    lib["spectrumMultiLabelPeakOn"] = _badge_multi(lib["spectrumLabelPeakOn"])
-    lib["spectrumMultiLabelPeakOff"] = _badge_multi(lib["spectrumLabelPeakOff"])
     lib["spectrumLabelPointOn"] = bottombarsOn.GetSubBitmap(wx.Rect(58, 66, 29, 22))
     lib["spectrumLabelPointOff"] = bottombarsOff.GetSubBitmap(wx.Rect(58, 66, 29, 22))
     lib["spectrumLabelEnvelopeOn"] = bottombarsOn.GetSubBitmap(wx.Rect(87, 66, 29, 22))
