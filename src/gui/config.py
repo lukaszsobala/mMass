@@ -141,7 +141,9 @@ try:
 except Exception:
     try:
         import re
-        pyproject_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pyproject.toml")
+        # src/gui/config.py -> repository root
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        pyproject_path = os.path.join(root, "pyproject.toml")
         with open(pyproject_path, "r", encoding="utf-8") as f:
             _m = re.search(r'^version\s*=\s*"([^"]+)"', f.read(), re.MULTILINE)
             version = _m.group(1) if _m else "unknown"
