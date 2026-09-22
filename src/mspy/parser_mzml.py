@@ -33,7 +33,11 @@ from . import obj_peaklist
 from . import obj_scan
 
 # compile basic patterns
-SCAN_NUMBER_PATTERN = re.compile(r'="{0,1}([0-9]*)"{0,1}>{0,1}$')
+# Most nativeID formats end in the scan number ("scanId=12", "index=12",
+# "spectrum=12"), but some carry a trailing token that is not one
+# ("frame=1 scan=3 frameType=1"), so an explicit scan= takes priority.
+SCAN_NUMBER_PATTERN = re.compile(r"scan=([0-9]+)")
+SCAN_NUMBER_TAIL_PATTERN = re.compile(r"=([0-9]+)$")
 
 
 # PARSE mzML DATA
@@ -1023,18 +1027,15 @@ class stopParsing(Exception):
 
 
 def _parseScanNumber(string):
-    """Parse real scan number from id tag."""
+    """Parse scan number from an id tag, else the integer the id ends with."""
 
-    # match scan number pattern
-    match = SCAN_NUMBER_PATTERN.search(string)
-    if not match:
-        return None
+    # match scan number pattern, then fall back to the trailing integer
+    for pattern in (SCAN_NUMBER_PATTERN, SCAN_NUMBER_TAIL_PATTERN):
+        match = pattern.search(string.strip())
+        if match:
+            return int(match.group(1))
 
-    # convert to int
-    try:
-        return int(match.group(1))
-    except Exception:
-        return None
+    return None
 
 
 # ----
