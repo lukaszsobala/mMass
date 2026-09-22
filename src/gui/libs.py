@@ -582,9 +582,14 @@ references = {
 compounds = {}
 
 # mass difference lists for the difference ruler and Peak Differences:
-# {group: [(name, monoisotopic mass, average mass), ...]}. The defaults come
-# from the bundled differences.json, which is seeded on first start.
+# {group: [(name, monoisotopic mass, average mass, short name, monomer), ...]},
+# the short name and monomer being "" when there is none; an entry naming a
+# monomer takes its masses from it (see gui.differences). Options of a list
+# are in differenceOptions: {group: {"pairs": bool}}, pairs telling that sums
+# of two of its entries (dipeptides) are matched too. The defaults come from
+# the bundled differences.json, which is seeded on first start.
 differences = {}
+differenceOptions = {}
 
 mascot = {
     "Matrix Science": {
@@ -1009,24 +1014,36 @@ def saveDifferences(path=None):
         group: [_differenceRow(item) for item in differences[group]]
         for group in sorted(differences.keys())
     }
+    options = {
+        group: dict(differenceOptions[group])
+        for group in sorted(differenceOptions)
+        if group in differences and any(differenceOptions[group].values())
+    }
 
     return _writeJSON(
-        path, {"schemaVersion": DIFFERENCES_SCHEMA, "differences": data}
+        path,
+        {"schemaVersion": DIFFERENCES_SCHEMA, "differences": data, "options": options},
     )
 
 
 def _differenceRow(item):
-    """An entry as the library file keeps it: [name, mono, avg(, short)]."""
+    """An entry as the library file keeps it: [name, mono, avg(, short(,
+    monomer))]."""
 
     row = [item[0], float(item[1]), float(item[2])]
-    if len(item) > 3 and item[3]:
-        row.append(str(item[3]))
+    short = item[3] if len(item) > 3 else ""
+    monomer = item[4] if len(item) > 4 else ""
+    if short or monomer:
+        row.append(str(short))
+    if monomer:
+        row.append(str(monomer))
     return row
 
 
-# version 2 gives entries a short name; files of version 1 are brought up to
-# it when read (see migrateDifferences)
-DIFFERENCES_SCHEMA = 2
+# version 2 gives entries a short name, version 3 a monomer, lists options,
+# and ships the lists that were built into the program before; older files are
+# brought up to date when read (see migrateDifferences)
+DIFFERENCES_SCHEMA = 3
 
 # short names given to the entries shipped before they had any, with the
 # monoisotopic mass they were shipped with, and the entries dropped since
@@ -1054,34 +1071,110 @@ _DIFFERENCES_DROPPED = {
     "Trimethylation": 42.04695,
 }
 
+# the lists that were built into the program before version 3
+_DIFFERENCES_ONCE_BUILT_IN = ("Amino acids", "Sugars", "PerMe-Sugars")
 
-def migrateDifferences(container):
-    """Bring the lists of a version 1 library file up to version 2.
 
-    Entries shipped with the program get their short names, and those since
-    dropped go -- but only while they still have the mass they were shipped
-    with, so an entry the user changed is left as it is.
+def migrateDifferences(container, version, options=None, addShipped=True):
+    """Bring the lists of an older library file (version) up to date.
+
+    From version 1, entries shipped with the program get their short names,
+    and those since dropped go -- but only while they still have the mass they
+    were shipped with, so an entry the user changed is left as it is. From
+    version 2 or older, the lists that used to be built into the program are
+    added from the defaults, unless there is a list of that name already.
+    options, the file's list options, are updated alongside. Without
+    addShipped (a file imported into the library), no lists are added.
     """
 
-    for group, items in container.items():
-        kept = []
-        for name, mono, avg, short in items:
-            if name in _DIFFERENCES_DROPPED and abs(mono - _DIFFERENCES_DROPPED[name]) < 1e-4:
-                continue
-            shipped = _DIFFERENCES_SHORT.get(name)
-            if not short and shipped and abs(mono - shipped[0]) < 1e-4:
-                short = shipped[1]
-            kept.append((name, mono, avg, short))
-        container[group] = kept
+    if options is None:
+        options = {}
+
+    if version < 2:
+        for group, items in container.items():
+            kept = []
+            for item in items:
+                name, mono, avg, short, monomer = item
+                if name in _DIFFERENCES_DROPPED and abs(mono - _DIFFERENCES_DROPPED[name]) < 1e-4:
+                    continue
+                shipped = _DIFFERENCES_SHORT.get(name)
+                if not short and shipped and abs(mono - shipped[0]) < 1e-4:
+                    short = shipped[1]
+                kept.append((name, mono, avg, short, monomer))
+            container[group] = kept
+
+    if version < 3 and addShipped:
+        defaults, defaultOptions = readDefaultDifferences()
+        for group in _DIFFERENCES_ONCE_BUILT_IN:
+            if group not in container and group in defaults:
+                container[group] = list(defaults[group])
+                if group in defaultOptions:
+                    options[group] = dict(defaultOptions[group])
+
     return container
+
+
+def readDefaultDifferences():
+    """The lists shipped with the program, and their options."""
+
+    from importlib import resources
+
+    try:
+        resource = resources.files("gui").joinpath("configs", "differences.json")
+        with resources.as_file(resource) as sourcePath:
+            with open(sourcePath, "r", encoding="utf-8") as f:
+                data = json.load(f)
+    except Exception:
+        with open(config.get_default_config_source_path("differences.json"), "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+    return parseDifferences(data["differences"]), parseDifferenceOptions(data.get("options"))
+
+
+def restoreDefaultDifferences():
+    """Put back the lists and entries shipped with the program.
+
+    A shipped list that is missing comes back whole; in one that is there,
+    each shipped entry that is missing or was changed is put back as shipped,
+    and the list's options with it. Entries and lists of the user's own are
+    left alone. Returns the names of the lists changed.
+    """
+
+    defaults, defaultOptions = readDefaultDifferences()
+    changed = []
+    for group, items in defaults.items():
+        current = differences.get(group)
+        if current is None:
+            differences[group] = list(items)
+            changed.append(group)
+        else:
+            names = {item[0]: index for index, item in enumerate(current)}
+            for item in items:
+                index = names.get(item[0])
+                if index is None:
+                    current.append(item)
+                elif tuple(current[index]) != tuple(item):
+                    current[index] = item
+                else:
+                    continue
+                if group not in changed:
+                    changed.append(group)
+        shipped = defaultOptions.get(group, {"pairs": False})
+        if differenceOptions.get(group, {"pairs": False}) != shipped:
+            differenceOptions[group] = dict(shipped)
+            if group not in changed:
+                changed.append(group)
+
+    return changed
 
 
 def parseDifferences(groups):
     """Read the "differences" object of a library file into library form.
 
-    An entry is [name, mono], [name, mono, avg] or [name, mono, avg, short];
-    a missing average mass is taken to be the monoisotopic one, a missing
-    short name is "". Malformed entries are skipped.
+    An entry is [name, mono], [name, mono, avg], [name, mono, avg, short] or
+    [name, mono, avg, short, monomer]; a missing average mass is taken to be
+    the monoisotopic one, a missing short name or monomer is "". Malformed
+    entries are skipped.
     """
 
     container = {}
@@ -1098,16 +1191,29 @@ def parseDifferences(groups):
             except (TypeError, ValueError):
                 continue
             short = item[3] if len(item) > 3 and isinstance(item[3], str) else ""
-            entries.append((str(item[0]), mono, avg, short.strip()))
+            monomer = item[4] if len(item) > 4 and isinstance(item[4], str) else ""
+            entries.append((str(item[0]), mono, avg, short.strip(), monomer.strip()))
         container[str(group)] = entries
 
     return container
 
 
+def parseDifferenceOptions(groups):
+    """Read the "options" object of a library file: {group: {"pairs": bool}}."""
+
+    options = {}
+    if not isinstance(groups, dict):
+        return options
+    for group, values in groups.items():
+        if isinstance(values, dict):
+            options[str(group)] = {"pairs": bool(values.get("pairs"))}
+    return options
+
+
 def loadDifferences(path=None, clear=True):
     """Read a JSON mass differences library (the user's, without path).
 
-    A library written before short names is brought up to date (see
+    A library written by an older version is brought up to date (see
     migrateDifferences), and so is the user's own file.
     """
 
@@ -1118,17 +1224,25 @@ def loadDifferences(path=None, clear=True):
     container = parseDifferences(_readJSON(path, "differences"))
     try:
         with open(path, "r", encoding="utf-8") as f:
-            version = json.load(f).get("schemaVersion", 1)
+            data = json.load(f)
+        version = data.get("schemaVersion", 1)
+        options = parseDifferenceOptions(data.get("options"))
     except (OSError, ValueError, AttributeError):
         version = DIFFERENCES_SCHEMA
-    older = not isinstance(version, int) or version < DIFFERENCES_SCHEMA
+        options = {}
+    if not isinstance(version, int):
+        version = 1
+    older = version < DIFFERENCES_SCHEMA
     if older:
-        migrateDifferences(container)
+        migrateDifferences(container, version, options)
 
     if clear:
         differences.clear()
+        differenceOptions.clear()
     for group in container:
         differences[group] = container[group]
+    for group, values in options.items():
+        differenceOptions[group] = values
 
     # the user's own library is kept brought up to date
     if older and default and clear:

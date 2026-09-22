@@ -633,19 +633,15 @@ compoundsSearch = {
 }
 
 peakDifferences = {
-    "aminoacids": 1,
-    "dipeptides": 0,
-    "sugars": 0,
-    "permesugars": 0,
+    # lists of the mass differences library to match against
+    "lists": ["Amino acids"],
     "massType": 0,
     "tolerance": 0.1,
     "consolidate": 0,
-    # match against the user's lists from the mass differences library
-    "userLists": 0,
 }
 
 differenceRuler = {
-    # lists to match against (built-in or user list names)
+    # lists of the mass differences library to match against
     "lists": ["Amino acids", "Sugars", "Modifications", "Adducts and Losses"],
     "massType": 0,
     # largest observed-minus-theoretical difference that still matches; in
@@ -1496,6 +1492,17 @@ def _validateConfig():
         differenceRuler["units"] = "Da"
     if differenceRuler["tolerance"] <= 0:
         differenceRuler["tolerance"] = 0.1
+
+    # the Dipeptides list is gone: the amino acids' pairs match them now
+    for settings in (differenceRuler, peakDifferences):
+        if not isinstance(settings["lists"], list):
+            settings["lists"] = []
+        lists = [name for name in settings["lists"] if isinstance(name, str)]
+        if "Dipeptides" in lists:
+            lists.remove("Dipeptides")
+            if "Amino acids" not in lists:
+                lists.append("Amino acids")
+        settings["lists"] = lists
 
 
 

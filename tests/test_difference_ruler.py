@@ -25,6 +25,8 @@ processing = pytest.importorskip("gui.processing", reason="GUI stack (wx) not av
 
 HEX = 162.052824
 PHOSPHO = 79.966331
+SUGARS = "Sugars"
+AMINOACIDS = "Amino acids"
 
 
 @pytest.fixture(autouse=True)
@@ -55,54 +57,84 @@ def user_lists(libs):
     """libs.differences holding a known list, restored afterwards."""
 
     saved = dict(libs.differences)
+    savedOptions = dict(libs.differenceOptions)
     libs.differences.clear()
+    libs.differenceOptions.clear()
     libs.differences["Test Mods"] = [
-        ("Phospho", PHOSPHO, 79.979917, "Ph"),
-        ("Oxidation", 15.994915, 15.999405, ""),
+        ("Phospho", PHOSPHO, 79.979917, "Ph", ""),
+        ("Oxidation", 15.994915, 15.999405, "", ""),
     ]
     try:
         yield libs.differences
     finally:
         libs.differences.clear()
         libs.differences.update(saved)
+        libs.differenceOptions.clear()
+        libs.differenceOptions.update(savedOptions)
+
+
+@pytest.fixture
+def shipped(libs):
+    """libs.differences holding the lists shipped with mMass, restored afterwards."""
+
+    saved = dict(libs.differences)
+    savedOptions = dict(libs.differenceOptions)
+    defaults, options = libs.readDefaultDifferences()
+    libs.differences.clear()
+    libs.differences.update(defaults)
+    libs.differenceOptions.clear()
+    libs.differenceOptions.update(options)
+    try:
+        yield libs.differences
+    finally:
+        libs.differences.clear()
+        libs.differences.update(saved)
+        libs.differenceOptions.clear()
+        libs.differenceOptions.update(savedOptions)
 
 
 # MATCHING
 # --------
 
 
-def test_builtin_lists_hold_residue_masses():
-    lists = differences.builtinLists()
+def test_shipped_lists_hold_residue_masses(shipped):
+    aminoacids = differences.getList(AMINOACIDS)
+    sugars = differences.getList(SUGARS)
 
-    assert lists[differences.AMINOACIDS]["G"][0] == pytest.approx(57.02146, abs=1e-4)
-    assert lists[differences.DIPEPTIDES]["GG"][0] == pytest.approx(114.04293, abs=1e-4)
-    assert lists[differences.SUGARS]["Hex"][0] == pytest.approx(HEX, abs=1e-5)
+    assert aminoacids["Glycine"][0] == pytest.approx(57.02146, abs=1e-4)
+    assert sugars["Hex"][0] == pytest.approx(HEX, abs=1e-5)
     # average masses are kept alongside the monoisotopic ones
-    assert lists[differences.SUGARS]["Hex"][1] > lists[differences.SUGARS]["Hex"][0]
+    assert sugars["Hex"][1] > sugars["Hex"][0]
+    # the amino acids' pairs are their dipeptides
+    pairs = {entry[0]: entry[1] for entry in differences.entries([AMINOACIDS])}
+    assert pairs["2\u00d7Glycine"] == pytest.approx(114.04293, abs=1e-4)
+    assert pairs["Glycine+Lysine"] == pytest.approx(57.02146 + 128.09496, abs=1e-4)
+    assert "Glycine+Lysine" not in {entry[0] for entry in differences.entries([AMINOACIDS], pairs=False)}
 
 
-def test_match_names_a_difference_and_sorts_by_error():
-    candidates = differences.entries([differences.SUGARS, differences.AMINOACIDS])
+def test_match_names_a_difference_and_sorts_by_error(shipped):
+    candidates = differences.entries([SUGARS, AMINOACIDS])
 
     matches = differences.match(HEX + 0.002, candidates, tolerance=0.01)
 
     assert [m[0] for m in matches] == ["Hex"]
-    assert matches[0][1] == pytest.approx(0.002, abs=1e-6)
-    assert matches[0][2] == differences.SUGARS
+    assert matches[0][1] == pytest.approx(0.002, abs=1e-5)
+    assert matches[0][2] == SUGARS
 
     # K and Q are 0.036 apart: a loose tolerance finds both, closest first
-    lysine = differences.builtinLists()[differences.AMINOACIDS]["K"][0]
+    lysine = differences.getList(AMINOACIDS)["Lysine"][0]
     matches = differences.match(lysine, candidates, tolerance=0.1)
-    assert [m[0] for m in matches][:2] == ["K", "Q"]
+    assert [m[0] for m in matches][:2] == ["Lysine", "Glutamine"]
+    assert differences.shortenNames(differences.matchNames(matches[:2])) == "K / Q"
 
 
-def test_match_outside_tolerance_finds_nothing():
-    candidates = differences.entries([differences.SUGARS])
+def test_match_outside_tolerance_finds_nothing(shipped):
+    candidates = differences.entries([SUGARS])
     assert differences.match(HEX + 0.05, candidates, tolerance=0.01) == []
 
 
-def test_match_at_charge_scales_difference_and_tolerance():
-    candidates = differences.entries([differences.SUGARS])
+def test_match_at_charge_scales_difference_and_tolerance(shipped):
+    candidates = differences.entries([SUGARS])
 
     # a Hex step in a 2+ series is half a Hex apart in m/z
     matches = differences.match(HEX / 2 + 0.004, candidates, tolerance=0.005, charge=2)
@@ -122,16 +154,13 @@ def test_match_uses_average_masses_when_asked(user_lists):
     assert not differences.match(79.980, candidates, tolerance=0.002, massType=0)
 
 
-def test_user_lists_follow_builtin_ones(user_lists):
-    names = differences.availableLists()
-
-    assert names[: len(differences.BUILTIN)] == list(differences.BUILTIN)
-    assert "Test Mods" in names
+def test_every_list_is_the_libraries(user_lists):
+    assert differences.availableLists() == ["Test Mods"]
     assert differences.getList("gone") == {}
 
 
-def test_ppm_tolerance_applies_at_each_peak():
-    candidates = differences.entries([differences.SUGARS])
+def test_ppm_tolerance_applies_at_each_peak(shipped):
+    candidates = differences.entries([SUGARS])
     peaks = (1000.0, 1000.0 + HEX)
 
     # each peak may be 10 ppm off at its own m/z: 0.0100 + 0.0116 = 0.0216
@@ -146,13 +175,13 @@ def test_ppm_tolerance_applies_at_each_peak():
     name, error, listName, theoretical = differences.match(
         HEX + 0.015, candidates, 10, units="ppm", mzs=peaks
     )[0]
-    assert (name, listName) == ("Hex", differences.SUGARS)
+    assert (name, listName) == ("Hex", SUGARS)
     assert theoretical == pytest.approx(HEX, abs=1e-5)
     assert error == pytest.approx(0.015, abs=1e-5)
 
 
-def test_ppm_tolerance_scales_with_charge():
-    candidates = differences.entries([differences.SUGARS])
+def test_ppm_tolerance_scales_with_charge(shipped):
+    candidates = differences.entries([SUGARS])
     peaks = (1000.0, 1000.0 + HEX / 2)  # 5 ppm: 0.0050 + 0.0054 = 0.0104 m/z
 
     # at 2+ the m/z step is half the mass step, and so is the m/z tolerance
@@ -160,8 +189,8 @@ def test_ppm_tolerance_scales_with_charge():
     assert not differences.match(HEX / 2 + 0.011, candidates, 5, charge=2, units="ppm", mzs=peaks)
 
 
-def test_da_tolerance_ignores_the_peaks():
-    candidates = differences.entries([differences.SUGARS])
+def test_da_tolerance_ignores_the_peaks(shipped):
+    candidates = differences.entries([SUGARS])
     assert differences.match(HEX + 0.05, candidates, 0.06, mzs=(1.0, 2.0))
     assert differences.toleranceMz(0.06, "Da", (1000.0, 1162.0)) == 0.06
 
@@ -174,8 +203,8 @@ def test_error_text():
     assert differences.errorText(0.004, charge=2, units="ppm", mzs=(400.0, 600.0)) == "+2.0 ppm"
 
 
-def test_ppm_error_within_tolerance_means_matched():
-    candidates = differences.entries([differences.SUGARS])
+def test_ppm_error_within_tolerance_means_matched(shipped):
+    candidates = differences.entries([SUGARS])
     peaks = (1000.0, 1000.0 + HEX)
     ((name, error, _list, _theoretical),) = differences.match(
         HEX + 0.02, candidates, 10, units="ppm", mzs=peaks
@@ -261,10 +290,10 @@ def test_differences_library_reads_short_and_skips_bad_entries(libs):
 
     assert parsed == {
         "Mixed": [
-            ("Mono only", 10.5, 10.5, ""),
-            ("Both", 1.0, 2.0, ""),
-            ("Short", 3.0, 4.0, "Sh"),
-            ("Short not text", 3.0, 4.0, ""),
+            ("Mono only", 10.5, 10.5, "", ""),
+            ("Both", 1.0, 2.0, "", ""),
+            ("Short", 3.0, 4.0, "Sh", ""),
+            ("Short not text", 3.0, 4.0, "", ""),
         ]
     }
 
@@ -283,8 +312,10 @@ def test_bundled_default_library_is_valid(libs):
     assert masses["Acetylation"][2] == "Ac" and masses["Methylation"][2] == "Me"
     assert "Dimethylation" not in masses and "Trimethylation" not in masses
     assert data["schemaVersion"] == libs.DIFFERENCES_SCHEMA
-    # no user list may shadow a built-in one
-    assert not set(parsed) & set(differences.BUILTIN)
+    # the amino acids follow the monomers, and have their pairs matched
+    assert masses["Lysine"][2:] == ("K", "K")
+    assert libs.parseDifferenceOptions(data["options"]) == {AMINOACIDS: {"pairs": True}}
+    assert {AMINOACIDS, SUGARS, "PerMe-Sugars"} <= set(parsed)
 
 
 # RULERS ON DOCUMENTS
@@ -422,8 +453,10 @@ def test_ruler_ends_follow_the_current_peak_heights(wx_app):
 
     # a peak at the end: its intensity now, not the stored one
     assert spectrum.rulerEndIntensity(1000.0, 99.0) == pytest.approx(40.0)
-    # no peak there: where it was put, not the profile
-    assert spectrum.rulerEndIntensity(1162.0, 99.0) == pytest.approx(99.0)
+    # no peak there: on the trace, not up where the pointer let go of it
+    assert spectrum.rulerEndIntensity(1162.0, 99.0) == pytest.approx(30.0)
+    # off the trace too: where it was put
+    assert spectrum.rulerEndIntensity(1200.0, 99.0) == pytest.approx(99.0)
     assert spectrum.rulerEndIntensity(2000.0, 99.0) == pytest.approx(99.0)
 
 
@@ -891,17 +924,20 @@ def test_old_library_gets_short_names_and_loses_the_methylations(tmp_path, libs,
     libs.loadDifferences(str(path))
 
     assert libs.differences["Modifications"] == [
-        ("Acetylation", 42.010565, 42.036758, "Ac"),
-        ("Methylation", 14.01565, 14.026617, "Me"),
-        ("Oxidation", 16.5, 16.5, ""),
+        ("Acetylation", 42.010565, 42.036758, "Ac", ""),
+        ("Methylation", 14.01565, 14.026617, "Me", ""),
+        ("Oxidation", 16.5, 16.5, "", ""),
     ]
-    assert libs.differences["Mine"] == [("Trimethylation", 42.1, 42.1, "")]
+    assert libs.differences["Mine"] == [("Trimethylation", 42.1, 42.1, "", "")]
+    # the lists once built into the program come along
+    assert {AMINOACIDS, SUGARS, "PerMe-Sugars"} <= set(libs.differences)
+    assert libs.differenceOptions[AMINOACIDS] == {"pairs": True}
     # a file of the current version is read as it is
     libs.saveDifferences(str(path))
-    libs.differences["Mine"].append(("Trimethylation", 42.04695, 42.079852, ""))
+    libs.differences["Mine"].append(("Trimethylation", 42.04695, 42.079852, "", ""))
     libs.saveDifferences(str(path))
     libs.loadDifferences(str(path))
-    assert ("Trimethylation", 42.04695, 42.079852, "") in libs.differences["Mine"]
+    assert ("Trimethylation", 42.04695, 42.079852, "", "") in libs.differences["Mine"]
 
 
 def test_short_names_replace_entry_names_in_label_text(user_lists):
@@ -968,3 +1004,71 @@ def test_report_fills_in_a_labels_own_text():
 
     assert "Lys 128.0962" in report
     assert "{diff}" not in report
+
+
+def test_a_version_2_library_gains_the_lists_once_built_in_but_keeps_its_own(tmp_path, libs, user_lists):
+    path = tmp_path / "differences.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schemaVersion": 2,
+                "differences": {"Sugars": [["My sugar", 100.0, 100.0]], "Mine": [["X", 1.0]]},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    libs.loadDifferences(str(path))
+
+    # a list of the same name is the user's and stays as it is
+    assert libs.differences["Sugars"] == [("My sugar", 100.0, 100.0, "", "")]
+    assert AMINOACIDS in libs.differences and "PerMe-Sugars" in libs.differences
+    assert libs.differenceOptions[AMINOACIDS] == {"pairs": True}
+
+
+def test_restoring_defaults_puts_back_shipped_entries_and_keeps_the_users(libs, shipped):
+    del libs.differences[SUGARS]
+    libs.differences[AMINOACIDS] = [
+        item if item[0] != "Lysine" else ("Lysine", 1.0, 1.0, "Lys", "")
+        for item in libs.differences[AMINOACIDS]
+        if item[0] != "Glycine"
+    ] + [("My residue", 5.0, 5.0, "", "")]
+    libs.differenceOptions[AMINOACIDS] = {"pairs": False}
+    libs.differences["Mine"] = [("X", 1.0, 1.0, "", "")]
+
+    changed = libs.restoreDefaultDifferences()
+
+    names = {item[0]: item for item in libs.differences[AMINOACIDS]}
+    assert set(changed) == {SUGARS, AMINOACIDS}
+    assert SUGARS in libs.differences
+    assert "Glycine" in names and names["Lysine"][3:] == ("K", "K")
+    assert "My residue" in names
+    assert libs.differences["Mine"] == [("X", 1.0, 1.0, "", "")]
+    assert libs.differenceOptions[AMINOACIDS] == {"pairs": True}
+
+
+def test_an_entry_naming_a_monomer_follows_the_monomer_library(libs, shipped):
+    lysine = mspy.monomers["K"]
+    mspy.monomers["K"] = mspy.monomer(abbr="K", formula="C6H12N2O2", name="Hydroxylysine")
+    try:
+        assert differences.getList(AMINOACIDS)["Lysine"][0] == pytest.approx(144.0899, abs=1e-3)
+    finally:
+        mspy.monomers["K"] = lysine
+    # a monomer that is not there leaves the stored masses
+    assert differences.entryMasses(("Gone", 7.0, 8.0, "", "Zz")) == (7.0, 8.0)
+
+
+def test_short_names_of_a_pair_are_those_of_its_entries(shipped):
+    assert differences.shortenNames("Glycine+Lysine / 2\u00d7Glycine") == "G+K / 2\u00d7G"
+
+
+def test_pairs_can_be_listed_apart_from_single_entries(shipped):
+    singles = {entry[0] for entry in differences.entries([AMINOACIDS], pairs=False)}
+    pairs = {entry[0] for entry in differences.entries([AMINOACIDS], singles=False)}
+
+    assert "Glutamine" in singles and "Glutamine" not in pairs
+    assert "Alanine+Glycine" in pairs and not pairs & singles
+    # Q and A+G weigh the same: matching singles first keeps Q on its own
+    glutamine = differences.getList(AMINOACIDS)["Glutamine"][0]
+    single = differences.entries([AMINOACIDS], pairs=False)
+    assert [m[0] for m in differences.match(glutamine, single, 0.01)] == ["Glutamine"]

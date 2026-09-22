@@ -4762,13 +4762,11 @@ class mainFrame(wx.Frame):
         # the difference lists are built from the monomers and the differences
         # library; a list the user deleted stops being matched against
         if library in ("differences", "monomers"):
-            differences.invalidate()
             available = differences.availableLists()
-            config.differenceRuler["lists"] = [
-                name
-                for name in config.differenceRuler["lists"]
-                if name in available
-            ]
+            for settings in (config.differenceRuler, config.peakDifferences):
+                settings["lists"] = [
+                    name for name in settings["lists"] if name in available
+                ]
 
         # init processing gauge
         gauge = mwx.gaugePanel(self, "Saving library...")

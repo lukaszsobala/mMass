@@ -17,10 +17,10 @@
 
 """Mass difference lists shared by the difference ruler and Peak Differences.
 
-A list is a named group of (name, monoisotopic mass, average mass) entries.
-The built-in ones are made from mspy's own data; the user's own lists live in
-the "differences" library (libs.differences), edited under Libraries, where an
-entry may also carry a short name (e.g. Ac for Acetylation) for labels.
+A list is a named group of (name, monoisotopic mass, average mass) entries,
+kept in the "differences" library (libs.differences) and edited under
+Libraries; an entry may also carry a short name (e.g. Ac for Acetylation) for
+labels, and name a monomer to take its masses from.
 """
 
 import re
@@ -28,42 +28,14 @@ import re
 # load libs
 import mspy
 
-# BUILT-IN LISTS
-# --------------
+# LISTS
+# -----
 
-AMINOACIDS = "Amino acids"
-DIPEPTIDES = "Dipeptides"
-SUGARS = "Sugars"
-PERMESUGARS = "PerMe-Sugars"
-
-BUILTIN = (AMINOACIDS, DIPEPTIDES, SUGARS, PERMESUGARS)
-
-# elemental formulas of residue (glycosidic) masses
-SUGAR_FORMULAS = {
-    "Hex": "C6H10O5",
-    "dHex": "C6H10O4",
-    "HexNAc": "C8H13NO5",
-    "NeuAc": "C11H17NO8",
-    "NeuGc": "C11H17NO9",
-    "KDN": "C9H14O8",
-    "HexA": "C6H8O6",
-    "HexN": "C6H11NO4",
-    "Pent": "C5H8O4",
-}
-PERMESUGAR_FORMULAS = {
-    "Hex-PM": "C9H16O5",
-    "dHex-PM": "C8H14O4",
-    "HexNAc-PM": "C11H19NO5",
-    "NeuAc-PM": "C16H27NO8",
-    "NeuGc-PM": "C17H29NO9",
-    "KDN-PM": "C14H24O8",
-    "HexA-PM": "C9H14O6",
-    "Pent-PM": "C7H12O4",
-}
-
-# The built-in lists depend on the monomer library, which the user can edit,
-# so they are cached only until invalidate() is called after a library edit.
-_builtinCache = None
+# Every list is the user's: the "differences" library (libs.differences),
+# seeded from the bundled differences.json and edited under Libraries. An
+# entry naming a monomer takes its masses from the monomer library, so the
+# amino acids follow it; a list can have sums of two of its entries matched
+# too (see pairEntries), which gives the dipeptides of the amino acids.
 
 
 def massPair(mass):
@@ -80,72 +52,17 @@ def massPair(mass):
     return (value, value)
 
 
-def aminoacidMasses():
-    """{abbr: (mono, avg)} of the standard amino acid residues."""
+def entryMasses(item):
+    """(mono, avg) of a library entry: its monomer's, if it names one that
+    the monomer library has, else its own."""
 
-    masses = {}
-    for abbr in mspy.monomers:
-        if mspy.monomers[abbr].category == "_InternalAA":
-            masses[abbr] = massPair(mspy.monomers[abbr].mass)
-    return masses
-
-
-def dipeptideMasses(aminoacids=None):
-    """{label: (mono, avg)} of every amino acid pair, AB and BA merged."""
-
-    if aminoacids is None:
-        aminoacids = aminoacidMasses()
-
-    masses = {}
-    abbrs = list(aminoacids)
-    for x in range(len(abbrs)):
-        for y in range(x, len(abbrs)):
-            aX = abbrs[x]
-            aY = abbrs[y]
-            massX = aminoacids[aX]
-            massY = aminoacids[aY]
-            if aX != aY:
-                label = "%s%s/%s%s" % (aX, aY, aY, aX)
-            else:
-                label = aX + aY
-            masses[label] = (massX[0] + massY[0], massX[1] + massY[1])
-
-    return masses
-
-
-def formulaMasses(formulas):
-    """{name: (mono, avg)} for a {name: formula} map."""
-
-    return {
-        name: massPair(mspy.compound(formula).mass())
-        for name, formula in formulas.items()
-    }
-
-
-def builtinLists():
-    """{list name: {entry name: (mono, avg)}} of the built-in lists."""
-
-    global _builtinCache
-    if _builtinCache is None:
-        aminoacids = aminoacidMasses()
-        _builtinCache = {
-            AMINOACIDS: aminoacids,
-            DIPEPTIDES: dipeptideMasses(aminoacids),
-            SUGARS: formulaMasses(SUGAR_FORMULAS),
-            PERMESUGARS: formulaMasses(PERMESUGAR_FORMULAS),
-        }
-    return _builtinCache
-
-
-def invalidate():
-    """Forget the cached built-in lists (after the monomers are edited)."""
-
-    global _builtinCache
-    _builtinCache = None
-
-
-# USER LISTS
-# ----------
+    monomer = item[4] if len(item) > 4 else ""
+    if monomer and monomer in mspy.monomers:
+        try:
+            return massPair(mspy.monomers[monomer].mass)
+        except (TypeError, ValueError):
+            pass
+    return (float(item[1]), float(item[2]))
 
 
 # gui.libs seeds and loads every library file when imported, which images made
@@ -154,29 +71,35 @@ def invalidate():
 
 
 def availableLists():
-    """Names of every list, built-in ones first."""
+    """Names of every list."""
 
     from . import libs
 
-    return list(BUILTIN) + sorted(name for name in libs.differences if name not in BUILTIN)
+    return sorted(libs.differences, key=str.lower)
+
+
+def listPairs(name):
+    """Whether sums of two entries of the named list are matched too."""
+
+    from . import libs
+
+    return bool(libs.differenceOptions.get(name, {}).get("pairs"))
 
 
 def getList(name):
-    """Entries of the named list, or {} when it no longer exists."""
+    """Entries of the named list as {name: (mono, avg)}, or {} when it no
+    longer exists."""
 
     from . import libs
 
-    if name in BUILTIN:
-        return builtinLists()[name]
     items = libs.differences.get(name)
     if items is None:
         return {}
-    return {item[0]: (item[1], item[2]) for item in items}
+    return {item[0]: entryMasses(item) for item in items}
 
 
 def shortNames():
-    """{entry name: short name} of every entry of the user's lists that has
-    one (the built-in lists' names are short already)."""
+    """{entry name: short name} of every entry that has one."""
 
     from . import libs
 
@@ -191,10 +114,14 @@ def shortNames():
 # a name as labels write it: an entry's name, maybe as a multiple (3xMe)
 _MULTIPLE = re.compile("^(\\d+\u00d7)?(.*)$", re.DOTALL)
 
+# what joins the two entries of a pair, e.g. Glycine+Lysine
+PAIR_JOIN = "+"
+
 
 def shortenNames(text, names=None):
     """Names as a label writes them (see matchNames and seriesName), each
-    entry's name replaced by its short one (names, else shortNames())."""
+    entry's name replaced by its short one (names, else shortNames()), the
+    entries of a pair each."""
 
     if not text:
         return text
@@ -203,25 +130,56 @@ def shortenNames(text, names=None):
     if not names:
         return text
 
+    def entry(name):
+        if name in names:
+            return names[name]
+        if PAIR_JOIN in name:
+            return PAIR_JOIN.join(names.get(part, part) for part in name.split(PAIR_JOIN))
+        return name
+
     def one(token):
         found = _MULTIPLE.match(token)
         if found is None:
-            return names.get(token, token)
+            return entry(token)
         prefix, name = found.groups()
-        return (prefix or "") + names.get(name, name)
+        return (prefix or "") + entry(name)
 
     return " + ".join(
         " / ".join(one(token) for token in part.split(" / ")) for part in text.split(" + ")
     )
 
 
-def entries(names):
-    """Flat [(entry name, mono, avg, list name)] of the named lists."""
+def pairEntries(masses):
+    """Sums of two entries, {name: (mono, avg)} from {name: (mono, avg)}:
+    "A+B" in the entries' order, and an entry with itself as "2xA"."""
+
+    names = list(masses)
+    pairs = {}
+    for x, first in enumerate(names):
+        for second in names[x:]:
+            mono = masses[first][0] + masses[second][0]
+            avg = masses[first][1] + masses[second][1]
+            if first == second:
+                pairs["2\u00d7" + first] = (mono, avg)
+            else:
+                pairs[first + PAIR_JOIN + second] = (mono, avg)
+    return pairs
+
+
+def entries(names, pairs=True, singles=True):
+    """Flat [(entry name, mono, avg, list name)] of the named lists: their
+    entries (unless not singles), and the pairs of those that have them
+    matched (unless not pairs)."""
 
     buff = []
     for listName in names:
-        for name, (mono, avg) in getList(listName).items():
-            buff.append((name, mono, avg, listName))
+        masses = getList(listName)
+        if singles:
+            for name, (mono, avg) in masses.items():
+                buff.append((name, mono, avg, listName))
+        if pairs and listPairs(listName):
+            for name, (mono, avg) in pairEntries(masses).items():
+                buff.append((name, mono, avg, listName))
     return buff
 
 

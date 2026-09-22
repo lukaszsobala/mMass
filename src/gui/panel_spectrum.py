@@ -123,15 +123,13 @@ def matchRuler(diff, charge=1, mzs=None):
     """Difference list entries matching a ruler, as the settings say.
 
     mzs are the m/z of the ruler's two ends, which a ppm tolerance is applied
-    at. Without a single entry that matches, whole multiples of one are
-    matched instead (e.g. 3xMe, see matchMultiples).
+    at. Without a single entry that matches, pairs of them are (for lists
+    that have their pairs matched), and without those whole multiples of one
+    (e.g. 3xMe, see matchMultiples).
     """
 
     settings = config.differenceRuler
-    candidates = differences.entries(settings["lists"])
     arguments = (
-        diff,
-        candidates,
         settings["tolerance"],
         settings["massType"],
         charge,
@@ -139,8 +137,15 @@ def matchRuler(diff, charge=1, mzs=None):
         mzs,
     )
 
-    # a single entry wins over a multiple of a smaller one (Ac over 3xMe)
-    return differences.match(*arguments) or differences.matchMultiples(*arguments)
+    # fewer, larger units win: a single entry over a pair of them (Q over
+    # A+G), and either over a multiple of a smaller one (Ac over 3xMe)
+    lists = settings["lists"]
+    singles = differences.entries(lists, pairs=False)
+    return (
+        differences.match(diff, singles, *arguments)
+        or differences.match(diff, differences.entries(lists, singles=False), *arguments)
+        or differences.matchMultiples(diff, singles, *arguments)
+    )
 
 
 def applySpectrumConfig(spectrum, docData, current=True):
@@ -2079,7 +2084,7 @@ class panelSpectrum(wx.Panel):
             [peak.ai for peak in peaklist],
             self._peakIndex(peak1.mz),
             self._peakIndex(peak2.mz),
-            differences.entries(settings["lists"]),
+            differences.entries(settings["lists"], pairs=False),
             settings["tolerance"],
             settings["massType"],
             charge,
@@ -2559,6 +2564,7 @@ class panelSpectrum(wx.Panel):
                 handler()
 
         menu.Bind(wx.EVT_MENU, onMenu)
+        textMenu.Bind(wx.EVT_MENU, onMenu)
         self.PopupMenu(menu)
         menu.Destroy()
 
@@ -2653,7 +2659,9 @@ class panelSpectrum(wx.Panel):
         menu = wx.Menu()
         handlers = {}
 
-        def append(label, handler, kind=wx.ITEM_NORMAL, checked=False, enabled=True):
+        def append(
+            label, handler, kind=wx.ITEM_NORMAL, checked=False, enabled=True, menu=menu
+        ):
             itemID = wx.NewIdRef()
             item = menu.Append(itemID, label, "", kind)
             if kind != wx.ITEM_NORMAL:
@@ -2690,14 +2698,22 @@ class panelSpectrum(wx.Panel):
             wx.ITEM_RADIO,
             bool(massType),
         )
-        append(
-            "Show Difference with Names",
-            lambda: self._setRulerOption(
-                "labelDiff", int(not config.differenceRuler["labelDiff"])
-            ),
-            wx.ITEM_CHECK,
-            bool(config.differenceRuler["labelDiff"]),
-        )
+
+        # what a matched label's text shows, the same switches as in Settings
+        textMenu = wx.Menu()
+        named = bool(config.differenceRuler["labelName"])
+        for key, label, needsName in RULER_TEXT_PARTS:
+            append(
+                label,
+                lambda key=key: self._setRulerOption(
+                    key, int(not config.differenceRuler[key])
+                ),
+                wx.ITEM_CHECK,
+                bool(config.differenceRuler[key]),
+                enabled=named or not needsName,
+                menu=textMenu,
+            )
+        menu.AppendSubMenu(textMenu, "Matched Label Text")
         append(
             "Settings...",
             self.onDiffRulerSettings,
@@ -2728,6 +2744,7 @@ class panelSpectrum(wx.Panel):
                 handler()
 
         menu.Bind(wx.EVT_MENU, onMenu)
+        textMenu.Bind(wx.EVT_MENU, onMenu)
         self.PopupMenu(menu)
         menu.Destroy()
 
@@ -3360,6 +3377,19 @@ class dlgSpectrumOffset(wx.Dialog):
     # ----
 
 
+# the parts a matched difference label's text can show, as (setting, label,
+# whether it only applies with the name shown); the label menu and the
+# settings dialog offer the same switches under the same words
+RULER_TEXT_PARTS = (
+    ("labelName", "Name", False),
+    ("labelAllNames", "All matching names, not only the closest", True),
+    ("labelShort", "Short names (e.g. Ac for Acetylation)", True),
+    ("labelCharge", "Charge (when above 1)", True),
+    ("labelDiff", "Difference", False),
+    ("labelError", "Error (observed - theoretical, in tolerance units)", False),
+)
+
+
 class dlgDiffRulerSettings(wx.Dialog):
     """Set what the difference ruler matches and how it labels rulers."""
 
@@ -3443,13 +3473,14 @@ class dlgDiffRulerSettings(wx.Dialog):
         matchBox.Add(grid, 0, wx.ALL, 5)
 
         # label
-        labelBox = mwx.staticBoxSizer(self, "Text of a matched label", wx.VERTICAL)
-        self.labelName_check = wx.CheckBox(self, -1, "Name")
-        self.labelAllNames_check = wx.CheckBox(self, -1, "All matching names, not only the closest")
-        self.labelShort_check = wx.CheckBox(self, -1, "Short names (e.g. Ac for Acetylation)")
-        self.labelCharge_check = wx.CheckBox(self, -1, "Charge (when above 1)")
-        self.labelDiff_check = wx.CheckBox(self, -1, "Difference")
-        self.labelError_check = wx.CheckBox(self, -1, "Error (observed - theoretical, in tolerance units)")
+        labelBox = mwx.staticBoxSizer(self, "Matched label text", wx.VERTICAL)
+        text = {key: label for key, label, needsName in RULER_TEXT_PARTS}
+        self.labelName_check = wx.CheckBox(self, -1, text["labelName"])
+        self.labelAllNames_check = wx.CheckBox(self, -1, text["labelAllNames"])
+        self.labelShort_check = wx.CheckBox(self, -1, text["labelShort"])
+        self.labelCharge_check = wx.CheckBox(self, -1, text["labelCharge"])
+        self.labelDiff_check = wx.CheckBox(self, -1, text["labelDiff"])
+        self.labelError_check = wx.CheckBox(self, -1, text["labelError"])
         for check in (
             self.labelName_check,
             self.labelAllNames_check,

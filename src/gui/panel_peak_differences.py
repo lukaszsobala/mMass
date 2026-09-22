@@ -17,6 +17,8 @@
 
 # load libs
 import threading
+import bisect
+
 import wx
 import wx.grid
 from typing import Any
@@ -25,7 +27,6 @@ from typing import Any
 from . import mwx
 from . import images
 from . import config
-from . import libs
 from . import differences
 from .mixins import MakeModalMixin
 import mspy
@@ -40,11 +41,8 @@ import mspy
 # fixed, so a pale highlight never ends up light-on-light in dark mode.
 MATCH_COLOURS = {
     "value": wx.Colour(0, 140, 70),
-    "amino": wx.Colour(0, 200, 255),
-    "dipep": wx.Colour(100, 255, 255),
-    "sugar": wx.Colour(255, 170, 0),
-    "permesugar": wx.Colour(255, 210, 100),
-    "user": wx.Colour(190, 120, 255),
+    "single": wx.Colour(0, 200, 255),
+    "pair": wx.Colour(100, 255, 255),
 }
 
 
@@ -70,14 +68,8 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
         self.currentDifferences = None
         self.currentMatches = None
 
-        # init amino acids and dipeptides
-        self.initAminoacids()
-
-        # init sugars and permethylated sugars
-        self.initSugars()
-
-        # init the user's own lists
-        self.initUserLists()
+        # init the lists matched against
+        self.initLists()
 
         # make gui items
         self.makeGUI()
@@ -136,28 +128,17 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
         )
         self.difference_value.Bind(wx.EVT_TEXT_ENTER, self.onSearch)
 
-        self.aminoacids_check = wx.CheckBox(panel, -1, "Amino acids")
-        self.aminoacids_check.SetFont(wx.SMALL_FONT)
-        self.aminoacids_check.SetValue(config.peakDifferences["aminoacids"])
-
-        self.dipeptides_check = wx.CheckBox(panel, -1, "Dipeptides")
-        self.dipeptides_check.SetFont(wx.SMALL_FONT)
-        self.dipeptides_check.SetValue(config.peakDifferences["dipeptides"])
-
-        self.sugars_check = wx.CheckBox(panel, -1, "Sugars")
-        self.sugars_check.SetFont(wx.SMALL_FONT)
-        self.sugars_check.SetValue(config.peakDifferences["sugars"])
-
-        self.permesugars_check = wx.CheckBox(panel, -1, "PerMe-Sugars")
-        self.permesugars_check.SetFont(wx.SMALL_FONT)
-        self.permesugars_check.SetValue(config.peakDifferences["permesugars"])
-
-        self.userLists_check = wx.CheckBox(panel, -1, "User lists")
-        self.userLists_check.SetFont(wx.SMALL_FONT)
-        self.userLists_check.SetValue(config.peakDifferences["userLists"])
-        self.userLists_check.SetToolTip(
-            wx.ToolTip("Match the lists of the Mass Differences library (Libraries menu)")
+        self.lists_butt = wx.Button(
+            panel, -1, "Lists", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
         )
+        self.lists_butt.SetToolTip(
+            wx.ToolTip("Lists of the Mass Differences library (Libraries menu) to match")
+        )
+        self.lists_butt.Bind(wx.EVT_BUTTON, self.onListsMenu)
+
+        self.lists_label = wx.StaticText(panel, -1, "")
+        self.lists_label.SetFont(wx.SMALL_FONT)
+        self.updateListsLabel()
 
         massType_label = wx.StaticText(panel, -1, "Mass:")
         massType_label.SetFont(wx.SMALL_FONT)
@@ -184,7 +165,7 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
         toleranceUnits_label = wx.StaticText(panel, -1, "m/z")
         toleranceUnits_label.SetFont(wx.SMALL_FONT)
 
-        self.consolidate_check = wx.CheckBox(panel, -1, "Hide umatched")
+        self.consolidate_check = wx.CheckBox(panel, -1, "Hide unmatched")
         self.consolidate_check.SetFont(wx.SMALL_FONT)
         self.consolidate_check.SetValue(config.peakDifferences["consolidate"])
 
@@ -199,13 +180,8 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
         sizer.Add(difference_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         sizer.Add(self.difference_value, 0, wx.ALIGN_CENTER_VERTICAL)
         sizer.AddSpacer(20)
-        sizer.Add(self.aminoacids_check, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
-        sizer.Add(self.dipeptides_check, 0, wx.ALIGN_CENTER_VERTICAL)
-        sizer.AddSpacer(20)
-        sizer.Add(self.sugars_check, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
-        sizer.Add(self.permesugars_check, 0, wx.ALIGN_CENTER_VERTICAL)
-        sizer.AddSpacer(20)
-        sizer.Add(self.userLists_check, 0, wx.ALIGN_CENTER_VERTICAL)
+        sizer.Add(self.lists_butt, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        sizer.Add(self.lists_label, 0, wx.ALIGN_CENTER_VERTICAL)
         sizer.AddSpacer(20)
         sizer.Add(massType_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         sizer.Add(self.massTypeMo_radio, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
@@ -530,14 +506,8 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
             else:
                 self.currentDifference = None
 
-            config.peakDifferences["aminoacids"] = int(self.aminoacids_check.GetValue())
-            config.peakDifferences["dipeptides"] = int(self.dipeptides_check.GetValue())
-            config.peakDifferences["sugars"] = int(self.sugars_check.GetValue())
-            config.peakDifferences["permesugars"] = int(
-                self.permesugars_check.GetValue()
-            )
-            config.peakDifferences["userLists"] = int(self.userLists_check.GetValue())
             config.peakDifferences["tolerance"] = float(self.tolerance_value.GetValue())
+            self.initLists()
             config.peakDifferences["massType"] = int(self.massTypeAv_radio.GetValue())
             config.peakDifferences["consolidate"] = int(
                 self.consolidate_check.GetValue()
@@ -676,7 +646,7 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
     # ----
 
     def searchSelected(self, diff):
-        """Search difference for specified value, aminoacids or dipeptides."""
+        """Search difference for specified value or the lists' entries."""
 
         self.currentMatches = []
 
@@ -686,43 +656,12 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
             if abs(error) <= config.peakDifferences["tolerance"]:
                 self.currentMatches.append([str(self.currentDifference), error])
 
-        # search for aminoacids
-        if config.peakDifferences["aminoacids"]:
-            for aa in self._aaMasses:
-                error = diff - self._aaMasses[aa][config.peakDifferences["massType"]]
-                if abs(error) <= config.peakDifferences["tolerance"]:
-                    self.currentMatches.append([aa, error])
-
-        # search for dipeptides
-        if config.peakDifferences["dipeptides"]:
-            for dip in self._dipMasses:
-                error = diff - self._dipMasses[dip][config.peakDifferences["massType"]]
-                if abs(error) <= config.peakDifferences["tolerance"]:
-                    self.currentMatches.append([dip, error])
-
-        # search for sugars
-        if config.peakDifferences["sugars"]:
-            for sug in self._sugarMasses:
-                error = diff - self._sugarMasses[sug][config.peakDifferences["massType"]]
-                if abs(error) <= config.peakDifferences["tolerance"]:
-                    self.currentMatches.append([sug, error])
-
-        # search for permethylated sugars
-        if config.peakDifferences["permesugars"]:
-            for sug in self._permeSugarMasses:
-                error = (
-                    diff
-                    - self._permeSugarMasses[sug][config.peakDifferences["massType"]]
-                )
-                if abs(error) <= config.peakDifferences["tolerance"]:
-                    self.currentMatches.append([sug, error])
-
-        # search for the user's own differences
-        if config.peakDifferences["userLists"]:
-            for name, masses in self._userMasses.items():
-                error = diff - masses[config.peakDifferences["massType"]]
-                if abs(error) <= config.peakDifferences["tolerance"]:
-                    self.currentMatches.append([name, error])
+        # search the lists
+        massType = config.peakDifferences["massType"]
+        for name, mono, avg, _listName in self._entries:
+            error = diff - (avg if massType else mono)
+            if abs(error) <= config.peakDifferences["tolerance"]:
+                self.currentMatches.append([name, error])
 
     # ----
 
@@ -747,16 +686,10 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
             if self.currentDifference:
                 diffMin = self.currentDifference - config.peakDifferences["tolerance"]
                 diffMax = self.currentDifference + config.peakDifferences["tolerance"]
-            aaMin = self._aaLimits[0] - config.peakDifferences["tolerance"]
-            aaMax = self._aaLimits[1] + config.peakDifferences["tolerance"]
-            dipMin = self._dipLimits[0] - config.peakDifferences["tolerance"]
-            dipMax = self._dipLimits[1] + config.peakDifferences["tolerance"]
-            sugMin = self._sugarLimits[0] - config.peakDifferences["tolerance"]
-            sugMax = self._sugarLimits[1] + config.peakDifferences["tolerance"]
-            permeMin = self._permeSugarLimits[0] - config.peakDifferences["tolerance"]
-            permeMax = self._permeSugarLimits[1] + config.peakDifferences["tolerance"]
-            userMin = self._userLimits[0] - config.peakDifferences["tolerance"]
-            userMax = self._userLimits[1] + config.peakDifferences["tolerance"]
+            tolerance = config.peakDifferences["tolerance"]
+            massType = config.peakDifferences["massType"]
+            singles = self._singles[massType]
+            pairs = self._pairs[massType]
 
             # calc differences
             self.currentDifferences = []
@@ -775,83 +708,11 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
                     ):
                         match = "value"
 
-                    # match amino acids
-                    if (
-                        not match
-                        and config.peakDifferences["aminoacids"]
-                        and (aaMin <= diff <= aaMax)
-                    ):
-                        for aa in self._aaMasses:
-                            error = (
-                                diff
-                                - self._aaMasses[aa][config.peakDifferences["massType"]]
-                            )
-                            if abs(error) <= config.peakDifferences["tolerance"]:
-                                match = "amino"
-                                break
-
-                    # match dipeptides
-                    if (
-                        not match
-                        and config.peakDifferences["dipeptides"]
-                        and (dipMin <= diff <= dipMax)
-                    ):
-                        for dip in self._dipMasses:
-                            error = (
-                                diff
-                                - self._dipMasses[dip][
-                                    config.peakDifferences["massType"]
-                                ]
-                            )
-                            if abs(error) <= config.peakDifferences["tolerance"]:
-                                match = "dipep"
-                                break
-
-                    # match sugars
-                    if (
-                        not match
-                        and config.peakDifferences["sugars"]
-                        and (sugMin <= diff <= sugMax)
-                    ):
-                        for sug in self._sugarMasses:
-                            error = (
-                                diff
-                                - self._sugarMasses[sug][
-                                    config.peakDifferences["massType"]
-                                ]
-                            )
-                            if abs(error) <= config.peakDifferences["tolerance"]:
-                                match = "sugar"
-                                break
-
-                    # match permethylated sugars
-                    if (
-                        not match
-                        and config.peakDifferences["permesugars"]
-                        and (permeMin <= diff <= permeMax)
-                    ):
-                        for sug in self._permeSugarMasses:
-                            error = (
-                                diff
-                                - self._permeSugarMasses[sug][
-                                    config.peakDifferences["massType"]
-                                ]
-                            )
-                            if abs(error) <= config.peakDifferences["tolerance"]:
-                                match = "permesugar"
-                                break
-
-                    # match the user's own differences
-                    if (
-                        not match
-                        and config.peakDifferences["userLists"]
-                        and (userMin <= diff <= userMax)
-                    ):
-                        for masses in self._userMasses.values():
-                            error = diff - masses[config.peakDifferences["massType"]]
-                            if abs(error) <= config.peakDifferences["tolerance"]:
-                                match = "user"
-                                break
+                    # match an entry of the lists, else a pair of them
+                    if not match and _within(singles, diff, tolerance):
+                        match = "single"
+                    if not match and _within(pairs, diff, tolerance):
+                        match = "pair"
 
                     # append difference
                     rowBuff.append((diff, match))
@@ -870,55 +731,58 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
 
     # ----
 
-    def initAminoacids(self):
-        """Calculate amino acids / dipeptides masses and ranges."""
+    def initLists(self):
+        """Collect the entries of the lists matched, and their pairs."""
 
-        self._aaMasses = differences.aminoacidMasses()
-        self._dipMasses = differences.dipeptideMasses(self._aaMasses)
+        lists = config.peakDifferences["lists"]
+        self._entries = differences.entries(lists)
+        singles = differences.entries(lists, pairs=False)
+        singleNames = {(entry[0], entry[3]) for entry in singles}
+        pairs = [entry for entry in self._entries if (entry[0], entry[3]) not in singleNames]
 
-        # approximate mass limits
-        masses = [mass[1] for mass in self._aaMasses.values()]
-        self._aaLimits = [min(masses) - 1, max(masses) + 1]
-        self._dipLimits = [2 * self._aaLimits[0] - 1, 2 * self._aaLimits[1] + 1]
+        # sorted masses, mono and average, to look differences up in
+        self._singles = [sorted(entry[1 + massType] for entry in singles) for massType in (0, 1)]
+        self._pairs = [sorted(entry[1 + massType] for entry in pairs) for massType in (0, 1)]
 
     # ----
 
-    def initSugars(self):
-        """Calculate sugar / permethylated sugar masses and ranges."""
+    def updateListsLabel(self):
+        """Name the lists matched next to the Lists button."""
 
-        self._sugarMasses = differences.formulaMasses(differences.SUGAR_FORMULAS)
-        self._permeSugarMasses = differences.formulaMasses(
-            differences.PERMESUGAR_FORMULAS
+        lists = config.peakDifferences["lists"]
+        text = ", ".join(
+            name + (" (+pairs)" if differences.listPairs(name) else "") for name in lists
         )
-
-        # approximate mass limits (span mono..avg to cover both mass types)
-        self._sugarLimits = self._massLimits(self._sugarMasses)
-        self._permeSugarLimits = self._massLimits(self._permeSugarMasses)
+        self.lists_label.SetLabel(text or "none")
+        self.lists_label.GetParent().Layout()
 
     # ----
 
-    def initUserLists(self):
-        """Collect the masses of the user's own difference lists."""
+    def onListsMenu(self, evt=None):
+        """Choose the lists to match."""
 
-        # an entry that is in more than one list is matched once, by name
-        self._userMasses = {}
-        for items in libs.differences.values():
-            for item in items:
-                self._userMasses[item[0]] = (item[1], item[2])
+        menu = wx.Menu()
+        handlers = {}
+        for name in differences.availableLists():
+            itemID = wx.NewIdRef()
+            item = menu.AppendCheckItem(itemID, name)
+            item.Check(name in config.peakDifferences["lists"])
+            handlers[int(itemID)] = name
 
-        self._userLimits = self._massLimits(self._userMasses)
+        def onMenu(evt):
+            name = handlers.get(evt.GetId())
+            if name is None:
+                return
+            lists = [item for item in config.peakDifferences["lists"] if item != name]
+            if name not in config.peakDifferences["lists"]:
+                lists.append(name)
+            config.peakDifferences["lists"] = lists
+            self.initLists()
+            self.updateListsLabel()
 
-    # ----
-
-    def _massLimits(self, masses):
-        """Get [min, max] limits spanning mono and average masses."""
-
-        if not masses:
-            return [0.0, 1000.0]
-
-        lows = [pair[0] for pair in masses.values()]
-        highs = [pair[1] for pair in masses.values()]
-        return [min(lows) - 1, max(highs) + 1]
+        menu.Bind(wx.EVT_MENU, onMenu)
+        self.lists_butt.PopupMenu(menu)
+        menu.Destroy()
 
     # ----
 
@@ -956,3 +820,10 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
 
     # ----
 
+
+
+def _within(masses, diff, tolerance):
+    """Whether any of the sorted masses is within tolerance of diff."""
+
+    index = bisect.bisect_left(masses, diff - tolerance)
+    return index < len(masses) and masses[index] <= diff + tolerance

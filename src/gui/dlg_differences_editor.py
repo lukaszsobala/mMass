@@ -44,8 +44,8 @@ class dlgDifferencesEditor(wx.Dialog):
         )
 
         self.group = None
-        self.builtin = None
         self.itemsMap = []
+        self.importedOptions = {}
 
         # make GUI
         sizer = self.makeGUI()
@@ -61,9 +61,9 @@ class dlgDifferencesEditor(wx.Dialog):
 
         self.Centre()
 
-        # show data, opening on the first of the user's own lists
+        # show data
         self.updateGroups()
-        self.groupName_choice.Select(len(differences.BUILTIN) if libs.differences else 0)
+        self.groupName_choice.Select(0)
         self.onGroupSelected()
 
     # ----
@@ -107,13 +107,41 @@ class dlgDifferencesEditor(wx.Dialog):
         self.groupDelete_butt = groupDelete_butt = wx.Button(self, -1, "Delete")
         groupDelete_butt.Bind(wx.EVT_BUTTON, self.onDeleteGroup)
 
+        self.groupPairs_check = wx.CheckBox(
+            self, -1, "Match pairs of entries too (e.g. dipeptides of amino acids)"
+        )
+        self.groupPairs_check.SetToolTip(
+            wx.ToolTip(
+                "A difference also matches the sum of any two entries of this list, "
+                "labelled e.g. G+K, or 2\u00d7G for one entry twice."
+            )
+        )
+        self.groupPairs_check.Bind(wx.EVT_CHECKBOX, self.onPairs)
+
+        restore_butt = wx.Button(self, -1, "Restore Defaults")
+        restore_butt.SetToolTip(
+            wx.ToolTip(
+                "Put back the lists and entries shipped with mMass that were deleted "
+                "or changed; your own lists and entries are kept."
+            )
+        )
+        restore_butt.Bind(wx.EVT_BUTTON, self.onRestoreDefaults)
+
         # pack elements
-        sizer = wx.BoxSizer(wx.HORIZONTAL)
-        sizer.Add(self.groupName_choice, 1, wx.RIGHT | wx.ALIGN_CENTER_VERTICAL, 30)
-        sizer.Add(groupImport_butt, 0, wx.RIGHT, 15)
-        sizer.Add(groupNew_butt, 0, wx.RIGHT, 15)
-        sizer.Add(groupRename_butt, 0, wx.RIGHT, 15)
-        sizer.Add(groupDelete_butt, 0)
+        buttons = wx.BoxSizer(wx.HORIZONTAL)
+        buttons.Add(self.groupName_choice, 1, wx.RIGHT | wx.ALIGN_CENTER_VERTICAL, 30)
+        buttons.Add(groupImport_butt, 0, wx.RIGHT, 15)
+        buttons.Add(groupNew_butt, 0, wx.RIGHT, 15)
+        buttons.Add(groupRename_butt, 0, wx.RIGHT, 15)
+        buttons.Add(groupDelete_butt, 0)
+
+        options = wx.BoxSizer(wx.HORIZONTAL)
+        options.Add(self.groupPairs_check, 1, wx.ALIGN_CENTER_VERTICAL)
+        options.Add(restore_butt, 0)
+
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(buttons, 0, wx.EXPAND)
+        sizer.Add(options, 0, wx.EXPAND | wx.TOP, 10)
 
         return sizer
 
@@ -153,6 +181,17 @@ class dlgDifferencesEditor(wx.Dialog):
         # make elements
         itemName_label = wx.StaticText(self, -1, "Name:")
         self.itemName_value = wx.TextCtrl(self, -1, "", size=wx.Size(280, -1))
+
+        itemMonomer_label = wx.StaticText(self, -1, "Monomer:")
+        self.itemMonomer_value = wx.TextCtrl(self, -1, "", size=wx.Size(120, -1))
+        self.itemMonomer_value.SetToolTip(
+            wx.ToolTip(
+                "Optional. The abbreviation of a monomer (e.g. K): the entry then "
+                "takes its masses from Libraries > Monomers, and follows edits made "
+                "there."
+            )
+        )
+        self.itemMonomer_value.Bind(wx.EVT_TEXT, self.onMonomerTyped)
 
         itemShort_label = wx.StaticText(self, -1, "Short:")
         self.itemShort_value = wx.TextCtrl(self, -1, "", size=wx.Size(120, -1))
@@ -210,7 +249,11 @@ class dlgDifferencesEditor(wx.Dialog):
         grid.Add(
             itemFormula_label, (1, 0), flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL
         )
-        grid.Add(self.itemFormula_value, (1, 1), (1, 3), flag=wx.EXPAND)
+        grid.Add(self.itemFormula_value, (1, 1))
+        grid.Add(
+            itemMonomer_label, (1, 2), flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL
+        )
+        grid.Add(self.itemMonomer_value, (1, 3))
         grid.Add(
             itemMoMass_label, (2, 0), flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL
         )
@@ -224,12 +267,13 @@ class dlgDifferencesEditor(wx.Dialog):
         grid.Add(replace_butt, (1, 5), flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL)
         grid.Add(delete_butt, (2, 5), flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL)
 
-        self.builtin_label = wx.StaticText(self, -1, "")
-        self.builtin_label.SetFont(wx.SMALL_FONT)
+        self.info_label = wx.StaticText(self, -1, "")
+        self.info_label.SetFont(wx.SMALL_FONT)
         self.editorControls = (
             self.itemName_value,
             self.itemShort_value,
             self.itemFormula_value,
+            self.itemMonomer_value,
             self.itemMoMass_value,
             self.itemAvMass_value,
             add_butt,
@@ -237,9 +281,10 @@ class dlgDifferencesEditor(wx.Dialog):
             delete_butt,
             self.groupRename_butt,
             self.groupDelete_butt,
+            self.groupPairs_check,
         )
 
-        mainSizer.Add(self.builtin_label, 0, wx.ALIGN_CENTER | wx.TOP, 5)
+        mainSizer.Add(self.info_label, 0, wx.ALIGN_CENTER | wx.TOP, 5)
         mainSizer.Add(grid, 0, wx.ALIGN_CENTER | wx.ALL, 10)
 
         return mainSizer
@@ -249,30 +294,70 @@ class dlgDifferencesEditor(wx.Dialog):
     def onGroupSelected(self, evt=None):
         """Update items for selected group."""
 
-        # get selected group; the built-in lists are shown but not edited
         index = self.groupName_choice.GetSelection()
-        self.builtin = None
         self.group = None
-        if 0 <= index < len(differences.BUILTIN):
-            self.builtin = differences.BUILTIN[index]
-        elif index != wx.NOT_FOUND:
+        if index != wx.NOT_FOUND:
             self.group = self.groupName_choice.GetString(index)
 
         # update gui
         self.updateItemsList()
         self.clearEditor()
         for control in self.editorControls:
-            control.Enable(self.builtin is None)
-        if self.builtin in (differences.AMINOACIDS, differences.DIPEPTIDES):
-            self.builtin_label.SetLabel(
-                "Built-in list, made from Libraries > Monomers; it is edited there."
-            )
-        elif self.builtin:
-            self.builtin_label.SetLabel(
-                "Built-in list of residue masses; it cannot be edited."
-            )
-        self.builtin_label.Show(self.builtin is not None)
+            control.Enable(self.group is not None)
+        self.groupPairs_check.SetValue(bool(self.group) and differences.listPairs(self.group))
+        linked = any(len(item) > 4 and item[4] for item in self.itemsMap)
+        self.info_label.SetLabel(
+            "Entries naming a monomer take their masses from Libraries > Monomers."
+            if linked
+            else ""
+        )
+        self.info_label.Show(linked)
         self.Layout()
+
+    # ----
+
+    def onPairs(self, evt=None):
+        """Match pairs of the selected list's entries, or not."""
+
+        if not self.group:
+            return
+        libs.differenceOptions[self.group] = {"pairs": self.groupPairs_check.GetValue()}
+
+    # ----
+
+    def onRestoreDefaults(self, evt=None):
+        """Put back the lists and entries shipped with mMass."""
+
+        title = "Restore the lists shipped with mMass?"
+        message = (
+            "Shipped lists and entries that were deleted or changed are put back "
+            "as shipped. Your own lists and entries are kept."
+        )
+        buttons = [
+            (wx.ID_CANCEL, "Cancel", 80, False, 15),
+            (wx.ID_OK, "Restore", 80, True, 0),
+        ]
+        dlg = mwx.dlgMessage(self, title, message, buttons)
+        answer = dlg.ShowModal()
+        dlg.Destroy()
+        if answer != wx.ID_OK:
+            return
+
+        try:
+            changed = libs.restoreDefaultDifferences()
+        except Exception:
+            wx.Bell()
+            return
+
+        group = self.group
+        self.updateGroups()
+        if group is not None and group in libs.differences:
+            self.groupName_choice.SetStringSelection(group)
+        elif changed:
+            self.groupName_choice.SetStringSelection(changed[0])
+        else:
+            self.groupName_choice.Select(0)
+        self.onGroupSelected()
 
     # ----
 
@@ -281,14 +366,27 @@ class dlgDifferencesEditor(wx.Dialog):
 
         # get selected item
         item = self.itemsMap[evt.GetData()]
-        name, mono, avg = item[:3]
+        mono, avg = differences.entryMasses(item)
 
         # update item editor
-        self.itemName_value.SetValue(name)
+        self.itemName_value.SetValue(item[0])
         self.itemShort_value.SetValue(item[3] if len(item) > 3 else "")
-        self.itemFormula_value.SetValue("")
-        self.itemMoMass_value.SetValue(str(mono))
-        self.itemAvMass_value.SetValue(str(avg))
+        self.itemFormula_value.ChangeValue("")
+        self.itemMonomer_value.ChangeValue(item[4] if len(item) > 4 else "")
+        self.itemMoMass_value.SetValue(str(round(mono, 6)))
+        self.itemAvMass_value.SetValue(str(round(avg, 6)))
+
+    # ----
+
+    def onMonomerTyped(self, evt=None):
+        """Fill in the masses from the monomer, as its abbreviation is typed."""
+
+        monomer = self.itemMonomer_value.GetValue().strip()
+        if monomer not in mspy.monomers:
+            return
+        mono, avg = differences.massPair(mspy.monomers[monomer].mass)
+        self.itemMoMass_value.ChangeValue(str(round(mono, 6)))
+        self.itemAvMass_value.ChangeValue(str(round(avg, 6)))
 
     # ----
 
@@ -369,11 +467,16 @@ class dlgDifferencesEditor(wx.Dialog):
         # check same items
         selectAfter = None
         replaceAll = False
+        def take(item):
+            libs.differences[item] = importedItems[item]
+            if item in self.importedOptions:
+                libs.differenceOptions[item] = self.importedOptions[item]
+            else:
+                libs.differenceOptions.pop(item, None)
+
         for item in selected:
-            if item in differences.BUILTIN:
-                continue
             if replaceAll or item not in libs.differences:
-                libs.differences[item] = importedItems[item]
+                take(item)
                 selectAfter = item
             else:
                 title = (
@@ -393,10 +496,10 @@ class dlgDifferencesEditor(wx.Dialog):
                     continue
                 elif ID == ID_dlgReplaceAll:
                     replaceAll = True
-                    libs.differences[item] = importedItems[item]
+                    take(item)
                     selectAfter = item
                 elif ID == ID_dlgReplace:
-                    libs.differences[item] = importedItems[item]
+                    take(item)
                     selectAfter = item
 
         # update gui
@@ -438,8 +541,10 @@ class dlgDifferencesEditor(wx.Dialog):
         if not name or name == self.group:
             return
 
-        # rename group
+        # rename group, its options with it
         libs.differences[name] = libs.differences.pop(self.group)
+        if self.group in libs.differenceOptions:
+            libs.differenceOptions[name] = libs.differenceOptions.pop(self.group)
 
         # update gui
         self.updateGroups()
@@ -471,10 +576,11 @@ class dlgDifferencesEditor(wx.Dialog):
 
         # remove group
         del libs.differences[self.group]
+        libs.differenceOptions.pop(self.group, None)
 
         # update gui
         self.updateGroups()
-        self.groupName_choice.Select(len(differences.BUILTIN) if libs.differences else 0)
+        self.groupName_choice.Select(0)
         self.onGroupSelected()
 
     # ----
@@ -568,10 +674,8 @@ class dlgDifferencesEditor(wx.Dialog):
         newName = dlg.name.strip()
         dlg.Destroy()
 
-        # check group name (the built-in lists share the namespace)
-        if newName != name and (
-            newName in libs.differences or newName in differences.BUILTIN
-        ):
+        # check group name
+        if newName != name and newName in libs.differences:
             wx.Bell()
             dlg = mwx.dlgMessage(
                 self,
@@ -590,9 +694,7 @@ class dlgDifferencesEditor(wx.Dialog):
         """Update groups combo."""
 
         self.groupName_choice.Clear()
-        for name in differences.BUILTIN:
-            self.groupName_choice.Append("%s (built-in)" % name)
-        for choice in sorted(libs.differences.keys()):
+        for choice in differences.availableLists():
             self.groupName_choice.Append(choice)
 
     # ----
@@ -601,21 +703,16 @@ class dlgDifferencesEditor(wx.Dialog):
         """Update items list."""
 
         # clear previous data and set new
-        if self.builtin:
-            self.itemsMap = [
-                (name, mono, avg, "")
-                for name, (mono, avg) in differences.getList(self.builtin).items()
-            ]
-        else:
-            self.itemsMap = libs.differences[self.group] if self.group else []
+        self.itemsMap = libs.differences[self.group] if self.group else []
         self.itemsList.DeleteAllItems()
         self.itemsList.setDataMap(self.itemsMap)
 
         # add new data
         for row, item in enumerate(self.itemsMap):
+            mono, avg = differences.entryMasses(item)
             self.itemsList.InsertItem(row, item[0])
-            self.itemsList.SetItem(row, 1, "%.6f" % item[1])
-            self.itemsList.SetItem(row, 2, "%.6f" % item[2])
+            self.itemsList.SetItem(row, 1, "%.6f" % mono)
+            self.itemsList.SetItem(row, 2, "%.6f" % avg)
             self.itemsList.SetItem(row, 3, item[3] if len(item) > 3 else "")
             self.itemsList.SetItemData(row, row)
 
@@ -630,7 +727,8 @@ class dlgDifferencesEditor(wx.Dialog):
 
         self.itemName_value.SetValue("")
         self.itemShort_value.SetValue("")
-        self.itemFormula_value.SetValue("")
+        self.itemFormula_value.ChangeValue("")
+        self.itemMonomer_value.ChangeValue("")
         self.itemMoMass_value.SetValue("")
         self.itemAvMass_value.SetValue("")
 
@@ -662,7 +760,10 @@ class dlgDifferencesEditor(wx.Dialog):
             wx.Bell()
             return False
 
-        return (name, mono, avg, self.itemShort_value.GetValue().strip())
+        monomer = self.itemMonomer_value.GetValue().strip()
+        if monomer not in mspy.monomers:
+            monomer = ""
+        return (name, mono, avg, self.itemShort_value.GetValue().strip(), monomer)
 
     # ----
 
@@ -680,9 +781,12 @@ class dlgDifferencesEditor(wx.Dialog):
             return False
 
         container = libs.parseDifferences(groups)
-        version = data.get("schemaVersion", 1) if isinstance(data, dict) else 1
-        if not isinstance(version, int) or version < libs.DIFFERENCES_SCHEMA:
-            libs.migrateDifferences(container)
+        self.importedOptions = libs.parseDifferenceOptions(data.get("options"))
+        version = data.get("schemaVersion", 1)
+        if not isinstance(version, int):
+            version = 1
+        if version < libs.DIFFERENCES_SCHEMA:
+            libs.migrateDifferences(container, version, addShipped=False)
         return container
 
     # ----

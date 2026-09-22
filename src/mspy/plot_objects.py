@@ -1897,8 +1897,9 @@ class spectrum:
 
         A ruler keeps the intensity it was drawn at, but smoothing, baseline
         subtraction or a math operation can change it later: the peak still
-        sitting at that m/z has the current value. An end on no peak stays
-        where it was put, as it was drawn while being dragged.
+        sitting at that m/z has the current value. An end on no peak is on
+        the spectrum trace there, so its lead does not end in thin air where
+        the pointer let go of it; without a trace it stays where it was put.
         """
 
         points = self.peaklistPoints
@@ -1907,6 +1908,13 @@ class spectrum:
             for j in (i - 1, i):
                 if 0 <= j < len(points) and abs(points[j][0] - mz) <= max(1e-4, mz * 1e-6):
                     return points[j][1]
+
+        profile = self.spectrumPoints
+        if len(profile) > 1 and profile[0][0] <= mz <= profile[-1][0]:
+            try:
+                return float(mod_signal.intensity(profile.astype(numpy.float64, copy=False), mz))
+            except (TypeError, ValueError):
+                pass
 
         return ai
 
