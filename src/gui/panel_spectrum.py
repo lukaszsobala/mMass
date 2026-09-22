@@ -342,6 +342,19 @@ class panelSpectrum(wx.Panel):
         self.showNotations_butt.SetToolTip(wx.ToolTip("Show / hide notations"))
         self.showNotations_butt.Bind(wx.EVT_BUTTON, self.parent.onView)
 
+        image = (images.lib["spectrumDiffLabelsOff"], images.lib["spectrumDiffLabelsOn"])[
+            bool(config.differenceRuler["show"])
+        ]
+        self.showDiffLabels_butt = mwx.makeBitmapButton(
+            panel,
+            ID_viewDiffLabels,
+            image,
+            size=(mwx.BOTTOMBAR_TOOLSIZE),
+            style=wx.BORDER_NONE,
+        )
+        self.showDiffLabels_butt.SetToolTip(wx.ToolTip("Show / hide difference labels"))
+        self.showDiffLabels_butt.Bind(wx.EVT_BUTTON, self.parent.onView)
+
         image = (
             images.lib["spectrumLabelAngleOff"],
             images.lib["spectrumLabelAngleOn"],
@@ -533,6 +546,12 @@ class panelSpectrum(wx.Panel):
             mwx.BUTTON_SIZE_CORRECTION,
         )
         sizer.Add(
+            self.showDiffLabels_butt,
+            0,
+            wx.ALIGN_CENTER_VERTICAL | wx.LEFT,
+            mwx.BUTTON_SIZE_CORRECTION,
+        )
+        sizer.Add(
             self.labelAngle_butt,
             0,
             wx.ALIGN_CENTER_VERTICAL | wx.LEFT,
@@ -715,7 +734,7 @@ class panelSpectrum(wx.Panel):
             if rulerHeight is not None:
                 self.setRulerHeight(rulerEdit, self._toReal((0, rulerHeight))[1])
             else:
-                self.refresh()
+                self.refresh(keepScale=True)
 
         # add difference ruler, its bar where it was drawn; with Shift, label
         # every step of a series between the two peaks
@@ -1023,6 +1042,12 @@ class panelSpectrum(wx.Panel):
                     images.lib["spectrumNotationsOn"],
                 )[bool(config.spectrum["showNotations"])]
                 self.showNotations_butt.SetBitmapLabel(image)
+            elif ID == ID_viewDiffLabels:
+                image = (
+                    images.lib["spectrumDiffLabelsOff"],
+                    images.lib["spectrumDiffLabelsOn"],
+                )[bool(config.differenceRuler["show"])]
+                self.showDiffLabels_butt.SetBitmapLabel(image)
             elif ID == ID_viewLabelAngle:
                 image = (
                     images.lib["spectrumLabelAngleOff"],
@@ -1073,9 +1098,9 @@ class panelSpectrum(wx.Panel):
         self.updateNotationMarks(self.currentNotationMarks, refresh=False)
         self.restoreTmpSpectrum()
 
-        # redraw plot
+        # redraw plot (showing or hiding the labels changes no intensities)
         if refresh:
-            self.refresh()
+            self.refresh(keepScale=ID == ID_viewDiffLabels)
 
     # ----
 
@@ -1441,8 +1466,12 @@ class panelSpectrum(wx.Panel):
 
     # ----
 
-    def updateSpectrumProperties(self, docIndex, refresh=True):
-        """Update all spectrum properties."""
+    def updateSpectrumProperties(self, docIndex, refresh=True, keepScale=False):
+        """Update all spectrum properties.
+
+        keepScale redraws without autoscaling the intensity, for changes that
+        only touch what is drawn over the spectrum (difference labels).
+        """
 
         # update spectrum properties
         self.setSpectrumProperties(docIndex)
@@ -1453,7 +1482,7 @@ class panelSpectrum(wx.Panel):
 
         # redraw plot
         if refresh:
-            self.refresh()
+            self.refresh(keepScale=keepScale)
 
     # ----
 
@@ -2622,12 +2651,6 @@ class panelSpectrum(wx.Panel):
             and bool(self.documents[self.currentDocument].rulers)
         )
         menu.AppendSeparator()
-        append(
-            "Show Difference Labels",
-            lambda: self._setRulerOption("show", int(not config.differenceRuler["show"])),
-            wx.ITEM_CHECK,
-            bool(config.differenceRuler["show"]),
-        )
         append("Match All Labels Again", self.rematchRulers, enabled=hasRulers)
         append(
             "Delete All Difference Labels", self.parent.onDocumentRulersDelete, enabled=hasRulers
@@ -2748,8 +2771,8 @@ class panelSpectrum(wx.Panel):
 
     # ----
 
-    def refresh(self, fullsize=False):
-        """Redraw spectrum."""
+    def refresh(self, fullsize=False, keepScale=False):
+        """Redraw spectrum (keepScale: without autoscaling the intensity)."""
 
         # check for flipped documents and update canvas symmetry
         self.spectrumCanvas.setProperties(ySymmetry=False)
@@ -2759,7 +2782,7 @@ class panelSpectrum(wx.Panel):
                 break
 
         # redraw canvas
-        self.spectrumCanvas.refresh(fullsize=fullsize)
+        self.spectrumCanvas.refresh(fullsize=fullsize, keepScale=keepScale)
 
     # ----
 

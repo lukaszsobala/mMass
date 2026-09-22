@@ -457,9 +457,11 @@ def test_drawn_rulers_can_be_found_and_hidden(wx_app):
     assert key == 7
     assert (x1, x2) == (100.0, 262.0)
 
-    # the leads of either end pick that end up, the bar and text the ruler
-    assert spectrum.rulerAt(x1, (y1 + yBar) / 2) == (7, 1)
-    assert spectrum.rulerAt(x2 + 2, (y2 + yBar) / 2) == (7, 2)
+    # the ends of the bar pick that end up, the rest of it and the text the
+    # ruler (the leads are too short here to tell apart from the label, see
+    # test_labels_meeting_at_a_peak_are_picked_up_by_their_own_bar)
+    assert spectrum.rulerAt(x1 + 3, yBar) == (7, 1)
+    assert spectrum.rulerAt(x2 + 2, yBar + 1) == (7, 2)
     assert spectrum.rulerAt((x1 + x2) / 2, yBar) == (7, 0)
     assert spectrum.rulerAt((x1 + x2) / 2, yBar + 60) is None
 
@@ -467,12 +469,12 @@ def test_drawn_rulers_can_be_found_and_hidden(wx_app):
     spectrum.setProperties(hiddenRuler=7)
     draw()
     assert spectrum.rulerGeometry == []
-    assert spectrum.rulerAt(x1, (y1 + yBar) / 2) is None
+    assert spectrum.rulerAt(x1 + 3, yBar) is None
 
     # neither can hidden rulers
     spectrum.setProperties(hiddenRuler=None, showRulers=False)
     draw()
-    assert spectrum.rulerAt(x1, (y1 + yBar) / 2) is None
+    assert spectrum.rulerAt(x1 + 3, yBar) is None
 
 
 def test_ruler_put_at_a_height_stays_there_and_others_stack_clear(wx_app):
@@ -606,3 +608,49 @@ def test_ruler_bar_sits_over_the_taller_peak(wx_app):
     assert geometry[4] < 100
     # flipped: peaks hang down, the one reaching y=200 is the taller
     assert flipped[4] > 200
+
+
+def test_labels_meeting_at_a_peak_are_picked_up_by_their_own_bar(wx_app):
+    from mspy import plot_objects
+
+    spectrum = plot_objects.spectrum(mspy.scan(peaklist=[]))
+    # two labels meeting at the peak at x=200: A from 100, B on to 300, their
+    # bars at different heights; both leads run down to the peak top at y=150
+    spectrum.rulerGeometry = [
+        ("A", (100, 150, 200, 150, 120, (100, 105, 200, 124))),
+        ("B", (200, 150, 300, 150, 100, (200, 85, 300, 104))),
+    ]
+
+    # each end is picked up at its own bar, never at the leads they share
+    assert spectrum.rulerAt(197, 120) == ("A", 2)
+    assert spectrum.rulerAt(203, 100) == ("B", 1)
+    assert spectrum.rulerAt(200, 140) is None
+    # the far ends, and the bar away from its ends
+    assert spectrum.rulerAt(102, 121) == ("A", 1)
+    assert spectrum.rulerAt(150, 115) == ("A", 0)
+
+    # bars lined up at one height: the side of the peak the cursor is on
+    spectrum.rulerGeometry = [
+        ("A", (100, 150, 200, 150, 100, (100, 85, 200, 104))),
+        ("B", (200, 150, 300, 150, 100, (200, 85, 300, 104))),
+    ]
+    assert spectrum.rulerAt(197, 100) == ("A", 2)
+    assert spectrum.rulerAt(203, 100) == ("B", 1)
+
+
+def test_a_labels_text_does_not_pick_it_up(wx_app):
+    from mspy import plot_objects
+
+    spectrum = plot_objects.spectrum(mspy.scan(peaklist=[]))
+    # the right label's text is wider than its bar and reaches over the bar of
+    # the left one, which lies at the same height; the right one is drawn last
+    spectrum.rulerGeometry = [
+        ("left", (100, 150, 200, 150, 100, (100, 85, 200, 104))),
+        ("right", (200, 150, 240, 150, 100, (140, 85, 300, 104))),
+    ]
+
+    # the left bar under the right label's text is the left label's
+    assert spectrum.rulerAt(160, 100) == ("left", 0)
+    # the text itself picks up nothing
+    assert spectrum.rulerAt(270, 90) is None
+    assert spectrum.rulerAt(160, 90) is None

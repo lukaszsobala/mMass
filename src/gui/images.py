@@ -148,13 +148,11 @@ def _badge_multi(bitmap):
     return wx.Bitmap(image)
 
 
-def _diff_ruler_icon(template):
-    """Return the difference ruler tool icon, drawn in the ink of template.
+def _ink_icon(template, pixels):
+    """Return a bitmap of the given pixels, in the ink of template.
 
-    Two peaks with a double-headed arrow between their tops, on the same
-    29x22 canvas and baseline as the other spectrum tool icons. template (the
-    spectrum ruler icon of the same state) supplies the size and the colour,
-    so the off/on pair matches the rest of the bottom bar.
+    template (a bottom bar icon of the same state) supplies the size and the
+    colour, so an off/on pair drawn here matches the rest of the bottom bar.
     """
 
     source = template.ConvertToImage()
@@ -173,17 +171,42 @@ def _diff_ruler_icon(template):
     alpha = np.frombuffer(image.GetAlphaBuffer(), dtype=np.uint8).reshape((h, w))
     alpha[:] = 0
 
-    pixels = [(x, 7) for x in range(8, 21)]  # arrow shaft
-    pixels += [(9, 6), (9, 8), (19, 6), (19, 8)]  # arrow heads
-    pixels += [(8, y) for y in range(9, 16)]  # taller peak
-    pixels += [(20, y) for y in range(11, 16)]  # lower peak
-    pixels += [(x, 16) for x in range(6, 23)]  # baseline
     for x, y in pixels:
         if 0 <= x < w and 0 <= y < h:
             rgb[y, x] = colour
             alpha[y, x] = 255
 
     return wx.Bitmap(image)
+
+
+def _diff_ruler_icon(template):
+    """Return the difference ruler tool icon, drawn in the ink of template.
+
+    Two peaks with a double-headed arrow between their tops, on the same
+    29x22 canvas and baseline as the other spectrum tool icons.
+    """
+
+    pixels = [(x, 7) for x in range(8, 21)]  # arrow shaft
+    pixels += [(9, 6), (9, 8), (19, 6), (19, 8)]  # arrow heads
+    pixels += [(8, y) for y in range(9, 16)]  # taller peak
+    pixels += [(20, y) for y in range(11, 16)]  # lower peak
+    pixels += [(x, 16) for x in range(6, 23)]  # baseline
+    return _ink_icon(template, pixels)
+
+
+def _diff_labels_icon(template):
+    """Return the show / hide difference labels icon, in the ink of template.
+
+    A label's bracket (a double-headed arrow between two end ticks, dotted
+    leads below) over the baseline, as the notations icon floats its marks.
+    """
+
+    pixels = [(x, 10) for x in range(7, 22)]  # bar
+    pixels += [(8, 9), (8, 11), (20, 9), (20, 11)]  # arrow heads
+    pixels += [(7, y) for y in range(8, 13)] + [(21, y) for y in range(8, 13)]  # ticks
+    pixels += [(7, 14), (21, 14)]  # dotted leads
+    pixels += [(x, 16) for x in range(5, 23)]  # baseline
+    return _ink_icon(template, pixels)
 
 
 def _is_colored_image(image, sat_threshold=50, frac_threshold=0.12):
@@ -631,6 +654,8 @@ def loadImages():
     lib["spectrumTicksOff"] = bottombarsOff.GetSubBitmap(wx.Rect(29, 44, 29, 22))
     lib["spectrumNotationsOn"] = bottombarsOn.GetSubBitmap(wx.Rect(58, 44, 29, 22))
     lib["spectrumNotationsOff"] = bottombarsOff.GetSubBitmap(wx.Rect(58, 44, 29, 22))
+    lib["spectrumDiffLabelsOn"] = _diff_labels_icon(lib["spectrumNotationsOn"])
+    lib["spectrumDiffLabelsOff"] = _diff_labels_icon(lib["spectrumNotationsOff"])
     lib["spectrumLabelAngleOn"] = bottombarsOn.GetSubBitmap(wx.Rect(87, 44, 29, 22))
     lib["spectrumLabelAngleOff"] = bottombarsOff.GetSubBitmap(wx.Rect(87, 44, 29, 22))
     lib["spectrumPosBarsOn"] = bottombarsOn.GetSubBitmap(wx.Rect(116, 44, 29, 22))

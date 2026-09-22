@@ -3003,8 +3003,12 @@ class canvas(wx.Window):
 
     # ----
 
-    def refresh(self, fullsize=False):
-        """Redraw plot with the same data and same scale or fullsize"""
+    def refresh(self, fullsize=False, keepScale=False):
+        """Redraw plot with the same data and same scale or fullsize.
+
+        keepScale keeps the intensity range as it is, even with autoscaling
+        on, for redraws that change nothing it would scale to (labels).
+        """
 
         # get last ranges
         graphics = self.lastDraw[0]
@@ -3026,7 +3030,7 @@ class canvas(wx.Window):
 
         # redraw plot with the same scale
         if not fullsize:
-            if self.properties["autoScaleY"]:
+            if self.properties["autoScaleY"] and not keepScale:
                 yAxis = self.getMaxYRange(xAxis[0], xAxis[1])
             self.draw(graphics, xAxis, yAxis)
 
@@ -3302,7 +3306,7 @@ class canvas(wx.Window):
         if self.rulerEdit:
             self.endRulerEdit()
             if self.lastDraw:
-                wx.CallAfter(self.refresh)
+                wx.CallAfter(self.refresh, keepScale=True)
 
         # reset mouse event flag
         self.mouseEvent = False

@@ -453,6 +453,7 @@ class mainFrame(wx.Frame):
         viewNotations.Append(ID_viewNotationLabels, "Labels", "", wx.ITEM_CHECK)
         viewNotations.Append(ID_viewNotationMz, "m/z", "", wx.ITEM_CHECK)
         view.Append(-1, "Notations", viewNotations)
+        view.Append(ID_viewDiffLabels, "Difference Labels", "", wx.ITEM_CHECK)
 
         viewSpectrumRuler = wx.Menu()
         viewSpectrumRuler.Append(ID_viewSpectrumRulerMz, "m/z", "", wx.ITEM_CHECK)
@@ -557,6 +558,7 @@ class mainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.onView, id=ID_viewAllLabels)
 
         self.Bind(wx.EVT_MENU, self.onView, id=ID_viewNotations)
+        self.Bind(wx.EVT_MENU, self.onView, id=ID_viewDiffLabels)
         self.Bind(wx.EVT_MENU, self.onView, id=ID_viewNotationMarks)
         self.Bind(wx.EVT_MENU, self.onView, id=ID_viewNotationLabels)
         self.Bind(wx.EVT_MENU, self.onView, id=ID_viewNotationMz)
@@ -695,6 +697,7 @@ class mainFrame(wx.Frame):
 
         self.menubar.Check(ID_viewAutoscale, bool(config.spectrum["autoscale"]))
         self.menubar.Check(ID_viewNormalize, bool(config.spectrum["normalize"]))
+        self.menubar.Check(ID_viewDiffLabels, bool(config.differenceRuler["show"]))
 
         # processing
         processing = wx.Menu()
@@ -1861,7 +1864,9 @@ class mainFrame(wx.Frame):
 
         # update difference rulers
         if "rulers" in items and "spectrum" not in items:
-            self.spectrumPanel.updateSpectrumProperties(self.currentDocument)
+            self.spectrumPanel.updateSpectrumProperties(
+                self.currentDocument, keepScale=True
+            )
         if "rulers" in items or "notations" in items:
             self.documentsPanel.updateRulers(self.currentDocument)
 
@@ -3552,6 +3557,10 @@ class mainFrame(wx.Frame):
             self.menubar.SetLabel(
                 ID_viewNotations, title[bool(config.spectrum["showNotations"])]
             )
+
+        elif ID == ID_viewDiffLabels:
+            config.differenceRuler["show"] = int(not config.differenceRuler["show"])
+            self.menubar.Check(ID_viewDiffLabels, bool(config.differenceRuler["show"]))
 
         elif ID == ID_viewNotationMarks:
             values = (1, 0)

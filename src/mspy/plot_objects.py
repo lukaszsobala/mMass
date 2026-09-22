@@ -1772,18 +1772,46 @@ class spectrum:
     def rulerAt(self, x, y, tolerance=5):
         """Ruler drawn under a screen position, as (key, part) or None.
 
-        part is 1 or 2 for the lead of the lower or higher m/z end (the end
-        to drag), or 0 for the bar and its text.
+        Only the bar itself is picked up, neither its text (which may sit
+        over another ruler's bar) nor its dotted leads: part is 1 or 2 for the
+        lower or higher m/z end of the bar (its arrowhead and end tick, the
+        end to drag), or 0 for the rest of it. Of several ends within reach,
+        the nearest is taken; of two ends at the same place, the one of the
+        ruler on the cursor's side of it. An end within reach wins over any
+        bar; of several bars, the nearest.
         """
 
-        for key, (x1, y1, x2, y2, yBar, box) in reversed(getattr(self, "rulerGeometry", [])):
-            for part, (endX, endY) in ((1, (x1, y1)), (2, (x2, y2))):
-                if abs(x - endX) <= tolerance and min(endY, yBar) - tolerance <= y <= max(endY, yBar) + tolerance:
-                    return key, part
-            if box[0] - tolerance <= x <= box[2] + tolerance and box[1] - tolerance <= y <= box[3] + tolerance:
-                return key, 0
+        best = None
+        geometry = list(reversed(getattr(self, "rulerGeometry", [])))
+        for order, (key, (x1, _y1, x2, _y2, yBar, _box)) in enumerate(geometry):
 
-        return None
+            # the grip at each end of the bar reaches a little way in, but no
+            # further than a third of a short bar
+            grip = min(2 * tolerance, abs(x2 - x1) / 3.0)
+            for part, endX, otherX in ((1, x1, x2), (2, x2, x1)):
+                inward = 1 if otherX >= endX else -1
+                along = (x - endX) * inward
+                if not -tolerance <= along <= grip:
+                    continue
+                dy = abs(y - yBar)
+                if dy > tolerance:
+                    continue
+                dx = max(0.0, -along)
+                side = 0 if along > 0 else 1
+                score = (0, (dx * dx + dy * dy) ** 0.5, side, order)
+                if best is None or score < best[0]:
+                    best = (score, key, part)
+
+            dx = max(0.0, min(x1, x2) - x, x - max(x1, x2))
+            dy = abs(y - yBar)
+            if dx <= tolerance and dy <= tolerance:
+                score = (1, (dx * dx + dy * dy) ** 0.5, 0, order)
+                if best is None or score < best[0]:
+                    best = (score, key, 0)
+
+        if best is None:
+            return None
+        return best[1], best[2]
 
     # ----
 
