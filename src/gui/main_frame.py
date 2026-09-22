@@ -806,12 +806,10 @@ class mainFrame(wx.Frame):
             wx.ITEM_RADIO,
         )
         tools.Append(
-            ID_toolsLabelPeak, "Label Peak" + HK_toolsLabelPeak, "", wx.ITEM_RADIO
-        )
-        tools.Append(
-            ID_toolsMultiLabelPeak,
-            "Multi-label Peak" + HK_toolsMultiLabelPeak,
-            "Label the highest peak within the dragged range in every visible spectrum",
+            ID_toolsLabelPeak,
+            "Label Peak" + HK_toolsLabelPeak,
+            "Drag over a peak to label it; Shift-drag to label the highest peak "
+            "in the range in all visible spectra",
             wx.ITEM_RADIO,
         )
         tools.Append(
@@ -896,7 +894,6 @@ class mainFrame(wx.Frame):
             id=ID_toolsDiffRulerSettings,
         )
         self.Bind(wx.EVT_MENU, self.onToolsSpectrum, id=ID_toolsLabelPeak)
-        self.Bind(wx.EVT_MENU, self.onToolsSpectrum, id=ID_toolsMultiLabelPeak)
         self.Bind(wx.EVT_MENU, self.onToolsSpectrum, id=ID_toolsLabelPoint)
         self.Bind(wx.EVT_MENU, self.onToolsSpectrum, id=ID_toolsLabelEnvelope)
         self.Bind(wx.EVT_MENU, self.onToolsSpectrum, id=ID_toolsDeleteLabel)
@@ -3788,9 +3785,6 @@ class mainFrame(wx.Frame):
         elif ID == ID_toolsLabelPeak:
             tool = "labelpeak"
             self.menubar.Check(ID_toolsLabelPeak, True)
-        elif ID == ID_toolsMultiLabelPeak:
-            tool = "multilabelpeak"
-            self.menubar.Check(ID_toolsMultiLabelPeak, True)
         elif ID == ID_toolsLabelPoint:
             tool = "labelpoint"
             self.menubar.Check(ID_toolsLabelPoint, True)

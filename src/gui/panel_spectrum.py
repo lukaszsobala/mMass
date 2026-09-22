@@ -507,20 +507,14 @@ class panelSpectrum(wx.Panel):
             size=(mwx.BOTTOMBAR_TOOLSIZE),
             style=wx.BORDER_NONE,
         )
-        self.toolsLabelPeak_butt.SetToolTip(wx.ToolTip("Label peak"))
+        self.toolsLabelPeak_butt.SetToolTip(
+            wx.ToolTip(
+                "Label peak\n"
+                "Shift-drag to label the highest peak in the range in all "
+                "visible spectra"
+            )
+        )
         self.toolsLabelPeak_butt.Bind(wx.EVT_BUTTON, self.parent.onToolsSpectrum)
-
-        self.toolsMultiLabelPeak_butt = mwx.makeBitmapButton(
-            panel,
-            ID_toolsMultiLabelPeak,
-            images.lib["spectrumMultiLabelPeakOff"],
-            size=(mwx.BOTTOMBAR_TOOLSIZE),
-            style=wx.BORDER_NONE,
-        )
-        self.toolsMultiLabelPeak_butt.SetToolTip(
-            wx.ToolTip("Multi-label peak (all visible spectra)")
-        )
-        self.toolsMultiLabelPeak_butt.Bind(wx.EVT_BUTTON, self.parent.onToolsSpectrum)
 
         self.toolsLabelPoint_butt = mwx.makeBitmapButton(
             panel,
@@ -646,12 +640,6 @@ class panelSpectrum(wx.Panel):
             mwx.BUTTON_SIZE_CORRECTION,
         )
         sizer.Add(
-            self.toolsMultiLabelPeak_butt,
-            0,
-            wx.ALIGN_CENTER_VERTICAL | wx.LEFT,
-            mwx.BUTTON_SIZE_CORRECTION,
-        )
-        sizer.Add(
             self.toolsLabelPoint_butt,
             0,
             wx.ALIGN_CENTER_VERTICAL | wx.LEFT,
@@ -719,9 +707,10 @@ class panelSpectrum(wx.Panel):
 
         # get cursor positions
         selection = self.spectrumCanvas.getSelectionBox()
-        # keep the raw (canvas-space) selection box: multi-label peak converts the
-        # x range per document using each document's own offset, rather than only
-        # the current document's like the single-document branches below
+        # keep the raw (canvas-space) selection box: labelling a peak in every
+        # visible spectrum converts the x range per document using each
+        # document's own offset, rather than only the current document's like
+        # the single-document branches below
         rawSelection = selection
         position = self.spectrumCanvas.getCursorPosition()
         distance = self.spectrumCanvas.getDistance()
@@ -756,8 +745,10 @@ class panelSpectrum(wx.Panel):
             y2 = selection[3] - self.documents[self.currentDocument].offset[1]
             selection = (x1, y1, x2, y2)
 
-        # label peak
-        if self.currentTool == "labelpeak" and selection:
+        # label peak; with Shift, in every visible spectrum
+        if self.currentTool == "labelpeak" and selection and evt.ShiftDown():
+            self.labelPeakMulti(rawSelection)
+        elif self.currentTool == "labelpeak" and selection:
             self.labelPeak(selection)
 
         # move an end of a difference ruler (with Shift, making it a series)
@@ -783,10 +774,6 @@ class panelSpectrum(wx.Panel):
                 height = self._toReal((0, rulerHeight))[1]
             if not (evt.ShiftDown() and self.addRulerSeries(*ruler, height=height)):
                 self.addRuler(*ruler, height=height)
-
-        # label peak in every visible spectrum
-        elif self.currentTool == "multilabelpeak" and rawSelection:
-            self.labelPeakMulti(rawSelection)
 
         # label point
         elif self.currentTool == "labelpoint" and position:
@@ -946,9 +933,6 @@ class panelSpectrum(wx.Panel):
         self.toolsRuler_butt.SetBitmapLabel(images.lib["spectrumRulerOff"])
         self.toolsDiffRuler_butt.SetBitmapLabel(images.lib["spectrumDiffRulerOff"])
         self.toolsLabelPeak_butt.SetBitmapLabel(images.lib["spectrumLabelPeakOff"])
-        self.toolsMultiLabelPeak_butt.SetBitmapLabel(
-            images.lib["spectrumMultiLabelPeakOff"]
-        )
         self.toolsLabelPoint_butt.SetBitmapLabel(images.lib["spectrumLabelPointOff"])
         self.toolsLabelEnvelope_butt.SetBitmapLabel(
             images.lib["spectrumLabelEnvelopeOff"]
@@ -983,14 +967,6 @@ class panelSpectrum(wx.Panel):
 
         elif tool == "labelpeak":
             self.toolsLabelPeak_butt.SetBitmapLabel(images.lib["spectrumLabelPeakOn"])
-            self.spectrumCanvas.setMFunction(None)
-            self.spectrumCanvas.setLMBFunction("range")
-            cursor = (images.lib["cursorsArrowPeak"], images.lib["cursorsArrowPeak"])
-
-        elif tool == "multilabelpeak":
-            self.toolsMultiLabelPeak_butt.SetBitmapLabel(
-                images.lib["spectrumMultiLabelPeakOn"]
-            )
             self.spectrumCanvas.setMFunction(None)
             self.spectrumCanvas.setLMBFunction("range")
             cursor = (images.lib["cursorsArrowPeak"], images.lib["cursorsArrowPeak"])
