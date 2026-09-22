@@ -102,6 +102,10 @@ class panelPeaklist(wx.Panel):
         # are kept as they are instead of being re-fitted to the data
         self._peakListColumnsManual = set()
         self._peakListColumnDigits = None
+        # the few longest cell texts shown in each column of the list as it
+        # stands, collected while it is filled and measured afterwards to fit
+        # the columns (see _autosizePeakListColumns)
+        self._peakListColumnTexts = []
         # names of the columns currently shown, in the order they are shown in
         self.peakListColumnNames = []
 
@@ -339,6 +343,10 @@ class panelPeaklist(wx.Panel):
         else:
             self.peakList.setSecondarySortColumn(None)
 
+        # the texts collected below describe the columns as they were, which
+        # these no longer are; the widths remembered per column name still
+        # apply, so drop the texts and let those be reapplied
+        self._peakListColumnTexts = []
         self._autosizePeakListColumns()
 
     # ----
@@ -1226,7 +1234,25 @@ class panelPeaklist(wx.Panel):
     # ----
 
     def updatePeakList(self):
-        """Refresh peaklist."""
+        """Refresh peaklist.
+
+        The rebuild runs between Freeze and Thaw. Every insert and every
+        column-width change repaints the list otherwise, and on wxMSW that
+        repaint -- not the work itself -- is what makes a long peaklist take
+        seconds to show (a few thousand peaks turn a ~0.3 s rebuild into
+        several seconds).
+        """
+
+        self.peakList.Freeze()
+        try:
+            self._updatePeakList()
+        finally:
+            self.peakList.Thaw()
+
+    # ----
+
+    def _updatePeakList(self):
+        """Refresh peaklist (see updatePeakList, which freezes the list)."""
 
         self._ignore_selection_events = True
 
@@ -1257,6 +1283,7 @@ class panelPeaklist(wx.Panel):
         if not self.currentDocument:
             self.peaksCount.SetLabel("")
             self.peakListMap = None
+            self._peakListColumnTexts = []
             self.peakList.setDataMap(None)
             self._selectedMz = None
             self._ignore_selection_events = False
@@ -1309,10 +1336,14 @@ class panelPeaklist(wx.Panel):
 
         self.peakList.setDataMap(self.peakListMap)
 
-        # add new data
+        # add new data, keeping the shown text of each cell so the columns can
+        # be fitted to it afterwards without measuring the list itself
+        shownTexts = []
         for row, item in enumerate(self.peakListMap):
-            self.updatePeakListItem(row, item, insert=True)
+            shownTexts.append(self.updatePeakListItem(row, item, insert=True))
             self.peakList.SetItemData(row, row)
+
+        self._peakListColumnTexts = self._widestColumnTexts(shownTexts)
 
         # sort data
         self.peakList.sort()
@@ -1430,12 +1461,50 @@ class panelPeaklist(wx.Panel):
 
     # ----
 
+    @staticmethod
+    def _widestColumnTexts(rows, limit=4):
+        """Pick the longest strings shown in each column of *rows*.
+
+        These are what the columns are fitted to, so the pick has to cover the
+        widest cell. Length is the first cut -- within one column every value
+        carries the same format, so the longest strings are the widest ones --
+        and a few different strings of that length are kept rather than one,
+        so a column of text (the group labels) is not measured on a single
+        sample.
+        """
+
+        candidates = []
+
+        # every row was formatted from the same list of columns, so they are
+        # all the same length -- strict says so rather than quietly dropping
+        # the end of the longer ones
+        for column in zip(*rows, strict=True):
+            longest = max(len(text) for text in column)
+            picked = []
+            if longest:
+                for text in column:
+                    if len(text) == longest and text not in picked:
+                        picked.append(text)
+                        if len(picked) == limit:
+                            break
+            candidates.append(picked)
+
+        return candidates
+
+    # ----
+
     def _autosizePeakListColumns(self):
         """Fit every column to the data it shows.
 
-        The width is the native "double-click the column border" measurement
-        (wx.LIST_AUTOSIZE), which fits the cell contents only -- the header
-        text is deliberately not a floor, so a long header such as
+        The width is measured here from the text the cells show -- the widest
+        of it, collected while the list was filled -- plus the room the list
+        needs around it. That is the same fit as double-clicking the column
+        border, but asking wxMSW for that (wx.LIST_AUTOSIZE) walks every cell
+        of the column through the native control, which costs a tenth of a
+        second per rebuild on a long peaklist, where measuring a handful of
+        strings costs nothing.
+
+        The header text is deliberately not a floor, so a long header such as
         "sum. env. int." does not force a column far wider than its numbers.
         A column holding no values at all would collapse to nothing though, so
         each one keeps room for a few characters (never more than its header
@@ -1462,31 +1531,58 @@ class panelPeaklist(wx.Panel):
             self._peakListColumnWidths = {}
             self._peakListColumnsManual = set()
 
-        dc = wx.ScreenDC()
-        dc.SetFont(self.peakList.GetFont())
-        padding = dc.GetTextExtent("MM")[0]
-        emptyColumnWidth = dc.GetTextExtent("00000")[0]
+        # texts collected for a different set of columns say nothing about
+        # these ones; the remembered widths still do, so fit on those alone
+        shownTexts = self._peakListColumnTexts
+        if len(shownTexts) != columnCount:
+            shownTexts = None
 
-        for colIndex in range(columnCount):
-            name = self.peakList.GetColumn(colIndex).GetText()
+        # measured through the list itself rather than a DC of our own: it
+        # already carries the font the cells are drawn in, and the DPI of the
+        # display it is actually on (a wx.ScreenDC would answer for the primary
+        # one, and means little under Wayland)
+        measure = self.peakList.GetTextExtent
+        padding = measure("MM")[0]
+        emptyColumnWidth = measure("00000")[0]
 
-            if name in self._peakListColumnsManual:
-                self.peakList.SetColumnWidth(colIndex, self._peakListColumnWidths[name])
-                continue
+        self.peakList.Freeze()
+        try:
+            for colIndex in range(columnCount):
+                name = self.peakList.GetColumn(colIndex).GetText()
 
-            self.peakList.SetColumnWidth(colIndex, wx.LIST_AUTOSIZE)
-            width = max(
-                self.peakList.GetColumnWidth(colIndex),
-                self._peakListColumnWidths.get(name, 0),
-                min(dc.GetTextExtent(name)[0] + padding, emptyColumnWidth),
-            )
-            self._peakListColumnWidths[name] = width
-            self.peakList.SetColumnWidth(colIndex, width)
+                if name in self._peakListColumnsManual:
+                    width = self._peakListColumnWidths[name]
+                else:
+                    fitted = 0
+                    if shownTexts is not None and shownTexts[colIndex]:
+                        fitted = padding + max(
+                            measure(text)[0] for text in shownTexts[colIndex]
+                        )
+                    width = max(
+                        fitted,
+                        self._peakListColumnWidths.get(name, 0),
+                        min(measure(name)[0] + padding, emptyColumnWidth),
+                    )
+                    self._peakListColumnWidths[name] = width
+
+                # setting a width repaints the whole list even when the width
+                # does not change, which it mostly does not once the columns
+                # have settled on the widest data seen so far
+                if self.peakList.GetColumnWidth(colIndex) != width:
+                    self.peakList.SetColumnWidth(colIndex, width)
+        finally:
+            self.peakList.Thaw()
 
     # ----
 
     def updatePeakListItem(self, row, item, insert=False):
-        """Refresh item data in the list."""
+        """Refresh item data in the list.
+
+        Returns the text put in each cell, which is what the columns are
+        fitted to (see _autosizePeakListColumns).
+        """
+
+        texts = []
 
         # set formats
         mzFormat = "%0." + repr(config.main["mzDigits"]) + "f"
@@ -1557,7 +1653,10 @@ class panelPeaklist(wx.Panel):
             else:
                 self.peakList.SetItem(row, x, data)
 
+            texts.append(data)
             x += 1
+
+        return texts
 
     # ----
 
