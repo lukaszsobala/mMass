@@ -2564,7 +2564,6 @@ class panelSpectrum(wx.Panel):
                 handler()
 
         menu.Bind(wx.EVT_MENU, onMenu)
-        textMenu.Bind(wx.EVT_MENU, onMenu)
         self.PopupMenu(menu)
         menu.Destroy()
 
@@ -2808,9 +2807,12 @@ class panelSpectrum(wx.Panel):
     # ----
 
     def _toReal(self, point):
-        """Convert a canvas point to the current document's m/z and intensity."""
+        """Convert a canvas point to the current document's m/z and intensity;
+        with no document selected, the canvas values themselves."""
 
         x, y = point
+        if self.currentDocument is None:
+            return x, y
         docData = self.documents[self.currentDocument]
 
         if docData.flipped:
@@ -2861,6 +2863,8 @@ class panelSpectrum(wx.Panel):
     def _peakAt(self, mz):
         """The current document's peak at this m/z (to rounding), if any."""
 
+        if self.currentDocument is None:
+            return None
         peaklist = self.documents[self.currentDocument].spectrum.peaklist
         mzs = self._getPeakMzs()
         i = bisect.bisect_left(mzs, mz - 1e-6)
