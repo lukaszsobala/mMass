@@ -47,6 +47,7 @@ from . import display_scale
 from . import libs
 from . import doc
 from . import session
+from . import differences
 
 from .panel_about import panelAbout
 from .panel_calibration import panelCalibration
@@ -79,6 +80,7 @@ from .dlg_modifications_editor import dlgModificationsEditor
 from .dlg_monomers_editor import dlgMonomersEditor
 from .dlg_presets_editor import dlgPresetsEditor
 from .dlg_references_editor import dlgReferencesEditor
+from .dlg_differences_editor import dlgDifferencesEditor
 
 from .dlg_error import dlgError
 from .dlg_missing_documents import dlgMissingDocuments
@@ -451,6 +453,7 @@ class mainFrame(wx.Frame):
         viewNotations.Append(ID_viewNotationLabels, "Labels", "", wx.ITEM_CHECK)
         viewNotations.Append(ID_viewNotationMz, "m/z", "", wx.ITEM_CHECK)
         view.Append(-1, "Notations", viewNotations)
+        view.Append(ID_viewDiffLabels, "Difference Labels", "", wx.ITEM_CHECK)
 
         viewSpectrumRuler = wx.Menu()
         viewSpectrumRuler.Append(ID_viewSpectrumRulerMz, "m/z", "", wx.ITEM_CHECK)
@@ -555,6 +558,7 @@ class mainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.onView, id=ID_viewAllLabels)
 
         self.Bind(wx.EVT_MENU, self.onView, id=ID_viewNotations)
+        self.Bind(wx.EVT_MENU, self.onView, id=ID_viewDiffLabels)
         self.Bind(wx.EVT_MENU, self.onView, id=ID_viewNotationMarks)
         self.Bind(wx.EVT_MENU, self.onView, id=ID_viewNotationLabels)
         self.Bind(wx.EVT_MENU, self.onView, id=ID_viewNotationMz)
@@ -693,6 +697,7 @@ class mainFrame(wx.Frame):
 
         self.menubar.Check(ID_viewAutoscale, bool(config.spectrum["autoscale"]))
         self.menubar.Check(ID_viewNormalize, bool(config.spectrum["normalize"]))
+        self.menubar.Check(ID_viewDiffLabels, bool(config.differenceRuler["show"]))
 
         # processing
         processing = wx.Menu()
@@ -795,6 +800,12 @@ class mainFrame(wx.Frame):
         tools = wx.Menu()
         tools.Append(ID_toolsRuler, "Spectrum Ruler" + HK_toolsRuler, "", wx.ITEM_RADIO)
         tools.Append(
+            ID_toolsDiffRuler,
+            "Label Difference" + HK_toolsDiffRuler,
+            "Drag between two peaks to mark and name their mass difference",
+            wx.ITEM_RADIO,
+        )
+        tools.Append(
             ID_toolsLabelPeak, "Label Peak" + HK_toolsLabelPeak, "", wx.ITEM_RADIO
         )
         tools.Append(
@@ -816,6 +827,11 @@ class mainFrame(wx.Frame):
             ID_toolsDeleteLabel, "Delete Label" + HK_toolsDeleteLabel, "", wx.ITEM_RADIO
         )
         tools.Append(ID_toolsOffset, "Offset Spectrum", "", wx.ITEM_RADIO)
+        tools.Append(
+            ID_toolsDiffRulerSettings,
+            "Difference Label Settings...",
+            "Lists, tolerance and text of difference labels",
+        )
         tools.AppendSeparator()
         tools.Append(
             ID_toolsPeriodicTable, "Periodic Table" + HK_toolsPeriodicTable, ""
@@ -873,6 +889,12 @@ class mainFrame(wx.Frame):
             tools.Enable(_disabledTool, False)
 
         self.Bind(wx.EVT_MENU, self.onToolsSpectrum, id=ID_toolsRuler)
+        self.Bind(wx.EVT_MENU, self.onToolsSpectrum, id=ID_toolsDiffRuler)
+        self.Bind(
+            wx.EVT_MENU,
+            lambda evt: self.spectrumPanel.onDiffRulerSettings(),
+            id=ID_toolsDiffRulerSettings,
+        )
         self.Bind(wx.EVT_MENU, self.onToolsSpectrum, id=ID_toolsLabelPeak)
         self.Bind(wx.EVT_MENU, self.onToolsSpectrum, id=ID_toolsMultiLabelPeak)
         self.Bind(wx.EVT_MENU, self.onToolsSpectrum, id=ID_toolsLabelPoint)
@@ -911,6 +933,7 @@ class mainFrame(wx.Frame):
         libraries.Append(ID_libraryMonomers, "Monomers...", "")
         libraries.Append(ID_libraryEnzymes, "Enzymes...", "")
         libraries.Append(ID_libraryReferences, "Reference Masses...", "")
+        libraries.Append(ID_libraryDifferences, "Mass Differences...", "")
         libraries.Append(
             ID_libraryMascot,
             "Mascot Servers...",
@@ -924,6 +947,7 @@ class mainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.onLibraryEdit, id=ID_libraryMonomers)
         self.Bind(wx.EVT_MENU, self.onLibraryEdit, id=ID_libraryEnzymes)
         self.Bind(wx.EVT_MENU, self.onLibraryEdit, id=ID_libraryReferences)
+        self.Bind(wx.EVT_MENU, self.onLibraryEdit, id=ID_libraryDifferences)
         self.Bind(wx.EVT_MENU, self.onLibraryEdit, id=ID_libraryMascot)
         self.Bind(wx.EVT_MENU, self.onLibraryEdit, id=ID_libraryPresets)
 
@@ -1838,6 +1862,14 @@ class mainFrame(wx.Frame):
         ):
             self.updateNotationMarks()
 
+        # update difference rulers
+        if "rulers" in items and "spectrum" not in items:
+            self.spectrumPanel.updateSpectrumProperties(
+                self.currentDocument, keepScale=True
+            )
+        if "rulers" in items or "notations" in items:
+            self.documentsPanel.updateRulers(self.currentDocument)
+
         # update data-dependent panels
         if "spectrum" in items:
 
@@ -1942,6 +1974,9 @@ class mainFrame(wx.Frame):
         if "notations" in items or "annotations" in items:
             for docIndex in indexes:
                 self.documentsPanel.updateAnnotations(docIndex)
+        if "notations" in items or "rulers" in items:
+            for docIndex in indexes:
+                self.documentsPanel.updateRulers(docIndex)
         if "notations" in items or "matches" in items:
             for docIndex in indexes:
                 for seqIndex in range(len(self.documents[docIndex].sequences)):
@@ -3325,6 +3360,23 @@ class mainFrame(wx.Frame):
 
     # ----
 
+    def onDocumentRulersDelete(self, evt=None):
+        """Delete all difference rulers of the current document."""
+
+        # check selection
+        if self.currentDocument is None or not self.documents[self.currentDocument].rulers:
+            wx.Bell()
+            return
+
+        # delete rulers
+        self.documents[self.currentDocument].backup(("rulers",))
+        del self.documents[self.currentDocument].rulers[:]
+
+        # update GUI
+        self.onDocumentChanged(items=("rulers",))
+
+    # ----
+
     def onDocumentAnnotationsDelete(self, evt=None, annotIndex=None):
         """Delete annotations."""
 
@@ -3505,6 +3557,10 @@ class mainFrame(wx.Frame):
             self.menubar.SetLabel(
                 ID_viewNotations, title[bool(config.spectrum["showNotations"])]
             )
+
+        elif ID == ID_viewDiffLabels:
+            config.differenceRuler["show"] = int(not config.differenceRuler["show"])
+            self.menubar.Check(ID_viewDiffLabels, bool(config.differenceRuler["show"]))
 
         elif ID == ID_viewNotationMarks:
             values = (1, 0)
@@ -3726,6 +3782,9 @@ class mainFrame(wx.Frame):
         if ID == ID_toolsRuler:
             self.menubar.Check(ID_toolsRuler, True)
             tool = "ruler"
+        elif ID == ID_toolsDiffRuler:
+            self.menubar.Check(ID_toolsDiffRuler, True)
+            tool = "diffruler"
         elif ID == ID_toolsLabelPeak:
             tool = "labelpeak"
             self.menubar.Check(ID_toolsLabelPeak, True)
@@ -4669,6 +4728,10 @@ class mainFrame(wx.Frame):
             library = "references"
             dlg = dlgReferencesEditor(self)
 
+        elif evt.GetId() == ID_libraryDifferences:
+            library = "differences"
+            dlg = dlgDifferencesEditor(self)
+
         elif evt.GetId() == ID_libraryMascot:
             library = "mascot"
             dlg = dlgMascotEditor(self)
@@ -4689,10 +4752,21 @@ class mainFrame(wx.Frame):
                 self.massFilterPanel.Close()
         elif library == "mascot" and self.mascotPanel:
             self.mascotPanel.Close()
+        elif library in ("differences", "monomers") and self.peakDifferencesPanel:
+            self.peakDifferencesPanel.Close()
 
         # show editor
         dlg.ShowModal()
         dlg.Destroy()
+
+        # the difference lists are built from the monomers and the differences
+        # library; a list the user deleted stops being matched against
+        if library in ("differences", "monomers"):
+            available = differences.availableLists()
+            for settings in (config.differenceRuler, config.peakDifferences):
+                settings["lists"] = [
+                    name for name in settings["lists"] if name in available
+                ]
 
         # init processing gauge
         gauge = mwx.gaugePanel(self, "Saving library...")
@@ -4717,6 +4791,13 @@ class mainFrame(wx.Frame):
             )
             dlg.ShowModal()
             dlg.Destroy()
+
+    # ----
+
+    def onLibraryDifferences(self, evt=None):
+        """Edit the mass differences library."""
+
+        self.onLibraryEdit(wx.CommandEvent(wx.wxEVT_MENU, ID_libraryDifferences))
 
     # ----
 
@@ -5332,6 +5413,8 @@ class mainFrame(wx.Frame):
             )
         elif library == "references":
             self.tmpLibrarySaved = libs.saveReferences()
+        elif library == "differences":
+            self.tmpLibrarySaved = libs.saveDifferences()
         elif library == "mascot":
             self.tmpLibrarySaved = libs.saveMascot()
         elif library == "presets":

@@ -633,13 +633,32 @@ compoundsSearch = {
 }
 
 peakDifferences = {
-    "aminoacids": 1,
-    "dipeptides": 0,
-    "sugars": 0,
-    "permesugars": 0,
+    # lists of the mass differences library to match against
+    "lists": ["Amino acids"],
     "massType": 0,
     "tolerance": 0.1,
     "consolidate": 0,
+}
+
+differenceRuler = {
+    # lists of the mass differences library to match against
+    "lists": ["Amino acids", "Sugars", "Modifications", "Adducts and Losses"],
+    "massType": 0,
+    # largest observed-minus-theoretical difference that still matches; in
+    # "Da", or in "ppm" applied at each of the two peaks' own m/z
+    "tolerance": 0.1,
+    "units": "Da",
+    # what a matched ruler's label shows (an unmatched one shows the difference)
+    "labelName": 1,
+    "labelAllNames": 1,
+    # entries' short names (Ac for Acetylation) instead of their full ones
+    "labelShort": 1,
+    "labelCharge": 1,
+    "labelDiff": 1,
+    "labelError": 0,
+    "colour": [230, 120, 0],
+    # rulers are annotations of their own, shown or hidden apart from notations
+    "show": 1,
 }
 
 comparePeaklists = {
@@ -1469,6 +1488,22 @@ def _validateConfig():
     ):
         processing["peakpicking"]["averagineType"] = "protein"
 
+    if differenceRuler["units"] not in ("Da", "ppm"):
+        differenceRuler["units"] = "Da"
+    if differenceRuler["tolerance"] <= 0:
+        differenceRuler["tolerance"] = 0.1
+
+    # the Dipeptides list is gone: the amino acids' pairs match them now
+    for settings in (differenceRuler, peakDifferences):
+        if not isinstance(settings["lists"], list):
+            settings["lists"] = []
+        lists = [name for name in settings["lists"] if isinstance(name, str)]
+        if "Dipeptides" in lists:
+            lists.remove("Dipeptides")
+            if "Amino acids" not in lists:
+                lists.append("Amino acids")
+        settings["lists"] = lists
+
 
 
 def _getParams(sectionTag, section):
@@ -1666,6 +1701,7 @@ _CONFIG_SECTIONS = (
     "massDefectPlot",
     "compoundsSearch",
     "peakDifferences",
+    "differenceRuler",
     "comparePeaklists",
     "spectrumGenerator",
     "envelopeFit",
@@ -1836,6 +1872,7 @@ massToFormula = ConfigDict(massToFormula)
 massDefectPlot = ConfigDict(massDefectPlot)
 compoundsSearch = ConfigDict(compoundsSearch)
 peakDifferences = ConfigDict(peakDifferences)
+differenceRuler = ConfigDict(differenceRuler)
 comparePeaklists = ConfigDict(comparePeaklists)
 spectrumGenerator = ConfigDict(spectrumGenerator)
 envelopeFit = ConfigDict(envelopeFit)

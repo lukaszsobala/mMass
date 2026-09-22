@@ -19,6 +19,7 @@
 # ruff: noqa: F403, F405
 
 # load libs
+import bisect
 import wx
 
 # load modules
@@ -26,6 +27,8 @@ from .ids import *
 from . import mwx
 from . import images
 from . import config
+from . import doc
+from . import differences
 import mspy
 import mspy.plot
 
@@ -46,6 +49,7 @@ def applyCanvasConfig(canvas):
         canvas.setProperties(yLabel="r. int. (%)")
     canvas.setProperties(showZero=True)
     canvas.setProperties(gelHeight=config.spectrum["gelHeight"])
+    canvas.setProperties(rulerColour=tuple(config.differenceRuler["colour"]))
     canvas.setProperties(xPosDigits=config.main["mzDigits"])
     canvas.setProperties(yPosDigits=config.main["intDigits"])
     canvas.setProperties(distanceDigits=config.main["mzDigits"])
@@ -70,6 +74,78 @@ def applyCanvasConfig(canvas):
         0,
     )
     canvas.setProperties(axisFont=axisFont)
+
+
+def rulerText(names, diff, charge=1, theoretical=None, mzs=None):
+    """Text of a difference ruler, as the difference ruler settings say."""
+
+    settings = config.differenceRuler
+    if settings["labelShort"]:
+        names = differences.shortenNames(names)
+    return differences.rulerText(
+        names,
+        diff,
+        charge,
+        theoretical,
+        mzs,
+        options={key: settings[key] for key in differences.LABEL_DEFAULTS},
+        units=settings["units"],
+        digits=config.main["mzDigits"],
+        ppmDigits=config.main["ppmDigits"],
+    )
+
+
+def labelText(ruler):
+    """Text a difference label shows: the user's own, with the fields it
+    names filled in (see differences.expandNote), else made from its match."""
+
+    if ruler.note:
+        names = ruler.label
+        if config.differenceRuler["labelShort"]:
+            names = differences.shortenNames(names)
+        return differences.expandNote(
+            ruler.note,
+            names,
+            ruler.diff,
+            ruler.charge,
+            ruler.theoretical,
+            (ruler.mz1, ruler.mz2),
+            config.differenceRuler["units"],
+            config.main["mzDigits"],
+            config.main["ppmDigits"],
+        )
+    return rulerText(
+        ruler.label, ruler.diff, ruler.charge, ruler.theoretical, (ruler.mz1, ruler.mz2)
+    )
+
+
+def matchRuler(diff, charge=1, mzs=None):
+    """Difference list entries matching a ruler, as the settings say.
+
+    mzs are the m/z of the ruler's two ends, which a ppm tolerance is applied
+    at. Without a single entry that matches, pairs of them are (for lists
+    that have their pairs matched), and without those whole multiples of one
+    (e.g. 3xMe, see matchMultiples).
+    """
+
+    settings = config.differenceRuler
+    arguments = (
+        settings["tolerance"],
+        settings["massType"],
+        charge,
+        settings["units"],
+        mzs,
+    )
+
+    # fewer, larger units win: a single entry over a pair of them (Q over
+    # A+G), and either over a multiple of a smaller one (Ac over 3xMe)
+    lists = settings["lists"]
+    singles = differences.entries(lists, pairs=False)
+    return (
+        differences.match(diff, singles, *arguments)
+        or differences.match(diff, differences.entries(lists, singles=False), *arguments)
+        or differences.matchMultiples(diff, singles, *arguments)
+    )
 
 
 def applySpectrumConfig(spectrum, docData, current=True):
@@ -112,6 +188,30 @@ def applySpectrumConfig(spectrum, docData, current=True):
     )
     spectrum.setProperties(labelFont=labelFont)
 
+    # difference rulers (for an LC-MS run, those drawn on the scan shown)
+    scanID = docData.currentScanID if docData.islcms() else None
+    rulers = []
+    for index, ruler in enumerate(getattr(docData, "rulers", [])):
+        if ruler.scanID is not None and ruler.scanID != scanID:
+            continue
+        text = labelText(ruler)
+        rulers.append(
+            (
+                ruler.mz1,
+                ruler.ai1,
+                ruler.mz2,
+                ruler.ai2,
+                text,
+                index,
+                ruler.height,
+                ruler.colour,
+            )
+        )
+    spectrum.setProperties(rulers=rulers)
+    spectrum.setProperties(showRulers=bool(config.differenceRuler["show"]))
+    spectrum.setProperties(hiddenRuler=None)
+    spectrum.setProperties(rulerColour=tuple(config.differenceRuler["colour"]))
+
     if current:
         spectrum.setProperties(showLabels=config.spectrum["showLabels"])
         spectrum.setProperties(tickColour=config.spectrum["tickColour"])
@@ -142,9 +242,15 @@ class panelSpectrum(wx.Panel):
         self.currentDocument = None
         self.currentTmpSpectrum = None
         self.currentTmpSpectrumFlip = False
+        self.currentTmpSpectrumStyle = {}
         self.currentNotationMarks = None
         self.currentTool = "ruler"
         self.canvasPropertiesDlg = None
+
+        # m/z of the current document's peaks, for snapping the difference
+        # ruler; rebuilt whenever the peaklist it was made from changes
+        self._peakMzs = None
+        self._peakMzsKey = None
 
         # init container
         self.container = mspy.plot.container([])
@@ -200,11 +306,25 @@ class panelSpectrum(wx.Panel):
         self.spectrumCanvas.setProperties(
             reverseScrolling=config.main["reverseScrolling"]
         )
+        self.spectrumCanvas.setProperties(
+            rulerColour=tuple(config.differenceRuler["colour"])
+        )
+        self.spectrumCanvas.setSnapFunction(self.getSnapCandidates)
+        self.spectrumCanvas.setRulerLabelFunction(self.getRulerText)
+        self.spectrumCanvas.setRulerSeriesFunction(self.getRulerSeriesText)
+        self.spectrumCanvas.setRulerPlacedFunction(self.getRulerObstacles)
+        self.spectrumCanvas.setRulerLabelBoxesFunction(
+            lambda: getattr(self.container, "labelBoxes", [])
+        )
+        self.spectrumCanvas.setRulerGrabFunction(self.grabRuler)
 
         # set events
         self.spectrumCanvas.Bind(wx.EVT_MOTION, self.onCanvasMMotion)
         self.spectrumCanvas.Bind(wx.EVT_MOUSEWHEEL, self.onCanvasMScroll)
         self.spectrumCanvas.Bind(wx.EVT_LEFT_UP, self.onCanvasLMU)
+        self.spectrumCanvas.Bind(wx.EVT_RIGHT_UP, self.onCanvasRMU)
+        self.spectrumCanvas.Bind(wx.EVT_LEFT_DCLICK, self.onCanvasLDClick)
+        self.spectrumCanvas.Bind(wx.EVT_KEY_DOWN, self.onCanvasKey)
 
         # set DnD
         dropTarget = fileDropTarget(self.parent.onDocumentDropped)
@@ -260,6 +380,19 @@ class panelSpectrum(wx.Panel):
         )
         self.showNotations_butt.SetToolTip(wx.ToolTip("Show / hide notations"))
         self.showNotations_butt.Bind(wx.EVT_BUTTON, self.parent.onView)
+
+        image = (images.lib["spectrumDiffLabelsOff"], images.lib["spectrumDiffLabelsOn"])[
+            bool(config.differenceRuler["show"])
+        ]
+        self.showDiffLabels_butt = mwx.makeBitmapButton(
+            panel,
+            ID_viewDiffLabels,
+            image,
+            size=(mwx.BOTTOMBAR_TOOLSIZE),
+            style=wx.BORDER_NONE,
+        )
+        self.showDiffLabels_butt.SetToolTip(wx.ToolTip("Show / hide difference labels"))
+        self.showDiffLabels_butt.Bind(wx.EVT_BUTTON, self.parent.onView)
 
         image = (
             images.lib["spectrumLabelAngleOff"],
@@ -351,6 +484,22 @@ class panelSpectrum(wx.Panel):
         self.toolsRuler_butt.SetToolTip(wx.ToolTip("Spectrum ruler"))
         self.toolsRuler_butt.Bind(wx.EVT_BUTTON, self.parent.onToolsSpectrum)
 
+        self.toolsDiffRuler_butt = mwx.makeBitmapButton(
+            panel,
+            ID_toolsDiffRuler,
+            images.lib["spectrumDiffRulerOff"],
+            size=(mwx.BOTTOMBAR_TOOLSIZE),
+            style=wx.BORDER_NONE,
+        )
+        self.toolsDiffRuler_butt.SetToolTip(
+            wx.ToolTip(
+                "Label difference between peaks\n"
+                "Right-click for options"
+            )
+        )
+        self.toolsDiffRuler_butt.Bind(wx.EVT_BUTTON, self.parent.onToolsSpectrum)
+        self.toolsDiffRuler_butt.Bind(wx.EVT_RIGHT_UP, self.onDiffRulerMenu)
+
         self.toolsLabelPeak_butt = mwx.makeBitmapButton(
             panel,
             ID_toolsLabelPeak,
@@ -436,6 +585,12 @@ class panelSpectrum(wx.Panel):
             mwx.BUTTON_SIZE_CORRECTION,
         )
         sizer.Add(
+            self.showDiffLabels_butt,
+            0,
+            wx.ALIGN_CENTER_VERTICAL | wx.LEFT,
+            mwx.BUTTON_SIZE_CORRECTION,
+        )
+        sizer.Add(
             self.labelAngle_butt,
             0,
             wx.ALIGN_CENTER_VERTICAL | wx.LEFT,
@@ -474,6 +629,12 @@ class panelSpectrum(wx.Panel):
         sizer.AddSpacer(20)
         sizer.Add(
             self.toolsRuler_butt,
+            0,
+            wx.ALIGN_CENTER_VERTICAL | wx.LEFT,
+            mwx.BUTTON_SIZE_CORRECTION,
+        )
+        sizer.Add(
+            self.toolsDiffRuler_butt,
             0,
             wx.ALIGN_CENTER_VERTICAL | wx.LEFT,
             mwx.BUTTON_SIZE_CORRECTION,
@@ -566,6 +727,10 @@ class panelSpectrum(wx.Panel):
         distance = self.spectrumCanvas.getDistance()
         isotopes = self.spectrumCanvas.getIsotopes()
         charge = self.spectrumCanvas.getCharge()
+        ruler = self.spectrumCanvas.getRuler()
+        rulerEdit = self.spectrumCanvas.getRulerEdit()
+        rulerHeight = self.spectrumCanvas.getRulerBarHeight()
+        self.spectrumCanvas.endRulerEdit()
 
         # sent event back to canvas
         self.spectrumCanvas.onLMU(evt)
@@ -594,6 +759,30 @@ class panelSpectrum(wx.Panel):
         # label peak
         if self.currentTool == "labelpeak" and selection:
             self.labelPeak(selection)
+
+        # move an end of a difference ruler (with Shift, making it a series)
+        elif self.currentTool == "diffruler" and ruler and rulerEdit is not None:
+            height = None
+            if rulerHeight is not None:
+                height = self._toReal((0, rulerHeight))[1]
+            if not (evt.ShiftDown() and self.addRulerSeries(*ruler, height=height, replace=rulerEdit)):
+                self.moveRuler(rulerEdit, *ruler, height=height)
+
+        # lift or lower a difference ruler, or show it again where it was
+        elif self.currentTool == "diffruler" and rulerEdit is not None:
+            if rulerHeight is not None:
+                self.setRulerHeight(rulerEdit, self._toReal((0, rulerHeight))[1])
+            else:
+                self.refresh(keepScale=True)
+
+        # add difference ruler, its bar where it was drawn; with Shift, label
+        # every step of a series between the two peaks
+        elif self.currentTool == "diffruler" and ruler:
+            height = None
+            if rulerHeight is not None:
+                height = self._toReal((0, rulerHeight))[1]
+            if not (evt.ShiftDown() and self.addRulerSeries(*ruler, height=height)):
+                self.addRuler(*ruler, height=height)
 
         # label peak in every visible spectrum
         elif self.currentTool == "multilabelpeak" and rawSelection:
@@ -627,6 +816,33 @@ class panelSpectrum(wx.Panel):
 
     # ----
 
+    def onCanvasRMU(self, evt):
+        """Show the difference ruler menu on a right click (not a zoom drag)."""
+
+        start = self.spectrumCanvas.draggingStart
+        clicked = (
+            self.currentTool == "diffruler"
+            and self.spectrumCanvas.mouseEvent in ("zoom", False)
+            and start
+            and abs(evt.GetPosition()[0] - start[2]) < 3
+            and abs(evt.GetPosition()[1] - start[3]) < 3
+            and self.spectrumCanvas.getCursorLocation() == "plot"
+        )
+
+        # sent event back to canvas
+        self.spectrumCanvas.onRMU(evt)
+
+        if not clicked:
+            return
+
+        hit = self.rulerAt(*evt.GetPosition())
+        if hit is None:
+            self.onDiffRulerMenu()
+        else:
+            self.onRulerMenu(hit[0])
+
+    # ----
+
     def onCanvasProperties(self, evt=None):
         """Show canvas properties dialog."""
 
@@ -655,6 +871,11 @@ class panelSpectrum(wx.Panel):
 
     def onCursorInfoRMU(self, evt):
         """Set items to show in cursor info."""
+
+        # difference ruler has its own options
+        if self.currentTool == "diffruler":
+            self.onDiffRulerMenu()
+            return
 
         # only while active spectrum ruler
         if self.currentTool != "ruler":
@@ -723,6 +944,7 @@ class panelSpectrum(wx.Panel):
 
         # set icons off
         self.toolsRuler_butt.SetBitmapLabel(images.lib["spectrumRulerOff"])
+        self.toolsDiffRuler_butt.SetBitmapLabel(images.lib["spectrumDiffRulerOff"])
         self.toolsLabelPeak_butt.SetBitmapLabel(images.lib["spectrumLabelPeakOff"])
         self.toolsMultiLabelPeak_butt.SetBitmapLabel(
             images.lib["spectrumMultiLabelPeakOff"]
@@ -747,6 +969,16 @@ class panelSpectrum(wx.Panel):
             self.toolsRuler_butt.SetBitmapLabel(images.lib["spectrumRulerOn"])
             self.spectrumCanvas.setMFunction(cursorTracker)
             self.spectrumCanvas.setLMBFunction("xDistance")
+            cursor = (wx.Cursor(wx.CURSOR_ARROW), images.lib["cursorsCrossMeasure"])
+
+        elif tool == "diffruler":
+            self.toolsDiffRuler_butt.SetBitmapLabel(
+                images.lib["spectrumDiffRulerOn"]
+            )
+            self.spectrumCanvas.setMFunction(
+                "crosssnap" if cursorTracker else "peaksnap"
+            )
+            self.spectrumCanvas.setLMBFunction("peakRuler")
             cursor = (wx.Cursor(wx.CURSOR_ARROW), images.lib["cursorsCrossMeasure"])
 
         elif tool == "labelpeak":
@@ -845,6 +1077,12 @@ class panelSpectrum(wx.Panel):
                     images.lib["spectrumNotationsOn"],
                 )[bool(config.spectrum["showNotations"])]
                 self.showNotations_butt.SetBitmapLabel(image)
+            elif ID == ID_viewDiffLabels:
+                image = (
+                    images.lib["spectrumDiffLabelsOff"],
+                    images.lib["spectrumDiffLabelsOn"],
+                )[bool(config.differenceRuler["show"])]
+                self.showDiffLabels_butt.SetBitmapLabel(image)
             elif ID == ID_viewLabelAngle:
                 image = (
                     images.lib["spectrumLabelAngleOff"],
@@ -893,13 +1131,11 @@ class panelSpectrum(wx.Panel):
 
         # update tmp spectra
         self.updateNotationMarks(self.currentNotationMarks, refresh=False)
-        self.updateTmpSpectrum(
-            self.currentTmpSpectrum, flipped=self.currentTmpSpectrumFlip, refresh=False
-        )
+        self.restoreTmpSpectrum()
 
-        # redraw plot
+        # redraw plot (showing or hiding the labels changes no intensities)
         if refresh:
-            self.refresh()
+            self.refresh(keepScale=ID == ID_viewDiffLabels)
 
     # ----
 
@@ -948,6 +1184,57 @@ class panelSpectrum(wx.Panel):
             mass = mspy.mz(position[0], charge=0, currentCharge=charge * polarity)
             format = "m/z: %s   z: %s   mass: %s" % (mzFormat, "%d", mzFormat)
             label = format % (position[0], charge * polarity, mass)
+
+        # difference ruler
+        elif self.currentTool == "diffruler" and self.spectrumCanvas.getRuler():
+            start, end = self.spectrumCanvas.getRuler()
+            diff, charge, matches = self.getRulerMatch(start, end)
+            mzs = (self._toReal(start[:2])[0], self._toReal(end[:2])[0])
+            label = "dist: %s   " % (distFormat % diff)
+            if abs(charge) > 1:
+                label += "z: %d   " % charge
+            series = None
+            if self.spectrumCanvas.rulerShift:
+                series = self.getRulerSeriesMatch(start, end)
+            if series is not None:
+                name, seriesCharge, theoretical = series
+                error = diff * max(1, abs(seriesCharge)) - theoretical
+                if config.differenceRuler["labelShort"]:
+                    name = differences.shortenNames(name)
+                label += "series: %s (%s)" % (
+                    name,
+                    differences.errorText(
+                        error,
+                        seriesCharge,
+                        config.differenceRuler["units"],
+                        mzs,
+                        config.main["mzDigits"],
+                        config.main["ppmDigits"],
+                    ),
+                )
+            elif self.spectrumCanvas.rulerShift:
+                label += "no series within %s" % self._rulerToleranceText()
+            elif matches:
+                short = differences.shortNames() if config.differenceRuler["labelShort"] else {}
+                label += "match: " + ",  ".join(
+                    "%s (error %s)"
+                    % (
+                        differences.shortenNames(name, short),
+                        differences.errorText(
+                            error,
+                            charge,
+                            config.differenceRuler["units"],
+                            mzs,
+                            config.main["mzDigits"],
+                            config.main["ppmDigits"],
+                        ),
+                    )
+                    for name, error, _listName, _theoretical in matches[:3]
+                )
+            else:
+                label += "no match within %s" % self._rulerToleranceText()
+            if not self.spectrumCanvas.rulerShift:
+                label += "   (Shift: series)"
 
         # distance measurement
         elif distance and position:
@@ -1050,6 +1337,11 @@ class panelSpectrum(wx.Panel):
 
         self.currentTmpSpectrum = points
         self.currentTmpSpectrumFlip = flipped
+        self.currentTmpSpectrumStyle = {
+            "fillUnder": fillUnder,
+            "fillUnderAlpha": fillUnderAlpha,
+            "showOutline": showOutline,
+        }
 
         # check spectrum
         if points is None:
@@ -1105,6 +1397,18 @@ class panelSpectrum(wx.Panel):
         # redraw plot
         if refresh:
             self.refresh()
+
+    # ----
+
+    def restoreTmpSpectrum(self):
+        """Rebuild the tmp spectrum after a redraw, keeping how it was drawn."""
+
+        self.updateTmpSpectrum(
+            self.currentTmpSpectrum,
+            flipped=self.currentTmpSpectrumFlip,
+            refresh=False,
+            **self.currentTmpSpectrumStyle,
+        )
 
     # ----
 
@@ -1185,6 +1489,9 @@ class panelSpectrum(wx.Panel):
         docData = self.documents[docIndex]
         spectrum = mspy.plot.spectrum(docData.spectrum)
 
+        # peaks may have been moved in place (e.g. by calibration)
+        self._peakMzsKey = None
+
         # update container
         self.container[docIndex + 2] = spectrum
 
@@ -1197,21 +1504,23 @@ class panelSpectrum(wx.Panel):
 
     # ----
 
-    def updateSpectrumProperties(self, docIndex, refresh=True):
-        """Update all spectrum properties."""
+    def updateSpectrumProperties(self, docIndex, refresh=True, keepScale=False):
+        """Update all spectrum properties.
+
+        keepScale redraws without autoscaling the intensity, for changes that
+        only touch what is drawn over the spectrum (difference labels).
+        """
 
         # update spectrum properties
         self.setSpectrumProperties(docIndex)
 
         # update tmp spectra
         self.updateNotationMarks(self.currentNotationMarks, refresh=False)
-        self.updateTmpSpectrum(
-            self.currentTmpSpectrum, flipped=self.currentTmpSpectrumFlip, refresh=False
-        )
+        self.restoreTmpSpectrum()
 
         # redraw plot
         if refresh:
-            self.refresh()
+            self.refresh(keepScale=keepScale)
 
     # ----
 
@@ -1573,35 +1882,1000 @@ class panelSpectrum(wx.Panel):
     # ----
 
     def deleteLabel(self, selection):
-        """Delete all labels within selection."""
+        """Delete all labels and difference rulers within selection."""
 
         # check document
         if self.currentDocument is None:
             return
 
+        docData = self.documents[self.currentDocument]
+
         # remove peaks
         indexes = []
         deleted_mzs = []
-        for x, peak in enumerate(
-            self.documents[self.currentDocument].spectrum.peaklist
-        ):
+        for x, peak in enumerate(docData.spectrum.peaklist):
             if (selection[0] < peak.mz < selection[2]) and (
                 selection[1] < peak.ai < selection[3]
             ):
                 indexes.append(x)
                 deleted_mzs.append(peak.mz)
 
+        # remove rulers whose middle is within the selection and whose bar
+        # (put at its own height, else drawn just above the taller of its two
+        # peaks) the selection reaches
+        rulers = [
+            ruler
+            for ruler in docData.rulers
+            if selection[0] < (ruler.mz1 + ruler.mz2) / 2 < selection[2]
+            and (
+                selection[1] <= ruler.height <= selection[3]
+                if ruler.height is not None
+                else selection[3] >= max(ruler.ai1, ruler.ai2)
+            )
+        ]
+
         # update document
+        items = ()
         if indexes:
-            self.documents[self.currentDocument].backup(("spectrum"))
-            self.documents[self.currentDocument].spectrum.peaklist.delete(indexes)
+            items += ("spectrum",)
+        if rulers:
+            items += ("rulers",)
+        if not items:
+            return
+
+        docData.backup(items)
+        if indexes:
+            docData.spectrum.peaklist.delete(indexes)
             self.parent.peaklistPanel._recalculateNeighborhoodEnvelopes(deleted_mzs)
-            self.parent.onDocumentChanged(items=("spectrum"))
+        if rulers:
+            docData.rulers[:] = [r for r in docData.rulers if r not in rulers]
+        self.parent.onDocumentChanged(items=items)
 
     # ----
 
-    def refresh(self, fullsize=False):
-        """Redraw spectrum."""
+    def getSnapCandidates(self, x, tolerance):
+        """Peaks of the current document a difference ruler can snap to.
+
+        x and the returned (x, y) points are in plot coordinates, i.e. with the
+        document's offset, normalization and flipping applied.
+        """
+
+        if self.currentDocument is None:
+            return []
+
+        docData = self.documents[self.currentDocument]
+        if not docData.visible:
+            return []
+
+        mz = self._toReal((x, 0))[0]
+        peaklist = docData.spectrum.peaklist
+        mzs = self._getPeakMzs()
+        first = bisect.bisect_left(mzs, mz - tolerance)
+        last = bisect.bisect_right(mzs, mz + tolerance)
+
+        norm = None
+        if config.spectrum["normalize"] and last > first:
+            norm = docData.spectrum.normalization()
+
+        return [
+            self._toDisplay(peaklist[i].mz, peaklist[i].ai, norm)
+            for i in range(first, last)
+        ]
+
+    # ----
+
+    def getRulerObstacles(self):
+        """Boxes the current document's drawn difference labels take."""
+
+        if self.currentDocument is None:
+            return []
+        obj = self.container[self.currentDocument + 2]
+        return mspy.plot.rulerObstacles(
+            getattr(obj, "rulerGeometry", []), self.spectrumCanvas.printerScale
+        )
+
+    # ----
+
+    def getRulerMatch(self, start, end):
+        """Difference, charge and matches of a ruler between two canvas points.
+
+        start and end are (x, y, snapped) as the canvas gives them. The charge
+        comes from the peaks the ends sit on (see differences.rulerCharge).
+        """
+
+        mz1 = self._toReal(start[:2])[0]
+        mz2 = self._toReal(end[:2])[0]
+        diff = abs(mz2 - mz1)
+
+        charges = []
+        for point, mz in ((start, mz1), (end, mz2)):
+            peak = self._peakAt(mz) if point[2] else None
+            charges.append(peak.charge if peak is not None else None)
+        charge = differences.rulerCharge(*charges)
+
+        return diff, charge, matchRuler(diff, charge, (mz1, mz2))
+
+    # ----
+
+    def getRulerText(self, start, end):
+        """Text over the difference ruler being dragged."""
+
+        diff, charge, matches = self.getRulerMatch(start, end)
+        mzs = (self._toReal(start[:2])[0], self._toReal(end[:2])[0])
+        return rulerText(
+            differences.matchNames(matches),
+            diff,
+            charge,
+            matches[0][3] if matches else None,
+            mzs,
+        )
+
+    # ----
+
+    def addRuler(self, start, end, height=None):
+        """Add a difference ruler between two canvas points to the document.
+
+        height is the intensity to put its bar at, None to place it itself.
+        """
+
+        # check document
+        if self.currentDocument is None:
+            return
+
+        # a click, or a drag too short to mean anything, is not a ruler
+        x1 = self.spectrumCanvas.positionUserToScreen(start[:2])[0]
+        x2 = self.spectrumCanvas.positionUserToScreen(end[:2])[0]
+        if abs(x2 - x1) < 3:
+            return
+
+        docData = self.documents[self.currentDocument]
+        ruler = self._makeRuler(
+            start, end, scanID=docData.currentScanID if docData.islcms() else None
+        )
+        if height is not None:
+            ruler.height = float(height)
+
+        docData.backup(("rulers",))
+        docData.rulers.append(ruler)
+        self.parent.onDocumentChanged(items=("rulers",))
+
+    # ----
+
+    def _rulerSeries(self, start, end):
+        """Series between two canvas points, both on a peak (see findSeries).
+
+        Returns (path of peak indexes, charge), or None when the ends are not
+        on two peaks or no chain of matching steps of at least
+        MIN_SERIES_STEP joins them. The last one found is remembered, as it
+        is asked for on every move of a drag.
+        """
+
+        if self.currentDocument is None or not (start[2] and end[2]):
+            return None
+
+        mz1 = self._toReal(start[:2])[0]
+        mz2 = self._toReal(end[:2])[0]
+        peak1 = self._peakAt(mz1)
+        peak2 = self._peakAt(mz2)
+        if peak1 is None or peak2 is None or peak1 is peak2:
+            return None
+        if peak2.mz < peak1.mz:
+            peak1, peak2 = peak2, peak1
+
+        docData = self.documents[self.currentDocument]
+        peaklist = docData.spectrum.peaklist
+        settings = config.differenceRuler
+        key = (
+            id(peaklist),
+            len(peaklist),
+            peak1.mz,
+            peak2.mz,
+            tuple(settings["lists"]),
+            settings["tolerance"],
+            settings["massType"],
+            settings["units"],
+        )
+        if getattr(self, "_rulerSeriesCache", (None,))[0] == key:
+            return self._rulerSeriesCache[1]
+
+        charge = differences.rulerCharge(peak1.charge, peak2.charge)
+        path = differences.findSeries(
+            self._getPeakMzs(),
+            [peak.ai for peak in peaklist],
+            self._peakIndex(peak1.mz),
+            self._peakIndex(peak2.mz),
+            differences.entries(settings["lists"], pairs=False),
+            settings["tolerance"],
+            settings["massType"],
+            charge,
+            settings["units"],
+            minStep=differences.MIN_SERIES_STEP,
+        )
+        result = None if path is None else (path, charge)
+        self._rulerSeriesCache = (key, result)
+        return result
+
+    # ----
+
+    def getRulerSeriesMatch(self, start, end):
+        """What the series between two canvas points is, for Shift.
+
+        Returns (name, charge, theoretical): name is that of the chain of
+        steps through the peaks in between (e.g. 2\u00d7Hex + HexNAc), which
+        is labelled step by step once dropped, else what the difference
+        matches as a whole (as without Shift); theoretical the neutral mass it
+        stands for. None when it is neither.
+        """
+
+        if self.currentDocument is None:
+            return None
+
+        series = self._rulerSeries(start, end)
+        if series is not None:
+            path, charge = series
+            peaklist = self.documents[self.currentDocument].spectrum.peaklist
+            names = []
+            theoretical = 0.0
+            for i, j in zip(path[:-1], path[1:], strict=True):
+                a, b = peaklist[i], peaklist[j]
+                matches = matchRuler(b.mz - a.mz, charge, (a.mz, b.mz))
+                names.append(matches[0][0] if matches else "?")
+                theoretical += matches[0][3] if matches else 0.0
+            return differences.seriesName(names), charge, theoretical
+
+        _diff, charge, matches = self.getRulerMatch(start, end)
+        if matches:
+            return differences.matchNames(matches), charge, matches[0][3]
+        return None
+
+    # ----
+
+    def getRulerSeriesText(self, start, end):
+        """Text over a ruler dragged with Shift (see getRulerSeriesMatch)."""
+
+        found = self.getRulerSeriesMatch(start, end)
+        if found is None:
+            return None
+        name, charge, theoretical = found
+        mzs = (self._toReal(start[:2])[0], self._toReal(end[:2])[0])
+        return rulerText(name, abs(mzs[1] - mzs[0]), charge, theoretical, mzs)
+
+    # ----
+
+    def addRulerSeries(self, start, end, height=None, replace=None):
+        """Label a series between two canvas points (with Shift).
+
+        Every step of a chain of matching steps through the peaks in between
+        (see findSeries) gets its own label, its bar over its taller peak.
+        replace is the index of a label the series takes the place of, as one
+        undoable step. Returns False, adding nothing, without such a chain.
+        """
+
+        if self.currentDocument is None:
+            return False
+
+        docData = self.documents[self.currentDocument]
+        scanID = docData.currentScanID if docData.islcms() else None
+        rulers = []
+
+        series = self._rulerSeries(start, end)
+        if series is not None:
+            path, charge = series
+            peaklist = docData.spectrum.peaklist
+            canvas = self.spectrumCanvas
+            for i, j in zip(path[:-1], path[1:], strict=True):
+                a, b = peaklist[i], peaklist[j]
+                matches = matchRuler(b.mz - a.mz, charge, (a.mz, b.mz))
+
+                # each step's bar just over its taller peak
+                taller = a if a.ai >= b.ai else b
+                barY = canvas.rulerBarOver(self._toDisplay(taller.mz, taller.ai))
+                barHeight = self._toReal(canvas.positionScreenToUser((0, barY)))[1]
+                rulers.append(
+                    doc.ruler(
+                        a.mz,
+                        a.ai,
+                        b.mz,
+                        b.ai,
+                        label=differences.matchNames(matches),
+                        charge=charge,
+                        scanID=scanID,
+                        theoretical=matches[0][3] if matches else None,
+                        height=barHeight,
+                    )
+                )
+
+        else:
+            return False
+
+        docData.backup(("rulers",))
+        if replace is not None and 0 <= replace < len(docData.rulers):
+            docData.rulers[replace : replace + 1] = rulers
+        else:
+            docData.rulers.extend(rulers)
+        self.parent.onDocumentChanged(items=("rulers",))
+        return True
+
+    # ----
+
+    def _peakIndex(self, mz):
+        """Index of the current document's peak at this m/z (to rounding)."""
+
+        mzs = self._getPeakMzs()
+        return bisect.bisect_left(mzs, mz - 1e-6)
+
+    # ----
+
+    def _makeRuler(self, start, end, scanID=None):
+        """Matched difference ruler between two canvas points."""
+
+        mz1, ai1 = self._toReal(start[:2])
+        mz2, ai2 = self._toReal(end[:2])
+        diff, charge, matches = self.getRulerMatch(start, end)
+
+        return doc.ruler(
+            mz1,
+            ai1,
+            mz2,
+            ai2,
+            label=differences.matchNames(matches),
+            charge=charge,
+            scanID=scanID,
+            theoretical=matches[0][3] if matches else None,
+        )
+
+    # ----
+
+    def rulerAt(self, x, y):
+        """Current document's ruler drawn at a screen position, as (index, part).
+
+        part is 1 or 2 for the left or right end's lead, 0 for the bar.
+        """
+
+        if self.currentDocument is None:
+            return None
+        docData = self.documents[self.currentDocument]
+        if not docData.visible or not config.differenceRuler["show"]:
+            return None
+
+        hit = self.container[self.currentDocument + 2].rulerAt(
+            x, y, 5 * self.spectrumCanvas.printerScale["drawings"]
+        )
+        if hit is None or not 0 <= hit[0] < len(docData.rulers):
+            return None
+        return hit
+
+    # ----
+
+    def grabRuler(self, x, y):
+        """Ruler a press at a screen position picks up (see the canvas).
+
+        Returns (plot object, ruler index, part, ends, text, apexes): part is
+        1 or 2 for the left or right end, 0 for the bar; ends are the two peak
+        tops, left first, and apexes a function listing the tops of the peaks
+        the ruler spans (which the bar snaps to), in plot coordinates. None
+        when the press misses.
+        """
+
+        hit = self.rulerAt(x, y)
+        if hit is None:
+            return None
+
+        docIndex = self.currentDocument
+        if docIndex is None:
+            return None
+        ruler = self.documents[docIndex].rulers[hit[0]]
+        obj = self.container[docIndex + 2]
+
+        # the ends where the label draws them
+        ends = []
+        for mz, ai in ((ruler.mz1, ruler.ai1), (ruler.mz2, ruler.ai2)):
+            ends.append(self._toDisplay(mz, obj.rulerEndIntensity(mz, ai)))
+        ends.sort(key=lambda point: self.spectrumCanvas.positionUserToScreen(point)[0])
+
+        text = labelText(ruler)
+
+        def apexes():
+            peaklist = self.documents[self.currentDocument].spectrum.peaklist
+            mzs = self._getPeakMzs()
+            first = bisect.bisect_left(mzs, ruler.mz1 - 1e-6)
+            last = bisect.bisect_right(mzs, ruler.mz2 + 1e-6)
+            norm = None
+            if config.spectrum["normalize"] and last > first:
+                norm = self.documents[self.currentDocument].spectrum.normalization()
+            return [
+                self._toDisplay(peaklist[i].mz, peaklist[i].ai, norm)
+                for i in range(first, last)
+            ]
+
+        return (
+            obj,
+            hit[0],
+            hit[1],
+            ends,
+            text,
+            apexes,
+        )
+
+    # ----
+
+    def setRulerHeight(self, index, height):
+        """Put a difference ruler's bar at an intensity, or back (None)."""
+
+        docData = self.documents[self.currentDocument]
+        if not 0 <= index < len(docData.rulers):
+            return
+
+        docData.backup(("rulers",))
+        docData.rulers[index].height = None if height is None else float(height)
+        self.parent.onDocumentChanged(items=("rulers",))
+
+    # ----
+
+    def moveRuler(self, index, start, end, height=None):
+        """Put a difference ruler whose end was dragged between new points.
+
+        height is the intensity its bar is at now, if it was drawn somewhere.
+        """
+
+        docData = self.documents[self.currentDocument]
+        if not 0 <= index < len(docData.rulers):
+            return
+
+        # dropped back on its other end: nothing to measure, leave it be
+        x1 = self.spectrumCanvas.positionUserToScreen(start[:2])[0]
+        x2 = self.spectrumCanvas.positionUserToScreen(end[:2])[0]
+        if abs(x2 - x1) < 3:
+            self.parent.onDocumentChanged(items=("rulers",))
+            return
+
+        old = docData.rulers[index]
+        ruler = self._makeRuler(start, end, scanID=old.scanID)
+        ruler.height = old.height if height is None else float(height)
+        ruler.note = old.note
+        docData.backup(("rulers",))
+        docData.rulers[index] = ruler
+        self.parent.onDocumentChanged(items=("rulers",))
+
+    # ----
+
+    def showRuler(self, index):
+        """Zoom the spectrum to a difference label of the current document."""
+
+        docData = self.documents[self.currentDocument]
+        if not 0 <= index < len(docData.rulers):
+            return
+
+        ruler = docData.rulers[index]
+        margin = max(ruler.diff * 0.25, 1.0)
+        x1 = self._toDisplay(ruler.mz1 - margin, 0)[0]
+        x2 = self._toDisplay(ruler.mz2 + margin, 0)[0]
+        self.setCanvasRange(xAxis=(min(x1, x2), max(x1, x2)))
+        self.highlightPoints([ruler.mz1, ruler.mz2])
+
+    # ----
+
+    def deleteRuler(self, index):
+        """Delete one difference ruler of the current document."""
+
+        docData = self.documents[self.currentDocument]
+        if not 0 <= index < len(docData.rulers):
+            return
+
+        docData.backup(("rulers",))
+        del docData.rulers[index]
+        self.parent.onDocumentChanged(items=("rulers",))
+
+    # ----
+
+    def rematchRuler(self, ruler):
+        """Label a ruler again with the current settings."""
+
+        peak1 = self._peakAt(ruler.mz1)
+        peak2 = self._peakAt(ruler.mz2)
+        if peak1 is not None or peak2 is not None:
+            ruler.charge = differences.rulerCharge(
+                peak1.charge if peak1 is not None else None,
+                peak2.charge if peak2 is not None else None,
+            )
+        matches = matchRuler(ruler.diff, ruler.charge, (ruler.mz1, ruler.mz2))
+
+        # a match the user picked stays while it still matches
+        if ruler.picked:
+            for match in matches:
+                if match[0] == ruler.label:
+                    ruler.theoretical = match[3]
+                    return
+            ruler.picked = False
+
+        ruler.label = differences.matchNames(matches)
+        ruler.theoretical = matches[0][3] if matches else None
+
+    # ----
+
+    def _changeRuler(self, index, **values):
+        """Set attributes of one difference label, as one undoable step."""
+
+        docData = self.documents[self.currentDocument]
+        if not 0 <= index < len(docData.rulers):
+            return
+
+        docData.backup(("rulers",))
+        for name, value in values.items():
+            setattr(docData.rulers[index], name, value)
+        self.parent.onDocumentChanged(items=("rulers",))
+
+    # ----
+
+    def editRulerText(self, index):
+        """Let the user write the text a difference label shows."""
+
+        ruler = self.documents[self.currentDocument].rulers[index]
+        dlg = wx.TextEntryDialog(
+            self,
+            "Text to show instead of the automatic one (empty: automatic).\n"
+            "These are filled in from the label: {name} the match, {diff} the\n"
+            "measured difference, {mass} the same as a neutral mass, {theo} the\n"
+            "match's theoretical mass, {error} measured minus theoretical.",
+            "Label Text",
+            ruler.note or labelText(ruler),
+        )
+        if dlg.ShowModal() == wx.ID_OK:
+            note = dlg.GetValue().strip()
+            dlg.Destroy()
+            if note == labelText(ruler) and not ruler.note:
+                return
+            self._changeRuler(index, note=note or None)
+        else:
+            dlg.Destroy()
+
+    # ----
+
+    def onCanvasKey(self, evt):
+        """Delete the difference label under the cursor, else the canvas keys."""
+
+        key = evt.GetKeyCode()
+        canvas = self.spectrumCanvas
+        if (
+            self.currentTool == "diffruler"
+            and key in (wx.WXK_DELETE, wx.WXK_BACK)
+            and not canvas.mouseEvent
+        ):
+            hit = self.rulerAt(canvas.cursorPosition[2], canvas.cursorPosition[3])
+            if hit is None:
+                wx.Bell()
+            else:
+                self.deleteRuler(hit[0])
+            return
+
+        canvas.onChar(evt)
+
+    # ----
+
+    def onCanvasLDClick(self, evt):
+        """Edit the text of a difference label double-clicked, else reset view."""
+
+        if self.currentTool == "diffruler":
+
+            # the second press may have picked the label up to drag it, which
+            # hides it from the hit test
+            index = self.spectrumCanvas.getRulerEdit()
+            if index is not None:
+                self.spectrumCanvas.escMouseEvents()
+            else:
+                hit = self.rulerAt(*evt.GetPosition())
+                index = hit[0] if hit is not None else None
+
+            if index is not None:
+                self.editRulerText(index)
+                return
+
+        self.spectrumCanvas.onLMDC(evt)
+
+    # ----
+
+    def onRulerMenu(self, index):
+        """Show what can be done with one difference label."""
+
+        docData = self.documents[self.currentDocument]
+        ruler = docData.rulers[index]
+        mzs = (ruler.mz1, ruler.mz2)
+
+        def rematch():
+            docData.backup(("rulers",))
+            ruler.picked = False
+            self.rematchRuler(ruler)
+            self.parent.onDocumentChanged(items=("rulers",))
+
+        menu = wx.Menu()
+        handlers = {}
+
+        def append(target, label, handler, kind=wx.ITEM_NORMAL, checked=False):
+            itemID = wx.NewIdRef()
+            item = target.Append(itemID, label, "", kind)
+            if kind != wx.ITEM_NORMAL:
+                item.Check(checked)
+            handlers[int(itemID)] = handler
+
+        title = menu.Append(
+            wx.ID_ANY,
+            "%s  (%s - %s)"
+            % (
+                labelText(ruler),
+                "%0.*f" % (config.main["mzDigits"], ruler.mz1),
+                "%0.*f" % (config.main["mzDigits"], ruler.mz2),
+            ),
+        )
+        title.Enable(False)
+        menu.AppendSeparator()
+
+        # choose among several matches
+        matches = matchRuler(ruler.diff, ruler.charge, mzs)
+        names = []
+        for match in matches:
+            if match[0] not in [item[0] for item in names]:
+                names.append(match)
+        if len(names) > 1:
+            submenu = wx.Menu()
+            append(
+                submenu,
+                "All (%s)" % differences.matchNames(matches),
+                lambda: self._changeRuler(
+                    index,
+                    label=differences.matchNames(matches),
+                    theoretical=matches[0][3],
+                    picked=False,
+                ),
+                wx.ITEM_RADIO,
+                not ruler.picked,
+            )
+            for name, error, _listName, theoretical in names:
+                append(
+                    submenu,
+                    self._matchDescription(name, error, theoretical, ruler.charge, mzs),
+                    lambda name=name, theoretical=theoretical: self._changeRuler(
+                        index, label=name, theoretical=theoretical, picked=True
+                    ),
+                    wx.ITEM_RADIO,
+                    ruler.picked and ruler.label == name,
+                )
+            menu.AppendSubMenu(submenu, "Show Match")
+
+        append(menu, "Edit Text...", lambda: self.editRulerText(index))
+        if ruler.note:
+            append(menu, "Automatic Text", lambda: self._changeRuler(index, note=None))
+        if sum(1 for other in docData.rulers if other.note) > 1:
+            append(menu, "Automatic Text for All Labels", self.resetRulerNotes)
+        append(menu, "Colour...", lambda: self.pickRulerColour(index))
+        if ruler.colour:
+            append(menu, "Default Colour", lambda: self._changeRuler(index, colour=None))
+        append(menu, "Match Again", rematch)
+        if ruler.height is not None:
+            append(menu, "Reset Height", lambda: self.setRulerHeight(index, None))
+        append(menu, "Delete Label", lambda: self.deleteRuler(index))
+        menu.AppendSeparator()
+        append(menu, "Delete All Difference Labels", self.parent.onDocumentRulersDelete)
+        menu.AppendSeparator()
+        append(menu, "Difference Label Settings...", self.onDiffRulerSettings)
+
+        def onMenu(evt):
+            handler = handlers.get(evt.GetId())
+            if handler is not None:
+                handler()
+
+        menu.Bind(wx.EVT_MENU, onMenu)
+        self.PopupMenu(menu)
+        menu.Destroy()
+
+    # ----
+
+    def _matchDescription(self, name, error, theoretical, charge, mzs):
+        """A match as the Show Match menu lists it: its name, the theoretical
+        (neutral) mass difference it stands for, and how far the measured one
+        is from it."""
+
+        if config.differenceRuler["labelShort"]:
+            short = differences.shortenNames(name)
+            if short != name:
+                name = "%s (%s)" % (short, name)
+        return "%s   expected %0.*f, error %s" % (
+            name,
+            config.main["mzDigits"],
+            theoretical,
+            differences.errorText(
+                error,
+                charge,
+                config.differenceRuler["units"],
+                mzs,
+                config.main["mzDigits"],
+                config.main["ppmDigits"],
+            ),
+        )
+
+    # ----
+
+    def resetRulerNotes(self, evt=None):
+        """Give every label of the current document its automatic text back."""
+
+        if self.currentDocument is None:
+            return
+        docData = self.documents[self.currentDocument]
+        count = sum(1 for ruler in docData.rulers if ruler.note)
+        if not count:
+            wx.Bell()
+            return
+
+        # own texts are typed by hand; make sure this was meant
+        title = "Replace the text you typed on %s?" % (
+            "1 label" if count == 1 else "%d labels" % count
+        )
+        message = (
+            "They will show what they matched instead. Undo brings the texts back."
+        )
+        buttons = [
+            (wx.ID_CANCEL, "Cancel", 80, True, 15),
+            (wx.ID_OK, "Replace", 80, False, 0),
+        ]
+        dlg = mwx.dlgMessage(self, title, message, buttons)
+        if dlg.ShowModal() != wx.ID_OK:
+            dlg.Destroy()
+            return
+        dlg.Destroy()
+
+        docData.backup(("rulers",))
+        for ruler in docData.rulers:
+            ruler.note = None
+        self.parent.onDocumentChanged(items=("rulers",))
+
+    # ----
+
+    def pickRulerColour(self, index):
+        """Let the user choose the colour of one difference label."""
+
+        ruler = self.documents[self.currentDocument].rulers[index]
+        colour = wx.GetColourFromUser(
+            self,
+            wx.Colour(*(ruler.colour or config.differenceRuler["colour"])),
+            "Label Colour",
+        )
+        if not colour.IsOk():
+            return
+        self._changeRuler(index, colour=(colour.Red(), colour.Green(), colour.Blue()))
+
+    # ----
+
+    def rematchRulers(self, evt=None):
+        """Label the current document's rulers again with the current settings."""
+
+        if self.currentDocument is None or not self.documents[self.currentDocument].rulers:
+            wx.Bell()
+            return
+
+        docData = self.documents[self.currentDocument]
+        docData.backup(("rulers",))
+        for ruler in docData.rulers:
+            self.rematchRuler(ruler)
+
+        self.parent.onDocumentChanged(items=("rulers",))
+
+    # ----
+
+    def _rulerToleranceText(self):
+        """Matching tolerance as shown to the user, e.g. "±100 ppm"."""
+
+        return "\u00b1%g %s" % (
+            config.differenceRuler["tolerance"],
+            config.differenceRuler["units"],
+        )
+
+    # ----
+
+    def onDiffRulerMenu(self, evt=None):
+        """Show difference ruler options."""
+
+        menu = wx.Menu()
+        handlers = {}
+
+        def append(
+            label, handler, kind=wx.ITEM_NORMAL, checked=False, enabled=True, menu=menu
+        ):
+            itemID = wx.NewIdRef()
+            item = menu.Append(itemID, label, "", kind)
+            if kind != wx.ITEM_NORMAL:
+                item.Check(checked)
+            item.Enable(enabled)
+            handlers[int(itemID)] = handler
+
+        # difference lists
+        header = menu.Append(
+            wx.ID_ANY, "Match Within %s:" % self._rulerToleranceText()
+        )
+        header.Enable(False)
+        enabled = config.differenceRuler["lists"]
+        for name in differences.availableLists():
+            append(
+                "    " + name,
+                lambda name=name: self._toggleRulerList(name),
+                wx.ITEM_CHECK,
+                name in enabled,
+            )
+
+        # matching options
+        menu.AppendSeparator()
+        massType = config.differenceRuler["massType"]
+        append(
+            "Monoisotopic Masses",
+            lambda: self._setRulerOption("massType", 0),
+            wx.ITEM_RADIO,
+            not massType,
+        )
+        append(
+            "Average Masses",
+            lambda: self._setRulerOption("massType", 1),
+            wx.ITEM_RADIO,
+            bool(massType),
+        )
+
+        # what a matched label's text shows, the same switches as in Settings
+        textMenu = wx.Menu()
+        named = bool(config.differenceRuler["labelName"])
+        for key, label, needsName in RULER_TEXT_PARTS:
+            append(
+                label,
+                lambda key=key: self._setRulerOption(
+                    key, int(not config.differenceRuler[key])
+                ),
+                wx.ITEM_CHECK,
+                bool(config.differenceRuler[key]),
+                enabled=named or not needsName,
+                menu=textMenu,
+            )
+        menu.AppendSubMenu(textMenu, "Matched Label Text")
+        append(
+            "Settings...",
+            self.onDiffRulerSettings,
+        )
+
+        # rulers of the current document
+        hasRulers = (
+            self.currentDocument is not None
+            and bool(self.documents[self.currentDocument].rulers)
+        )
+        menu.AppendSeparator()
+        append("Match All Labels Again", self.rematchRulers, enabled=hasRulers)
+        append(
+            "Automatic Text for All Labels",
+            self.resetRulerNotes,
+            enabled=hasRulers
+            and any(ruler.note for ruler in self.documents[self.currentDocument].rulers),
+        )
+        append(
+            "Delete All Difference Labels", self.parent.onDocumentRulersDelete, enabled=hasRulers
+        )
+        menu.AppendSeparator()
+        append("Edit Difference Lists...", self.parent.onLibraryDifferences)
+
+        def onMenu(evt):
+            handler = handlers.get(evt.GetId())
+            if handler is not None:
+                handler()
+
+        menu.Bind(wx.EVT_MENU, onMenu)
+        textMenu.Bind(wx.EVT_MENU, onMenu)
+        self.PopupMenu(menu)
+        menu.Destroy()
+
+    # ----
+
+    def _toggleRulerList(self, name):
+        """Match the difference ruler against a list, or stop doing so."""
+
+        lists = list(config.differenceRuler["lists"])
+        if name in lists:
+            lists.remove(name)
+        else:
+            lists.append(name)
+        config.differenceRuler["lists"] = lists
+
+    # ----
+
+    def _setRulerOption(self, key, value):
+        """Set a difference ruler option and redraw the rulers."""
+
+        config.differenceRuler[key] = value
+        self.updateCanvasProperties()
+
+    # ----
+
+    def onDiffRulerSettings(self, evt=None):
+        """Show the difference ruler settings."""
+
+        hasRulers = self.currentDocument is not None and bool(
+            self.documents[self.currentDocument].rulers
+        )
+        dlg = dlgDiffRulerSettings(self.parent, hasRulers)
+        if dlg.ShowModal() == wx.ID_OK:
+            rematch = dlg.rematch
+            dlg.Destroy()
+            if rematch and self.currentDocument is not None:
+                if self.documents[self.currentDocument].rulers:
+                    self.rematchRulers()
+            self.updateCanvasProperties()
+        else:
+            dlg.Destroy()
+
+    # ----
+
+    def _toReal(self, point):
+        """Convert a canvas point to the current document's m/z and intensity;
+        with no document selected, the canvas values themselves."""
+
+        x, y = point
+        if self.currentDocument is None:
+            return x, y
+        docData = self.documents[self.currentDocument]
+
+        if docData.flipped:
+            y = -y
+        if config.spectrum["normalize"]:
+            y *= docData.spectrum.normalization()
+        else:
+            x -= docData.offset[0]
+            y -= docData.offset[1]
+
+        return x, y
+
+    # ----
+
+    def _toDisplay(self, mz, ai, norm=None):
+        """Convert the current document's m/z and intensity to a canvas point.
+
+        norm is the document's normalization, when the caller already has it.
+        """
+
+        docData = self.documents[self.currentDocument]
+
+        if config.spectrum["normalize"]:
+            ai /= norm or docData.spectrum.normalization()
+        else:
+            mz += docData.offset[0]
+            ai += docData.offset[1]
+        if docData.flipped:
+            ai = -ai
+
+        return mz, ai
+
+    # ----
+
+    def _getPeakMzs(self):
+        """Sorted m/z of the current document's peaks."""
+
+        peaklist = self.documents[self.currentDocument].spectrum.peaklist
+        key = (id(peaklist), len(peaklist), self.currentDocument)
+        mzs = self._peakMzs
+        if key != self._peakMzsKey or mzs is None:
+            mzs = self._peakMzs = [peak.mz for peak in peaklist]
+            self._peakMzsKey = key
+        return mzs
+
+    # ----
+
+    def _peakAt(self, mz):
+        """The current document's peak at this m/z (to rounding), if any."""
+
+        if self.currentDocument is None:
+            return None
+        peaklist = self.documents[self.currentDocument].spectrum.peaklist
+        mzs = self._getPeakMzs()
+        i = bisect.bisect_left(mzs, mz - 1e-6)
+        if i < len(mzs) and abs(mzs[i] - mz) <= 1e-6:
+            return peaklist[i]
+        return None
+
+    # ----
+
+    def refresh(self, fullsize=False, keepScale=False):
+        """Redraw spectrum (keepScale: without autoscaling the intensity)."""
 
         # check for flipped documents and update canvas symmetry
         self.spectrumCanvas.setProperties(ySymmetry=False)
@@ -1611,7 +2885,7 @@ class panelSpectrum(wx.Panel):
                 break
 
         # redraw canvas
-        self.spectrumCanvas.refresh(fullsize=fullsize)
+        self.spectrumCanvas.refresh(fullsize=fullsize, keepScale=keepScale)
 
     # ----
 
@@ -2121,6 +3395,294 @@ class dlgSpectrumOffset(wx.Dialog):
     def getData(self):
         """Return values."""
         return self.offset
+
+    # ----
+
+
+# the parts a matched difference label's text can show, as (setting, label,
+# whether it only applies with the name shown); the label menu and the
+# settings dialog offer the same switches under the same words
+RULER_TEXT_PARTS = (
+    ("labelName", "Name", False),
+    ("labelAllNames", "All matching names, not only the closest", True),
+    ("labelShort", "Short names (e.g. Ac for Acetylation)", True),
+    ("labelCharge", "Charge (when above 1)", True),
+    ("labelDiff", "Difference", False),
+    ("labelError", "Error (observed - theoretical, in tolerance units)", False),
+)
+
+
+class dlgDiffRulerSettings(wx.Dialog):
+    """Set what the difference ruler matches and how it labels rulers."""
+
+    # an example ruler for the label preview: a lysine step at 2+, 1.2 mDa off,
+    # which glutamine (0.036 Da lighter) also matches at a loose tolerance
+    PREVIEW = {
+        "names": "Phosphorylation / Sulfation",
+        "short": {"Phosphorylation": "Phos", "Sulfation": "Sulf"},
+        "charge": 2,
+        "theoretical": 79.96633,
+        "diff": (79.96633 + 0.0012) / 2,
+        "mzs": (736.0, 776.0),
+    }
+
+    def __init__(self, parent, hasRulers=False):
+        wx.Dialog.__init__(
+            self,
+            parent,
+            -1,
+            "Difference Label Settings",
+            style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER,
+        )
+
+        self.parent = parent
+        self.hasRulers = hasRulers
+        self.rematch = False
+
+        # make GUI
+        sizer = self.makeGUI()
+        self.setData()
+        self.updatePreview()
+
+        # fit layout
+        self.Layout()
+        sizer.Fit(self)
+        self.SetSizer(sizer)
+        self.SetMinSize(self.GetSize())
+
+        # apply dark mode
+        mwx.applyDarkMode(self)
+        self.CentreOnParent()
+
+    # ----
+
+    def makeGUI(self):
+        """Make GUI elements."""
+
+        # lists
+        listsBox = mwx.staticBoxSizer(self, "Match against", wx.VERTICAL)
+        self.lists_check = wx.CheckListBox(self, -1, size=wx.Size(260, 150))
+        editLists_butt = wx.Button(self, -1, "Edit Lists...")
+        editLists_butt.Bind(wx.EVT_BUTTON, self.onEditLists)
+        listsBox.Add(self.lists_check, 1, wx.EXPAND | wx.ALL, 5)
+        listsBox.Add(editLists_butt, 0, wx.ALIGN_RIGHT | wx.LEFT | wx.RIGHT | wx.BOTTOM, 5)
+
+        # matching
+        matchBox = mwx.staticBoxSizer(self, "Matching", wx.VERTICAL)
+        massType_label = wx.StaticText(self, -1, "Masses:")
+        self.massTypeMo_radio = wx.RadioButton(self, -1, "Monoisotopic", style=wx.RB_GROUP)
+        self.massTypeAv_radio = wx.RadioButton(self, -1, "Average")
+
+        tolerance_label = wx.StaticText(self, -1, "Tolerance:")
+        self.tolerance_value = wx.TextCtrl(
+            self, -1, "", size=wx.Size(80, -1), validator=mwx.validator("floatPos")
+        )
+        self.tolerance_value.Bind(wx.EVT_TEXT, self.updatePreview)
+        self.units_choice = wx.Choice(self, -1, choices=["Da", "ppm"])
+        mwx.fitChoice(self.units_choice)
+        self.units_choice.Bind(wx.EVT_CHOICE, self.updatePreview)
+        self.tolerance_help = wx.StaticText(self, -1, "")
+        self.tolerance_help.SetFont(wx.SMALL_FONT)
+
+        grid = wx.GridBagSizer(mwx.GRIDBAG_VSPACE, mwx.GRIDBAG_HSPACE)
+        grid.Add(massType_label, (0, 0), flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL)
+        grid.Add(self.massTypeMo_radio, (0, 1), flag=wx.ALIGN_CENTER_VERTICAL)
+        grid.Add(self.massTypeAv_radio, (0, 2), flag=wx.ALIGN_CENTER_VERTICAL)
+        grid.Add(tolerance_label, (1, 0), flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL)
+        grid.Add(self.tolerance_value, (1, 1), flag=wx.ALIGN_CENTER_VERTICAL)
+        grid.Add(self.units_choice, (1, 2), flag=wx.ALIGN_CENTER_VERTICAL)
+        grid.Add(self.tolerance_help, (2, 1), (1, 2))
+        matchBox.Add(grid, 0, wx.ALL, 5)
+
+        # label
+        labelBox = mwx.staticBoxSizer(self, "Matched label text", wx.VERTICAL)
+        text = {key: label for key, label, needsName in RULER_TEXT_PARTS}
+        self.labelName_check = wx.CheckBox(self, -1, text["labelName"])
+        self.labelAllNames_check = wx.CheckBox(self, -1, text["labelAllNames"])
+        self.labelShort_check = wx.CheckBox(self, -1, text["labelShort"])
+        self.labelCharge_check = wx.CheckBox(self, -1, text["labelCharge"])
+        self.labelDiff_check = wx.CheckBox(self, -1, text["labelDiff"])
+        self.labelError_check = wx.CheckBox(self, -1, text["labelError"])
+        for check in (
+            self.labelName_check,
+            self.labelAllNames_check,
+            self.labelShort_check,
+            self.labelCharge_check,
+            self.labelDiff_check,
+            self.labelError_check,
+        ):
+            check.Bind(wx.EVT_CHECKBOX, self.updatePreview)
+
+        unmatched_label = wx.StaticText(self, -1, "Unmatched labels show the difference.")
+        unmatched_label.SetFont(wx.SMALL_FONT)
+        colour_label = wx.StaticText(self, -1, "Colour:")
+        self.colour_picker = wx.ColourPickerCtrl(
+            self, -1, wx.Colour(*config.differenceRuler["colour"])
+        )
+        self.colour_picker.Bind(wx.EVT_COLOURPICKER_CHANGED, self.updatePreview)
+        preview_label = wx.StaticText(self, -1, "Example:")
+        self.preview_text = wx.StaticText(self, -1, "")
+
+        preview = wx.BoxSizer(wx.HORIZONTAL)
+        preview.Add(colour_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        preview.Add(self.colour_picker, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 15)
+        preview.Add(preview_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        preview.Add(self.preview_text, 1, wx.ALIGN_CENTER_VERTICAL)
+
+        labelBox.Add(self.labelName_check, 0, wx.ALL, 3)
+        labelBox.Add(self.labelAllNames_check, 0, wx.LEFT, 25)
+        labelBox.Add(self.labelShort_check, 0, wx.LEFT, 25)
+        labelBox.Add(self.labelCharge_check, 0, wx.LEFT | wx.TOP, 3)
+        labelBox.Add(self.labelDiff_check, 0, wx.LEFT | wx.TOP, 3)
+        labelBox.Add(self.labelError_check, 0, wx.LEFT | wx.TOP, 3)
+        labelBox.Add(unmatched_label, 0, wx.ALL, 3)
+        labelBox.Add(preview, 0, wx.EXPAND | wx.ALL, 5)
+
+        # rematch + buttons
+        self.rematch_check = wx.CheckBox(
+            self, -1, "Match the current document's labels again"
+        )
+        self.rematch_check.SetToolTip(
+            wx.ToolTip(
+                "Otherwise labels keep the matches they were made with; the text "
+                "and colour apply to all of them anyway."
+            )
+        )
+        self.rematch_check.SetValue(self.hasRulers)
+        self.rematch_check.Enable(self.hasRulers)
+        cancel_butt = wx.Button(self, wx.ID_CANCEL, "Cancel")
+        ok_butt = wx.Button(self, wx.ID_OK, "OK")
+        ok_butt.Bind(wx.EVT_BUTTON, self.onOK)
+        buttons = wx.BoxSizer(wx.HORIZONTAL)
+        buttons.Add(cancel_butt, 0, wx.RIGHT, 15)
+        buttons.Add(ok_butt, 0)
+
+        right = wx.BoxSizer(wx.VERTICAL)
+        right.Add(matchBox, 0, wx.EXPAND)
+        right.AddSpacer(mwx.PANEL_SPACE_MAIN)
+        right.Add(labelBox, 1, wx.EXPAND)
+
+        columns = wx.BoxSizer(wx.HORIZONTAL)
+        columns.Add(listsBox, 0, wx.EXPAND | wx.RIGHT, mwx.PANEL_SPACE_MAIN)
+        columns.Add(right, 1, wx.EXPAND)
+
+        mainSizer = wx.BoxSizer(wx.VERTICAL)
+        mainSizer.Add(columns, 1, wx.EXPAND | wx.ALL, mwx.PANEL_SPACE_MAIN)
+        mainSizer.Add(self.rematch_check, 0, wx.LEFT | wx.RIGHT, mwx.PANEL_SPACE_MAIN)
+        mainSizer.Add(buttons, 0, wx.CENTER | wx.ALL, mwx.PANEL_SPACE_MAIN)
+
+        return mainSizer
+
+    # ----
+
+    def setData(self):
+        """Show the current settings."""
+
+        settings = config.differenceRuler
+        self.updateLists(settings["lists"])
+        self.massTypeAv_radio.SetValue(bool(settings["massType"]))
+        self.massTypeMo_radio.SetValue(not settings["massType"])
+        self.tolerance_value.ChangeValue(str(settings["tolerance"]))
+        self.units_choice.SetStringSelection(settings["units"])
+        self.labelName_check.SetValue(bool(settings["labelName"]))
+        self.labelAllNames_check.SetValue(bool(settings["labelAllNames"]))
+        self.labelShort_check.SetValue(bool(settings["labelShort"]))
+        self.labelCharge_check.SetValue(bool(settings["labelCharge"]))
+        self.labelDiff_check.SetValue(bool(settings["labelDiff"]))
+        self.labelError_check.SetValue(bool(settings["labelError"]))
+
+    # ----
+
+    def updateLists(self, checked):
+        """Fill the list of difference lists, ticking the checked ones."""
+
+        names = differences.availableLists()
+        self.lists_check.Set(names)
+        for i, name in enumerate(names):
+            self.lists_check.Check(i, name in checked)
+
+    # ----
+
+    def getLabelOptions(self):
+        """Label options as ticked."""
+
+        return {
+            "labelName": int(self.labelName_check.GetValue()),
+            "labelAllNames": int(self.labelAllNames_check.GetValue()),
+            "labelShort": int(self.labelShort_check.GetValue()),
+            "labelCharge": int(self.labelCharge_check.GetValue()),
+            "labelDiff": int(self.labelDiff_check.GetValue()),
+            "labelError": int(self.labelError_check.GetValue()),
+        }
+
+    # ----
+
+    def updatePreview(self, evt=None):
+        """Show how a matched ruler would be labelled."""
+
+        self.labelAllNames_check.Enable(self.labelName_check.GetValue())
+        self.labelShort_check.Enable(self.labelName_check.GetValue())
+        self.labelCharge_check.Enable(self.labelName_check.GetValue())
+
+        if self.units_choice.GetStringSelection() == "ppm":
+            self.tolerance_help.SetLabel("At each of the two peaks' m/z.")
+        else:
+            self.tolerance_help.SetLabel("")
+        self.preview_text.SetForegroundColour(self.colour_picker.GetColour())
+
+        example = self.PREVIEW
+        names = example["names"]
+        if self.labelShort_check.GetValue():
+            names = differences.shortenNames(names, {**example["short"], **differences.shortNames()})
+        text = differences.rulerText(
+            names,
+            example["diff"],
+            example["charge"],
+            example["theoretical"],
+            example["mzs"],
+            options=self.getLabelOptions(),
+            units=self.units_choice.GetStringSelection() or "Da",
+            digits=config.main["mzDigits"],
+            ppmDigits=config.main["ppmDigits"],
+        )
+        self.preview_text.SetLabel(text)
+        self.Layout()
+
+    # ----
+
+    def onEditLists(self, evt):
+        """Edit the mass differences library, keeping the ticks."""
+
+        checked = list(self.lists_check.GetCheckedStrings())
+        self.parent.onLibraryDifferences()
+        self.updateLists(checked)
+
+    # ----
+
+    def onOK(self, evt):
+        """Store the settings."""
+
+        try:
+            tolerance = float(self.tolerance_value.GetValue())
+        except ValueError:
+            tolerance = 0
+        if tolerance <= 0:
+            wx.Bell()
+            self.tolerance_value.SetFocus()
+            return
+
+        settings = config.differenceRuler
+        settings["lists"] = list(self.lists_check.GetCheckedStrings())
+        settings["massType"] = int(self.massTypeAv_radio.GetValue())
+        settings["tolerance"] = tolerance
+        settings["units"] = self.units_choice.GetStringSelection() or "Da"
+        for key, value in self.getLabelOptions().items():
+            settings[key] = value
+        colour = self.colour_picker.GetColour()
+        settings["colour"] = [colour.Red(), colour.Green(), colour.Blue()]
+
+        self.rematch = self.rematch_check.GetValue()
+        self.EndModal(wx.ID_OK)
 
     # ----
 

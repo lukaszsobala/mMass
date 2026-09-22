@@ -133,6 +133,8 @@ class canvas(wx.Window):
             "gridColour": (235, 235, 235),
             "highlightColour": (255, 0, 0),
             "zoomBoxColour": wx.TheColourDatabase.Find("sky blue"),
+            "rulerColour": (230, 120, 0),
+            "snapDistance": 12,
             "axisFont": wx.Font(
                 10, wx.SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL, 0
             ),
@@ -147,6 +149,39 @@ class canvas(wx.Window):
         self.mouseFnLMB = None
         self.mouseFnRMB = "zoom"
         self.mouseTracker = False
+
+        # difference ruler: snapFn(x, tolerance) lists the peaks (x, y) within
+        # tolerance of x, rulerLabelFn(start, end) says what to write over the
+        # ruler being dragged; both in plot coordinates
+        self.snapFn = None
+        self.rulerLabelFn = None
+        self.rulerStart = None
+
+        # rulerSeriesFn(start, end) gives the text over a ruler dragged with
+        # Shift held (rulerShift): what the series between the two points is,
+        # or None to label it as without Shift
+        self.rulerSeriesFn = None
+        self.rulerShift = False
+
+        # rulerPlacedFn() lists the boxes the rulers already drawn take (see
+        # plot_objects.rulerObstacles), so a ruler being dragged moves its
+        # text off them just as it will be once dropped
+        self.rulerPlacedFn = None
+        self.rulerLabelBoxesFn = None
+
+        # rulerGrabFn(screenX, screenY) says which drawn ruler a press picks
+        # up, as (plot object, key, part, ends, text, apexes) or None: part is
+        # 1 or 2 for an end (dragged along the peaks from the other one, the
+        # bar following up and down), 0 for the bar (dragged up and down only,
+        # snapping to the apexes); ends are both
+        # peak tops, text is the ruler's and apexes the tops of the peaks it
+        # spans (or a function listing them, called on a press), in plot
+        # coordinates. The ruler is hidden while rulerEdit =
+        # (plot object, key, ends, text, apexes, bar) is dragged, bar being the
+        # plot y its bar was drawn at, see getRulerEdit()
+        self.rulerGrabFn = None
+        self.rulerEdit = None
+        self.rulerEditColour = None
 
         self.currentObject = None
         self.currentCharge = 1
@@ -199,6 +234,7 @@ class canvas(wx.Window):
         self.Bind(wx.EVT_MOTION, self.onMMotion)
         self.Bind(wx.EVT_MOUSEWHEEL, self.onMScroll)
         self.Bind(wx.EVT_KEY_DOWN, self.onChar)
+        self.Bind(wx.EVT_KEY_UP, self.onKeyUp)
         self.Bind(wx.EVT_SYS_COLOUR_CHANGED, self.onSysColourChanged)
 
         # initialize bitmap buffer and set initial size based on client size
@@ -435,6 +471,45 @@ class canvas(wx.Window):
             self.mouseEvent = "distance"
             self.drawDistanceTracker(dc)
 
+        # start difference ruler at the nearest peak
+        elif location == "plot" and self.mouseFnLMB == "peakRuler":
+            self.mouseEvent = "peakRuler"
+            self.rulerStart = self.snapPosition()
+            self.rulerEdit = None
+
+            # or pick up an end of a ruler already drawn, dragging it from its
+            # other end
+            grab = None
+            if self.rulerGrabFn is not None:
+                grab = self.rulerGrabFn(self.cursorPosition[2], self.cursorPosition[3])
+            if grab:
+                obj, key, part, ends, text, apexes = grab
+                if callable(apexes):
+                    apexes = apexes()
+                bar = None
+                for drawnKey, geometry in getattr(obj, "rulerGeometry", []):
+                    if drawnKey == key:
+                        bar = self.positionScreenToUser((geometry[0], geometry[4]))[1]
+
+                # drawn in its own colour while dragged, if it has one
+                self.rulerEditColour = None
+                for index, item in enumerate(obj.properties.get("rulers", [])):
+                    if (item[5] if len(item) > 5 else index) == key and len(item) > 7:
+                        self.rulerEditColour = item[7]
+                self.rulerEdit = (obj, key, ends, text, apexes, bar)
+                obj.setProperties(hiddenRuler=key)
+                self.draw(self.lastDraw[0], self.lastDraw[1], self.lastDraw[2], dc)
+                if part:
+                    other = ends[2 - part]
+                    self.rulerStart = (other[0], other[1], True)
+                else:
+                    self.mouseEvent = "rulerBar"
+
+            if self.mouseEvent == "rulerBar":
+                self.drawRulerBar(dc)
+            else:
+                self.drawPeakRuler(dc)
+
         # set axis dragging
         elif location == "xAxis":
             self.mouseEvent = "xShift"
@@ -495,6 +570,8 @@ class canvas(wx.Window):
             "rectangle",
             "range",
             "distance",
+            "peakRuler",
+            "rulerBar",
             "xShift",
             "yShift",
             "xPosBar",
@@ -669,6 +746,7 @@ class canvas(wx.Window):
         # Always update cursor position so any eventual draw uses latest coords
         self.cursorPosition[0], self.cursorPosition[1] = self.getXY(evt)
         self.cursorPosition[2], self.cursorPosition[3] = evt.GetPosition()
+        self.rulerShift = evt.ShiftDown()
 
         now = time.time()
         if self.mouseEvent in (
@@ -731,6 +809,13 @@ class canvas(wx.Window):
             if self.getCursorLocation() == "plot":
                 self.drawMouseTracker(dc)
 
+                # a ruler end a press would pick up
+                if self.mouseFnLMB == "peakRuler" and self.rulerGrabFn is not None:
+                    grab = self.rulerGrabFn(self.cursorPosition[2], self.cursorPosition[3])
+                    if grab:
+                        cursor = wx.CURSOR_SIZEWE if grab[2] else wx.CURSOR_SIZENS
+                        self.SetCursor(wx.Cursor(cursor))
+
         # draw zoombox
         elif self.mouseEvent == "zoom":
             self.drawZoomBox(dc)
@@ -754,6 +839,14 @@ class canvas(wx.Window):
         # draw distance arrow
         elif self.mouseEvent == "distance":
             self.drawDistanceTracker(dc)
+
+        # draw difference ruler
+        elif self.mouseEvent == "peakRuler":
+            self.drawPeakRuler(dc)
+
+        # draw difference ruler being lifted or lowered
+        elif self.mouseEvent == "rulerBar":
+            self.drawRulerBar(dc)
 
         # move x axis
         elif self.mouseEvent == "xShift":
@@ -902,15 +995,49 @@ class canvas(wx.Window):
 
     # ----
 
+    def onKeyUp(self, evt):
+        """Show the one difference ruler again when Shift is let go."""
+
+        if evt.GetKeyCode() == wx.WXK_SHIFT:
+            self.rulerShift = False
+            self._redrawRulerOverlay()
+        evt.Skip()
+
+    # ----
+
+    def _redrawRulerOverlay(self):
+        """Draw the difference ruler being dragged again, as it is now."""
+
+        if self.mouseEvent != "peakRuler" or not self.lastDraw:
+            return
+        dc = wx.MemoryDC(self.plotBuffer)
+        self.quickRefresh(dc)
+        self.drawPeakRuler(dc)
+        dc.SelectObject(wx.NullBitmap)
+        self.Refresh(False)
+
+    # ----
+
     def onChar(self, evt):
         """Set zoom or position according to pressed key."""
 
         # get key
         key = evt.GetKeyCode()
 
-        # escape current mouse events
+        # escape current mouse events, wiping what they drew
         if key == wx.WXK_ESCAPE:
             self.escMouseEvents()
+            if self.lastDraw:
+                dc = wx.MemoryDC(self.plotBuffer)
+                self.quickRefresh(dc)
+                dc.SelectObject(wx.NullBitmap)
+                self.Refresh(False)
+            return
+
+        # Shift shows the series a difference ruler would label
+        elif key == wx.WXK_SHIFT:
+            self.rulerShift = True
+            self._redrawRulerOverlay()
             return
 
         # stop if any mouse event set
@@ -1296,6 +1423,284 @@ class canvas(wx.Window):
 
     # ----
 
+    def getRulerEdit(self):
+        """Key of the drawn ruler being dragged, or None."""
+
+        if self.mouseEvent not in ("peakRuler", "rulerBar") or not self.rulerEdit:
+            return None
+        return self.rulerEdit[1]
+
+    # ----
+
+    def getRulerBarHeight(self):
+        """Height the bar of the ruler being edited is at.
+
+        A new ruler's bar stays just over the peak it was started from, or the
+        one its other end is on when that is taller. While
+        an end is dragged, the bar follows the cursor up and down from
+        where it was. While the bar is lifted or lowered, it is at the cursor.
+        Either way it is kept within the plot, and snaps to a peak top or the
+        bar of another ruler (see _snapBar). None when no ruler is edited, or
+        its bar has not moved from where it was pressed.
+        """
+
+        if self.mouseEvent == "peakRuler" and not self.rulerEdit and self.rulerStart:
+            y = self._rulerNewBar(self.snapPosition())
+            return self.positionScreenToUser((self.cursorPosition[2], y))[1]
+        if not self.rulerEdit:
+            return None
+        if self.mouseEvent == "peakRuler":
+            end = self.snapPosition()
+            y, snap = self._rulerEndBarPosition(end)
+            if y is None:
+                return None
+        elif self.mouseEvent == "rulerBar":
+            if abs(self.cursorPosition[3] - self.draggingStart[3]) < 3:
+                return None
+            y, snap = self._rulerBarPosition()
+        else:
+            return None
+
+        if snap is not None:
+            return snap[1]
+        return self.positionScreenToUser((self.cursorPosition[2], y))[1]
+
+    # ----
+
+    def _rulerNewBar(self, end):
+        """Screen y of the bar of a new ruler: just over the point it was
+        started from, or over the peak the other end is on when that is the
+        taller; it does not follow the other end anywhere else.
+        """
+
+        y = self.rulerBarOver(self.rulerStart)
+        if end[2]:
+            other = self.rulerBarOver(end)
+            y = max(y, other) if self.rulerStart[1] < 0 else min(y, other)
+        return y
+
+    # ----
+
+    def rulerBarOver(self, point):
+        """Screen y of a ruler bar put over (under, for a flipped spectrum) a
+        plot point, as one is drawn over its peaks by itself (see
+        plot_objects.RULER_GAP), kept within the plot.
+        """
+
+        from mspy import plot_objects
+
+        y = self.positionUserToScreen(point[:2])[1]
+        gap = plot_objects.RULER_GAP * self.printerScale["drawings"]
+        y += gap if point[1] < 0 else -gap
+        return min(max(y, self.plotCoords[1]), self.plotCoords[3])
+
+    # ----
+
+    def _rulerBarPosition(self):
+        """Screen y of the bar being dragged, and what it snapped to.
+
+        The bar follows the cursor within the plot, snapping to the tops of
+        the peaks the ruler spans (see _snapBar).
+        """
+
+        y = min(max(self.cursorPosition[3], self.plotCoords[1]), self.plotCoords[3])
+        return self._snapBar(y, self.rulerEdit[4])
+
+    # ----
+
+    def _rulerEndBarPosition(self, end):
+        """Screen y of the bar of a ruler whose end is dragged, and the snap.
+
+        The bar moves up and down with the cursor from where it was pressed,
+        kept within the plot, and snaps to the tops of the peaks the ends are
+        on (see _snapBar). Returns (y or None, snap); None y leaves it to
+        drawRuler.
+        """
+
+        bar = self.rulerEdit[5]
+        if bar is None:
+            return None, None
+
+        # only once the cursor went up or down, so a bar drawn just over a peak
+        # does not jump onto it as the end is picked up
+        shift = self.cursorPosition[3] - self.draggingStart[3]
+        y = self.positionUserToScreen((end[0], bar))[1] + shift
+        y = min(max(y, self.plotCoords[1]), self.plotCoords[3])
+        if abs(shift) < 3:
+            return y, None
+
+        apexes = [point[:2] for point in (self.rulerStart, end) if point[2]]
+        return self._snapBar(y, apexes)
+
+    # ----
+
+    def _snapBar(self, y, apexes):
+        """Snap a ruler bar at screen y to a peak top or another ruler's bar.
+
+        A peak top (plot point in apexes) snaps within snapDistance pixels,
+        the bar of another ruler drawn by the same plot object within a bit
+        less, so peaks win when both are near. Returns (y, snap): snap is None,
+        or (x, plot y) with a third item, the other bar's (x1, x2) on screen,
+        when it lines up with another ruler.
+        """
+
+        limit = self.properties["snapDistance"] * self.printerScale["drawings"]
+        best = None
+        for apex in apexes:
+            apexY = self.positionUserToScreen(apex)[1]
+            distance = abs(apexY - y)
+            if distance <= limit and (best is None or distance < best[0]):
+                best = (distance, apexY, tuple(apex[:2]))
+
+        limit *= 0.6
+        for key, geometry in getattr(self.rulerEdit[0], "rulerGeometry", []):
+            if key == self.rulerEdit[1]:
+                continue
+            x1, x2, barY = geometry[0], geometry[2], geometry[4]
+            distance = abs(barY - y)
+            if distance <= limit and (best is None or distance < best[0]):
+                plotY = self.positionScreenToUser((x1, barY))[1]
+                best = (distance, barY, (x1, plotY, (x1, x2)))
+
+        if best is None:
+            return y, None
+        return best[1], best[2]
+
+    # ----
+
+    def _drawBarGuide(self, dc, x1, x2, y, snap):
+        """Dashed line joining a bar to the bar of the ruler it lines up with."""
+
+        if snap is None or len(snap) < 3:
+            return
+        left = min(x1, x2, *snap[2])
+        right = max(x1, x2, *snap[2])
+        dc.SetPen(wx.Pen(self.properties["rulerColour"], 1, wx.PENSTYLE_SHORT_DASH))
+        dc.DrawLine(int(left), int(y), int(right), int(y))
+
+    # ----
+
+    def endRulerEdit(self):
+        """Show the ruler that was being edited again (no redraw)."""
+
+        if self.rulerEdit:
+            self.rulerEdit[0].setProperties(hiddenRuler=None)
+        self.rulerEdit = None
+
+    # ----
+
+    def setRulerGrabFunction(self, fn):
+        """Set the function telling which ruler end a press picks up."""
+        self.rulerGrabFn = fn
+
+    # ----
+
+    def getRuler(self):
+        """Get the ends of the difference ruler being dragged.
+
+        Returns ((x, y, snapped), (x, y, snapped)) in plot coordinates, where
+        snapped tells whether the end sits on a peak, or False when no ruler is
+        being dragged.
+        """
+
+        if self.mouseEvent != "peakRuler" or not self.rulerStart:
+            return False
+
+        return self.rulerStart, self.snapPosition()
+
+    # ----
+
+    def snapPosition(self, position=None):
+        """Nearest peak to a position (the cursor's by default).
+
+        Returns (x, y, True) for a peak within snapDistance pixels, else the
+        position itself as (x, y, False). A cursor anywhere along a peak's stem
+        counts as being on it, so tall peaks do not have to be hit at the top.
+        """
+
+        if position is None:
+            position = self.cursorPosition[0], self.cursorPosition[1]
+        x, y = position
+
+        if self.snapFn is None or numpy.ndim(self.pointScale) == 0:
+            return (x, y, False)
+
+        xScale = abs(self.pointScale[0])
+        if not xScale:
+            return (x, y, False)
+        limit = self.properties["snapDistance"] * self.printerScale["drawings"]
+
+        cursorX, cursorY = self.positionUserToScreen((x, y))
+        zeroY = self.positionUserToScreen((x, 0))[1]
+
+        best = None
+        for peakX, peakY in self.snapFn(x, limit / xScale):
+            screenX, screenY = self.positionUserToScreen((peakX, peakY))
+            dx = abs(screenX - cursorX)
+            if dx > limit:
+                continue
+            if min(zeroY, screenY) <= cursorY <= max(zeroY, screenY):
+                dy = 0.0
+            else:
+                dy = min(abs(cursorY - screenY), abs(cursorY - zeroY))
+            distance = (dx * dx + dy * dy) ** 0.5
+            if best is None or distance < best[0]:
+                best = (distance, peakX, peakY)
+
+        if best is None:
+            return (x, y, False)
+        return (best[1], best[2], True)
+
+    # ----
+
+    def setSnapFunction(self, fn):
+        """Set the function listing the peaks a difference ruler can snap to."""
+        self.snapFn = fn
+
+    # ----
+
+    def setRulerPlacedFunction(self, fn):
+        """Set the function listing the boxes of the rulers drawn."""
+        self.rulerPlacedFn = fn
+
+    # ----
+
+    def setRulerLabelBoxesFunction(self, fn):
+        """Set the function listing the boxes of the peak labels drawn."""
+        self.rulerLabelBoxesFn = fn
+
+    # ----
+
+    def _rulerLabelBoxes(self):
+        """Boxes of the peak labels drawn, for a ruler's text to keep off."""
+
+        if self.rulerLabelBoxesFn is None:
+            return None
+        return list(self.rulerLabelBoxesFn())
+
+    # ----
+
+    def _rulerPlaced(self):
+        """Boxes of the rulers drawn, for drawRuler to keep text off them."""
+
+        if self.rulerPlacedFn is None:
+            return None
+        return list(self.rulerPlacedFn())
+
+    # ----
+
+    def setRulerSeriesFunction(self, fn):
+        """Set the function giving the text over a ruler dragged with Shift."""
+        self.rulerSeriesFn = fn
+
+    # ----
+
+    def setRulerLabelFunction(self, fn):
+        """Set the function giving the text over a dragged difference ruler."""
+        self.rulerLabelFn = fn
+
+    # ----
+
     def getCharge(self):
         """Get current charge."""
         return self.currentCharge
@@ -1592,8 +1997,20 @@ class canvas(wx.Window):
         if wx.Platform == "__WXMSW__":
             self.cleanPlotBuffer = self.plotBuffer.ConvertToImage().ConvertToBitmap()
         else:
+            # GTK3 takes the region in logical units and multiplies it by the
+            # scale factor itself, while GetWidth/GetHeight report device
+            # pixels -- passing those overshoots the bitmap whenever the scale
+            # is above 1 (HiDPI Wayland, GDK_SCALE over ssh). Floor so that a
+            # fractional scale can't round the region past the edge.
+            scale = self.plotBuffer.GetScaleFactor() if hasattr(self.plotBuffer, "GetScaleFactor") else 1.0
+            scale = scale if scale and scale > 0 else 1.0
             self.cleanPlotBuffer = self.plotBuffer.GetSubBitmap(
-                wx.Rect(0, 0, self.plotBuffer.GetWidth(), self.plotBuffer.GetHeight())
+                wx.Rect(
+                    0,
+                    0,
+                    max(1, int(self.plotBuffer.GetWidth() / scale + 1e-6)),
+                    max(1, int(self.plotBuffer.GetHeight() / scale + 1e-6)),
+                )
             )
         if hasattr(self.plotBuffer, "GetScaleFactor"):
             self.cleanPlotBuffer.SetScaleFactor(self.plotBuffer.GetScaleFactor())
@@ -1957,9 +2374,18 @@ class canvas(wx.Window):
         if self.mouseFn == "cross":
             self.drawCursorTracker(dc)
 
+        # cross tracker marking the peak a difference ruler would start at
+        elif self.mouseFn == "crosssnap":
+            self.drawCursorTracker(dc)
+            self.drawSnapTracker(dc)
+
         # draw isotope ruler
         elif self.mouseFn == "isotoperuler":
             self.drawIsotopeRuler(dc)
+
+        # mark the peak a difference ruler would start at
+        elif self.mouseFn == "peaksnap":
+            self.drawSnapTracker(dc)
 
         # no tracker set
         else:
@@ -2123,6 +2549,144 @@ class canvas(wx.Window):
 
             # draw text
             self.drawInvertedText(dc, distance, x, y, self.properties["axisFont"])
+
+    # ----
+
+    def drawSnapTracker(self, dc):
+        """Circle the peak under the cursor a difference ruler would snap to."""
+
+        x, y, snapped = self.snapPosition()
+        if not snapped:
+            return
+
+        screenX, screenY = self.positionUserToScreen((x, y))
+        scale = self.printerScale["drawings"]
+        dc.SetPen(wx.Pen(self.properties["rulerColour"], max(1, int(round(scale)))))
+        dc.SetBrush(wx.TRANSPARENT_BRUSH)
+        dc.DrawCircle(int(screenX), int(screenY), int(5 * scale))
+
+    # ----
+
+    def drawPeakRuler(self, dc):
+        """Draw the difference ruler being dragged between two peaks."""
+
+        # check cursor position
+        if self.getCursorLocation() != "plot" or not self.rulerStart:
+            return
+
+        start = self.rulerStart
+        end = self.snapPosition()
+
+        # an end being moved takes the bar along up and down, a new ruler's
+        # stays over the peak it was started from
+        snap = None
+        if self.rulerEdit:
+            yBar, snap = self._rulerEndBarPosition(end)
+        else:
+            yBar = self._rulerNewBar(end)
+
+        x1, y1 = self.positionUserToScreen(start[:2])
+        x2, y2 = self.positionUserToScreen(end[:2])
+        scale = self.printerScale["drawings"]
+        colour = self.properties["rulerColour"]
+        if self.rulerEdit and self.rulerEditColour:
+            colour = self.rulerEditColour
+
+        # guide lines over the whole plot height, as the spectrum ruler has
+        minY = self.plotCoords[1]
+        maxY = self.plotCoords[3]
+        dc.SetPen(wx.Pen(colour, 1, wx.PENSTYLE_SHORT_DASH))
+        dc.DrawLine(int(x1), int(minY), int(x1), int(maxY))
+        dc.DrawLine(int(x2), int(minY), int(x2), int(maxY))
+
+        # circle the ends that sit on a peak
+        dc.SetPen(wx.Pen(colour, max(1, int(round(scale)))))
+        dc.SetBrush(wx.TRANSPARENT_BRUSH)
+        for point, (screenX, screenY) in ((start, (x1, y1)), (end, (x2, y2))):
+            if point[2]:
+                dc.DrawCircle(int(screenX), int(screenY), int(5 * scale))
+
+        if start[0] == end[0]:
+            return
+
+        # ruler with its text; with Shift, what the series between the peaks
+        # is (e.g. 3xHex), labelled step by step once dropped
+        text = None
+        if self.rulerShift and self.rulerSeriesFn is not None:
+            text = self.rulerSeriesFn(start, end)
+        if text is not None:
+            pass
+        elif self.rulerLabelFn is not None:
+            text = self.rulerLabelFn(start, end)
+        else:
+            format = "%0." + repr(self.properties["xPosDigits"]) + "f"
+            text = format % abs(end[0] - start[0])
+
+        from mspy import plot_objects
+
+        plot_objects.drawRuler(
+            dc,
+            x1,
+            y1,
+            x2,
+            y2,
+            text,
+            colour=colour,
+            font=_scaleFont(self.properties["axisFont"], self.printerScale["fonts"]),
+            bgrColour=self.properties["plotColour"],
+            printerScale=self.printerScale,
+            flipped=bool(max(start[1], end[1]) < 0),
+            yBar=yBar,
+            placed=self._rulerPlaced() if yBar is not None else None,
+            labels=self._rulerLabelBoxes() if yBar is not None else None,
+        )
+        if yBar is not None:
+            self._drawBarGuide(dc, x1, x2, yBar, snap)
+
+    # ----
+
+    def drawRulerBar(self, dc):
+        """Draw the difference ruler whose bar is being dragged up or down."""
+
+        if not self.rulerEdit:
+            return
+
+        ends, text = self.rulerEdit[2], self.rulerEdit[3]
+        x1, y1 = self.positionUserToScreen(ends[0])
+        x2, y2 = self.positionUserToScreen(ends[1])
+        y, snap = self._rulerBarPosition()
+        colour = self.properties["rulerColour"]
+        if self.rulerEdit and self.rulerEditColour:
+            colour = self.rulerEditColour
+
+        # circle the apex the bar snapped to, or join it to the bar it lines
+        # up with
+        self._drawBarGuide(dc, x1, x2, y, snap)
+        if snap is not None and len(snap) < 3:
+            scale = self.printerScale["drawings"]
+            apexX = self.positionUserToScreen(snap)[0]
+            dc.SetPen(wx.Pen(colour, max(1, int(round(scale)))))
+            dc.SetBrush(wx.TRANSPARENT_BRUSH)
+            dc.DrawCircle(int(apexX), int(y), int(5 * scale))
+
+        from mspy import plot_objects
+
+        plot_objects.drawRuler(
+            dc,
+            x1,
+            y1,
+            x2,
+            y2,
+            text,
+            colour=colour,
+            font=_scaleFont(self.properties["axisFont"], self.printerScale["fonts"]),
+            bgrColour=self.properties["plotColour"],
+            printerScale=self.printerScale,
+            flipped=bool(max(ends[0][1], ends[1][1]) < 0),
+            yBar=y,
+            placed=self._rulerPlaced(),
+            labels=self._rulerLabelBoxes(),
+        )
 
     # ----
 
@@ -2492,8 +3056,12 @@ class canvas(wx.Window):
 
     # ----
 
-    def refresh(self, fullsize=False):
-        """Redraw plot with the same data and same scale or fullsize"""
+    def refresh(self, fullsize=False, keepScale=False):
+        """Redraw plot with the same data and same scale or fullsize.
+
+        keepScale keeps the intensity range as it is, even with autoscaling
+        on, for redraws that change nothing it would scale to (labels).
+        """
 
         # get last ranges
         graphics = self.lastDraw[0]
@@ -2515,7 +3083,7 @@ class canvas(wx.Window):
 
         # redraw plot with the same scale
         if not fullsize:
-            if self.properties["autoScaleY"]:
+            if self.properties["autoScaleY"] and not keepScale:
                 yAxis = self.getMaxYRange(xAxis[0], xAxis[1])
             self.draw(graphics, xAxis, yAxis)
 
@@ -2786,6 +3354,12 @@ class canvas(wx.Window):
         # # clear distance arrow
         # elif self.mouseEvent == "distance":
         #     self.drawDistanceTracker()
+
+        # a ruler end being dragged goes back where it was
+        if self.rulerEdit:
+            self.endRulerEdit()
+            if self.lastDraw:
+                wx.CallAfter(self.refresh, keepScale=True)
 
         # reset mouse event flag
         self.mouseEvent = False

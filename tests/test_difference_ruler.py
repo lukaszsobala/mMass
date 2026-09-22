@@ -1,0 +1,1074 @@
+"""Difference ruler: difference lists, matching, the library, and saved rulers.
+
+The lists and matching live in gui.differences, the user's lists in gui.libs,
+and the rulers themselves on gui.doc documents. All of those import wx, so the
+module skips where the GUI stack is unavailable. The drawing checks also need
+a wx.App, which needs a display, and skip without one.
+
+gui.libs loads the user's monomers, enzymes and modifications into mspy when it
+is first imported, so it is only imported inside tests, with mspy's libraries
+put back afterwards -- see test_library_io.
+"""
+
+import json
+import os
+
+import numpy
+import pytest
+
+import mspy
+
+differences = pytest.importorskip("gui.differences", reason="GUI stack (wx) not available")
+gdoc = pytest.importorskip("gui.doc", reason="GUI stack (wx) not available")
+processing = pytest.importorskip("gui.processing", reason="GUI stack (wx) not available")
+
+
+HEX = 162.052824
+PHOSPHO = 79.966331
+SUGARS = "Sugars"
+AMINOACIDS = "Amino acids"
+
+
+@pytest.fixture(autouse=True)
+def pristine_libraries():
+    """Put mspy's libraries back after a test that may have imported gui.libs."""
+
+    saved = {
+        "monomers": dict(mspy.monomers),
+        "enzymes": dict(mspy.enzymes),
+        "modifications": dict(mspy.modifications),
+    }
+    try:
+        yield
+    finally:
+        for name, entries in saved.items():
+            library = getattr(mspy, name)
+            library.clear()
+            library.update(entries)
+
+
+@pytest.fixture
+def libs():
+    return pytest.importorskip("gui.libs", reason="GUI stack (wx) not available")
+
+
+@pytest.fixture
+def user_lists(libs):
+    """libs.differences holding a known list, restored afterwards."""
+
+    saved = dict(libs.differences)
+    savedOptions = dict(libs.differenceOptions)
+    libs.differences.clear()
+    libs.differenceOptions.clear()
+    libs.differences["Test Mods"] = [
+        ("Phospho", PHOSPHO, 79.979917, "Ph", ""),
+        ("Oxidation", 15.994915, 15.999405, "", ""),
+    ]
+    try:
+        yield libs.differences
+    finally:
+        libs.differences.clear()
+        libs.differences.update(saved)
+        libs.differenceOptions.clear()
+        libs.differenceOptions.update(savedOptions)
+
+
+@pytest.fixture
+def shipped(libs):
+    """libs.differences holding the lists shipped with mMass, restored afterwards."""
+
+    saved = dict(libs.differences)
+    savedOptions = dict(libs.differenceOptions)
+    defaults, options = libs.readDefaultDifferences()
+    libs.differences.clear()
+    libs.differences.update(defaults)
+    libs.differenceOptions.clear()
+    libs.differenceOptions.update(options)
+    try:
+        yield libs.differences
+    finally:
+        libs.differences.clear()
+        libs.differences.update(saved)
+        libs.differenceOptions.clear()
+        libs.differenceOptions.update(savedOptions)
+
+
+# MATCHING
+# --------
+
+
+def test_shipped_lists_hold_residue_masses(shipped):
+    aminoacids = differences.getList(AMINOACIDS)
+    sugars = differences.getList(SUGARS)
+
+    assert aminoacids["Glycine"][0] == pytest.approx(57.02146, abs=1e-4)
+    assert sugars["Hex"][0] == pytest.approx(HEX, abs=1e-5)
+    # average masses are kept alongside the monoisotopic ones
+    assert sugars["Hex"][1] > sugars["Hex"][0]
+    # the amino acids' pairs are their dipeptides
+    pairs = {entry[0]: entry[1] for entry in differences.entries([AMINOACIDS])}
+    assert pairs["2\u00d7Glycine"] == pytest.approx(114.04293, abs=1e-4)
+    assert pairs["Glycine+Lysine"] == pytest.approx(57.02146 + 128.09496, abs=1e-4)
+    assert "Glycine+Lysine" not in {entry[0] for entry in differences.entries([AMINOACIDS], pairs=False)}
+
+
+def test_match_names_a_difference_and_sorts_by_error(shipped):
+    candidates = differences.entries([SUGARS, AMINOACIDS])
+
+    matches = differences.match(HEX + 0.002, candidates, tolerance=0.01)
+
+    assert [m[0] for m in matches] == ["Hex"]
+    assert matches[0][1] == pytest.approx(0.002, abs=1e-5)
+    assert matches[0][2] == SUGARS
+
+    # K and Q are 0.036 apart: a loose tolerance finds both, closest first
+    lysine = differences.getList(AMINOACIDS)["Lysine"][0]
+    matches = differences.match(lysine, candidates, tolerance=0.1)
+    assert [m[0] for m in matches][:2] == ["Lysine", "Glutamine"]
+    assert differences.shortenNames(differences.matchNames(matches[:2])) == "K / Q"
+
+
+def test_match_outside_tolerance_finds_nothing(shipped):
+    candidates = differences.entries([SUGARS])
+    assert differences.match(HEX + 0.05, candidates, tolerance=0.01) == []
+
+
+def test_match_at_charge_scales_difference_and_tolerance(shipped):
+    candidates = differences.entries([SUGARS])
+
+    # a Hex step in a 2+ series is half a Hex apart in m/z
+    matches = differences.match(HEX / 2 + 0.004, candidates, tolerance=0.005, charge=2)
+    assert [m[0] for m in matches] == ["Hex"]
+
+    # the same step read as 1+ matches nothing
+    assert differences.match(HEX / 2, candidates, tolerance=0.005) == []
+
+    # negative ions carry a negative charge; the series is the same
+    assert differences.match(HEX / 2, candidates, tolerance=0.005, charge=-2)
+
+
+def test_match_uses_average_masses_when_asked(user_lists):
+    candidates = differences.entries(["Test Mods"])
+
+    assert differences.match(79.980, candidates, tolerance=0.002, massType=1)
+    assert not differences.match(79.980, candidates, tolerance=0.002, massType=0)
+
+
+def test_every_list_is_the_libraries(user_lists):
+    assert differences.availableLists() == ["Test Mods"]
+    assert differences.getList("gone") == {}
+
+
+def test_ppm_tolerance_applies_at_each_peak(shipped):
+    candidates = differences.entries([SUGARS])
+    peaks = (1000.0, 1000.0 + HEX)
+
+    # each peak may be 10 ppm off at its own m/z: 0.0100 + 0.0116 = 0.0216
+    assert differences.match(HEX + 0.021, candidates, 10, units="ppm", mzs=peaks)
+    assert not differences.match(HEX + 0.022, candidates, 10, units="ppm", mzs=peaks)
+    # 10 ppm of the higher peak alone (0.0116) would have missed this one
+    assert differences.match(HEX + 0.015, candidates, 10, units="ppm", mzs=peaks)
+    # the same ppm are tighter lower down the m/z scale
+    assert not differences.match(HEX + 0.015, candidates, 10, units="ppm", mzs=(400.0, 400.0 + HEX))
+
+    # each match carries the theoretical mass it was matched against
+    name, error, listName, theoretical = differences.match(
+        HEX + 0.015, candidates, 10, units="ppm", mzs=peaks
+    )[0]
+    assert (name, listName) == ("Hex", SUGARS)
+    assert theoretical == pytest.approx(HEX, abs=1e-5)
+    assert error == pytest.approx(0.015, abs=1e-5)
+
+
+def test_ppm_tolerance_scales_with_charge(shipped):
+    candidates = differences.entries([SUGARS])
+    peaks = (1000.0, 1000.0 + HEX / 2)  # 5 ppm: 0.0050 + 0.0054 = 0.0104 m/z
+
+    # at 2+ the m/z step is half the mass step, and so is the m/z tolerance
+    assert differences.match(HEX / 2 + 0.010, candidates, 5, charge=2, units="ppm", mzs=peaks)
+    assert not differences.match(HEX / 2 + 0.011, candidates, 5, charge=2, units="ppm", mzs=peaks)
+
+
+def test_da_tolerance_ignores_the_peaks(shipped):
+    candidates = differences.entries([SUGARS])
+    assert differences.match(HEX + 0.05, candidates, 0.06, mzs=(1.0, 2.0))
+    assert differences.toleranceMz(0.06, "Da", (1000.0, 1162.0)) == 0.06
+
+
+def test_error_text():
+    assert differences.errorText(0.0012, digits=4) == "+0.0012"
+    assert differences.errorText(-0.0012, digits=3) == "-0.001"
+    # ppm on the tolerance's footing: of both peaks' m/z, per m/z unit
+    assert differences.errorText(0.002, units="ppm", mzs=(400.0, 600.0)) == "+2.0 ppm"
+    assert differences.errorText(0.004, charge=2, units="ppm", mzs=(400.0, 600.0)) == "+2.0 ppm"
+
+
+def test_ppm_error_within_tolerance_means_matched(shipped):
+    candidates = differences.entries([SUGARS])
+    peaks = (1000.0, 1000.0 + HEX)
+    ((name, error, _list, _theoretical),) = differences.match(
+        HEX + 0.02, candidates, 10, units="ppm", mzs=peaks
+    )
+    shown = float(differences.errorText(error, units="ppm", mzs=peaks).split()[0])
+    assert abs(shown) <= 10
+
+
+def test_ruler_text_unmatched_shows_the_difference():
+    assert differences.rulerText("", 162.05282, digits=3) == "162.053"
+    assert differences.rulerText("", 162.05282, options={"labelDiff": 0}, digits=3) == "162.053"
+
+
+def test_ruler_text_follows_the_label_options():
+    def text(**options):
+        return differences.rulerText(
+            "K / Q", (128.094963 + 0.0012) / 2, charge=2, theoretical=128.094963,
+            mzs=(736.0, 800.0), options=options, digits=4,
+        )
+
+    assert text() == "K / Q (2+)  64.0481"
+    assert text(labelDiff=0) == "K / Q (2+)"
+    assert text(labelAllNames=0) == "K (2+)  64.0481"
+    assert text(labelCharge=0, labelDiff=0) == "K / Q"
+    assert text(labelDiff=0, labelError=1) == "K / Q (2+)  +0.0012"
+    assert text(labelName=0, labelError=1) == "64.0481  +0.0012"
+    # nothing ticked: still the names, never a blank ruler
+    assert text(labelName=0, labelDiff=0) == "K / Q"
+    # error in ppm of the peak m/z
+    assert differences.rulerText(
+        "Hex", HEX + 0.002, theoretical=HEX, mzs=(400.0, 600.0),
+        options={"labelDiff": 0, "labelError": 1}, units="ppm",
+    ) == "Hex  +2.0 ppm"
+    # negative ions
+    assert differences.rulerText("Hex", HEX / 2, charge=-2, options={"labelDiff": 0}) == "Hex (2-)"
+
+
+def test_match_names_keeps_the_closest_few():
+    matches = [("A", 0.001, "x"), ("B", 0.002, "x"), ("A", 0.003, "y"), ("C", 0.004, "x"), ("D", 0.005, "x")]
+    assert differences.matchNames(matches) == "A / B / C / ..."
+    assert differences.matchNames(matches, maxNames=5) == "A / B / C / D"
+    assert differences.matchNames([]) == ""
+
+
+def test_ruler_charge():
+    assert differences.rulerCharge(2, 2) == 2
+    assert differences.rulerCharge(None, 3) == 3
+    assert differences.rulerCharge(-2, None) == -2
+    assert differences.rulerCharge(2, 3) == 1
+    assert differences.rulerCharge(None, None) == 1
+
+
+# LIBRARY
+# -------
+
+
+def test_differences_library_round_trip(tmp_path, libs, user_lists):
+    path = str(tmp_path / "differences.json")
+
+    assert libs.saveDifferences(path)
+    saved = dict(libs.differences)
+    libs.differences.clear()
+    libs.loadDifferences(path)
+
+    assert libs.differences == saved
+
+
+def test_differences_library_reads_short_and_skips_bad_entries(libs):
+    parsed = libs.parseDifferences(
+        {
+            "Mixed": [
+                ["Mono only", 10.5],
+                ["Both", 1, 2],
+                ["Short", 3, 4, " Sh "],
+                ["Short not text", 3, 4, 5],
+                ["Bad mass", "x"],
+                ["Too short"],
+                "not a list",
+            ],
+            "Not a list": {"a": 1},
+        }
+    )
+
+    assert parsed == {
+        "Mixed": [
+            ("Mono only", 10.5, 10.5, "", ""),
+            ("Both", 1.0, 2.0, "", ""),
+            ("Short", 3.0, 4.0, "Sh", ""),
+            ("Short not text", 3.0, 4.0, "", ""),
+        ]
+    }
+
+
+def test_bundled_default_library_is_valid(libs):
+    path = os.path.join(os.path.dirname(libs.__file__), "configs", "differences.json")
+    with open(path, encoding="utf-8") as handle:
+        data = json.load(handle)
+
+    parsed = libs.parseDifferences(data["differences"])
+    masses = {item[0]: item[1:] for items in parsed.values() for item in items}
+
+    assert masses["Phosphorylation"][0] == pytest.approx(PHOSPHO, abs=1e-5)
+    assert masses["Na-H"][0] == pytest.approx(21.98194, abs=1e-5)
+    # short names ship with it, and the methylations above one are multiples
+    assert masses["Acetylation"][2] == "Ac" and masses["Methylation"][2] == "Me"
+    assert "Dimethylation" not in masses and "Trimethylation" not in masses
+    assert data["schemaVersion"] == libs.DIFFERENCES_SCHEMA
+    # the amino acids follow the monomers, and have their pairs matched
+    assert masses["Lysine"][2:] == ("K", "K")
+    assert libs.parseDifferenceOptions(data["options"]) == {AMINOACIDS: {"pairs": True}}
+    assert {AMINOACIDS, SUGARS, "PerMe-Sugars"} <= set(parsed)
+
+
+# RULERS ON DOCUMENTS
+# -------------------
+
+
+def test_ruler_keeps_lower_mz_first():
+    ruler = gdoc.ruler(1162.5, 50.0, 1000.4, 80.0, label="Hex")
+
+    assert (ruler.mz1, ruler.ai1, ruler.mz2, ruler.ai2) == (1000.4, 80.0, 1162.5, 50.0)
+    assert ruler.diff == pytest.approx(162.1)
+
+
+def test_rulers_survive_msd_round_trip(tmp_path):
+    document = gdoc.document()
+    document.spectrum.setpeaklist(mspy.peaklist([mspy.peak(mz=1000.0, ai=10.0)]))
+    document.rulers.append(
+        gdoc.ruler(1000.0, 10.0, 1162.052824, 5.0, label="Hex <1>", charge=1, theoretical=HEX)
+    )
+    document.rulers.append(
+        gdoc.ruler(500.0, 1.0, 540.5, 2.0, label="", charge=2, scanID=7, height=12.5)
+    )
+    document.rulers.append(
+        gdoc.ruler(
+            700.0, 1.0, 828.095, 1.0, label="K", picked=True, note='loss of "K" & <more>',
+            colour=(10, 200, 255),
+        )
+    )
+
+    path = str(tmp_path / "rulers.msd")
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write(document.msd())
+
+    reloaded = gdoc.parseMSD(path).getDocument().rulers
+
+    assert len(reloaded) == 3
+    first, second, third = reloaded
+    assert (first.mz1, first.mz2, first.label, first.charge, first.scanID) == (
+        pytest.approx(1000.0),
+        pytest.approx(1162.052824),
+        "Hex <1>",
+        1,
+        None,
+    )
+    assert (first.ai1, first.ai2) == (pytest.approx(10.0), pytest.approx(5.0))
+    assert first.theoretical == pytest.approx(HEX)
+    assert (second.label, second.charge, second.scanID, second.theoretical) == ("", 2, 7, None)
+    # a bar put at a height by hand stays there; the others are placed as drawn
+    assert first.height is None
+    assert second.height == pytest.approx(12.5)
+    # the user's own text and the match they picked
+    assert (first.note, first.picked) == (None, False)
+    assert (third.label, third.picked, third.note) == ("K", True, 'loss of "K" & <more>')
+    # a label's own colour; the others keep the one set for all
+    assert third.colour == (10, 200, 255)
+    assert first.colour is None and second.colour is None
+
+
+def test_document_without_rulers_writes_no_element():
+    assert "<rulers>" not in gdoc.document().msd()
+
+
+def test_report_lists_rulers():
+    document = gdoc.document()
+    document.rulers.append(
+        gdoc.ruler(1000.0, 1.0, 1162.055824, 1.0, label="Hex", charge=1, theoretical=HEX)
+    )
+
+    html = document.report()
+
+    assert "Difference Labels" in html
+    assert "<td>Hex</td>" in html
+    assert "162.05" in html
+    assert "0.0030" in html  # observed minus theoretical
+
+
+def test_report_shows_notes():
+    document = gdoc.document()
+    document.rulers.append(gdoc.ruler(1000.0, 1.0, 1162.0, 1.0, label="Hex", note="core <Fuc>"))
+
+    assert "<td>core &lt;Fuc&gt;</td>" in document.report()
+
+
+def test_rulers_undo_and_redo():
+    document = gdoc.document()
+    first = gdoc.ruler(100.0, 1.0, 200.0, 1.0)
+    document.rulers.append(first)
+
+    document.backup(("rulers",))
+    document.rulers.append(gdoc.ruler(300.0, 1.0, 400.0, 1.0))
+
+    assert document.restore() == ("rulers",)
+    assert [r.mz1 for r in document.rulers] == [100.0]
+
+    assert document.forward() == ("rulers",)
+    assert [r.mz1 for r in document.rulers] == [100.0, 300.0]
+
+
+def test_crop_drops_rulers_that_leave_the_range():
+    document = gdoc.document()
+    document.rulers[:] = [
+        gdoc.ruler(100.0, 1.0, 200.0, 1.0),
+        gdoc.ruler(450.0, 1.0, 520.0, 1.0),
+        gdoc.ruler(600.0, 1.0, 700.0, 1.0),
+    ]
+
+    processing.cropNotations(document, 90.0, 500.0)
+
+    assert [r.mz1 for r in document.rulers] == [100.0]
+
+
+# DRAWING
+# -------
+
+
+@pytest.fixture
+def wx_app():
+    """A wx.App, when there is a display to make one on."""
+
+    if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")) and os.name != "nt":
+        pytest.skip("no display for a wx.App")
+    wx = pytest.importorskip("wx")
+    app = wx.App.Get() or wx.App(False)
+    return app
+
+
+def test_ruler_ends_follow_the_current_peak_heights(wx_app):
+    from mspy import plot_objects
+
+    scan = mspy.scan(
+        profile=[[999.0, 0.0], [1000.0, 40.0], [1001.0, 0.0], [1161.0, 0.0], [1162.0, 30.0], [1163.0, 0.0]],
+        peaklist=[mspy.peak(mz=1000.0, ai=40.0)],
+    )
+    spectrum = plot_objects.spectrum(scan)
+
+    # a peak at the end: its intensity now, not the stored one
+    assert spectrum.rulerEndIntensity(1000.0, 99.0) == pytest.approx(40.0)
+    # no peak there: on the trace, not up where the pointer let go of it
+    assert spectrum.rulerEndIntensity(1162.0, 99.0) == pytest.approx(30.0)
+    # off the trace too: where it was put
+    assert spectrum.rulerEndIntensity(1200.0, 99.0) == pytest.approx(99.0)
+    assert spectrum.rulerEndIntensity(2000.0, 99.0) == pytest.approx(99.0)
+
+
+def test_overlapping_rulers_are_stacked(wx_app):
+    import wx
+
+    from mspy import plot_objects
+
+    bitmap = wx.Bitmap(400, 300)
+    dc = wx.MemoryDC(bitmap)
+    font = wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
+    placed = []
+
+    for x1, x2 in ((50, 200), (100, 250), (300, 350)):
+        plot_objects.drawRuler(
+            dc, x1, 200, x2, 200, "Hex", colour=(230, 120, 0), font=font,
+            bgrColour=(255, 255, 255), placed=placed,
+        )
+    dc.SelectObject(wx.NullBitmap)
+
+    # each ruler takes the box of its bar, then that of its text
+    (bar1, text1), (bar2, text2), (bar3, text3) = zip(placed[::2], placed[1::2], strict=True)
+    # the second overlaps the first, so it is lifted clear of it, bar and all
+    assert bar2[3] <= text1[1]
+    # the third is clear of both and stays down
+    assert bar3[1] == bar1[1] and text3[1] == text1[1]
+
+
+def test_drawn_rulers_can_be_found_and_hidden(wx_app):
+    import wx
+
+    from mspy import plot_objects
+
+    scan = mspy.scan(
+        peaklist=[mspy.peak(mz=1000.0, ai=40.0), mspy.peak(mz=1162.0, ai=30.0)],
+    )
+    spectrum = plot_objects.spectrum(scan)
+    # 1 px per m/z unit from x = -900, and 5 px per intensity unit upwards
+    spectrum.currentTransform = (1.0, -5.0, -900.0, 280.0)
+    spectrum.peaklistPoints = numpy.array([[1000.0, 40.0], [1162.0, 30.0]])
+    spectrum.setProperties(rulers=[(1000.0, 40.0, 1162.0, 30.0, "Hex", 7)])
+
+    def draw():
+        bitmap = wx.Bitmap(400, 300)
+        dc = wx.MemoryDC(bitmap)
+        spectrum.drawOverlays(dc, {"drawings": 1.0, "fonts": 1.0})
+        dc.SelectObject(wx.NullBitmap)
+
+    draw()
+    (key, (x1, y1, x2, y2, yBar, box)), = spectrum.rulerGeometry
+    assert key == 7
+    assert (x1, x2) == (100.0, 262.0)
+
+    # the ends of the bar pick that end up, the rest of it and the text the
+    # ruler (the leads are too short here to tell apart from the label, see
+    # test_labels_meeting_at_a_peak_are_picked_up_by_their_own_bar)
+    assert spectrum.rulerAt(x1 + 3, yBar) == (7, 1)
+    assert spectrum.rulerAt(x2 + 2, yBar + 1) == (7, 2)
+    assert spectrum.rulerAt((x1 + x2) / 2, yBar) == (7, 0)
+    assert spectrum.rulerAt((x1 + x2) / 2, yBar + 60) is None
+
+    # a ruler being edited is left out, and cannot be picked up
+    spectrum.setProperties(hiddenRuler=7)
+    draw()
+    assert spectrum.rulerGeometry == []
+    assert spectrum.rulerAt(x1 + 3, yBar) is None
+
+    # neither can hidden rulers
+    spectrum.setProperties(hiddenRuler=None, showRulers=False)
+    draw()
+    assert spectrum.rulerAt(x1 + 3, yBar) is None
+
+
+def test_ruler_put_at_a_height_stays_there_and_others_stack_clear(wx_app):
+    import wx
+
+    from mspy import plot_objects
+
+    scan = mspy.scan(
+        peaklist=[mspy.peak(mz=1000.0, ai=40.0), mspy.peak(mz=1162.0, ai=30.0)],
+    )
+    spectrum = plot_objects.spectrum(scan)
+    spectrum.currentTransform = (1.0, -5.0, -900.0, 280.0)
+    spectrum.peaklistPoints = numpy.array([[1000.0, 40.0], [1162.0, 30.0]])
+    # the automatic one comes first by m/z, the one put at intensity 30
+    # (screen y 130) sits exactly where it would go
+    spectrum.setProperties(
+        rulers=[
+            (1000.0, 40.0, 1162.0, 30.0, "Hex", 0, None),
+            (1010.0, 40.0, 1150.0, 30.0, "Hex", 1, 26.0),
+        ]
+    )
+
+    bitmap = wx.Bitmap(400, 300)
+    dc = wx.MemoryDC(bitmap)
+    spectrum.drawOverlays(dc, {"drawings": 1.0, "fonts": 1.0})
+    dc.SelectObject(wx.NullBitmap)
+
+    geometry = dict(spectrum.rulerGeometry)
+    assert geometry[1][4] == pytest.approx(26.0 * -5.0 + 280.0)
+    # the automatic one is lifted clear of it
+    assert geometry[0][5][3] <= geometry[1][5][1]
+
+
+# SERIES
+# ------
+
+LADDER = [("Hex", HEX, HEX, "Sugars")]
+
+
+def test_series_follows_the_ladder_through_its_peaks():
+    # a Hex ladder 1000 -> 1162 -> 1324 -> 1486, with a weak peak at 1144
+    # (1162 - H2O) that nothing matches from here, and one at 1081 halfway
+    mzs = [1000.0, 1081.0, 1144.0, 1000.0 + HEX, 1000.0 + 2 * HEX, 1000.0 + 3 * HEX]
+    ais = [50.0, 1.0, 2.0, 40.0, 30.0, 20.0]
+
+    path = differences.findSeries(mzs, ais, 0, 5, LADDER, 0.01)
+
+    assert path == [0, 3, 4, 5]
+
+
+def test_series_prefers_strong_peaks_over_noise_that_fits():
+    # the ladder 1000 -> 1162 -> 1324 has a weak alternative middle peak just
+    # within tolerance of the strong one; the strong one is taken
+    mzs = [1000.0, 1000.0 + HEX - 0.004, 1000.0 + HEX + 0.001, 1000.0 + 2 * HEX]
+    ais = [50.0, 0.5, 40.0, 30.0]
+
+    path = differences.findSeries(mzs, ais, 0, 3, LADDER, 0.01)
+
+    assert path == [0, 2, 3]
+
+
+def test_series_needs_a_peak_in_between():
+    mzs = [1000.0, 1100.0, 1000.0 + HEX]
+    ais = [50.0, 10.0, 40.0]
+
+    # one direct step is not a series
+    assert differences.findSeries(mzs, ais, 0, 2, LADDER, 0.01) is None
+
+
+def test_series_at_charge_two_in_ppm():
+    step = HEX / 2
+    mzs = [800.0, 800.0 + step, 800.0 + 2 * step + 0.002]
+    ais = [10.0, 9.0, 8.0]
+
+    assert differences.findSeries(mzs, ais, 0, 2, LADDER, 5, charge=2, units="ppm") == [0, 1, 2]
+    # 0.002 m/z at 2+ is 0.004 Da, beyond 1 ppm of ~2100 m/z
+    assert differences.findSeries(mzs, ais, 0, 2, LADDER, 1, charge=2, units="ppm") is None
+
+
+def test_series_skips_steps_under_the_minimum():
+    # 1000 -> 1002 -> 1004 would chain on H2, but not with a 14 m/z minimum
+    small = [("H2", 2.01565, 2.01588, "test")]
+    mzs = [1000.0, 1002.01565, 1004.0313]
+    ais = [10.0, 10.0, 10.0]
+
+    assert differences.findSeries(mzs, ais, 0, 2, small, 0.01) == [0, 1, 2]
+    assert differences.findSeries(mzs, ais, 0, 2, small, 0.01, minStep=14) is None
+
+
+def test_multiples_name_whole_multiples_of_an_entry():
+    matches = differences.matchMultiples(3 * HEX + 0.002, LADDER, 0.01)
+
+    assert matches[0][0] == "3×Hex"
+    assert matches[0][3] == pytest.approx(3 * HEX)
+    # a single step is not a multiple, nor is a difference off the grid
+    assert not differences.matchMultiples(HEX, LADDER, 0.01)
+    assert not differences.matchMultiples(2.5 * HEX, LADDER, 0.01)
+
+
+def test_multiples_skip_small_entries():
+    small = [("H2", 2.01565, 2.01588, "test")]
+
+    assert not differences.matchMultiples(10 * 2.01565, small, 0.01)
+    assert differences.matchMultiples(10 * 2.01565, small, 0.01, minStep=0)
+
+
+def test_series_name_counts_alike_steps():
+    assert differences.seriesName(["Hex", "Hex", "Hex"]) == "3×Hex"
+    assert differences.seriesName(["Hex", "HexNAc", "Hex"]) == "2×Hex + HexNAc"
+
+
+def test_ruler_bar_sits_over_the_taller_peak(wx_app):
+    import wx
+
+    from mspy import plot_objects
+
+    bitmap = wx.Bitmap(400, 300)
+    dc = wx.MemoryDC(bitmap)
+    font = wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
+    # screen y grows downwards: the peak at y=100 is the taller one
+    geometry = plot_objects.drawRuler(
+        dc, 50, 200, 250, 100, "Hex", colour=(230, 120, 0), font=font,
+        bgrColour=(255, 255, 255),
+    )
+    flipped = plot_objects.drawRuler(
+        dc, 50, 200, 250, 100, "Hex", colour=(230, 120, 0), font=font,
+        bgrColour=(255, 255, 255), flipped=True,
+    )
+    dc.SelectObject(wx.NullBitmap)
+
+    # right at the taller peak's top, not the lower one's
+    assert geometry[4] == 100
+    # flipped: peaks hang down, the one reaching y=200 is the taller
+    assert flipped[4] == 200
+
+
+def test_labels_meeting_at_a_peak_are_picked_up_by_their_own_bar(wx_app):
+    from mspy import plot_objects
+
+    spectrum = plot_objects.spectrum(mspy.scan(peaklist=[]))
+    # two labels meeting at the peak at x=200: A from 100, B on to 300, their
+    # bars at different heights; both leads run down to the peak top at y=150
+    spectrum.rulerGeometry = [
+        ("A", (100, 150, 200, 150, 120, (100, 105, 200, 124))),
+        ("B", (200, 150, 300, 150, 100, (200, 85, 300, 104))),
+    ]
+
+    # each end is picked up at its own bar, never at the leads they share
+    assert spectrum.rulerAt(197, 120) == ("A", 2)
+    assert spectrum.rulerAt(203, 100) == ("B", 1)
+    assert spectrum.rulerAt(200, 140) is None
+    # the far ends, and the bar away from its ends
+    assert spectrum.rulerAt(102, 121) == ("A", 1)
+    assert spectrum.rulerAt(150, 115) == ("A", 0)
+
+    # bars lined up at one height: the side of the peak the cursor is on
+    spectrum.rulerGeometry = [
+        ("A", (100, 150, 200, 150, 100, (100, 85, 200, 104))),
+        ("B", (200, 150, 300, 150, 100, (200, 85, 300, 104))),
+    ]
+    assert spectrum.rulerAt(197, 100) == ("A", 2)
+    assert spectrum.rulerAt(203, 100) == ("B", 1)
+
+
+def test_a_labels_text_does_not_pick_it_up(wx_app):
+    from mspy import plot_objects
+
+    spectrum = plot_objects.spectrum(mspy.scan(peaklist=[]))
+    # the right label's text is wider than its bar and reaches over the bar of
+    # the left one, which lies at the same height; the right one is drawn last
+    spectrum.rulerGeometry = [
+        ("left", (100, 150, 200, 150, 100, (100, 85, 200, 104))),
+        ("right", (200, 150, 240, 150, 100, (140, 85, 300, 104))),
+    ]
+
+    # the left bar under the right label's text is the left label's
+    assert spectrum.rulerAt(160, 100) == ("left", 0)
+    # the text itself picks up nothing
+    assert spectrum.rulerAt(270, 90) is None
+    assert spectrum.rulerAt(160, 90) is None
+
+
+def test_text_landing_on_another_label_is_moved_away_from_its_bar(wx_app):
+    import wx
+
+    from mspy import plot_objects
+
+    bitmap = wx.Bitmap(400, 300)
+    dc = wx.MemoryDC(bitmap)
+    font = wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
+    placed = []
+
+    def draw(x1, x2, text):
+        return plot_objects.drawRuler(
+            dc, x1, 250, x2, 250, text, colour=(230, 120, 0), font=font,
+            bgrColour=(255, 255, 255), placed=placed, yBar=200,
+        )
+
+    # two labels side by side at one height, the first one's text wider than
+    # its bar and reaching over the second one's
+    first = draw(100, 160, "1Methylation 13.97")
+    second = draw(160, 220, "Hex 162.05")
+    dc.SelectObject(wx.NullBitmap)
+
+    # both bars stay where they were put
+    assert first[4] == second[4] == 200
+    # the first text sits on its bar, the second is lifted clear of it
+    assert first[5][3] == 200 - 4
+    assert second[5][3] <= first[5][1]
+    assert not plot_objects._overlaps(first[5], second[5])
+
+    # a text with room keeps its place
+    placed.clear()
+    alone = plot_objects.drawRuler(
+        wx.MemoryDC(wx.Bitmap(400, 300)), 100, 250, 300, 250, "Hex", colour=(230, 120, 0),
+        font=font, bgrColour=(255, 255, 255), placed=placed, yBar=200,
+    )
+    assert alone[5][3] == 200 - 4
+
+
+def _layouts(wx, specs, flipped=False):
+    """Rulers laid out side by side at one bar height, as drawOverlays does."""
+
+    from mspy import plot_objects
+
+    dc = wx.MemoryDC(wx.Bitmap(600, 400))
+    font = wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
+    peak = 250 if not flipped else 150
+    layouts = [
+        plot_objects.rulerLayout(dc, x1, peak, x2, peak, text, font, flipped=flipped, yBar=200)
+        for x1, x2, text in specs
+    ]
+    dc.SelectObject(wx.NullBitmap)
+    return layouts
+
+
+def test_texts_on_each_other_both_yield_alike(wx_app):
+    import math
+
+    import wx
+
+    from mspy import plot_objects
+
+    left, right = _layouts(wx, [(100, 160, "1Methylation 13.97"), (160, 220, "Hex 162.05")])
+    plot_objects.spreadRulerTexts([left, right])
+
+    (ldx, ldy), (rdx, rdy) = left["offset"], right["offset"]
+    # both move up, and apart: the left one up and left, the right one up
+    # and right, as far as each other, at 60 degrees from the bar
+    assert ldy < 0 and rdy < 0 and ldx < 0 < rdx
+    assert ldy == pytest.approx(rdy) and ldx == pytest.approx(-rdx)
+    assert math.degrees(math.atan2(-rdy, rdx)) == pytest.approx(60.0)
+    # and are clear of each other, with about their height between them,
+    # the bars staying where they were
+    leftBox = plot_objects.rulerTextBox(left)
+    rightBox = plot_objects.rulerTextBox(right)
+    height = leftBox[3] - leftBox[1]
+    assert height * 0.99 <= rightBox[0] - leftBox[2] <= height * 1.6
+    assert left["yBar"] == right["yBar"] == 200
+
+
+def test_texts_of_a_flipped_spectrum_yield_downwards(wx_app):
+    import wx
+
+    from mspy import plot_objects
+
+    left, right = _layouts(
+        wx, [(100, 160, "1Methylation 13.97"), (160, 220, "Hex 162.05")], flipped=True
+    )
+    plot_objects.spreadRulerTexts([left, right])
+
+    (ldx, ldy), (rdx, rdy) = left["offset"], right["offset"]
+    assert ldy > 0 and rdy > 0 and ldx < 0 < rdx
+
+
+def test_a_crowd_of_texts_ends_up_clear_of_each_other(wx_app):
+    import wx
+
+    from mspy import plot_objects
+
+    specs = [(100 + 40 * k, 140 + 40 * k, "Label number %d" % k) for k in range(5)]
+    layouts = _layouts(wx, specs)
+    plot_objects.spreadRulerTexts(layouts)
+
+    boxes = [plot_objects.rulerTextBox(layout) for layout in layouts]
+    for a in range(len(boxes)):
+        for b in range(a + 1, len(boxes)):
+            assert not plot_objects._overlaps(boxes[a], boxes[b]), (a, b)
+        # nor does any text sit on another label's bar
+        for c, layout in enumerate(layouts):
+            if c != a:
+                assert not plot_objects._overlaps(boxes[a], layout["bar"]), (a, c)
+
+
+def test_a_text_with_room_stays_on_its_bar(wx_app):
+    import wx
+
+    from mspy import plot_objects
+
+    layouts = _layouts(wx, [(100, 200, "Hex"), (300, 400, "Hex")])
+    plot_objects.spreadRulerTexts(layouts)
+
+    assert [layout["offset"] for layout in layouts] == [(0.0, 0.0), (0.0, 0.0)]
+
+
+def test_a_text_moves_up_off_a_peak_label(wx_app):
+    import wx
+
+    from mspy import plot_objects
+
+    (layout,) = _layouts(wx, [(100, 200, "Hex 162.05")])
+    text = plot_objects.rulerTextBox(layout)
+    # an upright peak label standing just left of the text's middle
+    middle = (text[0] + text[2]) / 2.0
+    label = (middle - 12, text[1] - 40, middle - 2, text[3] + 10)
+    plot_objects.spreadRulerTexts([layout], labels=[label])
+
+    moved = plot_objects.rulerTextBox(layout)
+    # it moved up, over the top of the label, rather than far sideways
+    assert layout["offset"][1] < 0 and abs(layout["offset"][0]) < layout["offset"][1] * -1
+    assert moved[3] <= label[1]
+    assert not plot_objects._overlaps(moved, label)
+    assert not layout.get("underLabels")
+
+
+def test_a_text_of_a_flipped_spectrum_moves_down_off_a_peak_label(wx_app):
+    import wx
+
+    from mspy import plot_objects
+
+    (layout,) = _layouts(wx, [(100, 200, "Hex 162.05")], flipped=True)
+    text = plot_objects.rulerTextBox(layout)
+    middle = (text[0] + text[2]) / 2.0
+    # a label hanging down from the peak, through the text
+    label = (middle - 12, text[1] - 10, middle - 2, text[3] + 40)
+    plot_objects.spreadRulerTexts([layout], labels=[label])
+
+    moved = plot_objects.rulerTextBox(layout)
+    assert layout["offset"][1] > 0
+    assert moved[1] >= label[3]
+
+
+def test_peak_labels_win_where_a_text_has_nowhere_to_go(wx_app):
+    import wx
+
+    from mspy import plot_objects
+
+    (layout,) = _layouts(wx, [(100, 200, "Hex 162.05")])
+    text = plot_objects.rulerTextBox(layout)
+    # upright labels side by side all the way along, up to the top
+    labels = [(x, 0, x + 12, text[3] + 10) for x in range(-400, 800, 12)]
+    plot_objects.spreadRulerTexts([layout], labels=labels)
+
+    # the text stays where it was, to be drawn under the labels
+    assert layout["offset"] == (0.0, 0.0)
+    assert layout["underLabels"]
+
+
+def test_odd_peak_label_boxes_do_not_upset_the_layout(wx_app):
+    import wx
+
+    from mspy import plot_objects
+
+    (layout,) = _layouts(wx, [(100, 200, "Hex 162.05")])
+    odd = [(float("nan"), 0, 10, 10), (0, float("inf"), 10, 10), (5, 5, 5, 5)]
+    plot_objects.spreadRulerTexts([layout], labels=odd)
+    plot_objects.spreadRulerTexts([layout], labels=[])
+
+    assert layout["offset"] == (0.0, 0.0)
+
+
+def test_old_library_gets_short_names_and_loses_the_methylations(tmp_path, libs, user_lists):
+    path = tmp_path / "differences.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schemaVersion": 1,
+                "differences": {
+                    "Modifications": [
+                        ["Acetylation", 42.010565, 42.036758],
+                        ["Methylation", 14.01565, 14.026617],
+                        ["Trimethylation", 42.04695, 42.079852],
+                        ["Dimethylation", 28.0313, 28.053235],
+                        # changed by the user: left as it is
+                        ["Oxidation", 16.5, 16.5],
+                    ],
+                    "Mine": [["Trimethylation", 42.1, 42.1]],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    libs.loadDifferences(str(path))
+
+    assert libs.differences["Modifications"] == [
+        ("Acetylation", 42.010565, 42.036758, "Ac", ""),
+        ("Methylation", 14.01565, 14.026617, "Me", ""),
+        ("Oxidation", 16.5, 16.5, "", ""),
+    ]
+    assert libs.differences["Mine"] == [("Trimethylation", 42.1, 42.1, "", "")]
+    # the lists once built into the program come along
+    assert {AMINOACIDS, SUGARS, "PerMe-Sugars"} <= set(libs.differences)
+    assert libs.differenceOptions[AMINOACIDS] == {"pairs": True}
+    # a file of the current version is read as it is
+    libs.saveDifferences(str(path))
+    libs.differences["Mine"].append(("Trimethylation", 42.04695, 42.079852, "", ""))
+    libs.saveDifferences(str(path))
+    libs.loadDifferences(str(path))
+    assert ("Trimethylation", 42.04695, 42.079852, "", "") in libs.differences["Mine"]
+
+
+def test_short_names_replace_entry_names_in_label_text(user_lists):
+    names = {"Phospho": "Ph"}
+
+    assert differences.shortNames() == names
+    assert differences.shortenNames("Phospho / Oxidation", names) == "Ph / Oxidation"
+    assert differences.shortenNames("3\u00d7Phospho + Hex", names) == "3\u00d7Ph + Hex"
+    assert differences.shortenNames("", names) == ""
+
+
+def test_a_single_entry_wins_over_a_multiple_of_a_smaller_one():
+    mods = [
+        ("Acetylation", 42.010565, 42.036758, "Mods"),
+        ("Methylation", 14.01565, 14.026617, "Mods"),
+    ]
+    # 42.047 (trimethylation) is within 0.1 of Ac and of 3xMe
+    assert [m[0] for m in differences.match(42.04695, mods, 0.1)] == ["Acetylation"]
+    assert [m[0] for m in differences.matchMultiples(42.04695, mods, 0.1)] == ["3\u00d7Methylation"]
+    # and within a tight tolerance only the multiple fits
+    assert not differences.match(42.04695, mods, 0.01)
+    assert [m[0] for m in differences.matchMultiples(42.04695, mods, 0.01)] == ["3\u00d7Methylation"]
+
+
+def test_a_text_never_just_slides_sideways_off_a_peak_label(wx_app):
+    import math
+
+    import wx
+
+    from mspy import plot_objects
+
+    (layout,) = _layouts(wx, [(100, 200, "6.23")])
+    text = plot_objects.rulerTextBox(layout)
+    # a tall label just catching the text's right edge: a small step aside
+    # would clear it, but the text is to rise as well, as steeply as texts
+    # yielding to each other
+    label = (text[2] - 3, text[1] - 60, text[2] + 9, text[3] + 10)
+    plot_objects.spreadRulerTexts([layout], labels=[label])
+
+    dx, dy = layout["offset"]
+    assert dy < 0
+    assert math.degrees(math.atan2(-dy, abs(dx))) >= 60.0 - 1e-6
+    assert not plot_objects._overlaps(plot_objects.rulerTextBox(layout), label)
+
+
+def test_a_labels_own_text_can_show_its_masses():
+    note = "K {diff} ({error}) {name}: {theo} of {mass}, {other} {"
+    text = differences.expandNote(note, "K", 128.0962, 1, 128.094963, (700.0, 828.0962))
+
+    assert text == "K 128.0962 (+0.0012) K: 128.0950 of 128.0962, {other} {"
+    # an unmatched label has no theoretical mass nor error to show
+    assert differences.expandNote("{name}|{theo}|{error}|{diff}", "", 5.0) == "|||5.0000"
+    # and text without fields is left alone
+    assert differences.expandNote("plain", "K", 1.0) == "plain"
+
+
+def test_report_fills_in_a_labels_own_text():
+    document = gdoc.document()
+    document.rulers.append(
+        gdoc.ruler(700.0, 1.0, 828.0962, 1.0, label="K", theoretical=128.094963, note="Lys {diff}")
+    )
+
+    report = document.report()
+
+    assert "Lys 128.0962" in report
+    assert "{diff}" not in report
+
+
+def test_a_version_2_library_gains_the_lists_once_built_in_but_keeps_its_own(tmp_path, libs, user_lists):
+    path = tmp_path / "differences.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schemaVersion": 2,
+                "differences": {"Sugars": [["My sugar", 100.0, 100.0]], "Mine": [["X", 1.0]]},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    libs.loadDifferences(str(path))
+
+    # a list of the same name is the user's and stays as it is
+    assert libs.differences["Sugars"] == [("My sugar", 100.0, 100.0, "", "")]
+    assert AMINOACIDS in libs.differences and "PerMe-Sugars" in libs.differences
+    assert libs.differenceOptions[AMINOACIDS] == {"pairs": True}
+
+
+def test_restoring_defaults_puts_back_shipped_entries_and_keeps_the_users(libs, shipped):
+    del libs.differences[SUGARS]
+    libs.differences[AMINOACIDS] = [
+        item if item[0] != "Lysine" else ("Lysine", 1.0, 1.0, "Lys", "")
+        for item in libs.differences[AMINOACIDS]
+        if item[0] != "Glycine"
+    ] + [("My residue", 5.0, 5.0, "", "")]
+    libs.differenceOptions[AMINOACIDS] = {"pairs": False}
+    libs.differences["Mine"] = [("X", 1.0, 1.0, "", "")]
+
+    changed = libs.restoreDefaultDifferences()
+
+    names = {item[0]: item for item in libs.differences[AMINOACIDS]}
+    assert set(changed) == {SUGARS, AMINOACIDS}
+    assert SUGARS in libs.differences
+    assert "Glycine" in names and names["Lysine"][3:] == ("K", "K")
+    assert "My residue" in names
+    assert libs.differences["Mine"] == [("X", 1.0, 1.0, "", "")]
+    assert libs.differenceOptions[AMINOACIDS] == {"pairs": True}
+
+
+def test_an_entry_naming_a_monomer_follows_the_monomer_library(libs, shipped):
+    lysine = mspy.monomers["K"]
+    mspy.monomers["K"] = mspy.monomer(abbr="K", formula="C6H12N2O2", name="Hydroxylysine")
+    try:
+        assert differences.getList(AMINOACIDS)["Lysine"][0] == pytest.approx(144.0899, abs=1e-3)
+    finally:
+        mspy.monomers["K"] = lysine
+    # a monomer that is not there leaves the stored masses
+    assert differences.entryMasses(("Gone", 7.0, 8.0, "", "Zz")) == (7.0, 8.0)
+
+
+def test_short_names_of_a_pair_are_those_of_its_entries(shipped):
+    assert differences.shortenNames("Glycine+Lysine / 2\u00d7Glycine") == "G+K / 2\u00d7G"
+
+
+def test_pairs_can_be_listed_apart_from_single_entries(shipped):
+    singles = {entry[0] for entry in differences.entries([AMINOACIDS], pairs=False)}
+    pairs = {entry[0] for entry in differences.entries([AMINOACIDS], singles=False)}
+
+    assert "Glutamine" in singles and "Glutamine" not in pairs
+    assert "Alanine+Glycine" in pairs and not pairs & singles
+    # Q and A+G weigh the same: matching singles first keeps Q on its own
+    glutamine = differences.getList(AMINOACIDS)["Glutamine"][0]
+    single = differences.entries([AMINOACIDS], pairs=False)
+    assert [m[0] for m in differences.match(glutamine, single, 0.01)] == ["Glutamine"]

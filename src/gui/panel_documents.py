@@ -191,6 +191,12 @@ class panelDocuments(wx.Panel):
             elif itemType in ("annotation", "match"):
                 self.onNotationDelete()
 
+            # delete difference label(s)
+            elif itemType == "ruler":
+                self.onRulerDelete()
+            elif itemType == "rulers":
+                self.parent.onDocumentRulersDelete()
+
             else:
                 wx.Bell()
 
@@ -255,6 +261,8 @@ class panelDocuments(wx.Panel):
             menu.AppendSeparator()
             menu.Append(ID_documentInfo, "Notes and Information...")
             menu.Append(ID_documentNotationsDelete, "Delete All Notations")
+            menu.Append(ID_documentRulersDelete, "Delete Difference Labels")
+            menu.Enable(ID_documentRulersDelete, bool(itemData.rulers))
             menu.AppendSeparator()
             menu.Append(ID_documentColour, "Change Colour...")
             style = wx.Menu()
@@ -334,6 +342,18 @@ class panelDocuments(wx.Panel):
                 menu.Enable(ID_documentAnnotationSendToMassCalculator, False)
                 menu.Enable(ID_documentAnnotationSendToEnvelopeFit, False)
 
+        elif itemType == "rulers":
+            menu.Append(ID_documentRulersAutoText, "Automatic Text for All Labels")
+            menu.Append(ID_documentRulersDelete, "Delete All Difference Labels")
+
+        elif itemType == "ruler":
+            menu.Append(ID_documentRulerShow, "Show in Spectrum")
+            menu.Append(ID_documentRulerEdit, "Edit Text...")
+            menu.AppendSeparator()
+            menu.Append(ID_documentRulerDelete, "Delete Label")
+            menu.Append(ID_documentRulersAutoText, "Automatic Text for All Labels")
+            menu.Append(ID_documentRulersDelete, "Delete All Difference Labels")
+
         elif itemType == "sequence":
             menu.Append(ID_sequenceEditor, "Edit Sequence...")
             menu.Append(ID_sequenceModifications, "Edit Modifications...")
@@ -386,6 +406,13 @@ class panelDocuments(wx.Panel):
             self.parent.onDocumentNotationsDelete,
             id=ID_documentNotationsDelete,
         )
+        self.Bind(
+            wx.EVT_MENU, self.parent.onDocumentRulersDelete, id=ID_documentRulersDelete
+        )
+        self.Bind(wx.EVT_MENU, self.onRulersAutoText, id=ID_documentRulersAutoText)
+        self.Bind(wx.EVT_MENU, self.onRulerShow, id=ID_documentRulerShow)
+        self.Bind(wx.EVT_MENU, self.onRulerEdit, id=ID_documentRulerEdit)
+        self.Bind(wx.EVT_MENU, self.onRulerDelete, id=ID_documentRulerDelete)
         self.Bind(wx.EVT_MENU, self.parent.onDocumentDuplicate, id=ID_documentDuplicate)
         self.Bind(wx.EVT_MENU, self.onDocumentMoveUp, id=ID_documentMoveUp)
         self.Bind(wx.EVT_MENU, self.onDocumentMoveDown, id=ID_documentMoveDown)
@@ -508,6 +535,11 @@ class panelDocuments(wx.Panel):
         # update notation marks
         self.parent.updateNotationMarks()
 
+        # highlight both ends of a selected difference label
+        if itemType == "ruler":
+            rulerData = self.documentTree.GetItemData(item)
+            self.parent.updateMassPoints([rulerData.mz1, rulerData.mz2])
+
         # highlight mass of selected match or annotation
         if itemType in ("annotation", "match"):
             matchData = self.documentTree.GetItemData(item)
@@ -545,6 +577,10 @@ class panelDocuments(wx.Panel):
         # edit annotation or sequence match
         elif itemType in ("annotation", "match"):
             self.onNotationEdit()
+
+        # show difference label
+        elif itemType == "ruler":
+            self.onRulerShow()
 
     # ----
 
@@ -792,6 +828,7 @@ class panelDocuments(wx.Panel):
         menu.Append(ID_sequenceMatchesDelete, "Delete All Matches")
         menu.AppendSeparator()
         menu.Append(ID_documentNotationsDelete, "Delete All Notations")
+        menu.Append(ID_documentRulersDelete, "Delete Difference Labels")
         menu.AppendSeparator()
         menu.Append(ID_documentClose, "Close Document")
         menu.Append(ID_documentCloseAll, "Close All Documents")
@@ -803,6 +840,7 @@ class panelDocuments(wx.Panel):
         menu.Enable(ID_sequenceMatchDelete, False)
         menu.Enable(ID_sequenceMatchesDelete, False)
         menu.Enable(ID_documentNotationsDelete, False)
+        menu.Enable(ID_documentRulersDelete, False)
         menu.Enable(ID_documentClose, False)
         menu.Enable(ID_documentCloseAll, bool(self.documents))
 
@@ -826,6 +864,9 @@ class panelDocuments(wx.Panel):
             wx.EVT_MENU,
             self.parent.onDocumentNotationsDelete,
             id=ID_documentNotationsDelete,
+        )
+        self.Bind(
+            wx.EVT_MENU, self.parent.onDocumentRulersDelete, id=ID_documentRulersDelete
         )
         self.Bind(wx.EVT_MENU, self.parent.onDocumentClose, id=ID_documentClose)
         self.Bind(wx.EVT_MENU, self.parent.onDocumentCloseAll, id=ID_documentCloseAll)
@@ -856,6 +897,7 @@ class panelDocuments(wx.Panel):
                 menu.Enable(ID_sequenceMatchesDelete, True)
             if itemType is not None:
                 menu.Enable(ID_documentNotationsDelete, True)
+                menu.Enable(ID_documentRulersDelete, bool(self.documents[docIndex].rulers))
                 menu.Enable(ID_documentClose, True)
 
         self.PopupMenu(menu)
@@ -892,6 +934,67 @@ class panelDocuments(wx.Panel):
             dlg.Destroy()
             if itemType in ("annotation", "match"):
                 self.documents[docIndex].backup(None)
+
+    # ----
+
+    def _getRulerIndex(self, item=None):
+        """Index of the selected difference label within its document."""
+
+        if item is None:
+            item = self.documentTree.GetSelection()
+        if self.documentTree.getItemType(item) != "ruler":
+            return None, None
+
+        docIndex = self._getDocumentIndex(item)
+        rulerData = self.documentTree.GetItemData(item)
+        for index, ruler in enumerate(self.documents[docIndex].rulers):
+            if ruler is rulerData:
+                return docIndex, index
+        return docIndex, None
+
+    # ----
+
+    def onRulersAutoText(self, evt=None):
+        """Give the selected document's labels their automatic text back."""
+
+        docIndex = self._getDocumentIndex(self.documentTree.GetSelection())
+        if docIndex is None or docIndex != self.parent.currentDocument:
+            wx.Bell()
+            return
+        self.parent.spectrumPanel.resetRulerNotes()
+
+    # ----
+
+    def onRulerShow(self, evt=None):
+        """Zoom the spectrum to the selected difference label."""
+
+        docIndex, index = self._getRulerIndex()
+        if index is None:
+            wx.Bell()
+            return
+        self.parent.spectrumPanel.showRuler(index)
+
+    # ----
+
+    def onRulerEdit(self, evt=None):
+        """Edit the text of the selected difference label."""
+
+        docIndex, index = self._getRulerIndex()
+        if index is None:
+            wx.Bell()
+            return
+        self.parent.spectrumPanel.editRulerText(index)
+
+    # ----
+
+    def onRulerDelete(self, evt=None):
+        """Delete the selected difference label."""
+
+        docIndex, index = self._getRulerIndex()
+        if index is None:
+            wx.Bell()
+            return
+        self.parent.spectrumPanel.deleteRuler(index)
 
     # ----
 
@@ -1091,6 +1194,45 @@ class panelDocuments(wx.Panel):
 
         # update colour
         self.documentTree.updateDocumentColour(docItem)
+
+    # ----
+
+    def updateRulers(self, docIndex, expand=None):
+        """Show the document's difference labels, under their own item.
+
+        The item is only there while the document has any.
+        """
+
+        # check document
+        if docIndex is None or not 0 <= docIndex < len(self.documents):
+            return
+
+        docData = self.documents[docIndex]
+        docItem = self.documentTree.getItemByData(docData)
+        if not docItem:
+            return
+        rulersItem = self.documentTree.getItemByData(docData.rulers)
+
+        # no labels, no item
+        if not docData.rulers:
+            if rulersItem:
+                self.documentTree.Delete(rulersItem)
+            return
+
+        # make the item, just below the annotations
+        if not rulersItem:
+            rulersItem = self.documentTree.appendRulers(docItem, docData)
+            expanded = bool(expand)
+        else:
+            expanded = expand or self.documentTree.IsExpanded(rulersItem)
+
+        self.documentTree.Collapse(rulersItem)
+        self.documentTree.DeleteChildren(rulersItem)
+        for rulerData in docData.rulers:
+            self.documentTree.appendRuler(rulersItem, rulerData)
+        self.documentTree.enableItemTree(rulersItem, docData.visible)
+        if expanded:
+            self.documentTree.Expand(rulersItem)
 
     # ----
 
@@ -1519,7 +1661,12 @@ class documentsTree(wx.TreeCtrl):
         if isinstance(data, doc.document):
             return "document"
         elif isinstance(data, list):
+            parent = self.GetItemData(self.GetItemParent(item))
+            if isinstance(parent, doc.document) and data is parent.rulers:
+                return "rulers"
             return "annotations"
+        elif isinstance(data, doc.ruler):
+            return "ruler"
         elif isinstance(data, doc.annotation):
             return "annotation"
         elif isinstance(data, mspy.sequence):
@@ -1629,7 +1776,7 @@ class documentsTree(wx.TreeCtrl):
                 self.SetItemImage(item, 1, wx.TreeItemIcon_Normal)
 
         # set annotations bullet
-        elif itemType == "annotations":
+        elif itemType in ("annotations", "rulers"):
             if enable:
                 self.SetItemImage(item, 2, wx.TreeItemIcon_Normal)
             else:
@@ -1643,7 +1790,7 @@ class documentsTree(wx.TreeCtrl):
                 self.SetItemImage(item, 5, wx.TreeItemIcon_Normal)
 
         # set match / annotation bullet
-        elif itemType == "match" or itemType == "annotation":
+        elif itemType in ("match", "annotation", "ruler"):
             if enable:
                 self.SetItemImage(item, 6, wx.TreeItemIcon_Normal)
             else:
@@ -1678,6 +1825,12 @@ class documentsTree(wx.TreeCtrl):
         for annotData in docData.annotations:
             self.appendNotation(annotsItem, annotData)
 
+        # add difference labels
+        if docData.rulers:
+            rulersItem = self.appendRulers(docItem, docData)
+            for rulerData in docData.rulers:
+                self.appendRuler(rulersItem, rulerData)
+
         # add sequences
         for seqData in docData.sequences:
             self.appendSequence(docItem, seqData)
@@ -1702,6 +1855,39 @@ class documentsTree(wx.TreeCtrl):
             self.appendNotation(seqItem, matchData)
 
         return seqItem
+
+    # ----
+
+    def appendRulers(self, docItem, docData):
+        """Add the item holding a document's difference labels."""
+
+        annotsItem = self.getItemByData(docData.annotations)
+        if annotsItem:
+            rulersItem = self.InsertItem(docItem, annotsItem, "Difference Labels")
+        else:
+            rulersItem = self.PrependItem(docItem, "Difference Labels")
+        self.SetItemImage(rulersItem, 2, wx.TreeItemIcon_Normal)
+        self.SetItemData(rulersItem, docData.rulers)
+
+        return rulersItem
+
+    # ----
+
+    def appendRuler(self, item, rulerData):
+        """Add a difference label to the tree."""
+
+        from .panel_spectrum import labelText
+
+        label = "%s - %s %s" % (
+            round(rulerData.mz1, config.main["mzDigits"]),
+            round(rulerData.mz2, config.main["mzDigits"]),
+            labelText(rulerData),
+        )
+        rulerItem = self.AppendItem(item, label)
+        self.SetItemImage(rulerItem, 6, wx.TreeItemIcon_Normal)
+        self.SetItemData(rulerItem, rulerData)
+
+        return rulerItem
 
     # ----
 

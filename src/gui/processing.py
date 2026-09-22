@@ -35,6 +35,11 @@ def cropNotations(document, lowMass, highMass):
         sequence.matches[:] = [
             match for match in sequence.matches if lowMass <= match.mz <= highMass
         ]
+    document.rulers[:] = [
+        ruler
+        for ruler in document.rulers
+        if lowMass <= ruler.mz1 and ruler.mz2 <= highMass
+    ]
 
 
 # math operations of the Processing panel that need no other spectrum
