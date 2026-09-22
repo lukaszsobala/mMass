@@ -903,8 +903,8 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
         # an entry that is in more than one list is matched once, by name
         self._userMasses = {}
         for items in libs.differences.values():
-            for name, mono, avg in items:
-                self._userMasses[name] = (mono, avg)
+            for item in items:
+                self._userMasses[item[0]] = (item[1], item[2])
 
         self._userLimits = self._massLimits(self._userMasses)
 

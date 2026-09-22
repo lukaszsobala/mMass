@@ -133,12 +133,14 @@ class dlgDifferencesEditor(wx.Dialog):
         self.itemsList.Bind(wx.EVT_LIST_ITEM_SELECTED, self.onItemSelected)
 
         # make columns
+        # in the order of an entry's fields, which the list sorts by
         self.itemsList.InsertColumn(0, "name", wx.LIST_FORMAT_LEFT)
         self.itemsList.InsertColumn(1, "mo. mass", wx.LIST_FORMAT_RIGHT)
         self.itemsList.InsertColumn(2, "av. mass", wx.LIST_FORMAT_RIGHT)
+        self.itemsList.InsertColumn(3, "short", wx.LIST_FORMAT_LEFT)
 
         # set column widths
-        for col, width in enumerate((300, 140, 140)):
+        for col, width in enumerate((250, 120, 120, 90)):
             self.itemsList.SetColumnWidth(col, width)
 
     # ----
@@ -151,6 +153,15 @@ class dlgDifferencesEditor(wx.Dialog):
         # make elements
         itemName_label = wx.StaticText(self, -1, "Name:")
         self.itemName_value = wx.TextCtrl(self, -1, "", size=wx.Size(280, -1))
+
+        itemShort_label = wx.StaticText(self, -1, "Short:")
+        self.itemShort_value = wx.TextCtrl(self, -1, "", size=wx.Size(120, -1))
+        self.itemShort_value.SetToolTip(
+            wx.ToolTip(
+                "Optional. What labels show instead of the name when short names "
+                "are on (e.g. Ac for Acetylation)."
+            )
+        )
 
         itemFormula_label = wx.StaticText(self, -1, "Formula:")
         self.itemFormula_value = wx.TextCtrl(
@@ -192,7 +203,9 @@ class dlgDifferencesEditor(wx.Dialog):
         grid = wx.GridBagSizer(mwx.GRIDBAG_VSPACE, mwx.GRIDBAG_HSPACE)
 
         grid.Add(itemName_label, (0, 0), flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL)
-        grid.Add(self.itemName_value, (0, 1), (1, 3), flag=wx.EXPAND)
+        grid.Add(self.itemName_value, (0, 1))
+        grid.Add(itemShort_label, (0, 2), flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL)
+        grid.Add(self.itemShort_value, (0, 3))
         grid.Add(
             itemFormula_label, (1, 0), flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL
         )
@@ -214,6 +227,7 @@ class dlgDifferencesEditor(wx.Dialog):
         self.builtin_label.SetFont(wx.SMALL_FONT)
         self.editorControls = (
             self.itemName_value,
+            self.itemShort_value,
             self.itemFormula_value,
             self.itemMoMass_value,
             self.itemAvMass_value,
@@ -265,10 +279,12 @@ class dlgDifferencesEditor(wx.Dialog):
         """Update item editor with selected item."""
 
         # get selected item
-        name, mono, avg = self.itemsMap[evt.GetData()]
+        item = self.itemsMap[evt.GetData()]
+        name, mono, avg = item[:3]
 
         # update item editor
         self.itemName_value.SetValue(name)
+        self.itemShort_value.SetValue(item[3] if len(item) > 3 else "")
         self.itemFormula_value.SetValue("")
         self.itemMoMass_value.SetValue(str(mono))
         self.itemAvMass_value.SetValue(str(avg))
@@ -575,7 +591,7 @@ class dlgDifferencesEditor(wx.Dialog):
         # clear previous data and set new
         if self.builtin:
             self.itemsMap = [
-                (name, mono, avg)
+                (name, mono, avg, "")
                 for name, (mono, avg) in differences.getList(self.builtin).items()
             ]
         else:
@@ -588,6 +604,7 @@ class dlgDifferencesEditor(wx.Dialog):
             self.itemsList.InsertItem(row, item[0])
             self.itemsList.SetItem(row, 1, "%.6f" % item[1])
             self.itemsList.SetItem(row, 2, "%.6f" % item[2])
+            self.itemsList.SetItem(row, 3, item[3] if len(item) > 3 else "")
             self.itemsList.SetItemData(row, row)
 
         # sort
@@ -600,6 +617,7 @@ class dlgDifferencesEditor(wx.Dialog):
         """Clear item editor."""
 
         self.itemName_value.SetValue("")
+        self.itemShort_value.SetValue("")
         self.itemFormula_value.SetValue("")
         self.itemMoMass_value.SetValue("")
         self.itemAvMass_value.SetValue("")
@@ -632,7 +650,7 @@ class dlgDifferencesEditor(wx.Dialog):
             wx.Bell()
             return False
 
-        return (name, mono, avg)
+        return (name, mono, avg, self.itemShort_value.GetValue().strip())
 
     # ----
 
@@ -649,7 +667,11 @@ class dlgDifferencesEditor(wx.Dialog):
         if not isinstance(groups, dict):
             return False
 
-        return libs.parseDifferences(groups)
+        container = libs.parseDifferences(groups)
+        version = data.get("schemaVersion", 1) if isinstance(data, dict) else 1
+        if not isinstance(version, int) or version < libs.DIFFERENCES_SCHEMA:
+            libs.migrateDifferences(container)
+        return container
 
     # ----
 

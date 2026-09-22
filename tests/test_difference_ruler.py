@@ -57,8 +57,8 @@ def user_lists(libs):
     saved = dict(libs.differences)
     libs.differences.clear()
     libs.differences["Test Mods"] = [
-        ("Phospho", PHOSPHO, 79.979917),
-        ("Oxidation", 15.994915, 15.999405),
+        ("Phospho", PHOSPHO, 79.979917, "Ph"),
+        ("Oxidation", 15.994915, 15.999405, ""),
     ]
     try:
         yield libs.differences
@@ -249,6 +249,8 @@ def test_differences_library_reads_short_and_skips_bad_entries(libs):
             "Mixed": [
                 ["Mono only", 10.5],
                 ["Both", 1, 2],
+                ["Short", 3, 4, " Sh "],
+                ["Short not text", 3, 4, 5],
                 ["Bad mass", "x"],
                 ["Too short"],
                 "not a list",
@@ -257,7 +259,14 @@ def test_differences_library_reads_short_and_skips_bad_entries(libs):
         }
     )
 
-    assert parsed == {"Mixed": [("Mono only", 10.5, 10.5), ("Both", 1.0, 2.0)]}
+    assert parsed == {
+        "Mixed": [
+            ("Mono only", 10.5, 10.5, ""),
+            ("Both", 1.0, 2.0, ""),
+            ("Short", 3.0, 4.0, "Sh"),
+            ("Short not text", 3.0, 4.0, ""),
+        ]
+    }
 
 
 def test_bundled_default_library_is_valid(libs):
@@ -266,10 +275,14 @@ def test_bundled_default_library_is_valid(libs):
         data = json.load(handle)
 
     parsed = libs.parseDifferences(data["differences"])
-    masses = {name: (mono, avg) for items in parsed.values() for name, mono, avg in items}
+    masses = {item[0]: item[1:] for items in parsed.values() for item in items}
 
     assert masses["Phosphorylation"][0] == pytest.approx(PHOSPHO, abs=1e-5)
     assert masses["Na-H"][0] == pytest.approx(21.98194, abs=1e-5)
+    # short names ship with it, and the methylations above one are multiples
+    assert masses["Acetylation"][2] == "Ac" and masses["Methylation"][2] == "Me"
+    assert "Dimethylation" not in masses and "Trimethylation" not in masses
+    assert data["schemaVersion"] == libs.DIFFERENCES_SCHEMA
     # no user list may shadow a built-in one
     assert not set(parsed) & set(differences.BUILTIN)
 
@@ -827,3 +840,63 @@ def test_odd_peak_label_boxes_do_not_upset_the_layout(wx_app):
     plot_objects.spreadRulerTexts([layout], labels=[])
 
     assert layout["offset"] == (0.0, 0.0)
+
+
+def test_old_library_gets_short_names_and_loses_the_methylations(tmp_path, libs, user_lists):
+    path = tmp_path / "differences.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schemaVersion": 1,
+                "differences": {
+                    "Modifications": [
+                        ["Acetylation", 42.010565, 42.036758],
+                        ["Methylation", 14.01565, 14.026617],
+                        ["Trimethylation", 42.04695, 42.079852],
+                        ["Dimethylation", 28.0313, 28.053235],
+                        # changed by the user: left as it is
+                        ["Oxidation", 16.5, 16.5],
+                    ],
+                    "Mine": [["Trimethylation", 42.1, 42.1]],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    libs.loadDifferences(str(path))
+
+    assert libs.differences["Modifications"] == [
+        ("Acetylation", 42.010565, 42.036758, "Ac"),
+        ("Methylation", 14.01565, 14.026617, "Me"),
+        ("Oxidation", 16.5, 16.5, ""),
+    ]
+    assert libs.differences["Mine"] == [("Trimethylation", 42.1, 42.1, "")]
+    # a file of the current version is read as it is
+    libs.saveDifferences(str(path))
+    libs.differences["Mine"].append(("Trimethylation", 42.04695, 42.079852, ""))
+    libs.saveDifferences(str(path))
+    libs.loadDifferences(str(path))
+    assert ("Trimethylation", 42.04695, 42.079852, "") in libs.differences["Mine"]
+
+
+def test_short_names_replace_entry_names_in_label_text(user_lists):
+    names = {"Phospho": "Ph"}
+
+    assert differences.shortNames() == names
+    assert differences.shortenNames("Phospho / Oxidation", names) == "Ph / Oxidation"
+    assert differences.shortenNames("3\u00d7Phospho + Hex", names) == "3\u00d7Ph + Hex"
+    assert differences.shortenNames("", names) == ""
+
+
+def test_a_single_entry_wins_over_a_multiple_of_a_smaller_one():
+    mods = [
+        ("Acetylation", 42.010565, 42.036758, "Mods"),
+        ("Methylation", 14.01565, 14.026617, "Mods"),
+    ]
+    # 42.047 (trimethylation) is within 0.1 of Ac and of 3xMe
+    assert [m[0] for m in differences.match(42.04695, mods, 0.1)] == ["Acetylation"]
+    assert [m[0] for m in differences.matchMultiples(42.04695, mods, 0.1)] == ["3\u00d7Methylation"]
+    # and within a tight tolerance only the multiple fits
+    assert not differences.match(42.04695, mods, 0.01)
+    assert [m[0] for m in differences.matchMultiples(42.04695, mods, 0.01)] == ["3\u00d7Methylation"]

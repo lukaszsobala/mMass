@@ -19,8 +19,11 @@
 
 A list is a named group of (name, monoisotopic mass, average mass) entries.
 The built-in ones are made from mspy's own data; the user's own lists live in
-the "differences" library (libs.differences), edited under Libraries.
+the "differences" library (libs.differences), edited under Libraries, where an
+entry may also carry a short name (e.g. Ac for Acetylation) for labels.
 """
+
+import re
 
 # load libs
 import mspy
@@ -168,7 +171,48 @@ def getList(name):
     items = libs.differences.get(name)
     if items is None:
         return {}
-    return {entry: (mono, avg) for entry, mono, avg in items}
+    return {item[0]: (item[1], item[2]) for item in items}
+
+
+def shortNames():
+    """{entry name: short name} of every entry of the user's lists that has
+    one (the built-in lists' names are short already)."""
+
+    from . import libs
+
+    names = {}
+    for items in libs.differences.values():
+        for item in items:
+            if len(item) > 3 and item[3]:
+                names[item[0]] = item[3]
+    return names
+
+
+# a name as labels write it: an entry's name, maybe as a multiple (3xMe)
+_MULTIPLE = re.compile("^(\\d+\u00d7)?(.*)$", re.DOTALL)
+
+
+def shortenNames(text, names=None):
+    """Names as a label writes them (see matchNames and seriesName), each
+    entry's name replaced by its short one (names, else shortNames())."""
+
+    if not text:
+        return text
+    if names is None:
+        names = shortNames()
+    if not names:
+        return text
+
+    def one(token):
+        found = _MULTIPLE.match(token)
+        if found is None:
+            return names.get(token, token)
+        prefix, name = found.groups()
+        return (prefix or "") + names.get(name, name)
+
+    return " + ".join(
+        " / ".join(one(token) for token in part.split(" / ")) for part in text.split(" + ")
+    )
 
 
 def entries(names):

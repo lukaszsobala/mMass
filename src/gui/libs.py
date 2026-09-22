@@ -1006,20 +1006,82 @@ def saveDifferences(path=None):
         path = config.getLibraryPath("differences")
 
     data = {
-        group: [
-            [item[0], float(item[1]), float(item[2])] for item in differences[group]
-        ]
+        group: [_differenceRow(item) for item in differences[group]]
         for group in sorted(differences.keys())
     }
 
-    return _writeJSON(path, {"schemaVersion": 1, "differences": data})
+    return _writeJSON(
+        path, {"schemaVersion": DIFFERENCES_SCHEMA, "differences": data}
+    )
+
+
+def _differenceRow(item):
+    """An entry as the library file keeps it: [name, mono, avg(, short)]."""
+
+    row = [item[0], float(item[1]), float(item[2])]
+    if len(item) > 3 and item[3]:
+        row.append(str(item[3]))
+    return row
+
+
+# version 2 gives entries a short name; files of version 1 are brought up to
+# it when read (see migrateDifferences)
+DIFFERENCES_SCHEMA = 2
+
+# short names given to the entries shipped before they had any, with the
+# monoisotopic mass they were shipped with, and the entries dropped since
+# (reported as multiples, 2xMe and 3xMe, instead)
+_DIFFERENCES_SHORT = {
+    "Acetylation": (42.010565, "Ac"),
+    "Methylation": (14.01565, "Me"),
+    "Oxidation": (15.994915, "Ox"),
+    "Phosphorylation": (79.96633, "Phos"),
+    "Sulfation": (79.956815, "Sulf"),
+    "Formylation": (27.994915, "Formyl"),
+    "Carbamidomethylation": (57.021464, "CAM"),
+    "Carbamylation": (43.005814, "Carbam"),
+    "Deamidation": (0.984016, "Deam"),
+    "Nitration": (44.985078, "Nitro"),
+    "Ethylene glycol": (44.026215, "EG"),
+    "Propylene glycol": (58.041865, "PG"),
+    "Dimethylsiloxane": (74.018791, "DMS"),
+    "Lactic acid": (72.021129, "LA"),
+    "Methyl methacrylate": (100.05243, "MMA"),
+    "Styrene": (104.0626, "St"),
+}
+_DIFFERENCES_DROPPED = {
+    "Dimethylation": 28.0313,
+    "Trimethylation": 42.04695,
+}
+
+
+def migrateDifferences(container):
+    """Bring the lists of a version 1 library file up to version 2.
+
+    Entries shipped with the program get their short names, and those since
+    dropped go -- but only while they still have the mass they were shipped
+    with, so an entry the user changed is left as it is.
+    """
+
+    for group, items in container.items():
+        kept = []
+        for name, mono, avg, short in items:
+            if name in _DIFFERENCES_DROPPED and abs(mono - _DIFFERENCES_DROPPED[name]) < 1e-4:
+                continue
+            shipped = _DIFFERENCES_SHORT.get(name)
+            if not short and shipped and abs(mono - shipped[0]) < 1e-4:
+                short = shipped[1]
+            kept.append((name, mono, avg, short))
+        container[group] = kept
+    return container
 
 
 def parseDifferences(groups):
     """Read the "differences" object of a library file into library form.
 
-    An entry is [name, mono] or [name, mono, avg]; a missing average mass is
-    taken to be the monoisotopic one. Malformed entries are skipped.
+    An entry is [name, mono], [name, mono, avg] or [name, mono, avg, short];
+    a missing average mass is taken to be the monoisotopic one, a missing
+    short name is "". Malformed entries are skipped.
     """
 
     container = {}
@@ -1035,24 +1097,42 @@ def parseDifferences(groups):
                 avg = float(item[2]) if len(item) > 2 else mono
             except (TypeError, ValueError):
                 continue
-            entries.append((str(item[0]), mono, avg))
+            short = item[3] if len(item) > 3 and isinstance(item[3], str) else ""
+            entries.append((str(item[0]), mono, avg, short.strip()))
         container[str(group)] = entries
 
     return container
 
 
 def loadDifferences(path=None, clear=True):
-    """Read a JSON mass differences library."""
+    """Read a JSON mass differences library (the user's, without path).
 
-    if path is None:
+    A library written before short names is brought up to date (see
+    migrateDifferences), and so is the user's own file.
+    """
+
+    default = path is None
+    if default:
         path = config.getLibraryPath("differences")
 
     container = parseDifferences(_readJSON(path, "differences"))
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            version = json.load(f).get("schemaVersion", 1)
+    except (OSError, ValueError, AttributeError):
+        version = DIFFERENCES_SCHEMA
+    older = not isinstance(version, int) or version < DIFFERENCES_SCHEMA
+    if older:
+        migrateDifferences(container)
 
     if clear:
         differences.clear()
     for group in container:
         differences[group] = container[group]
+
+    # the user's own library is kept brought up to date
+    if older and default and clear:
+        saveDifferences()
 
 
 # ----

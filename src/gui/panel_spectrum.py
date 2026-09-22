@@ -80,6 +80,8 @@ def rulerText(names, diff, charge=1, theoretical=None, mzs=None):
     """Text of a difference ruler, as the difference ruler settings say."""
 
     settings = config.differenceRuler
+    if settings["labelShort"]:
+        names = differences.shortenNames(names)
     return differences.rulerText(
         names,
         diff,
@@ -107,19 +109,24 @@ def matchRuler(diff, charge=1, mzs=None):
     """Difference list entries matching a ruler, as the settings say.
 
     mzs are the m/z of the ruler's two ends, which a ppm tolerance is applied
-    at.
+    at. Without a single entry that matches, whole multiples of one are
+    matched instead (e.g. 3xMe, see matchMultiples).
     """
 
     settings = config.differenceRuler
-    return differences.match(
+    candidates = differences.entries(settings["lists"])
+    arguments = (
         diff,
-        differences.entries(settings["lists"]),
+        candidates,
         settings["tolerance"],
         settings["massType"],
         charge,
-        units=settings["units"],
-        mzs=mzs,
+        settings["units"],
+        mzs,
     )
+
+    # a single entry wins over a multiple of a smaller one (Ac over 3xMe)
+    return differences.match(*arguments) or differences.matchMultiples(*arguments)
 
 
 def applySpectrumConfig(spectrum, docData, current=True):
@@ -746,11 +753,7 @@ class panelSpectrum(wx.Panel):
             height = None
             if rulerHeight is not None:
                 height = self._toReal((0, rulerHeight))[1]
-            if evt.ShiftDown():
-                if not self.addRulerSeries(*ruler, height=height):
-                    wx.Bell()
-                    self.addRuler(*ruler, height=height)
-            else:
+            if not (evt.ShiftDown() and self.addRulerSeries(*ruler, height=height)):
                 self.addRuler(*ruler, height=height)
 
         # label peak in every visible spectrum
@@ -1168,6 +1171,8 @@ class panelSpectrum(wx.Panel):
             if series is not None:
                 name, seriesCharge, theoretical = series
                 error = diff * max(1, abs(seriesCharge)) - theoretical
+                if config.differenceRuler["labelShort"]:
+                    name = differences.shortenNames(name)
                 label += "series: %s (%s)" % (
                     name,
                     differences.errorText(
@@ -1182,10 +1187,11 @@ class panelSpectrum(wx.Panel):
             elif self.spectrumCanvas.rulerShift:
                 label += "no series within %s" % self._rulerToleranceText()
             elif matches:
+                short = differences.shortNames() if config.differenceRuler["labelShort"] else {}
                 label += "match: " + ",  ".join(
                     "%s (%s)"
                     % (
-                        name,
+                        differences.shortenNames(name, short),
                         differences.errorText(
                             error,
                             charge,
@@ -2063,35 +2069,14 @@ class panelSpectrum(wx.Panel):
 
     # ----
 
-    def _rulerMultiples(self, start, end):
-        """Matches of a ruler between two canvas points as a whole multiple of
-        an entry (e.g. 3\u00d7Hex), with its charge; see matchMultiples.
-        """
-
-        diff, charge, _matches = self.getRulerMatch(start, end)
-        mzs = (self._toReal(start[:2])[0], self._toReal(end[:2])[0])
-        settings = config.differenceRuler
-        matches = differences.matchMultiples(
-            diff,
-            differences.entries(settings["lists"]),
-            settings["tolerance"],
-            settings["massType"],
-            charge,
-            settings["units"],
-            mzs,
-        )
-        return matches, charge
-
-    # ----
-
     def getRulerSeriesMatch(self, start, end):
         """What the series between two canvas points is, for Shift.
 
         Returns (name, charge, theoretical): name is that of the chain of
         steps through the peaks in between (e.g. 2\u00d7Hex + HexNAc), which
-        is labelled step by step once dropped, or of the multiple of an entry
-        the whole difference is; theoretical the neutral mass it stands for.
-        None when it is neither.
+        is labelled step by step once dropped, else what the difference
+        matches as a whole (as without Shift); theoretical the neutral mass it
+        stands for. None when it is neither.
         """
 
         if self.currentDocument is None:
@@ -2110,7 +2095,7 @@ class panelSpectrum(wx.Panel):
                 theoretical += matches[0][3] if matches else 0.0
             return differences.seriesName(names), charge, theoretical
 
-        matches, charge = self._rulerMultiples(start, end)
+        _diff, charge, matches = self.getRulerMatch(start, end)
         if matches:
             return differences.matchNames(matches), charge, matches[0][3]
         return None
@@ -2133,12 +2118,9 @@ class panelSpectrum(wx.Panel):
         """Label a series between two canvas points (with Shift).
 
         Every step of a chain of matching steps through the peaks in between
-        (see findSeries) gets its own label, its bar just over its taller
-        peak. Without such a chain, a difference that is a whole multiple of
-        an entry gets one label naming it (e.g. 3\u00d7Hex), its bar at
-        height. replace is the index of a label the series takes the place
-        of, as one undoable step. Returns False, adding nothing, when it is
-        neither.
+        (see findSeries) gets its own label, its bar over its taller peak.
+        replace is the index of a label the series takes the place of, as one
+        undoable step. Returns False, adding nothing, without such a chain.
         """
 
         if self.currentDocument is None:
@@ -2176,24 +2158,7 @@ class panelSpectrum(wx.Panel):
                 )
 
         else:
-            matches, charge = self._rulerMultiples(start, end)
-            if not matches:
-                return False
-            mz1, ai1 = self._toReal(start[:2])
-            mz2, ai2 = self._toReal(end[:2])
-            rulers.append(
-                doc.ruler(
-                    mz1,
-                    ai1,
-                    mz2,
-                    ai2,
-                    label=differences.matchNames(matches),
-                    charge=charge,
-                    scanID=scanID,
-                    theoretical=matches[0][3],
-                    height=height,
-                )
-            )
+            return False
 
         docData.backup(("rulers",))
         if replace is not None and 0 <= replace < len(docData.rulers):
@@ -3318,11 +3283,12 @@ class dlgDiffRulerSettings(wx.Dialog):
     # an example ruler for the label preview: a lysine step at 2+, 1.2 mDa off,
     # which glutamine (0.036 Da lighter) also matches at a loose tolerance
     PREVIEW = {
-        "names": "K / Q",
+        "names": "Phosphorylation / Sulfation",
+        "short": {"Phosphorylation": "Phos", "Sulfation": "Sulf"},
         "charge": 2,
-        "theoretical": 128.094963,
-        "diff": (128.094963 + 0.0012) / 2,
-        "mzs": (736.0, 800.0),
+        "theoretical": 79.96633,
+        "diff": (79.96633 + 0.0012) / 2,
+        "mzs": (736.0, 776.0),
     }
 
     def __init__(self, parent, hasRulers=False):
@@ -3397,12 +3363,14 @@ class dlgDiffRulerSettings(wx.Dialog):
         labelBox = mwx.staticBoxSizer(self, "Text of a matched label", wx.VERTICAL)
         self.labelName_check = wx.CheckBox(self, -1, "Name")
         self.labelAllNames_check = wx.CheckBox(self, -1, "All matching names, not only the closest")
+        self.labelShort_check = wx.CheckBox(self, -1, "Short names (e.g. Ac for Acetylation)")
         self.labelCharge_check = wx.CheckBox(self, -1, "Charge (when above 1)")
         self.labelDiff_check = wx.CheckBox(self, -1, "Difference")
         self.labelError_check = wx.CheckBox(self, -1, "Error (observed - theoretical, in tolerance units)")
         for check in (
             self.labelName_check,
             self.labelAllNames_check,
+            self.labelShort_check,
             self.labelCharge_check,
             self.labelDiff_check,
             self.labelError_check,
@@ -3427,6 +3395,7 @@ class dlgDiffRulerSettings(wx.Dialog):
 
         labelBox.Add(self.labelName_check, 0, wx.ALL, 3)
         labelBox.Add(self.labelAllNames_check, 0, wx.LEFT, 25)
+        labelBox.Add(self.labelShort_check, 0, wx.LEFT, 25)
         labelBox.Add(self.labelCharge_check, 0, wx.LEFT | wx.TOP, 3)
         labelBox.Add(self.labelDiff_check, 0, wx.LEFT | wx.TOP, 3)
         labelBox.Add(self.labelError_check, 0, wx.LEFT | wx.TOP, 3)
@@ -3481,6 +3450,7 @@ class dlgDiffRulerSettings(wx.Dialog):
         self.units_choice.SetStringSelection(settings["units"])
         self.labelName_check.SetValue(bool(settings["labelName"]))
         self.labelAllNames_check.SetValue(bool(settings["labelAllNames"]))
+        self.labelShort_check.SetValue(bool(settings["labelShort"]))
         self.labelCharge_check.SetValue(bool(settings["labelCharge"]))
         self.labelDiff_check.SetValue(bool(settings["labelDiff"]))
         self.labelError_check.SetValue(bool(settings["labelError"]))
@@ -3503,6 +3473,7 @@ class dlgDiffRulerSettings(wx.Dialog):
         return {
             "labelName": int(self.labelName_check.GetValue()),
             "labelAllNames": int(self.labelAllNames_check.GetValue()),
+            "labelShort": int(self.labelShort_check.GetValue()),
             "labelCharge": int(self.labelCharge_check.GetValue()),
             "labelDiff": int(self.labelDiff_check.GetValue()),
             "labelError": int(self.labelError_check.GetValue()),
@@ -3514,6 +3485,7 @@ class dlgDiffRulerSettings(wx.Dialog):
         """Show how a matched ruler would be labelled."""
 
         self.labelAllNames_check.Enable(self.labelName_check.GetValue())
+        self.labelShort_check.Enable(self.labelName_check.GetValue())
         self.labelCharge_check.Enable(self.labelName_check.GetValue())
 
         if self.units_choice.GetStringSelection() == "ppm":
@@ -3523,8 +3495,11 @@ class dlgDiffRulerSettings(wx.Dialog):
         self.preview_text.SetForegroundColour(self.colour_picker.GetColour())
 
         example = self.PREVIEW
+        names = example["names"]
+        if self.labelShort_check.GetValue():
+            names = differences.shortenNames(names, {**example["short"], **differences.shortNames()})
         text = differences.rulerText(
-            example["names"],
+            names,
             example["diff"],
             example["charge"],
             example["theoretical"],

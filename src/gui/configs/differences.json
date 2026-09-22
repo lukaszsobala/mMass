@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "differences": {
     "Adducts and Losses": [
       [
@@ -47,62 +47,62 @@
       [
         "Oxidation",
         15.994915,
-        15.999405
+        15.999405,
+        "Ox"
       ],
       [
         "Phosphorylation",
         79.96633,
-        79.979917
+        79.979917,
+        "Phos"
       ],
       [
         "Sulfation",
         79.956815,
-        80.064299
+        80.064299,
+        "Sulf"
       ],
       [
         "Acetylation",
         42.010565,
-        42.036758
+        42.036758,
+        "Ac"
       ],
       [
         "Formylation",
         27.994915,
-        28.010141
+        28.010141,
+        "Formyl"
       ],
       [
         "Methylation",
         14.01565,
-        14.026617
-      ],
-      [
-        "Dimethylation",
-        28.0313,
-        28.053235
-      ],
-      [
-        "Trimethylation",
-        42.04695,
-        42.079852
+        14.026617,
+        "Me"
       ],
       [
         "Carbamidomethylation",
         57.021464,
-        57.051442
+        57.051442,
+        "CAM"
       ],
       [
         "Carbamylation",
         43.005814,
-        43.024825
+        43.024825,
+        "Carbam"
       ],
       [
         "Deamidation",
         0.984016,
-        0.984721
+        0.984721,
+        "Deam"
       ],
       [
         "Nitration",
         44.985078,
-        44.997612
+        44.997612,
+        "Nitro"
       ]
     ],
     "Nucleotides": [
@@ -156,32 +156,38 @@
       [
         "Ethylene glycol",
         44.026215,
-        44.05264
+        44.05264,
+        "EG"
       ],
       [
         "Propylene glycol",
         58.041865,
-        58.079257
+        58.079257,
+        "PG"
       ],
       [
         "Dimethylsiloxane",
         74.018791,
-        74.153934
+        74.153934,
+        "DMS"
       ],
       [
         "Lactic acid",
         72.021129,
-        72.062781
+        72.062781,
+        "LA"
       ],
       [
         "Methyl methacrylate",
         100.05243,
-        100.116015
+        100.116015,
+        "MMA"
       ],
       [
         "Styrene",
         104.0626,
-        104.149413
+        104.149413,
+        "St"
       ]
     ]
   }

@@ -655,6 +655,8 @@ differenceRuler = {
     # what a matched ruler's label shows (an unmatched one shows the difference)
     "labelName": 1,
     "labelAllNames": 1,
+    # entries' short names (Ac for Acetylation) instead of their full ones
+    "labelShort": 1,
     "labelCharge": 1,
     "labelDiff": 1,
     "labelError": 0,
