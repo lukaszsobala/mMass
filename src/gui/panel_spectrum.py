@@ -2601,9 +2601,27 @@ class panelSpectrum(wx.Panel):
         if self.currentDocument is None:
             return
         docData = self.documents[self.currentDocument]
-        if not any(ruler.note for ruler in docData.rulers):
+        count = sum(1 for ruler in docData.rulers if ruler.note)
+        if not count:
             wx.Bell()
             return
+
+        # own texts are typed by hand; make sure this was meant
+        title = "Replace the text you typed on %s?" % (
+            "1 label" if count == 1 else "%d labels" % count
+        )
+        message = (
+            "They will show what they matched instead. Undo brings the texts back."
+        )
+        buttons = [
+            (wx.ID_CANCEL, "Cancel", 80, True, 15),
+            (wx.ID_OK, "Replace", 80, False, 0),
+        ]
+        dlg = mwx.dlgMessage(self, title, message, buttons)
+        if dlg.ShowModal() != wx.ID_OK:
+            dlg.Destroy()
+            return
+        dlg.Destroy()
 
         docData.backup(("rulers",))
         for ruler in docData.rulers:

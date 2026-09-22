@@ -284,8 +284,24 @@ class dlgDifferencesEditor(wx.Dialog):
             self.groupPairs_check,
         )
 
+        # what keeps the entry from being added, next to its fields in red
+        self.error_label = wx.StaticText(self, -1, "")
+        self.error_label.SetFont(wx.SMALL_FONT)
+        dark = wx.SystemSettings.GetAppearance().IsDark()
+        self.error_label.SetForegroundColour(
+            wx.Colour(*(INVALID_TEXT_COLOUR_DARK if dark else INVALID_TEXT_COLOUR))
+        )
+        self.error_label.Hide()
+        for control in (
+            self.itemName_value,
+            self.itemMoMass_value,
+            self.itemAvMass_value,
+        ):
+            control.Bind(wx.EVT_TEXT, self.onFieldTyped)
+
         mainSizer.Add(self.info_label, 0, wx.ALIGN_CENTER | wx.TOP, 5)
-        mainSizer.Add(grid, 0, wx.ALIGN_CENTER | wx.ALL, 10)
+        mainSizer.Add(grid, 0, wx.ALIGN_CENTER | wx.LEFT | wx.RIGHT | wx.TOP, 10)
+        mainSizer.Add(self.error_label, 0, wx.ALIGN_CENTER | wx.ALL, 5)
 
         return mainSizer
 
@@ -378,15 +394,28 @@ class dlgDifferencesEditor(wx.Dialog):
 
     # ----
 
+    def onFieldTyped(self, evt=None):
+        """Take the red off a field that is being corrected."""
+
+        if evt is not None:
+            evt.Skip()
+            self.markInvalid(evt.GetEventObject(), False)
+
+    # ----
+
     def onMonomerTyped(self, evt=None):
-        """Fill in the masses from the monomer, as its abbreviation is typed."""
+        """Fill in the masses from the monomer, as its abbreviation is typed;
+        an abbreviation of no monomer is shown in red."""
 
         monomer = self.itemMonomer_value.GetValue().strip()
+        self.markInvalid(self.itemMonomer_value, bool(monomer) and monomer not in mspy.monomers)
         if monomer not in mspy.monomers:
             return
         mono, avg = differences.massPair(mspy.monomers[monomer].mass)
         self.itemMoMass_value.ChangeValue(str(round(mono, 6)))
         self.itemAvMass_value.ChangeValue(str(round(avg, 6)))
+        self.markInvalid(self.itemMoMass_value, False)
+        self.markInvalid(self.itemAvMass_value, False)
 
     # ----
 
@@ -404,13 +433,18 @@ class dlgDifferencesEditor(wx.Dialog):
     # ----
 
     def onFormulaTyped(self, evt=None):
-        """Fill in the masses as a valid formula is typed."""
+        """Fill in the masses as a valid formula is typed; one that cannot be
+        read is shown in red, as the other formula fields do."""
 
-        masses = formulaMasses(self.itemFormula_value.GetValue())
+        text = self.itemFormula_value.GetValue()
+        masses = formulaMasses(text)
+        self.markInvalid(self.itemFormula_value, bool(text.strip()) and masses is None)
         if masses is None:
             return
         self.itemMoMass_value.ChangeValue(str(round(masses[0], 6)))
         self.itemAvMass_value.ChangeValue(str(round(masses[1], 6)))
+        self.markInvalid(self.itemMoMass_value, False)
+        self.markInvalid(self.itemAvMass_value, False)
 
     # ----
 
@@ -590,7 +624,7 @@ class dlgDifferencesEditor(wx.Dialog):
 
         # check group
         if not self.group:
-            wx.Bell()
+            self.showErrors(["Choose a list, or add one, first."])
             return
 
         # get item data
@@ -613,7 +647,7 @@ class dlgDifferencesEditor(wx.Dialog):
         # check group and selection
         selected = self.itemsList.getSelected()
         if not self.group or len(selected) != 1:
-            wx.Bell()
+            self.showErrors(["Select the one entry to replace in the list."])
             return
 
         # get item data
@@ -731,38 +765,117 @@ class dlgDifferencesEditor(wx.Dialog):
         self.itemMonomer_value.ChangeValue("")
         self.itemMoMass_value.SetValue("")
         self.itemAvMass_value.SetValue("")
+        for control in self.checkedControls():
+            self.markInvalid(control, False)
+        self.showErrors([])
+
+    # ----
+
+    def checkedControls(self):
+        """Fields an entry is checked by before it is added."""
+
+        return (
+            self.itemName_value,
+            self.itemFormula_value,
+            self.itemMonomer_value,
+            self.itemMoMass_value,
+            self.itemAvMass_value,
+        )
+
+    # ----
+
+    def markInvalid(self, control, invalid):
+        """Show a field in red, or as it normally is."""
+
+        colour = wx.Colour(*INVALID_COLOUR) if invalid else wx.NullColour
+        if control.GetBackgroundColour() != colour:
+            control.SetBackgroundColour(colour)
+            control.Refresh()
+        if not invalid and self.error_label.IsShown() and not any(
+            c.GetBackgroundColour() == wx.Colour(*INVALID_COLOUR)
+            for c in self.checkedControls()
+        ):
+            self.showErrors([])
+
+    # ----
+
+    def showErrors(self, errors):
+        """Say under the editor what keeps an entry from being added."""
+
+        if errors:
+            wx.Bell()
+        label = "\n".join(errors)
+        if label == self.error_label.GetLabel() and self.error_label.IsShown() == bool(errors):
+            return
+        self.error_label.SetLabel(label)
+        self.error_label.Show(bool(errors))
+        self.Layout()
+
+        # grow to show every reason, but never shrink what was resized
+        size, best = self.GetSize(), self.GetBestSize()
+        if best.width > size.width or best.height > size.height:
+            self.SetSize(wx.Size(max(size.width, best.width), max(size.height, best.height)))
+            self.Layout()
 
     # ----
 
     def getItemData(self):
-        """Get formated item data."""
+        """Get formated item data, or False, the fields at fault shown in red
+        and why said under them."""
 
         # get data
         name = self.itemName_value.GetValue().strip()
+        formula = self.itemFormula_value.GetValue().strip()
+        monomer = self.itemMonomer_value.GetValue().strip()
         mono = self.itemMoMass_value.GetValue().strip()
         avg = self.itemAvMass_value.GetValue().strip()
+        errors = []
+        invalid = set()
 
-        # fill masses from formula if not given
-        if not mono and self.itemFormula_value.GetValue().strip():
-            self.onFormula()
-            mono = self.itemMoMass_value.GetValue().strip()
-            avg = self.itemAvMass_value.GetValue().strip()
+        if not name:
+            errors.append("Type a name.")
+            invalid.add(self.itemName_value)
 
-        # check values
-        if not name or not mono:
-            wx.Bell()
+        masses = formulaMasses(formula) if formula else None
+        if formula and masses is None:
+            errors.append("The formula cannot be read.")
+            invalid.add(self.itemFormula_value)
+        elif masses is not None and not mono:
+            # masses from the formula if not given
+            mono, avg = str(round(masses[0], 6)), str(round(masses[1], 6))
+            self.itemMoMass_value.ChangeValue(mono)
+            self.itemAvMass_value.ChangeValue(avg)
+
+        if monomer and monomer not in mspy.monomers:
+            errors.append("No monomer is abbreviated %s in Libraries > Monomers." % monomer)
+            invalid.add(self.itemMonomer_value)
+
+        values = []
+        for control, text, required in (
+            (self.itemMoMass_value, mono, True),
+            (self.itemAvMass_value, avg, False),
+        ):
+            try:
+                values.append(float(text) if text else None)
+            except ValueError:
+                values.append(None)
+                errors.append("A mass must be a number.")
+                invalid.add(control)
+                continue
+            if required and not text and self.itemFormula_value not in invalid:
+                errors.append("Type a monoisotopic mass, or a formula to take it from.")
+                invalid.add(control)
+
+        for control in self.checkedControls():
+            self.markInvalid(control, control in invalid)
+        if errors:
+            self.showErrors(list(dict.fromkeys(errors)))
             return False
+        self.showErrors([])
 
-        try:
-            mono = float(mono)
-            avg = float(avg) if avg else mono
-        except ValueError:
-            wx.Bell()
-            return False
-
-        monomer = self.itemMonomer_value.GetValue().strip()
-        if monomer not in mspy.monomers:
-            monomer = ""
+        mono, avg = values
+        if avg is None:
+            avg = mono
         return (name, mono, avg, self.itemShort_value.GetValue().strip(), monomer)
 
     # ----
@@ -790,6 +903,13 @@ class dlgDifferencesEditor(wx.Dialog):
         return container
 
     # ----
+
+
+# a field whose value keeps an entry from being added, as mwx.formulaCtrl
+# shows a formula that cannot be read; and the text saying why
+INVALID_COLOUR = (250, 100, 100)
+INVALID_TEXT_COLOUR = (200, 40, 40)
+INVALID_TEXT_COLOUR_DARK = (255, 120, 120)
 
 
 def formulaMasses(text):
