@@ -163,6 +163,12 @@ class canvas(wx.Window):
         self.rulerSeriesFn = None
         self.rulerShift = False
 
+        # rulerPlacedFn() lists the boxes the rulers already drawn take (see
+        # plot_objects.rulerObstacles), so a ruler being dragged moves its
+        # text off them just as it will be once dropped
+        self.rulerPlacedFn = None
+        self.rulerLabelBoxesFn = None
+
         # rulerGrabFn(screenX, screenY) says which drawn ruler a press picks
         # up, as (plot object, key, part, ends, text, apexes) or None: part is
         # 1 or 2 for an end (dragged along the peaks from the other one, the
@@ -1469,13 +1475,15 @@ class canvas(wx.Window):
     # ----
 
     def rulerBarOver(self, point):
-        """Screen y of a ruler bar put just over (under, for a flipped
-        spectrum) a plot point, as it is drawn over its peaks, kept within the
-        plot.
+        """Screen y of a ruler bar put over (under, for a flipped spectrum) a
+        plot point, as one is drawn over its peaks by itself (see
+        plot_objects.RULER_GAP), kept within the plot.
         """
 
+        from mspy import plot_objects
+
         y = self.positionUserToScreen(point[:2])[1]
-        gap = 6 * self.printerScale["drawings"]
+        gap = plot_objects.RULER_GAP * self.printerScale["drawings"]
         y += gap if point[1] < 0 else -gap
         return min(max(y, self.plotCoords[1]), self.plotCoords[3])
 
@@ -1641,6 +1649,36 @@ class canvas(wx.Window):
     def setSnapFunction(self, fn):
         """Set the function listing the peaks a difference ruler can snap to."""
         self.snapFn = fn
+
+    # ----
+
+    def setRulerPlacedFunction(self, fn):
+        """Set the function listing the boxes of the rulers drawn."""
+        self.rulerPlacedFn = fn
+
+    # ----
+
+    def setRulerLabelBoxesFunction(self, fn):
+        """Set the function listing the boxes of the peak labels drawn."""
+        self.rulerLabelBoxesFn = fn
+
+    # ----
+
+    def _rulerLabelBoxes(self):
+        """Boxes of the peak labels drawn, for a ruler's text to keep off."""
+
+        if self.rulerLabelBoxesFn is None:
+            return None
+        return list(self.rulerLabelBoxesFn())
+
+    # ----
+
+    def _rulerPlaced(self):
+        """Boxes of the rulers drawn, for drawRuler to keep text off them."""
+
+        if self.rulerPlacedFn is None:
+            return None
+        return list(self.rulerPlacedFn())
 
     # ----
 
@@ -2590,6 +2628,8 @@ class canvas(wx.Window):
             printerScale=self.printerScale,
             flipped=bool(max(start[1], end[1]) < 0),
             yBar=yBar,
+            placed=self._rulerPlaced() if yBar is not None else None,
+            labels=self._rulerLabelBoxes() if yBar is not None else None,
         )
         if yBar is not None:
             self._drawBarGuide(dc, x1, x2, yBar, snap)
@@ -2633,6 +2673,8 @@ class canvas(wx.Window):
             printerScale=self.printerScale,
             flipped=bool(max(ends[0][1], ends[1][1]) < 0),
             yBar=y,
+            placed=self._rulerPlaced(),
+            labels=self._rulerLabelBoxes(),
         )
 
     # ----

@@ -283,13 +283,19 @@ class container:
             if obj.properties["visible"]:
                 obj.draw(dc, printerScale)
 
-        # draw object's labels
-        self.drawLabels(dc, printerScale, overlapLabels)
-
-        # draw what goes over the labels (difference rulers)
+        # place the objects' labels, then what goes over them (difference
+        # rulers), which keeps its text off them where it can; text that
+        # cannot is drawn first, under the labels
+        labels = self.planLabels(dc, printerScale, overlapLabels)
+        overlays = []
         for obj in self.objects:
-            if obj.properties["visible"] and hasattr(obj, "drawOverlays"):
-                obj.drawOverlays(dc, printerScale)
+            if obj.properties["visible"] and hasattr(obj, "layoutOverlays"):
+                overlays.append((obj, obj.layoutOverlays(dc, printerScale, self.labelBoxes)))
+        for obj, layouts in overlays:
+            obj.paintOverlays(dc, printerScale, layouts, "under")
+        self.paintLabels(dc, printerScale, labels)
+        for obj, layouts in overlays:
+            obj.paintOverlays(dc, printerScale, layouts, "over")
 
         # reverse back order
         if reverse:
@@ -300,6 +306,20 @@ class container:
     def drawLabels(self, dc, printerScale, overlapLabels):
         """Draw labels for all visible objects."""
 
+        self.paintLabels(dc, printerScale, self.planLabels(dc, printerScale, overlapLabels))
+
+    # ----
+
+    def planLabels(self, dc, printerScale, overlapLabels):
+        """Labels of all visible objects that get drawn, strongest first.
+
+        Unless overlapLabels, a label that would land on one already placed
+        is left out. The boxes of those placed, as (left, top, right, bottom)
+        on screen, are kept in labelBoxes.
+        """
+
+        self.labelBoxes = []
+
         # get labels from objects
         annots = []
         labels = []
@@ -309,14 +329,37 @@ class container:
             elif obj.properties["visible"]:
                 labels += obj.makeLabels(dc, printerScale)
 
-        # check labels
-        if not annots and not labels:
-            return
-
         # sort labels
         annots.sort(key=lambda x: x[0], reverse=True)
         labels.sort(key=lambda x: x[0], reverse=True)
         labels = annots + labels
+
+        # check free space
+        placed = []
+        occupied = []
+        for label in labels:
+            textCoords = label[2]
+
+            # check limits
+            if textCoords is None or abs(textCoords[1]) > 10000000:
+                continue
+
+            if overlapLabels or self._checkFreeSpace(textCoords, occupied):
+                placed.append(label)
+                occupied.append(textCoords)
+                x1, y1, x2, y2 = textCoords
+                self.labelBoxes.append((min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)))
+
+        return placed
+
+    # ----
+
+    def paintLabels(self, dc, printerScale, labels):
+        """Draw labels placed by planLabels."""
+
+        # check labels
+        if not labels:
+            return
 
         # preset font by first label
         font = labels[0][3]["labelFont"]
@@ -352,66 +395,57 @@ class container:
         badgeBase = keyBase()
 
         # draw labels
-        occupied = []
         for label in labels:
             text = label[1]
             textCoords = label[2]
             properties = label[3]
 
-            # check limits
-            if abs(textCoords[1]) > 10000000:
-                continue
+            # check pen
+            if properties["labelFont"] != font:
+                font = properties["labelFont"]
+                scaledFont = _scaleFont(font, printerScale["fonts"])
+                dc.SetFont(scaledFont)
+                badgeBase = keyBase()
 
-            # check free space and draw label
-            if overlapLabels or self._checkFreeSpace(textCoords, occupied):
+            if properties["labelColour"] != colour:
+                colour = properties["labelColour"]
+                dc.SetTextForeground(colour)
+                badgeBase = keyBase()
 
-                # check pen
-                if properties["labelFont"] != font:
-                    font = properties["labelFont"]
-                    scaledFont = _scaleFont(font, printerScale["fonts"])
-                    dc.SetFont(scaledFont)
-                    badgeBase = keyBase()
+            # if properties['labelBgrColour'] != bgrColour:
+            #    bgrColour = properties['labelBgrColour']
+            #    dc.SetTextBackground(bgrColour)
 
-                if properties["labelColour"] != colour:
-                    colour = properties["labelColour"]
-                    dc.SetTextForeground(colour)
-                    badgeBase = keyBase()
+            if properties["labelBgr"] != bgr:
+                bgr = properties["labelBgr"]
+                if bgr:
+                    dc.SetBackgroundMode(_WX_BRUSHSTYLE_SOLID)
+                else:
+                    dc.SetBackgroundMode(_WX_BRUSHSTYLE_TRANSPARENT)
+                badgeBase = keyBase()
 
-                # if properties['labelBgrColour'] != bgrColour:
-                #    bgrColour = properties['labelBgrColour']
-                #    dc.SetTextBackground(bgrColour)
+            # set angle
+            angle = properties["labelAngle"]
+            if angle == 90 and properties["flipped"]:
+                angle = -90
 
-                if properties["labelBgr"] != bgr:
-                    bgr = properties["labelBgr"]
-                    if bgr:
-                        dc.SetBackgroundMode(_WX_BRUSHSTYLE_SOLID)
-                    else:
-                        dc.SetBackgroundMode(_WX_BRUSHSTYLE_TRANSPARENT)
-                    badgeBase = keyBase()
+            # draw label
+            badge = None
+            if badgeBase is not None and angle in _LABEL_ANGLES:
+                badge = badgeBase + (angle,)
 
-                # set angle
-                angle = properties["labelAngle"]
-                if angle == 90 and properties["flipped"]:
-                    angle = -90
-
-                # draw label
-                badge = None
-                if badgeBase is not None and angle in _LABEL_ANGLES:
-                    badge = badgeBase + (angle,)
-
-                _drawLabel(
-                    dc,
-                    badge,
-                    text,
-                    int(textCoords[0]),
-                    int(textCoords[1]),
-                    angle,
-                    scaledFont,
-                    colour,
-                    bgrColour,
-                    scale,
-                )
-                occupied.append(textCoords)
+            _drawLabel(
+                dc,
+                badge,
+                text,
+                int(textCoords[0]),
+                int(textCoords[1]),
+                angle,
+                scaledFont,
+                colour,
+                bgrColour,
+                scale,
+            )
 
         dc.SetBackgroundMode(_WX_BRUSHSTYLE_TRANSPARENT)
 
@@ -1716,22 +1750,37 @@ class spectrum:
 
     # ----
 
-    def drawOverlays(self, dc, printerScale):
+    def drawOverlays(self, dc, printerScale, labelBoxes=()):
         """Draw difference rulers over the spectrum and its labels."""
+
+        layouts = self.layoutOverlays(dc, printerScale, labelBoxes)
+        self.paintOverlays(dc, printerScale, layouts, "under")
+        self.paintOverlays(dc, printerScale, layouts, "over")
+
+    # ----
+
+    def layoutOverlays(self, dc, printerScale, labelBoxes=()):
+        """Lay out the difference rulers, their texts off each other and, where
+        they can be, off the peak labels (labelBoxes, see spreadRulerTexts).
+        Returns [(key, layout)] for paintOverlays.
+        """
 
         self.rulerGeometry = []
         rulers = self.properties["rulers"]
         if not rulers or not self.properties["showRulers"]:
-            return
+            return []
         if self.currentTransform is None:
-            return
+            return []
 
         xScale, yScale, xShift, yShift = self.currentTransform
         font = _scaleFont(self.properties["labelFont"], printerScale["fonts"])
         hidden = self.properties["hiddenRuler"]
 
+        # rulers put at a height by hand first, so the others stack clear of
+        # them; then their texts yield to each other, all together
         placed = []
-        # rulers put at a height by hand first, so the others stack clear of them
+        layouts = []
+
         def order(entry):
             item = entry[1]
             return (len(item) < 7 or item[6] is None, min(item[0], item[2]))
@@ -1749,23 +1798,49 @@ class spectrum:
             y1 = _clampScreen(ai1 * yScale + yShift)
             y2 = _clampScreen(ai2 * yScale + yShift)
 
-            geometry = drawRuler(
+            layout = rulerLayout(
                 dc,
                 x1,
                 y1,
                 x2,
                 y2,
                 text,
-                colour=self.properties["rulerColour"],
-                font=font,
-                bgrColour=self.properties["labelBgrColour"],
-                labelBgr=self.properties["labelBgr"],
-                printerScale=printerScale,
+                font,
+                printerScale,
                 flipped=self.properties["flipped"],
                 placed=placed,
                 yBar=None if height is None else _clampScreen(height * yScale + yShift),
             )
-            self.rulerGeometry.append((key, geometry))
+            placed.append(layout["bar"])
+            if text:
+                placed.append(layout["textBox"])
+            layouts.append((key, layout))
+
+        spreadRulerTexts([layout for _key, layout in layouts], labels=labelBoxes)
+        self.rulersUnderLabels = [key for key, layout in layouts if layout.get("underLabels")]
+        return layouts
+
+    # ----
+
+    def paintOverlays(self, dc, printerScale, layouts, part="all"):
+        """Draw rulers laid out by layoutOverlays: the texts that give way to
+        the peak labels ("under", drawn before them) or the rest ("over").
+        """
+
+        if part != "under":
+            self.rulerGeometry = []
+        for key, layout in layouts:
+            geometry = paintRuler(
+                dc,
+                layout,
+                self.properties["rulerColour"],
+                self.properties["labelBgrColour"],
+                self.properties["labelBgr"],
+                printerScale,
+                part,
+            )
+            if part != "under":
+                self.rulerGeometry.append((key, geometry))
 
     # ----
 
@@ -2217,21 +2292,48 @@ def drawRuler(
     flipped=False,
     placed=None,
     yBar=None,
+    labels=None,
 ):
     """Draw a difference ruler between two peak tops, in screen coordinates.
 
     The bar sits just above the taller of the two peaks (below, for a flipped
     spectrum), with its text over the middle. When placed -- a list of the
-    boxes other rulers already took -- is given, the ruler is lifted until it
-    no longer collides with them, and its own box is added to the list.
-    A bar put at a given height (yBar) stays there, and only takes its box.
-    Returns (x1, y1, x2, y2, yBar, box) as drawn, ends ordered left to right.
+    boxes other rulers already took, their bars and texts -- is given, the
+    ruler is lifted until it no longer collides with them; a bar put at a
+    given height (yBar) stays there, but its text still moves off them (see
+    spreadRulerTexts), and the boxes of its bar and text are added to placed.
+    Its text also keeps off the peak labels' boxes (labels) where it can.
+    Rulers drawn together are better laid out together, see rulerLayout.
+    Returns (x1, y1, x2, y2, yBar, box) as drawn, ends ordered left to right,
+    box being the text's (the bar's without text).
+    """
+
+    layout = rulerLayout(dc, x1, y1, x2, y2, text, font, printerScale, flipped, placed, yBar)
+    if placed is not None or labels:
+        spreadRulerTexts([layout], placed or (), labels or ())
+    if placed is not None:
+        placed.append(layout["bar"])
+        if text:
+            placed.append(rulerTextBox(layout))
+    return paintRuler(dc, layout, colour, bgrColour, labelBgr, printerScale)
+
+
+# how far (in pixels, before scaling) over the taller of its peaks a ruler's
+# bar is put when placed by itself or started from a peak: right at its top
+RULER_GAP = 0
+
+
+def rulerLayout(dc, x1, y1, x2, y2, text, font, printerScale=None, flipped=False, placed=None, yBar=None):
+    """Where a difference ruler goes, before it is drawn (see drawRuler).
+
+    placed lifts a ruler without a height of its own clear of the boxes
+    other rulers took, its text where it would sit over the bar. Returns a
+    layout for spreadRulerTexts and paintRuler.
     """
 
     scale = printerScale["drawings"] if printerScale else 1.0
-    gap = 6 * scale
+    gap = RULER_GAP * scale
     tick = 4 * scale
-    head = 4 * scale
     away = 1 if flipped else -1
 
     if x2 < x1:
@@ -2244,22 +2346,258 @@ def drawRuler(
     textX = mid - textWidth / 2.0
     near = min(y1, y2) if not flipped else max(y1, y2)
 
+    def textBoxOver(bar):
+        top = bar - tick - textHeight if not flipped else bar + tick
+        return (textX, top, textX + textWidth, top + textHeight)
+
     # lift above the rulers already drawn
     fixed = yBar
     level = 0
     while True:
         yBar = fixed if fixed is not None else near + away * (gap + level * step)
-        if flipped:
-            box = (min(x1, textX), yBar - tick, max(x2, textX + textWidth), yBar + tick + textHeight)
-        else:
-            box = (min(x1, textX), yBar - tick - textHeight, max(x2, textX + textWidth), yBar + tick)
+        textBox = textBoxOver(yBar)
+        box = (
+            min(x1, textBox[0]),
+            min(yBar - tick, textBox[1]),
+            max(x2, textBox[2]),
+            max(yBar + tick, textBox[3]),
+        )
         if fixed is not None or placed is None or level >= 10 or not any(_overlaps(box, other) for other in placed):
             break
         level += 1
-    if placed is not None:
-        placed.append(box)
+
+    return {
+        "ends": (x1, y1, x2, y2),
+        "yBar": yBar,
+        "mid": mid,
+        "text": text,
+        "font": font,
+        "textBox": textBox,
+        "bar": (x1, yBar - tick, x2, yBar + tick),
+        "flipped": flipped,
+        "offset": (0.0, 0.0),
+    }
+
+
+def rulerTextBox(layout):
+    """Box of a laid out ruler's text, where spreadRulerTexts moved it."""
+
+    dx, dy = layout["offset"]
+    left, top, right, bottom = layout["textBox"]
+    return (left + dx, top + dy, right + dx, bottom + dy)
+
+
+# how far a text yielding to another moves at a time, as a share of its
+# height (up or down), at what angle from the bar, and how much room, again
+# as a share of its height, two texts are to leave between them
+_YIELD_STEP = 0.25
+_YIELD_ANGLE = 60.0
+_YIELD_ROOM = 1.0
+
+
+def spreadRulerTexts(layouts, obstacles=(), labels=()):
+    """Move ruler texts off each other and off other rulers' bars.
+
+    The bars stay where they are. Two texts that overlap both yield, alike:
+    they move away from their bars (up, or down for a flipped spectrum) and
+    apart, the left one at 120 degrees from the bar and the right one at 60,
+    a step at a time until clear. A text moved one way keeps going that way,
+    and one that meets another already moving towards it waits while that
+    one gets out of its way, so texts yielding to different neighbours do
+    not run into each other. Texts that yield leave room between them, of
+    about their height. A text over another ruler's bar, or over one of
+    the obstacles (boxes that do not move, e.g. rulers drawn already), moves
+    away from it alone. Then a text on a peak label (labels, their boxes)
+    moves sideways, away from the nearest one first, to where it covers
+    none and runs into nothing else; where there is no such place near, the
+    labels win: the layout is marked underLabels, for the text to be drawn
+    under them. Sets each layout's offset.
+    """
+
+    texts = [i for i, layout in enumerate(layouts) if layout["text"]]
+    if not texts:
+        return
+
+    rise = [
+        max(3.0, _YIELD_STEP * (layouts[i]["textBox"][3] - layouts[i]["textBox"][1]))
+        for i in range(len(layouts))
+    ]
+    run = [value / numpy.tan(numpy.radians(_YIELD_ANGLE)) for value in rise]
+    room = [
+        _YIELD_ROOM * (layout["textBox"][3] - layout["textBox"][1]) / 2.0 for layout in layouts
+    ]
+    away = [1 if layout["flipped"] else -1 for layout in layouts]
+    steps = [0] * len(layouts)
+    sides: list[int | None] = [None] * len(layouts)
+
+    def centre(box):
+        return (box[0] + box[2]) / 2.0
+
+    def boxOf(i):
+        side = sides[i] or 0
+        layouts[i]["offset"] = (side * steps[i] * run[i], away[i] * steps[i] * rise[i])
+        return rulerTextBox(layouts[i])
+
+    for _round in range(40):
+        boxes = {i: boxOf(i) for i in texts}
+        moving = set()
+
+        # texts on each other, or closer side by side than the room they are
+        # to leave between them
+        pairs = []
+        for a in range(len(texts)):
+            for b in range(a + 1, len(texts)):
+                i, j = texts[a], texts[b]
+                if _overlaps(_widened(boxes[i], room[i]), _widened(boxes[j], room[j])):
+                    if centre(layouts[i]["textBox"]) <= centre(layouts[j]["textBox"]):
+                        pairs.append((i, j))
+                    else:
+                        pairs.append((j, i))
+
+        # a group of them fans out: the left half to the left, the right half
+        # to the right, one in the middle straight on
+        group = {i: i for i in texts}
+        for i, j in pairs:
+            group[_groupRoot(group, i)] = _groupRoot(group, j)
+        members = {}
+        for i in {k for pair in pairs for k in pair}:
+            members.setdefault(_groupRoot(group, i), []).append(i)
+        for crowd in members.values():
+            crowd.sort(key=lambda k: (centre(layouts[k]["textBox"]), k))
+            middle = (len(crowd) - 1) / 2.0
+            for rank, k in enumerate(crowd):
+                if sides[k] is None:
+                    sides[k] = -1 if rank < middle else 1 if rank > middle else 0
+
+        # both of two on each other yield, apart
+        for left, right in pairs:
+            leftGoes = sides[left] <= 0
+            rightGoes = sides[right] >= 0
+            if leftGoes:
+                moving.add(left)
+            if rightGoes:
+                moving.add(right)
+            if not (leftGoes or rightGoes):
+                moving.update((left, right))
+
+        # texts on other rulers' bars or on what does not move: they alone
+        for i in texts:
+            others = [layout["bar"] for k, layout in enumerate(layouts) if k != i]
+            for other in [*others, *obstacles]:
+                if _overlaps(boxes[i], other):
+                    if sides[i] is None:
+                        mine, theirs = centre(layouts[i]["textBox"]), centre(other)
+                        sides[i] = -1 if mine < theirs else 1 if mine > theirs else 0
+                    moving.add(i)
+                    break
+
+        if not moving:
+            break
+        for i in moving:
+            steps[i] += 1
+
+    for i in texts:
+        boxOf(i)
+    _clearRulerTextsOfLabels(layouts, texts, obstacles, labels)
+
+
+def _clearRulerTextsOfLabels(layouts, texts, obstacles, labels):
+    """Move ruler texts sideways off peak labels (see spreadRulerTexts)."""
+
+    boxes = numpy.asarray(list(labels), dtype=float).reshape((-1, 4))
+    boxes = boxes[numpy.isfinite(boxes).all(axis=1)] if len(boxes) else boxes
+    if not len(boxes):
+        return
+
+    def hits(box, among):
+        return (
+            (among[:, 0] < box[2]) & (box[0] < among[:, 2]) & (among[:, 1] < box[3]) & (box[1] < among[:, 3])
+        )
+
+    finals = {i: rulerTextBox(layouts[i]) for i in texts}
+    for i in texts:
+        box = finals[i]
+        covered = boxes[hits(box, boxes)]
+        if not len(covered):
+            continue
+
+        width = box[2] - box[0]
+        height = box[3] - box[1]
+        reach = max(width, 4.0 * height)
+        stride = max(2.0, height / 2.0)
+        near = boxes[hits((box[0] - reach, box[1], box[2] + reach, box[3]), boxes)]
+
+        # away from the nearest label first
+        centre = (box[0] + box[2]) / 2.0
+        closest = covered[numpy.argmin(numpy.abs((covered[:, 0] + covered[:, 2]) / 2.0 - centre))]
+        first = 1 if centre >= (closest[0] + closest[2]) / 2.0 else -1
+
+        others = [finals[k] for k in texts if k != i]
+        others += [layout["bar"] for k, layout in enumerate(layouts) if k != i]
+        others += list(obstacles)
+
+        found = None
+        for count in range(1, int(reach / stride) + 1):
+            for side in (first, -first):
+                shift = side * count * stride
+                moved = (box[0] + shift, box[1], box[2] + shift, box[3])
+                if hits(moved, near).any():
+                    continue
+                if any(_overlaps(moved, other) for other in others):
+                    continue
+                found = shift
+                break
+            if found is not None:
+                break
+
+        if found is None:
+            layouts[i]["underLabels"] = True
+            continue
+        dx, dy = layouts[i]["offset"]
+        layouts[i]["offset"] = (dx + found, dy)
+        finals[i] = rulerTextBox(layouts[i])
+
+
+def _widened(box, margin):
+    """A box made wider by margin on either side."""
+
+    return (box[0] - margin, box[1], box[2] + margin, box[3])
+
+
+def _groupRoot(group, i):
+    """The item standing for the group i is in (union-find, halving paths)."""
+
+    while group[i] != i:
+        group[i] = group[group[i]]
+        i = group[i]
+    return i
+
+
+def paintRuler(dc, layout, colour, bgrColour, labelBgr=True, printerScale=None, part="all"):
+    """Draw a laid out ruler (see rulerLayout). Returns its geometry as
+    drawRuler does.
+
+    part is "all", or, for a ruler drawn with the peak labels: "under", its
+    text if it is to go under them (underLabels), else nothing; "over" the
+    rest.
+    """
+
+    scale = printerScale["drawings"] if printerScale else 1.0
+    tick = 4 * scale
+    head = 4 * scale
+    x1, y1, x2, y2 = layout["ends"]
+    yBar = layout["yBar"]
+    text = layout["text"]
+    box = rulerTextBox(layout) if text else layout["bar"]
 
     width = max(1, int(round(scale)))
+    under = bool(layout.get("underLabels"))
+    drawText = bool(text) and (part == "all" or (part == "under") == under)
+    if part == "under":
+        if drawText:
+            _paintRulerText(dc, layout, box, colour, bgrColour, labelBgr, width)
+        return (x1, y1, x2, y2, yBar, box)
+
     dc.SetPen(wx.Pen(colour, width, _WX_PENSTYLE_SOLID))
     dc.SetBrush(wx.Brush(colour, _WX_BRUSHSTYLE_SOLID))
 
@@ -2288,19 +2626,45 @@ def drawRuler(
     dc.DrawLine(int(x1), int(yBar), int(x1), int(y1))
     dc.DrawLine(int(x2), int(yBar), int(x2), int(y2))
 
-    # text
-    if text:
-        textY = yBar - tick - textHeight if not flipped else yBar + tick
-        if labelBgr:
-            dc.SetBackgroundMode(_WX_BRUSHSTYLE_SOLID)
-            dc.SetTextBackground(bgrColour)
-        else:
-            dc.SetBackgroundMode(_WX_BRUSHSTYLE_TRANSPARENT)
-        dc.SetTextForeground(colour)
-        dc.DrawText(text, int(textX), int(textY))
-        dc.SetBackgroundMode(_WX_BRUSHSTYLE_TRANSPARENT)
+    if drawText:
+        _paintRulerText(dc, layout, box, colour, bgrColour, labelBgr, width)
 
     return (x1, y1, x2, y2, yBar, box)
+
+
+def _paintRulerText(dc, layout, box, colour, bgrColour, labelBgr, width):
+    """Draw a ruler's text, joined to the middle of the bar by a dotted line
+    when it had to move."""
+
+    if layout["offset"] != (0.0, 0.0):
+        edge = box[3] if not layout["flipped"] else box[1]
+        dc.SetPen(wx.Pen(colour, width, wx.PENSTYLE_DOT))
+        dc.DrawLine(int(layout["mid"]), int(layout["yBar"]), int((box[0] + box[2]) / 2.0), int(edge))
+    dc.SetFont(layout["font"])
+    if labelBgr:
+        dc.SetBackgroundMode(_WX_BRUSHSTYLE_SOLID)
+        dc.SetTextBackground(bgrColour)
+    else:
+        dc.SetBackgroundMode(_WX_BRUSHSTYLE_TRANSPARENT)
+    dc.SetTextForeground(colour)
+    dc.DrawText(layout["text"], int(box[0]), int(box[1]))
+    dc.SetBackgroundMode(_WX_BRUSHSTYLE_TRANSPARENT)
+
+
+def rulerObstacles(geometry, printerScale=None):
+    """Boxes drawn rulers take, as drawRuler's placed wants them.
+
+    geometry is what drawRuler returned for each, as a plot object keeps it
+    (rulerGeometry): [(key, (x1, y1, x2, y2, yBar, box))].
+    """
+
+    scale = printerScale["drawings"] if printerScale else 1.0
+    tick = 4 * scale
+    boxes = []
+    for _key, (x1, _y1, x2, _y2, yBar, box) in geometry:
+        boxes.append((x1, yBar - tick, x2, yBar + tick))
+        boxes.append(box)
+    return boxes
 
 
 def _overlaps(a, b):

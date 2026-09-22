@@ -425,11 +425,12 @@ def test_overlapping_rulers_are_stacked(wx_app):
         )
     dc.SelectObject(wx.NullBitmap)
 
-    first, second, third = placed
-    # the second overlaps the first, so it is lifted clear of it
-    assert second[3] <= first[1]
+    # each ruler takes the box of its bar, then that of its text
+    (bar1, text1), (bar2, text2), (bar3, text3) = zip(placed[::2], placed[1::2], strict=True)
+    # the second overlaps the first, so it is lifted clear of it, bar and all
+    assert bar2[3] <= text1[1]
     # the third is clear of both and stays down
-    assert third[1] == first[1]
+    assert bar3[1] == bar1[1] and text3[1] == text1[1]
 
 
 def test_drawn_rulers_can_be_found_and_hidden(wx_app):
@@ -605,9 +606,10 @@ def test_ruler_bar_sits_over_the_taller_peak(wx_app):
     )
     dc.SelectObject(wx.NullBitmap)
 
-    assert geometry[4] < 100
+    # right at the taller peak's top, not the lower one's
+    assert geometry[4] == 100
     # flipped: peaks hang down, the one reaching y=200 is the taller
-    assert flipped[4] > 200
+    assert flipped[4] == 200
 
 
 def test_labels_meeting_at_a_peak_are_picked_up_by_their_own_bar(wx_app):
@@ -654,3 +656,174 @@ def test_a_labels_text_does_not_pick_it_up(wx_app):
     # the text itself picks up nothing
     assert spectrum.rulerAt(270, 90) is None
     assert spectrum.rulerAt(160, 90) is None
+
+
+def test_text_landing_on_another_label_is_moved_away_from_its_bar(wx_app):
+    import wx
+
+    from mspy import plot_objects
+
+    bitmap = wx.Bitmap(400, 300)
+    dc = wx.MemoryDC(bitmap)
+    font = wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
+    placed = []
+
+    def draw(x1, x2, text):
+        return plot_objects.drawRuler(
+            dc, x1, 250, x2, 250, text, colour=(230, 120, 0), font=font,
+            bgrColour=(255, 255, 255), placed=placed, yBar=200,
+        )
+
+    # two labels side by side at one height, the first one's text wider than
+    # its bar and reaching over the second one's
+    first = draw(100, 160, "1Methylation 13.97")
+    second = draw(160, 220, "Hex 162.05")
+    dc.SelectObject(wx.NullBitmap)
+
+    # both bars stay where they were put
+    assert first[4] == second[4] == 200
+    # the first text sits on its bar, the second is lifted clear of it
+    assert first[5][3] == 200 - 4
+    assert second[5][3] <= first[5][1]
+    assert not plot_objects._overlaps(first[5], second[5])
+
+    # a text with room keeps its place
+    placed.clear()
+    alone = plot_objects.drawRuler(
+        wx.MemoryDC(wx.Bitmap(400, 300)), 100, 250, 300, 250, "Hex", colour=(230, 120, 0),
+        font=font, bgrColour=(255, 255, 255), placed=placed, yBar=200,
+    )
+    assert alone[5][3] == 200 - 4
+
+
+def _layouts(wx, specs, flipped=False):
+    """Rulers laid out side by side at one bar height, as drawOverlays does."""
+
+    from mspy import plot_objects
+
+    dc = wx.MemoryDC(wx.Bitmap(600, 400))
+    font = wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
+    peak = 250 if not flipped else 150
+    layouts = [
+        plot_objects.rulerLayout(dc, x1, peak, x2, peak, text, font, flipped=flipped, yBar=200)
+        for x1, x2, text in specs
+    ]
+    dc.SelectObject(wx.NullBitmap)
+    return layouts
+
+
+def test_texts_on_each_other_both_yield_alike(wx_app):
+    import math
+
+    import wx
+
+    from mspy import plot_objects
+
+    left, right = _layouts(wx, [(100, 160, "1Methylation 13.97"), (160, 220, "Hex 162.05")])
+    plot_objects.spreadRulerTexts([left, right])
+
+    (ldx, ldy), (rdx, rdy) = left["offset"], right["offset"]
+    # both move up, and apart: the left one up and left, the right one up
+    # and right, as far as each other, at 60 degrees from the bar
+    assert ldy < 0 and rdy < 0 and ldx < 0 < rdx
+    assert ldy == pytest.approx(rdy) and ldx == pytest.approx(-rdx)
+    assert math.degrees(math.atan2(-rdy, rdx)) == pytest.approx(60.0)
+    # and are clear of each other, with about their height between them,
+    # the bars staying where they were
+    leftBox = plot_objects.rulerTextBox(left)
+    rightBox = plot_objects.rulerTextBox(right)
+    height = leftBox[3] - leftBox[1]
+    assert height * 0.99 <= rightBox[0] - leftBox[2] <= height * 1.6
+    assert left["yBar"] == right["yBar"] == 200
+
+
+def test_texts_of_a_flipped_spectrum_yield_downwards(wx_app):
+    import wx
+
+    from mspy import plot_objects
+
+    left, right = _layouts(
+        wx, [(100, 160, "1Methylation 13.97"), (160, 220, "Hex 162.05")], flipped=True
+    )
+    plot_objects.spreadRulerTexts([left, right])
+
+    (ldx, ldy), (rdx, rdy) = left["offset"], right["offset"]
+    assert ldy > 0 and rdy > 0 and ldx < 0 < rdx
+
+
+def test_a_crowd_of_texts_ends_up_clear_of_each_other(wx_app):
+    import wx
+
+    from mspy import plot_objects
+
+    specs = [(100 + 40 * k, 140 + 40 * k, "Label number %d" % k) for k in range(5)]
+    layouts = _layouts(wx, specs)
+    plot_objects.spreadRulerTexts(layouts)
+
+    boxes = [plot_objects.rulerTextBox(layout) for layout in layouts]
+    for a in range(len(boxes)):
+        for b in range(a + 1, len(boxes)):
+            assert not plot_objects._overlaps(boxes[a], boxes[b]), (a, b)
+        # nor does any text sit on another label's bar
+        for c, layout in enumerate(layouts):
+            if c != a:
+                assert not plot_objects._overlaps(boxes[a], layout["bar"]), (a, c)
+
+
+def test_a_text_with_room_stays_on_its_bar(wx_app):
+    import wx
+
+    from mspy import plot_objects
+
+    layouts = _layouts(wx, [(100, 200, "Hex"), (300, 400, "Hex")])
+    plot_objects.spreadRulerTexts(layouts)
+
+    assert [layout["offset"] for layout in layouts] == [(0.0, 0.0), (0.0, 0.0)]
+
+
+def test_a_text_moves_sideways_off_a_peak_label(wx_app):
+    import wx
+
+    from mspy import plot_objects
+
+    (layout,) = _layouts(wx, [(100, 200, "Hex 162.05")])
+    text = plot_objects.rulerTextBox(layout)
+    # an upright peak label standing just left of the text's middle
+    middle = (text[0] + text[2]) / 2.0
+    label = (middle - 12, text[1] - 40, middle - 2, text[3] + 10)
+    plot_objects.spreadRulerTexts([layout], labels=[label])
+
+    moved = plot_objects.rulerTextBox(layout)
+    # it moved right, away from the label's side, and only sideways
+    assert layout["offset"][0] > 0 and layout["offset"][1] == 0
+    assert not plot_objects._overlaps(moved, label)
+    assert not layout.get("underLabels")
+
+
+def test_peak_labels_win_where_a_text_has_nowhere_to_go(wx_app):
+    import wx
+
+    from mspy import plot_objects
+
+    (layout,) = _layouts(wx, [(100, 200, "Hex 162.05")])
+    text = plot_objects.rulerTextBox(layout)
+    # upright labels side by side all the way along
+    labels = [(x, text[1] - 40, x + 12, text[3] + 10) for x in range(-400, 800, 12)]
+    plot_objects.spreadRulerTexts([layout], labels=labels)
+
+    # the text stays where it was, to be drawn under the labels
+    assert layout["offset"] == (0.0, 0.0)
+    assert layout["underLabels"]
+
+
+def test_odd_peak_label_boxes_do_not_upset_the_layout(wx_app):
+    import wx
+
+    from mspy import plot_objects
+
+    (layout,) = _layouts(wx, [(100, 200, "Hex 162.05")])
+    odd = [(float("nan"), 0, 10, 10), (0, float("inf"), 10, 10), (5, 5, 5, 5)]
+    plot_objects.spreadRulerTexts([layout], labels=odd)
+    plot_objects.spreadRulerTexts([layout], labels=[])
+
+    assert layout["offset"] == (0.0, 0.0)

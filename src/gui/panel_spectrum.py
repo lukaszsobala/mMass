@@ -277,6 +277,10 @@ class panelSpectrum(wx.Panel):
         self.spectrumCanvas.setSnapFunction(self.getSnapCandidates)
         self.spectrumCanvas.setRulerLabelFunction(self.getRulerText)
         self.spectrumCanvas.setRulerSeriesFunction(self.getRulerSeriesText)
+        self.spectrumCanvas.setRulerPlacedFunction(self.getRulerObstacles)
+        self.spectrumCanvas.setRulerLabelBoxesFunction(
+            lambda: getattr(self.container, "labelBoxes", [])
+        )
         self.spectrumCanvas.setRulerGrabFunction(self.grabRuler)
 
         # set events
@@ -1923,6 +1927,18 @@ class panelSpectrum(wx.Panel):
             self._toDisplay(peaklist[i].mz, peaklist[i].ai, norm)
             for i in range(first, last)
         ]
+
+    # ----
+
+    def getRulerObstacles(self):
+        """Boxes the current document's drawn difference labels take."""
+
+        if self.currentDocument is None:
+            return []
+        obj = self.container[self.currentDocument + 2]
+        return mspy.plot.rulerObstacles(
+            getattr(obj, "rulerGeometry", []), self.spectrumCanvas.printerScale
+        )
 
     # ----
 
