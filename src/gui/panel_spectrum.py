@@ -96,10 +96,24 @@ def rulerText(names, diff, charge=1, theoretical=None, mzs=None):
 
 
 def labelText(ruler):
-    """Text a difference label shows: the user's note, else made from its match."""
+    """Text a difference label shows: the user's own, with the fields it
+    names filled in (see differences.expandNote), else made from its match."""
 
     if ruler.note:
-        return ruler.note
+        names = ruler.label
+        if config.differenceRuler["labelShort"]:
+            names = differences.shortenNames(names)
+        return differences.expandNote(
+            ruler.note,
+            names,
+            ruler.diff,
+            ruler.charge,
+            ruler.theoretical,
+            (ruler.mz1, ruler.mz2),
+            config.differenceRuler["units"],
+            config.main["mzDigits"],
+            config.main["ppmDigits"],
+        )
     return rulerText(
         ruler.label, ruler.diff, ruler.charge, ruler.theoretical, (ruler.mz1, ruler.mz2)
     )
@@ -177,7 +191,16 @@ def applySpectrumConfig(spectrum, docData, current=True):
             continue
         text = labelText(ruler)
         rulers.append(
-            (ruler.mz1, ruler.ai1, ruler.mz2, ruler.ai2, text, index, ruler.height)
+            (
+                ruler.mz1,
+                ruler.ai1,
+                ruler.mz2,
+                ruler.ai2,
+                text,
+                index,
+                ruler.height,
+                ruler.colour,
+            )
         )
     spectrum.setProperties(rulers=rulers)
     spectrum.setProperties(showRulers=bool(config.differenceRuler["show"]))
@@ -1189,7 +1212,7 @@ class panelSpectrum(wx.Panel):
             elif matches:
                 short = differences.shortNames() if config.differenceRuler["labelShort"] else {}
                 label += "match: " + ",  ".join(
-                    "%s (%s)"
+                    "%s (error %s)"
                     % (
                         differences.shortenNames(name, short),
                         differences.errorText(
@@ -2385,7 +2408,10 @@ class panelSpectrum(wx.Panel):
         ruler = self.documents[self.currentDocument].rulers[index]
         dlg = wx.TextEntryDialog(
             self,
-            "Text to show instead of the match (empty: automatic):",
+            "Text to show instead of the automatic one (empty: automatic).\n"
+            "These are filled in from the label: {name} the match, {diff} the\n"
+            "measured difference, {mass} the same as a neutral mass, {theo} the\n"
+            "match's theoretical mass, {error} measured minus theoretical.",
             "Label Text",
             ruler.note or labelText(ruler),
         )
@@ -2501,18 +2527,7 @@ class panelSpectrum(wx.Panel):
             for name, error, _listName, theoretical in names:
                 append(
                     submenu,
-                    "%s  (%s)"
-                    % (
-                        name,
-                        differences.errorText(
-                            error,
-                            ruler.charge,
-                            config.differenceRuler["units"],
-                            mzs,
-                            config.main["mzDigits"],
-                            config.main["ppmDigits"],
-                        ),
-                    ),
+                    self._matchDescription(name, error, theoretical, ruler.charge, mzs),
                     lambda name=name, theoretical=theoretical: self._changeRuler(
                         index, label=name, theoretical=theoretical, picked=True
                     ),
@@ -2524,6 +2539,11 @@ class panelSpectrum(wx.Panel):
         append(menu, "Edit Text...", lambda: self.editRulerText(index))
         if ruler.note:
             append(menu, "Automatic Text", lambda: self._changeRuler(index, note=None))
+        if sum(1 for other in docData.rulers if other.note) > 1:
+            append(menu, "Automatic Text for All Labels", self.resetRulerNotes)
+        append(menu, "Colour...", lambda: self.pickRulerColour(index))
+        if ruler.colour:
+            append(menu, "Default Colour", lambda: self._changeRuler(index, colour=None))
         append(menu, "Match Again", rematch)
         if ruler.height is not None:
             append(menu, "Reset Height", lambda: self.setRulerHeight(index, None))
@@ -2541,6 +2561,63 @@ class panelSpectrum(wx.Panel):
         menu.Bind(wx.EVT_MENU, onMenu)
         self.PopupMenu(menu)
         menu.Destroy()
+
+    # ----
+
+    def _matchDescription(self, name, error, theoretical, charge, mzs):
+        """A match as the Show Match menu lists it: its name, the theoretical
+        (neutral) mass difference it stands for, and how far the measured one
+        is from it."""
+
+        if config.differenceRuler["labelShort"]:
+            short = differences.shortenNames(name)
+            if short != name:
+                name = "%s (%s)" % (short, name)
+        return "%s   expected %0.*f, error %s" % (
+            name,
+            config.main["mzDigits"],
+            theoretical,
+            differences.errorText(
+                error,
+                charge,
+                config.differenceRuler["units"],
+                mzs,
+                config.main["mzDigits"],
+                config.main["ppmDigits"],
+            ),
+        )
+
+    # ----
+
+    def resetRulerNotes(self, evt=None):
+        """Give every label of the current document its automatic text back."""
+
+        if self.currentDocument is None:
+            return
+        docData = self.documents[self.currentDocument]
+        if not any(ruler.note for ruler in docData.rulers):
+            wx.Bell()
+            return
+
+        docData.backup(("rulers",))
+        for ruler in docData.rulers:
+            ruler.note = None
+        self.parent.onDocumentChanged(items=("rulers",))
+
+    # ----
+
+    def pickRulerColour(self, index):
+        """Let the user choose the colour of one difference label."""
+
+        ruler = self.documents[self.currentDocument].rulers[index]
+        colour = wx.GetColourFromUser(
+            self,
+            wx.Colour(*(ruler.colour or config.differenceRuler["colour"])),
+            "Label Colour",
+        )
+        if not colour.IsOk():
+            return
+        self._changeRuler(index, colour=(colour.Red(), colour.Green(), colour.Blue()))
 
     # ----
 
@@ -2633,6 +2710,12 @@ class panelSpectrum(wx.Panel):
         )
         menu.AppendSeparator()
         append("Match All Labels Again", self.rematchRulers, enabled=hasRulers)
+        append(
+            "Automatic Text for All Labels",
+            self.resetRulerNotes,
+            enabled=hasRulers
+            and any(ruler.note for ruler in self.documents[self.currentDocument].rulers),
+        )
         append(
             "Delete All Difference Labels", self.parent.onDocumentRulersDelete, enabled=hasRulers
         )

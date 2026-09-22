@@ -181,6 +181,7 @@ class canvas(wx.Window):
         # plot y its bar was drawn at, see getRulerEdit()
         self.rulerGrabFn = None
         self.rulerEdit = None
+        self.rulerEditColour = None
 
         self.currentObject = None
         self.currentCharge = 1
@@ -489,6 +490,12 @@ class canvas(wx.Window):
                 for drawnKey, geometry in getattr(obj, "rulerGeometry", []):
                     if drawnKey == key:
                         bar = self.positionScreenToUser((geometry[0], geometry[4]))[1]
+
+                # drawn in its own colour while dragged, if it has one
+                self.rulerEditColour = None
+                for index, item in enumerate(obj.properties.get("rulers", [])):
+                    if (item[5] if len(item) > 5 else index) == key and len(item) > 7:
+                        self.rulerEditColour = item[7]
                 self.rulerEdit = (obj, key, ends, text, apexes, bar)
                 obj.setProperties(hiddenRuler=key)
                 self.draw(self.lastDraw[0], self.lastDraw[1], self.lastDraw[2], dc)
@@ -2582,6 +2589,8 @@ class canvas(wx.Window):
         x2, y2 = self.positionUserToScreen(end[:2])
         scale = self.printerScale["drawings"]
         colour = self.properties["rulerColour"]
+        if self.rulerEdit and self.rulerEditColour:
+            colour = self.rulerEditColour
 
         # guide lines over the whole plot height, as the spectrum ruler has
         minY = self.plotCoords[1]
@@ -2647,6 +2656,8 @@ class canvas(wx.Window):
         x2, y2 = self.positionUserToScreen(ends[1])
         y, snap = self._rulerBarPosition()
         colour = self.properties["rulerColour"]
+        if self.rulerEdit and self.rulerEditColour:
+            colour = self.rulerEditColour
 
         # circle the apex the bar snapped to, or join it to the bar it lines
         # up with

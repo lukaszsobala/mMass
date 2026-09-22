@@ -308,7 +308,10 @@ def test_rulers_survive_msd_round_trip(tmp_path):
         gdoc.ruler(500.0, 1.0, 540.5, 2.0, label="", charge=2, scanID=7, height=12.5)
     )
     document.rulers.append(
-        gdoc.ruler(700.0, 1.0, 828.095, 1.0, label="K", picked=True, note='loss of "K" & <more>')
+        gdoc.ruler(
+            700.0, 1.0, 828.095, 1.0, label="K", picked=True, note='loss of "K" & <more>',
+            colour=(10, 200, 255),
+        )
     )
 
     path = str(tmp_path / "rulers.msd")
@@ -335,6 +338,9 @@ def test_rulers_survive_msd_round_trip(tmp_path):
     # the user's own text and the match they picked
     assert (first.note, first.picked) == (None, False)
     assert (third.label, third.picked, third.note) == ("K", True, 'loss of "K" & <more>')
+    # a label's own colour; the others keep the one set for all
+    assert third.colour == (10, 200, 255)
+    assert first.colour is None and second.colour is None
 
 
 def test_document_without_rulers_writes_no_element():
@@ -939,3 +945,26 @@ def test_a_text_never_just_slides_sideways_off_a_peak_label(wx_app):
     assert dy < 0
     assert math.degrees(math.atan2(-dy, abs(dx))) >= 60.0 - 1e-6
     assert not plot_objects._overlaps(plot_objects.rulerTextBox(layout), label)
+
+
+def test_a_labels_own_text_can_show_its_masses():
+    note = "K {diff} ({error}) {name}: {theo} of {mass}, {other} {"
+    text = differences.expandNote(note, "K", 128.0962, 1, 128.094963, (700.0, 828.0962))
+
+    assert text == "K 128.0962 (+0.0012) K: 128.0950 of 128.0962, {other} {"
+    # an unmatched label has no theoretical mass nor error to show
+    assert differences.expandNote("{name}|{theo}|{error}|{diff}", "", 5.0) == "|||5.0000"
+    # and text without fields is left alone
+    assert differences.expandNote("plain", "K", 1.0) == "plain"
+
+
+def test_report_fills_in_a_labels_own_text():
+    document = gdoc.document()
+    document.rulers.append(
+        gdoc.ruler(700.0, 1.0, 828.0962, 1.0, label="K", theoretical=128.094963, note="Lys {diff}")
+    )
+
+    report = document.report()
+
+    assert "Lys 128.0962" in report
+    assert "{diff}" not in report

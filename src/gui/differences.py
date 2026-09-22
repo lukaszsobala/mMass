@@ -531,3 +531,37 @@ def seriesName(names):
     return " + ".join(
         name if count == 1 else "%d\u00d7%s" % (count, name) for name, count in counts.items()
     )
+
+
+# what a label's own text can have filled in from the label, see expandNote
+NOTE_FIELDS = ("name", "diff", "mass", "theo", "error")
+
+
+def expandNote(note, names, diff, charge=1, theoretical=None, mzs=None, units="Da", digits=4, ppmDigits=1):
+    """A label's own text, with {name}, {diff}, {mass}, {theo} and {error}
+    filled in from the label.
+
+    {name} is what it matched, {diff} the measured m/z difference, {mass} the
+    measured difference as a neutral mass (times the charge), {theo} the
+    theoretical mass of the match and {error} measured minus theoretical, in
+    the tolerance units; the last two are empty for an unmatched label. Any
+    other text in braces is left as it is.
+    """
+
+    if not note or "{" not in note:
+        return note
+
+    charge = max(1, abs(int(charge or 1)))
+    mass = abs(diff) * charge
+    values = {
+        "name": names or "",
+        "diff": "%0.*f" % (digits, abs(diff)),
+        "mass": "%0.*f" % (digits, mass),
+        "theo": "" if theoretical is None else "%0.*f" % (digits, theoretical),
+        "error": ""
+        if theoretical is None
+        else errorText(mass - theoretical, charge, units, mzs, digits, ppmDigits),
+    }
+    return re.sub(
+        "\\{(%s)\\}" % "|".join(NOTE_FIELDS), lambda found: values[found.group(1)], note
+    )

@@ -343,6 +343,7 @@ class panelDocuments(wx.Panel):
                 menu.Enable(ID_documentAnnotationSendToEnvelopeFit, False)
 
         elif itemType == "rulers":
+            menu.Append(ID_documentRulersAutoText, "Automatic Text for All Labels")
             menu.Append(ID_documentRulersDelete, "Delete All Difference Labels")
 
         elif itemType == "ruler":
@@ -350,6 +351,7 @@ class panelDocuments(wx.Panel):
             menu.Append(ID_documentRulerEdit, "Edit Text...")
             menu.AppendSeparator()
             menu.Append(ID_documentRulerDelete, "Delete Label")
+            menu.Append(ID_documentRulersAutoText, "Automatic Text for All Labels")
             menu.Append(ID_documentRulersDelete, "Delete All Difference Labels")
 
         elif itemType == "sequence":
@@ -407,6 +409,7 @@ class panelDocuments(wx.Panel):
         self.Bind(
             wx.EVT_MENU, self.parent.onDocumentRulersDelete, id=ID_documentRulersDelete
         )
+        self.Bind(wx.EVT_MENU, self.onRulersAutoText, id=ID_documentRulersAutoText)
         self.Bind(wx.EVT_MENU, self.onRulerShow, id=ID_documentRulerShow)
         self.Bind(wx.EVT_MENU, self.onRulerEdit, id=ID_documentRulerEdit)
         self.Bind(wx.EVT_MENU, self.onRulerDelete, id=ID_documentRulerDelete)
@@ -948,6 +951,17 @@ class panelDocuments(wx.Panel):
             if ruler is rulerData:
                 return docIndex, index
         return docIndex, None
+
+    # ----
+
+    def onRulersAutoText(self, evt=None):
+        """Give the selected document's labels their automatic text back."""
+
+        docIndex = self._getDocumentIndex(self.documentTree.GetSelection())
+        if docIndex is None or docIndex != self.parent.currentDocument:
+            wx.Bell()
+            return
+        self.parent.spectrumPanel.resetRulerNotes()
 
     # ----
 

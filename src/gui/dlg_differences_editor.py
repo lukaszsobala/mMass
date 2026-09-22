@@ -169,12 +169,13 @@ class dlgDifferencesEditor(wx.Dialog):
         )
         self.itemFormula_value.SetToolTip(
             wx.ToolTip(
-                "Optional. Type a formula (e.g. HPO3) and press Enter to fill in "
-                "the masses; use gain and loss parts for a net change "
+                "Optional. Type a formula (e.g. HPO3) and the masses are filled "
+                "in from it; use gain and loss parts for a net change "
                 "(e.g. O - NH for deamidation)."
             )
         )
         self.itemFormula_value.Bind(wx.EVT_TEXT_ENTER, self.onFormula)
+        self.itemFormula_value.Bind(wx.EVT_TEXT, self.onFormulaTyped)
 
         itemMoMass_label = wx.StaticText(self, -1, "Mo. mass:")
         self.itemMoMass_value = wx.TextCtrl(
@@ -301,6 +302,17 @@ class dlgDifferencesEditor(wx.Dialog):
 
         self.itemMoMass_value.SetValue(str(round(masses[0], 6)))
         self.itemAvMass_value.SetValue(str(round(masses[1], 6)))
+
+    # ----
+
+    def onFormulaTyped(self, evt=None):
+        """Fill in the masses as a valid formula is typed."""
+
+        masses = formulaMasses(self.itemFormula_value.GetValue())
+        if masses is None:
+            return
+        self.itemMoMass_value.ChangeValue(str(round(masses[0], 6)))
+        self.itemAvMass_value.ChangeValue(str(round(masses[1], 6)))
 
     # ----
 

@@ -1274,11 +1274,12 @@ class spectrum:
             "tickStyle": _WX_PENSTYLE_SOLID,
             "xOffsetDigits": 2,
             "yOffsetDigits": 0,
-            # difference rulers as (mz1, ai1, mz2, ai2, text[, key[, height]])
-            # in real units; the key is handed back by rulerAt() and names the
-            # ruler to leave out while it is being edited (hiddenRuler), and
-            # height is the intensity to put the bar at (None: just above the
-            # peaks, clear of the other rulers)
+            # difference rulers as (mz1, ai1, mz2, ai2, text[, key[, height[,
+            # colour]]]) in real units; the key is handed back by rulerAt() and
+            # names the ruler to leave out while it is being edited
+            # (hiddenRuler), height is the intensity to put the bar at (None:
+            # just above the peaks, clear of the other rulers), and colour the
+            # ruler's own (None: rulerColour)
             "rulers": [],
             "showRulers": True,
             "hiddenRuler": None,
@@ -1814,6 +1815,7 @@ class spectrum:
             placed.append(layout["bar"])
             if text:
                 placed.append(layout["textBox"])
+            layout["colour"] = item[7] if len(item) > 7 and item[7] else None
             layouts.append((key, layout))
 
         spreadRulerTexts([layout for _key, layout in layouts], labels=labelBoxes)
@@ -1833,7 +1835,7 @@ class spectrum:
             geometry = paintRuler(
                 dc,
                 layout,
-                self.properties["rulerColour"],
+                layout.get("colour") or self.properties["rulerColour"],
                 self.properties["labelBgrColour"],
                 self.properties["labelBgr"],
                 printerScale,

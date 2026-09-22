@@ -31,6 +31,7 @@ from typing import Any
 
 # load modules
 from . import config
+from . import differences
 from . import session
 import mspy
 
@@ -585,6 +586,8 @@ class document:
                     attributes += ' note="%s"' % self._escape(ruler.note)
                 if ruler.picked:
                     attributes += ' picked="1"'
+                if ruler.colour:
+                    attributes += ' colour="#%02x%02x%02x"' % tuple(ruler.colour)
                 if ruler.scanID is not None:
                     attributes += ' scanID="%s"' % self._escape(str(ruler.scanID))
                 buff += "    <ruler %s>%s</ruler>\n" % (
@@ -1057,7 +1060,20 @@ class document:
                         self._escape(ruler.label),
                         theoretical,
                         error,
-                        self._escape(ruler.note or ""),
+                        self._escape(
+                            differences.expandNote(
+                                ruler.note,
+                                ruler.label,
+                                ruler.diff,
+                                ruler.charge,
+                                ruler.theoretical,
+                                (ruler.mz1, ruler.mz2),
+                                config.differenceRuler["units"],
+                                config.main["mzDigits"],
+                                config.main["ppmDigits"],
+                            )
+                            or ""
+                        ),
                     )
                 )
             buff += "    </tbody>\n"
@@ -1475,7 +1491,8 @@ class ruler:
     was put at by hand, or None to draw it just above the peaks. note is text
     the user wrote to show instead of the one made from the match, or None;
     picked tells the label names the one match the user chose among several,
-    which matching again keeps while it still matches.
+    which matching again keeps while it still matches. colour is the label's
+    own (r, g, b), or None for the one set for all.
     """
 
     def __init__(
@@ -1491,6 +1508,7 @@ class ruler:
         height=None,
         note=None,
         picked=False,
+        colour=None,
     ):
 
         # keep the lower m/z first
@@ -1509,6 +1527,7 @@ class ruler:
         self.height = None if height is None else float(height)
         self.note = note or None
         self.picked = bool(picked)
+        self.colour = None if not colour else tuple(int(c) for c in colour[:3])
 
     # ----
 
@@ -2177,6 +2196,12 @@ class parseMSD:
                 except ValueError:
                     self.errors.append("Incorrect difference label data.")
             item.picked = rulerTag.getAttribute("picked") == "1"
+            colour = rulerTag.getAttribute("colour")
+            if len(colour) == 7 and colour.startswith("#"):
+                try:
+                    item.colour = tuple(int(colour[i : i + 2], 16) for i in (1, 3, 5))
+                except ValueError:
+                    self.errors.append("Incorrect difference label data.")
             if rulerTag.getAttribute("note"):
                 item.note = rulerTag.getAttribute("note")
             if rulerTag.hasAttribute("height"):
