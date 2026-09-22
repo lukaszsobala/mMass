@@ -2408,10 +2408,10 @@ def spreadRulerTexts(layouts, obstacles=(), labels=()):
     about their height. A text over another ruler's bar, or over one of
     the obstacles (boxes that do not move, e.g. rulers drawn already), moves
     away from it alone. Then a text on a peak label (labels, their boxes)
-    moves sideways, away from the nearest one first, to where it covers
-    none and runs into nothing else; where there is no such place near, the
-    labels win: the layout is marked underLabels, for the text to be drawn
-    under them. Sets each layout's offset.
+    moves on, mostly further away from its bar and a little sideways, to
+    where it covers none and runs into nothing else; where there is no such
+    place near, the labels win: the layout is marked underLabels, for the
+    text to be drawn under them. Sets each layout's offset.
     """
 
     texts = [i for i, layout in enumerate(layouts) if layout["text"]]
@@ -2501,8 +2501,24 @@ def spreadRulerTexts(layouts, obstacles=(), labels=()):
     _clearRulerTextsOfLabels(layouts, texts, obstacles, labels)
 
 
+# where a ruler text on a peak label looks for a clear place: how far away
+# from its bar, and to either side, in text heights, and what a step sideways
+# costs against one away from the bar
+_CLEAR_AWAY = 12.0
+_CLEAR_SIDEWAYS = 2.0
+_CLEAR_SIDEWAYS_COST = 2.0
+
+
 def _clearRulerTextsOfLabels(layouts, texts, obstacles, labels):
-    """Move ruler texts sideways off peak labels (see spreadRulerTexts)."""
+    """Move ruler texts off peak labels (see spreadRulerTexts).
+
+    A text on a label is moved to the nearest place clear of every label and
+    of everything else drawn, mostly away from its bar (up, or down for a
+    flipped spectrum), where the labels end, and a little sideways (away
+    from the nearest label first) only as far as it helps, never at a lower
+    angle than _YIELD_ANGLE; a step sideways counts as _CLEAR_SIDEWAYS_COST
+    steps away. It stays on the screen.
+    """
 
     boxes = numpy.asarray(list(labels), dtype=float).reshape((-1, 4))
     boxes = boxes[numpy.isfinite(boxes).all(axis=1)] if len(boxes) else boxes
@@ -2521,40 +2537,63 @@ def _clearRulerTextsOfLabels(layouts, texts, obstacles, labels):
         if not len(covered):
             continue
 
-        width = box[2] - box[0]
         height = box[3] - box[1]
-        reach = max(width, 4.0 * height)
         stride = max(2.0, height / 2.0)
-        near = boxes[hits((box[0] - reach, box[1], box[2] + reach, box[3]), boxes)]
+        away = 1 if layouts[i]["flipped"] else -1
+        steps = int(_CLEAR_AWAY * height / stride)
+        sideSteps = int(_CLEAR_SIDEWAYS * height / stride)
 
-        # away from the nearest label first
+        # the labels and everything else around where it may go
+        region = (
+            box[0] - sideSteps * stride,
+            min(box[1], box[1] + away * steps * stride),
+            box[2] + sideSteps * stride,
+            max(box[3], box[3] + away * steps * stride),
+        )
+        near = boxes[hits(region, boxes)]
+        others = [finals[k] for k in texts if k != i]
+        others += [layout["bar"] for k, layout in enumerate(layouts) if k != i]
+        others += list(obstacles)
+        others = [other for other in others if _overlaps(region, other)]
+
+        # sideways, away from the nearest label first
         centre = (box[0] + box[2]) / 2.0
         closest = covered[numpy.argmin(numpy.abs((covered[:, 0] + covered[:, 2]) / 2.0 - centre))]
         first = 1 if centre >= (closest[0] + closest[2]) / 2.0 else -1
 
-        others = [finals[k] for k in texts if k != i]
-        others += [layout["bar"] for k, layout in enumerate(layouts) if k != i]
-        others += list(obstacles)
+        # a move sideways rises at least as steeply as texts yielding to
+        # each other do, so a text never just slides along beside its bar
+        steepness = numpy.tan(numpy.radians(_YIELD_ANGLE))
+        candidates = []
+        for up in range(steps + 1):
+            for side in range(sideSteps + 1):
+                if side and up < side * steepness:
+                    continue
+                for sign in ((first, -first) if side else (0,)):
+                    candidates.append((up + _CLEAR_SIDEWAYS_COST * side, side, sign != first, up, sign * side))
+        candidates.sort()
 
         found = None
-        for count in range(1, int(reach / stride) + 1):
-            for side in (first, -first):
-                shift = side * count * stride
-                moved = (box[0] + shift, box[1], box[2] + shift, box[3])
-                if hits(moved, near).any():
-                    continue
-                if any(_overlaps(moved, other) for other in others):
-                    continue
-                found = shift
-                break
-            if found is not None:
-                break
+        for _cost, _side, _second, up, side in candidates:
+            if not up and not side:
+                continue
+            dx = side * stride
+            dy = away * up * stride
+            moved = (box[0] + dx, box[1] + dy, box[2] + dx, box[3] + dy)
+            if moved[1] < 0:
+                continue
+            if hits(moved, near).any():
+                continue
+            if any(_overlaps(moved, other) for other in others):
+                continue
+            found = (dx, dy)
+            break
 
         if found is None:
             layouts[i]["underLabels"] = True
             continue
         dx, dy = layouts[i]["offset"]
-        layouts[i]["offset"] = (dx + found, dy)
+        layouts[i]["offset"] = (dx + found[0], dy + found[1])
         finals[i] = rulerTextBox(layouts[i])
 
 

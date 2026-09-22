@@ -794,7 +794,7 @@ def test_a_text_with_room_stays_on_its_bar(wx_app):
     assert [layout["offset"] for layout in layouts] == [(0.0, 0.0), (0.0, 0.0)]
 
 
-def test_a_text_moves_sideways_off_a_peak_label(wx_app):
+def test_a_text_moves_up_off_a_peak_label(wx_app):
     import wx
 
     from mspy import plot_objects
@@ -807,10 +807,28 @@ def test_a_text_moves_sideways_off_a_peak_label(wx_app):
     plot_objects.spreadRulerTexts([layout], labels=[label])
 
     moved = plot_objects.rulerTextBox(layout)
-    # it moved right, away from the label's side, and only sideways
-    assert layout["offset"][0] > 0 and layout["offset"][1] == 0
+    # it moved up, over the top of the label, rather than far sideways
+    assert layout["offset"][1] < 0 and abs(layout["offset"][0]) < layout["offset"][1] * -1
+    assert moved[3] <= label[1]
     assert not plot_objects._overlaps(moved, label)
     assert not layout.get("underLabels")
+
+
+def test_a_text_of_a_flipped_spectrum_moves_down_off_a_peak_label(wx_app):
+    import wx
+
+    from mspy import plot_objects
+
+    (layout,) = _layouts(wx, [(100, 200, "Hex 162.05")], flipped=True)
+    text = plot_objects.rulerTextBox(layout)
+    middle = (text[0] + text[2]) / 2.0
+    # a label hanging down from the peak, through the text
+    label = (middle - 12, text[1] - 10, middle - 2, text[3] + 40)
+    plot_objects.spreadRulerTexts([layout], labels=[label])
+
+    moved = plot_objects.rulerTextBox(layout)
+    assert layout["offset"][1] > 0
+    assert moved[1] >= label[3]
 
 
 def test_peak_labels_win_where_a_text_has_nowhere_to_go(wx_app):
@@ -820,8 +838,8 @@ def test_peak_labels_win_where_a_text_has_nowhere_to_go(wx_app):
 
     (layout,) = _layouts(wx, [(100, 200, "Hex 162.05")])
     text = plot_objects.rulerTextBox(layout)
-    # upright labels side by side all the way along
-    labels = [(x, text[1] - 40, x + 12, text[3] + 10) for x in range(-400, 800, 12)]
+    # upright labels side by side all the way along, up to the top
+    labels = [(x, 0, x + 12, text[3] + 10) for x in range(-400, 800, 12)]
     plot_objects.spreadRulerTexts([layout], labels=labels)
 
     # the text stays where it was, to be drawn under the labels
@@ -900,3 +918,24 @@ def test_a_single_entry_wins_over_a_multiple_of_a_smaller_one():
     # and within a tight tolerance only the multiple fits
     assert not differences.match(42.04695, mods, 0.01)
     assert [m[0] for m in differences.matchMultiples(42.04695, mods, 0.01)] == ["3\u00d7Methylation"]
+
+
+def test_a_text_never_just_slides_sideways_off_a_peak_label(wx_app):
+    import math
+
+    import wx
+
+    from mspy import plot_objects
+
+    (layout,) = _layouts(wx, [(100, 200, "6.23")])
+    text = plot_objects.rulerTextBox(layout)
+    # a tall label just catching the text's right edge: a small step aside
+    # would clear it, but the text is to rise as well, as steeply as texts
+    # yielding to each other
+    label = (text[2] - 3, text[1] - 60, text[2] + 9, text[3] + 10)
+    plot_objects.spreadRulerTexts([layout], labels=[label])
+
+    dx, dy = layout["offset"]
+    assert dy < 0
+    assert math.degrees(math.atan2(-dy, abs(dx))) >= 60.0 - 1e-6
+    assert not plot_objects._overlaps(plot_objects.rulerTextBox(layout), label)
