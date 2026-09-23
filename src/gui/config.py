@@ -637,6 +637,8 @@ compoundsSearch = {
 peakDifferences = {
     # lists of the mass differences library to match against
     "lists": ["Amino acids"],
+    # [list name, entry name] of the entries of those lists not matched
+    "excluded": [],
     "massType": 0,
     "tolerance": 0.1,
     "consolidate": 0,
@@ -1505,6 +1507,14 @@ def _validateConfig():
             if "Amino acids" not in lists:
                 lists.append("Amino acids")
         settings["lists"] = lists
+
+    # entries left out, of the lists matched only
+    excluded = peakDifferences["excluded"]
+    peakDifferences["excluded"] = [
+        [str(item[0]), str(item[1])]
+        for item in (excluded if isinstance(excluded, list) else [])
+        if isinstance(item, list) and len(item) == 2 and item[0] in peakDifferences["lists"]
+    ]
 
 
 
