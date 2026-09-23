@@ -189,7 +189,7 @@ def applySpectrumConfig(spectrum, docData, current=True):
     spectrum.setProperties(labelFont=labelFont)
 
     # difference rulers (for an LC-MS run, those drawn on the scan shown)
-    scanID = docData.currentScanID if docData.islcms() else None
+    scanID = docData.shownScanKey()
     rulers = []
     for index, ruler in enumerate(getattr(docData, "rulers", [])):
         if ruler.scanID is not None and ruler.scanID != scanID:
@@ -2006,7 +2006,7 @@ class panelSpectrum(wx.Panel):
 
         docData = self.documents[self.currentDocument]
         ruler = self._makeRuler(
-            start, end, scanID=docData.currentScanID if docData.islcms() else None
+            start, end, scanID=docData.shownScanKey()
         )
         if height is not None:
             ruler.height = float(height)
@@ -2131,7 +2131,7 @@ class panelSpectrum(wx.Panel):
             return False
 
         docData = self.documents[self.currentDocument]
-        scanID = docData.currentScanID if docData.islcms() else None
+        scanID = docData.shownScanKey()
         rulers = []
 
         series = self._rulerSeries(start, end)

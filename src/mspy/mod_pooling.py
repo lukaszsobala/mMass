@@ -52,6 +52,7 @@ import numpy
 from .mod_stopper import CHECK_FORCE_QUIT
 
 # load objects
+from . import obj_peak
 from . import obj_peaklist
 from . import obj_scan
 
@@ -669,16 +670,27 @@ def _compact(raster, values):
 # ----
 
 
-def _pooledscan(scans, points):
-    """Make the pooled scan object, carrying metadata shared by its scans."""
+def _pooledscan(scans, points=None, peaklist=None):
+    """Make the pooled scan object, carrying metadata shared by its scans.
 
-    pooled = obj_scan.scan(profile=points)
+    The pooled scan holds profile points, or (centroided scans) a peaklist.
+    """
+
+    if peaklist is not None:
+        pooled = obj_scan.scan(peaklist=peaklist)
+    else:
+        pooled = obj_scan.scan(profile=points)
 
     first = scans[0]
     pooled.msLevel = first.msLevel
     pooled.polarity = first.polarity
     pooled.precursorMZ = first.precursorMZ
     pooled.precursorCharge = first.precursorCharge
+
+    # fragment spectra of one precursor record it at slightly different m/z
+    precursors = [s.precursorMZ for s in scans if s.precursorMZ is not None]
+    if precursors:
+        pooled.precursorMZ = sum(precursors) / len(precursors)
 
     times = [s.retentionTime for s in scans if s.retentionTime is not None]
     if times:
@@ -692,8 +704,8 @@ def _pooledscan(scans, points):
 # ----
 
 
-def _pool(profiles, raster):
-    """Average profiles on a raster; returns compacted profile points."""
+def _pool(profiles, raster, average=True):
+    """Average (or sum) profiles on a raster; returns compacted profile points."""
 
     total = numpy.zeros(len(raster))
     coverage = numpy.zeros(len(raster))
@@ -705,6 +717,9 @@ def _pool(profiles, raster):
         total += values
         coverage += covered
 
+    if not average:
+        return _compact(raster, total)
+
     mean = numpy.divide(
         total, coverage, out=numpy.zeros(len(raster)), where=coverage > 0
     )
@@ -715,13 +730,14 @@ def _pool(profiles, raster):
 # ----
 
 
-def poolscans(scans, align=True, raster=None):
+def poolscans(scans, align=True, raster=None, average=True):
     """Average the profiles of several scans on one shared m/z raster.
 
     scans (list of mspy.scan) - scans to pool (a scan without profile data
         contributes nothing but keeps its place in the offsets)
     align (bool) - remove each scan's relative m/z offset before pooling
     raster (numpy array or None) - raster to use, built from the scans if None
+    average (bool) - average the scans (True) or sum them (False)
 
     The average (not the sum) keeps intensities on the scale of a single scan, so
     absolute intensity thresholds keep their meaning, while the noise drops with
@@ -741,10 +757,147 @@ def poolscans(scans, align=True, raster=None):
     if any(offsets):
         raster = commonraster(profiles)
 
-    pooled = _pooledscan(scans, _pool(profiles, raster))
+    pooled = _pooledscan(scans, _pool(profiles, raster, average))
     pooled.attributes["alignment"] = offsets
 
     return pooled
+
+
+# ----
+
+
+def combinescans(scans, average=True, align=True):
+    """Combine scans of one acquisition into a single spectrum.
+
+    scans (list of mspy.scan) - scans to combine, e.g. those under a range of a
+        chromatogram trace
+    average (bool) - average the scans (True) or sum them (False)
+    align (bool) - remove each scan's relative m/z offset before combining
+
+    Returns (combined scan, indexes into `scans` of the scans used), or
+    (None, []) when there is nothing to combine. Profiles are combined when
+    any scan has one, and the peaks picked in single scans do not carry over;
+    scans sampled at very different densities are never combined (see
+    `samplinggroups`) -- when the scans fall into several such groups the
+    largest one is used. Centroided scans (peak lists only, as most MS/MS
+    spectra are stored) are combined peak by peak (see `combinecentroids`).
+    """
+
+    indexes = [i for i, s in enumerate(scans) if s.hasprofile()]
+    if not indexes:
+        return combinecentroids(scans, average=average)
+
+    groups = samplinggroups([scans[i] for i in indexes])
+    used = [indexes[i] for i in max(groups, key=len)]
+    members = [scans[i] for i in used]
+
+    combined = poolscans(members, align=align and len(members) > 1, average=average)
+    combined.scanNumber = None
+    filterString = members[0].attributes.get("filterString")
+    if filterString:
+        combined.attributes["filterString"] = filterString
+
+    return combined, used
+
+
+# ----
+
+
+def _centroid_tolerance(lists):
+    """Largest m/z difference (Da, as a function of m/z) of one peak between scans.
+
+    Two peaks of one scan are distinct, so a peak cannot move between scans by
+    as much as the closest peaks of a scan lie apart: half the closest spacing
+    (the 5th percentile, in Da and relative) is taken. The Da term holds for
+    analysers of constant width (an ion trap centroids no closer than ~0.6 Da),
+    the relative one for those whose width grows with m/z.
+    """
+
+    steps = []
+    relative = []
+    for mz in lists:
+        if len(mz) < 2:
+            continue
+        d = numpy.diff(mz)
+        keep = d > 0
+        steps.append(d[keep])
+        relative.append(d[keep] / mz[:-1][keep])
+    if not steps:
+        return 0.0, 0.0
+
+    steps = numpy.concatenate(steps)
+    relative = numpy.concatenate(relative)
+    return 0.5 * float(numpy.percentile(steps, 5)), 0.5 * float(numpy.percentile(relative, 5))
+
+
+# ----
+
+
+def combinecentroids(scans, average=True):
+    """Combine the peak lists of centroided scans into one.
+
+    scans (list of mspy.scan) - scans holding peak lists
+    average (bool) - average the intensities over the scans (True, a peak
+        missing in a scan counting as zero there) or sum them (False)
+
+    Peaks of different scans closer than the centroid tolerance (see
+    `_centroid_tolerance`) are one peak, taking at most one peak of each scan;
+    its m/z is their intensity-weighted mean. Returns (combined scan, indexes
+    into `scans` of the scans used), or (None, []) when no scan has peaks.
+    """
+
+    used = [i for i, s in enumerate(scans) if len(s.peaklist)]
+    if not used:
+        return None, []
+
+    lists = []
+    for i in used:
+        mz = numpy.array([peak.mz for peak in scans[i].peaklist], dtype=float)
+        ai = numpy.array([peak.ai for peak in scans[i].peaklist], dtype=float)
+        order = numpy.argsort(mz)
+        lists.append((mz[order], ai[order]))
+
+    tolDa, tolRel = _centroid_tolerance([mz for mz, _ai in lists])
+
+    mz = numpy.concatenate([item[0] for item in lists])
+    ai = numpy.concatenate([item[1] for item in lists])
+    owner = numpy.concatenate([numpy.full(len(item[0]), n) for n, item in enumerate(lists)])
+    order = numpy.argsort(mz, kind="stable")
+    mz, ai, owner = mz[order], ai[order], owner[order]
+
+    scale = 1.0 / len(used) if average else 1.0
+    peaks = []
+    start = 0
+    while start < len(mz):
+
+        CHECK_FORCE_QUIT()
+
+        tolerance = max(tolDa, tolRel * mz[start])
+        owners = {int(owner[start])}
+        end = start + 1
+        while (
+            end < len(mz)
+            and mz[end] - mz[start] <= tolerance
+            and int(owner[end]) not in owners
+        ):
+            owners.add(int(owner[end]))
+            end += 1
+
+        weights = ai[start:end]
+        if weights.sum() > 0:
+            centre = float(numpy.average(mz[start:end], weights=weights))
+        else:
+            centre = float(mz[start:end].mean())
+        peaks.append(obj_peak.peak(mz=centre, ai=float(weights.sum()) * scale))
+        start = end
+
+    combined = _pooledscan([scans[i] for i in used], peaklist=obj_peaklist.peaklist(peaks))
+    combined.scanNumber = None
+    filterString = scans[used[0]].attributes.get("filterString")
+    if filterString:
+        combined.attributes["filterString"] = filterString
+
+    return combined, used
 
 
 # ----

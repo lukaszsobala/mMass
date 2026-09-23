@@ -2683,9 +2683,10 @@ class mainFrame(wx.Frame):
                 "style": int(document.style),
             }
 
-            # remember which scan of a browsable run is shown
-            if document.islcms() and document.currentScanID is not None:
-                entry["scan"] = str(document.currentScanID)
+            # remember which scan of a browsable run is shown (a combined
+            # spectrum is volatile: the scan it replaced stands in for it)
+            if document.islcms() and document.lastScanID() is not None:
+                entry["scan"] = str(document.lastScanID())
 
             entries.append(entry)
 
@@ -5721,8 +5722,8 @@ class mainFrame(wx.Frame):
         """Show the given scan of a chromatogram document in the viewer.
 
         The previously shown scan stays cached (with any peaks picked on it)
-        so navigating back restores it. Navigation alone does not mark the
-        document dirty.
+        so navigating back restores it; a combined spectrum shown until now is
+        dropped. Navigation alone does not mark the document dirty.
         """
 
         # this only applies to the active document
@@ -5732,23 +5733,149 @@ class mainFrame(wx.Frame):
         ):
             return
 
-        # sync the currently shown scan back into the cache so any edits
-        # (peak picking, processing, undo/redo) are preserved when we return
-        if document.currentScanID is not None:
-            document.scanCache[document.currentScanID] = document.spectrum
-
         # load the requested scan
         scan = self.loadScan(document, scanID)
         if scan is None or scan is False:
             wx.Bell()
             return
 
-        # remember dirty state - browsing scans is not an edit
+        # switch the shown scan - browsing scans is not an edit
         wasDirty = document.dirty
+        document.showScan(scanID, scan)
+        self.refreshShownSpectrum(document)
+        document.dirty = wasDirty
+        self.updateControls()
 
-        # switch the shown scan
-        document.spectrum = scan
-        document.currentScanID = scanID
+    # ----
+
+    def combineChromatogramScans(self, document, scanIDs, rtRange, key):
+        """Show scans of a chromatogram range combined into one spectrum.
+
+        scanIDs are scans of one acquisition (key, see mspy.acquisitionkey)
+        and rtRange the selected retention time range in seconds. The scans are
+        averaged or summed (config.main["chromatogramCombine"]) with their
+        relative m/z offsets removed. The combined spectrum takes the shown
+        scan's place until another scan is shown; it can be processed like any
+        spectrum and kept as its own document (onExtractCombinedSpectrum).
+        """
+
+        if (
+            self.currentDocument is None
+            or self.documents[self.currentDocument] is not document
+        ):
+            return
+
+        # a scan edited while shown is combined with its edits, as it is saved
+        if document.currentScanID is not None:
+            document.scanCache[document.currentScanID] = document.spectrum
+
+        average = config.main["chromatogramCombine"] != "sum"
+        self._combinedScan = None
+
+        def worker():
+            mspy.start()
+            try:
+                loaded = self.loadScansRaw(document, scanIDs)
+                found = [scanID for scanID in scanIDs if loaded.get(scanID) is not None]
+                combined, used = mspy.combinescans(
+                    [loaded[scanID] for scanID in found], average=average
+                )
+                if combined is not None and combined.hasprofile():
+                    combined.baseline(
+                        window=(1.0 / config.processing["baseline"]["precision"]),
+                        offset=config.processing["baseline"]["offset"],
+                    )
+                if combined is not None:
+                    self._combinedScan = (combined, [found[i] for i in used])
+            except mspy.ForceQuit:
+                return
+
+        gauge = mwx.gaugePanel(self, "Combining %s..." % doc.scansText(len(scanIDs)))
+        gauge.show()
+        process = threading.Thread(target=worker)
+        process.start()
+        while process.is_alive():
+            gauge.pulse()
+        gauge.close()
+
+        result = self._combinedScan
+        self._combinedScan = None
+        if result is None:
+            wx.Bell()
+            dlg = mwx.dlgMessage(
+                self,
+                title="Unable to combine the scans.",
+                message="The scans hold neither profile data nor peaks.",
+            )
+            dlg.ShowModal()
+            dlg.Destroy()
+            return
+
+        combined, used = result
+        combination = {
+            "mode": "average" if average else "sum",
+            "scans": used,
+            "rtRange": (float(rtRange[0]), float(rtRange[1])),
+            "acquisition": key[2] if key else "",
+            "source": document.title,
+            "aligned": len(used) > 1 and combined.hasprofile(),
+        }
+        if combined.msLevel and combined.msLevel > 1 and combined.precursorMZ is not None:
+            combination["precursorMZ"] = combined.precursorMZ
+
+        # showing another spectrum of the run is not an edit
+        wasDirty = document.dirty
+        document.showCombined(combined, combination, key=key)
+        self.refreshShownSpectrum(document)
+        document.dirty = wasDirty
+        self.updateControls()
+
+    # ----
+
+    def onExtractCombinedSpectrum(self, document):
+        """Keep the combined spectrum of a run as its own document.
+
+        The new document holds the combined spectrum as it is now (with any
+        processing and peaks) and records what it was made of, in its notes and
+        in the saved .msd file.
+        """
+
+        if not document.combined:
+            wx.Bell()
+            return
+
+        combination = document.spectrum.attributes.get("combination", {})
+        what = "averaged" if combination.get("mode") != "sum" else "summed"
+        scans = combination.get("scans") or []
+
+        extracted = doc.document()
+        extracted.format = "mSD"
+        extracted.path = ""
+        extracted.dirty = True
+        extracted.title = "%s [%s %s]" % (document.title, doc.scansText(len(scans)), what)
+        extracted.date = document.date
+        extracted.operator = document.operator
+        extracted.contact = document.contact
+        extracted.institution = document.institution
+        extracted.instrument = document.instrument
+        extracted.notes = doc.combinationText(combination, document.title)
+        if document.notes:
+            extracted.notes += "\n" + document.notes
+        extracted.spectrum = document.spectrum.duplicate()
+
+        # difference rulers drawn on the combined spectrum go with it
+        for item in document.rulers:
+            if item.scanID == doc.COMBINED_SCAN_ID:
+                item = copy.deepcopy(item)
+                item.scanID = None
+                extracted.rulers.append(item)
+
+        self.onDocumentNew(document=extracted, select=True)
+
+    # ----
+
+    def refreshShownSpectrum(self, document):
+        """Update the panels after a run switched the spectrum it shows."""
 
         docIndex = self.currentDocument
 
@@ -5778,12 +5905,7 @@ class mainFrame(wx.Frame):
             self.envelopeFitPanel.setData(document)
 
         # update the chromatogram marker / label
-        self.chromatogramPanel.highlightCurrentScan()
-        self.chromatogramPanel.updateScanLabel()
-
-        # restore dirty state and controls
-        document.dirty = wasDirty
-        self.updateControls()
+        self.chromatogramPanel.refreshSelection()
 
     # ----
 
@@ -5815,6 +5937,12 @@ class mainFrame(wx.Frame):
 
         if docData is not None and docData.islcms():
             self.chromatogramPanel.setData(docData)
+            # never narrower than its controls (the Wide Spectrum layout
+            # shares the bottom row with two more panes)
+            minSize = _scaledPaneSize(300, 140)
+            pane.MinSize(
+                max(minSize[0], self.chromatogramPanel.minimumWidth()), minSize[1]
+            )
             pane.Show()
         else:
             self.chromatogramPanel.setData(None)

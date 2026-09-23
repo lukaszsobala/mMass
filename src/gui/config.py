@@ -338,6 +338,9 @@ main = {
         "resol",
     ],
     "cursorInfo": ["mz", "dist", "ppm", "z"],
+    # how the scans under a range selected in the chromatogram are combined:
+    # "average" or "sum"
+    "chromatogramCombine": "average",
     "updatesEnabled": 1,
     "updatesChecked": "",
     "updatesCurrent": version,

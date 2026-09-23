@@ -218,11 +218,19 @@ class canvas(wx.Window):
         self._last_draw_time = 0.0
         self._refresh_pending = False
 
+        # a shaded X range (highlightXRange) whose edges can be dragged, and the
+        # range it had when an edge was picked up
+        self.highlightedRange = None
+        self.rangeEditable = False
+        self.rangeEdge = None
+        self._rangeBeforeEdit = None
+
         # set events
         self.Bind(wx.EVT_PAINT, self.onPaint)
         self.Bind(wx.EVT_ERASE_BACKGROUND, self.onEraseBackground)
         self.Bind(wx.EVT_SIZE, self.onSize)
         self.Bind(wx.EVT_LEAVE_WINDOW, self.onLeave)
+        self.Bind(wx.EVT_MOUSE_CAPTURE_LOST, self.onCaptureLost)
         self.Bind(wx.EVT_LEFT_DOWN, self.onLMD)
         self.Bind(wx.EVT_LEFT_UP, self.onLMU)
         self.Bind(wx.EVT_LEFT_DCLICK, self.onLMDC)
@@ -392,6 +400,10 @@ class canvas(wx.Window):
     def onLeave(self, evt):
         """Escape mouse events when cursor leave out of the canvas."""
 
+        # a captured drag goes on outside the canvas (and ends on release)
+        if self.HasCapture():
+            return
+
         dc = wx.MemoryDC(self.plotBuffer)
         wx.CallAfter(self.Refresh, False)
         self.quickRefresh(dc)
@@ -401,6 +413,29 @@ class canvas(wx.Window):
 
         # set mouse cursor
         self.SetCursor(wx.Cursor(wx.CURSOR_ARROW))
+
+    # ----
+
+    def onCaptureLost(self, evt):
+        """Give up a drag the mouse was taken away from."""
+
+        self.escMouseEvents()
+
+    # ----
+
+    def _captureDrag(self):
+        """Keep receiving the mouse while dragging, also outside the canvas."""
+
+        if not self.HasCapture():
+            self.CaptureMouse()
+
+    # ----
+
+    def _releaseDrag(self):
+        """Stop receiving the mouse outside the canvas."""
+
+        if self.HasCapture():
+            self.ReleaseMouse()
 
     # ----
 
@@ -419,6 +454,11 @@ class canvas(wx.Window):
         self.cursorPosition[0], self.cursorPosition[1] = self.getXY(evt)
         self.cursorPosition[2], self.cursorPosition[3] = evt.GetPosition()
 
+        # a drag still under way when the button goes down again lost its
+        # release (outside the window, or taken by the window system): end it
+        if self.mouseEvent in ("distance", "rangeEdge"):
+            self.escMouseEvents()
+
         # escape if any mouse event set
         if self.mouseEvent:
             return
@@ -431,9 +471,18 @@ class canvas(wx.Window):
         self.draggingStart = self.cursorPosition[:]
         location = self.getCursorLocation()
         posBar = self.getPosBarLocation()
+        edge = self._rangeEdgeAt(self.cursorPosition[2]) if location == "plot" else None
+
+        # pick up an edge of the highlighted range
+        if edge is not None:
+            self.mouseEvent = "rangeEdge"
+            self.rangeEdge = edge
+            self._rangeBeforeEdit = self.highlightedRange
+            self._captureDrag()
+            self.SetCursor(wx.Cursor(wx.CURSOR_SIZEWE))
 
         # navigate by clicking/dragging the position bars
-        if posBar == "xPosBar":
+        elif posBar == "xPosBar":
             self.mouseEvent = "xPosBar"
             self.movePositionBar("x", dc=dc)
 
@@ -469,6 +518,7 @@ class canvas(wx.Window):
         # draw distance arrow
         elif location == "plot" and self.mouseFnLMB in ("xDistance", "yDistance"):
             self.mouseEvent = "distance"
+            self._captureDrag()
             self.drawDistanceTracker(dc)
 
         # start difference ruler at the nearest peak
@@ -525,6 +575,8 @@ class canvas(wx.Window):
     def onLMU(self, evt):
         """Clear cursor."""
 
+        self._releaseDrag()
+
         # get focus
         if not self.FindFocus() == self:
             self.SetFocus()
@@ -570,6 +622,7 @@ class canvas(wx.Window):
             "rectangle",
             "range",
             "distance",
+            "rangeEdge",
             "peakRuler",
             "rulerBar",
             "xShift",
@@ -770,6 +823,16 @@ class canvas(wx.Window):
 
         self._last_draw_time = now
 
+        # the dragged edge of the highlighted range follows the cursor, within
+        # the range shown
+        if self.mouseEvent == "rangeEdge" and self.highlightedRange:
+            xRange = self.getCurrentXRange()
+            x = min(max(self.cursorPosition[0], xRange[0]), xRange[1])
+            edges = list(self.highlightedRange)
+            edges[self.rangeEdge] = x
+            self.highlightedRange = tuple(edges)
+            self.SetCursor(wx.Cursor(wx.CURSOR_SIZEWE))
+
         dc = wx.MemoryDC(self.plotBuffer)
 
         # These are the events that end in a full redraw of the whole buffer,
@@ -808,6 +871,10 @@ class canvas(wx.Window):
             self.setCursorByLocation()
             if self.getCursorLocation() == "plot":
                 self.drawMouseTracker(dc)
+
+                # an edge of the highlighted range a press would pick up
+                if self._rangeEdgeAt(self.cursorPosition[2]) is not None:
+                    self.SetCursor(wx.Cursor(wx.CURSOR_SIZEWE))
 
                 # a ruler end a press would pick up
                 if self.mouseFnLMB == "peakRuler" and self.rulerGrabFn is not None:
@@ -1420,6 +1487,38 @@ class canvas(wx.Window):
 
         # return distance
         return [x2 - x1, y2 - y1]
+
+    # ----
+
+    def getDistanceRange(self):
+        """X range of the current distance drag, in user units and in pixels.
+
+        Returns ((start, end), pixels) or False when no distance is being
+        dragged. start and end are in the order they were dragged.
+        """
+
+        if self.mouseEvent != "distance":
+            return False
+
+        # a drag past the plot ends at its edge
+        xRange = self.getCurrentXRange()
+        start = self.draggingStart[0]
+        end = min(max(self.cursorPosition[0], xRange[0]), xRange[1])
+        x1 = self.draggingStart[2]
+        x2 = min(max(self.cursorPosition[2], self.plotCoords[0]), self.plotCoords[2])
+        pixels = abs(x2 - x1)
+
+        return (start, end), pixels
+
+    # ----
+
+    def getEditedRange(self):
+        """The highlighted range while one of its edges is dragged, else False."""
+
+        if self.mouseEvent != "rangeEdge" or not self.highlightedRange:
+            return False
+
+        return (min(self.highlightedRange), max(self.highlightedRange))
 
     # ----
 
@@ -2469,14 +2568,20 @@ class canvas(wx.Window):
     # ----
 
     def drawDistanceTracker(self, dc):
-        """Draw distance tracker."""
+        """Draw distance tracker.
 
-        # check cursor position
-        if self.getCursorLocation() != "plot":
-            return
+        Past the plot area the tracker stops at its edge and the cursor shows
+        again, so a distance can be dragged right up to the first or last point
+        without losing sight of the pointer.
+        """
 
-        # hide cursor
-        self.SetCursor(wx.Cursor(wx.CURSOR_BLANK))
+        # the tracker lines are the cursor inside the plot
+        if self.getCursorLocation() == "plot":
+            self.SetCursor(wx.Cursor(wx.CURSOR_BLANK))
+        elif self.mouseFnLMB == "xDistance":
+            self.SetCursor(wx.Cursor(wx.CURSOR_SIZEWE))
+        else:
+            self.SetCursor(wx.Cursor(wx.CURSOR_SIZENS))
 
         # get screen coordinations
         x1 = self.draggingStart[2]
@@ -3105,6 +3210,9 @@ class canvas(wx.Window):
 
         dc.DrawBitmap(self.cleanPlotBuffer, 0, 0)
 
+        if getattr(self, "highlightedRange", None):
+            self.drawHighlightedRange(dc)
+
         if getattr(self, "highlightedPoints", None):
             y = self.plotCoords[3]
             for point in self.highlightedPoints:
@@ -3178,6 +3286,67 @@ class canvas(wx.Window):
         dc = wx.MemoryDC(self.plotBuffer)
         self.quickRefresh(dc)
         wx.CallAfter(self.Refresh, False)
+
+    # ----
+
+    def highlightXRange(self, xRange, editable=False):
+        """Shade an X range (or clear the shading with None), view unchanged.
+
+        With editable, its edges can be dragged (see getEditedRange).
+        """
+
+        self.highlightedRange = tuple(xRange) if xRange else None
+        self.rangeEditable = bool(editable and xRange)
+
+        dc = wx.MemoryDC(self.plotBuffer)
+        self.quickRefresh(dc)
+        wx.CallAfter(self.Refresh, False)
+
+    # ----
+
+    def _rangeEdgeAt(self, x):
+        """Index (0, 1) of the editable range edge at screen x, or None."""
+
+        if not self.rangeEditable or not self.highlightedRange:
+            return None
+
+        reach = 4 * self.printerScale["drawings"]
+        best = None
+        bestDistance = None
+        for index, value in enumerate(self.highlightedRange):
+            distance = abs(self.positionUserToScreen((value, 0))[0] - x)
+            if distance <= reach and (bestDistance is None or distance < bestDistance):
+                best = index
+                bestDistance = distance
+
+        return best
+
+    # ----
+
+    def drawHighlightedRange(self, dc):
+        """Shade the highlighted X range, edged in the highlight colour."""
+
+        x1 = self.positionUserToScreen((min(self.highlightedRange), 0))[0]
+        x2 = self.positionUserToScreen((max(self.highlightedRange), 0))[0]
+        minX, minY, maxX, maxY = self.plotCoords
+        if x2 < minX or x1 > maxX:
+            return
+        x1 = int(max(x1, minX))
+        x2 = int(min(x2, maxX - 1))
+
+        colour = wx.Colour(self.properties["highlightColour"])
+        try:
+            gc = wx.GCDC(dc)
+            gc.SetPen(wx.TRANSPARENT_PEN)
+            gc.SetBrush(wx.Brush(wx.Colour(colour.Red(), colour.Green(), colour.Blue(), 40)))
+            gc.DrawRectangle(x1, int(minY), max(1, x2 - x1), int(maxY - minY))
+            del gc
+        except Exception:
+            pass
+
+        dc.SetPen(wx.Pen(colour))
+        dc.DrawLine(x1, int(minY), x1, int(maxY))
+        dc.DrawLine(x2, int(minY), x2, int(maxY))
 
     # ----
 
@@ -3354,6 +3523,15 @@ class canvas(wx.Window):
         # # clear distance arrow
         # elif self.mouseEvent == "distance":
         #     self.drawDistanceTracker()
+
+        self._releaseDrag()
+
+        # an edge of the highlighted range being dragged goes back where it was
+        if self.mouseEvent == "rangeEdge" and self._rangeBeforeEdit:
+            self.highlightedRange = self._rangeBeforeEdit
+            self._rangeBeforeEdit = None
+            if self.lastDraw:
+                wx.CallAfter(self.refresh, keepScale=True)
 
         # a ruler end being dragged goes back where it was
         if self.rulerEdit:

@@ -2028,7 +2028,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         """Enable LC-MS pooling controls for the current document and mode."""
 
         document = self.currentDocument
-        isLCMS = bool(document is not None and document.islcms())
+        isLCMS = bool(document is not None and document.showsRunScan())
         mode = self.peakpickingPool_choice.GetSelection()
 
         self.peakpickingAllScans_check.Enable(isLCMS)
@@ -3067,7 +3067,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             return
 
         document = self.currentDocument
-        isLCMS = not batch and document.islcms()
+        isLCMS = not batch and document.showsRunScan()
 
         # for LC-MS runs, optionally pick peaks in every scan of the run, and
         # optionally from scans pooled across the run
