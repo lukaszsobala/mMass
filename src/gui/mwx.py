@@ -1405,6 +1405,372 @@ class menuTipWindow(wx.PopupWindow):
         self.SetSizerAndFit(sizer)
 
 
+class checkGroupsPopup(wx.PopupTransientWindow):
+    """Groups of items to tick, as a menu that stays open while it is used.
+
+    Each group is a row with a tick of its own (all, some or none of its items)
+    and shows its items to tick beside the rows, as a submenu would, when the
+    cursor comes over it. Unlike a wx.Menu it does not close on a click, only
+    once the cursor has left it (or on a click elsewhere). The submenus are
+    pages of the one window rather than popups of their own, as nested popups
+    do not open reliably everywhere (Wayland).
+
+    model gives what is shown and takes what is ticked:
+    groups() -> [name], hint(name) -> str, items(name) -> [name],
+    state(name) -> "all" / "some" / "none", itemChecked(name, item) -> bool,
+    setGroup(name, checked), setItem(name, item, checked).
+    actions are (label, callable) shown under the groups; onClose is called
+    once the popup has gone.
+    """
+
+    # a group of more items than this has them in more columns
+    ROWS_PER_COLUMN = 14
+
+    # how long the cursor can be off the popup before it closes (ms)
+    LEAVE_DELAY = 500
+
+    def __init__(self, parent, model, actions=(), onClose=None):
+        wx.PopupTransientWindow.__init__(self, parent, wx.BORDER_SIMPLE)
+
+        self.model = model
+        self.onClose = onClose
+        self.current = None
+        self._closed = False
+
+        # closing once the cursor has been in and gone out again
+        self._entered = False
+        self._leaveTimer = wx.Timer(self)
+        self.Bind(wx.EVT_TIMER, self._onLeaveTimer, self._leaveTimer)
+
+        self.panel = wx.Panel(self, -1)
+        self._rows = {}
+        self._rowWindows = {}
+        self._groupChecks = {}
+        self._itemChecks = {}
+        self._pages = {}
+
+        pad = _scale_int(6)
+
+        # the groups, set down level with the items beside them (see
+        # _alignRows), the All/None buttons over them taking the room above
+        groupsSizer = wx.BoxSizer(wx.VERTICAL)
+        self._rowsOffset = groupsSizer.AddSpacer(0)
+        for name in model.groups():
+            groupsSizer.Add(self._makeRow(name), 0, wx.EXPAND)
+
+        for label, handler in actions:
+            groupsSizer.Add(wx.StaticLine(self.panel), 0, wx.EXPAND | wx.TOP | wx.BOTTOM, pad // 2)
+            button = wx.Button(self.panel, -1, label, style=wx.BU_LEFT | wx.BORDER_NONE)
+            button.Bind(wx.EVT_BUTTON, lambda evt, handler=handler: self._onAction(handler))
+            groupsSizer.Add(button, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, pad)
+
+        # the items of each group, one page shown at a time
+        self.book = wx.Simplebook(self.panel, -1)
+        for name in model.groups():
+            self._pages[name] = self.book.GetPageCount()
+            self.book.AddPage(self._makePage(name), name)
+
+        sizer = wx.BoxSizer(wx.HORIZONTAL)
+        sizer.Add(groupsSizer, 0, wx.EXPAND | wx.TOP | wx.BOTTOM, pad // 2)
+        sizer.Add(wx.StaticLine(self.panel, style=wx.LI_VERTICAL), 0, wx.EXPAND)
+        sizer.Add(self.book, 1, wx.EXPAND | wx.ALL, pad)
+        self.panel.SetSizer(sizer)
+
+        outer = wx.BoxSizer(wx.VERTICAL)
+        outer.Add(self.panel, 1, wx.EXPAND)
+        self.SetSizerAndFit(outer)
+
+        applyDarkMode(self)
+        self._rowColours = (self.panel.GetBackgroundColour(), self._hoverColour())
+
+        self.update()
+        groups = model.groups()
+        if groups:
+            ticked = [name for name in groups if model.state(name) != "none"]
+            self.showGroup((ticked or groups)[0])
+        self._alignRows()
+
+        # the cursor going in and out of any part of the popup
+        self._bindCrossing(self)
+
+    # ----
+
+    def _makeRow(self, name):
+        """A group's row: its tick, its hint and the arrow of a submenu."""
+
+        row = wx.Panel(self.panel, -1)
+        pad = _scale_int(6)
+
+        check = wx.CheckBox(row, -1, name, style=wx.CHK_3STATE)
+        check.Bind(wx.EVT_CHECKBOX, lambda evt: self._onGroupCheck(name))
+        self._groupChecks[name] = check
+
+        sizer = wx.BoxSizer(wx.HORIZONTAL)
+        sizer.Add(check, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, pad)
+        hint = self.model.hint(name)
+        if hint:
+            hintText = wx.StaticText(row, -1, hint)
+            hintText.SetFont(wx.SMALL_FONT)
+            hintText.Enable(False)
+            sizer.Add(hintText, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, pad)
+        sizer.AddStretchSpacer()
+        arrow = wx.StaticText(row, -1, "▸")
+        sizer.Add(arrow, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT | wx.RIGHT, pad)
+
+        outer = wx.BoxSizer(wx.VERTICAL)
+        outer.Add(sizer, 1, wx.EXPAND | wx.TOP | wx.BOTTOM, _scale_int(3))
+        row.SetSizer(outer)
+
+        for window in [row] + list(row.GetChildren()):
+            self._rowWindows[window.GetId()] = name
+        self._rows[name] = row
+
+        return row
+
+    # ----
+
+    def _makePage(self, name):
+        """The items of a group to tick, in columns when there are many."""
+
+        page = wx.Panel(self.book, -1)
+        items = self.model.items(name)
+        gap = _scale_int(4)
+
+        allButton = wx.Button(page, -1, "All", size=wx.Size(-1, SMALL_BUTTON_HEIGHT))
+        allButton.Bind(wx.EVT_BUTTON, lambda evt: self._onGroupSet(name, True))
+        noneButton = wx.Button(page, -1, "None", size=wx.Size(-1, SMALL_BUTTON_HEIGHT))
+        noneButton.Bind(wx.EVT_BUTTON, lambda evt: self._onGroupSet(name, False))
+
+        buttons = wx.BoxSizer(wx.HORIZONTAL)
+        buttons.Add(allButton, 0, wx.RIGHT, gap)
+        buttons.Add(noneButton, 0)
+
+        rows = max(1, min(len(items), self.ROWS_PER_COLUMN))
+        columns = max(1, -(-len(items) // rows))
+        grid = wx.FlexGridSizer(rows, columns, gap, _scale_int(12))
+        checks: list[wx.CheckBox | None] = [None] * (rows * columns)
+        for index, item in enumerate(items):
+            check = wx.CheckBox(page, -1, item)
+            check.Bind(
+                wx.EVT_CHECKBOX,
+                lambda evt, item=item: self._onItemCheck(name, item, evt.IsChecked()),
+            )
+            self._itemChecks[(name, item)] = check
+            # down the columns, as a menu reads
+            checks[(index % rows) * columns + index // rows] = check
+        for check in checks:
+            if check is None:
+                grid.AddSpacer(0)
+            else:
+                grid.Add(check, 0, wx.ALIGN_CENTER_VERTICAL)
+
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(buttons, 0, wx.BOTTOM, gap * 2)
+        sizer.Add(grid, 0)
+        page.SetSizer(sizer)
+
+        return page
+
+    # ----
+
+    def _alignRows(self):
+        """Move the groups down to the items, so that a group's arrow points
+        at the first of its items and not at the All/None buttons.
+
+        Measured from the laid-out controls, within the popup (screen
+        positions are not to be had under Wayland).
+        """
+
+        items = self.model.items(self.current) if self.current is not None else []
+        if not items or not self._rows:
+            return
+
+        def centre(window, stop):
+            y = window.GetSize().height // 2
+            while window is not stop:
+                y += window.GetPosition().y
+                window = window.GetParent()
+            return y
+
+        self.book.GetCurrentPage().Layout()
+        firstRow = next(iter(self._rows))
+        offset = centre(self._itemChecks[(self.current, items[0])], self.panel) - centre(
+            self._groupChecks[firstRow], self.panel
+        )
+        if offset > 0:
+            self._rowsOffset.AssignSpacer(wx.Size(0, offset))
+            self.panel.Layout()
+            self.Fit()
+
+    # ----
+
+    def _hoverColour(self):
+        """Background of the row whose items are shown."""
+
+        if images.is_dark_mode():
+            return wx.Colour(62, 72, 92)
+        return wx.Colour(210, 225, 245)
+
+    # ----
+
+    def _bindCrossing(self, window):
+        """Watch the cursor over window and its children."""
+
+        window.Bind(wx.EVT_ENTER_WINDOW, self._onEnter)
+        window.Bind(wx.EVT_LEAVE_WINDOW, self._onLeave)
+        window.Bind(wx.EVT_MOTION, self._onMotion)
+        for child in window.GetChildren():
+            self._bindCrossing(child)
+
+    # ----
+
+    def _isOver(self, evt):
+        """Whether a mouse event of any of the popup's windows is over the
+        popup, rather than off it."""
+
+        window = evt.GetEventObject()
+        position = self.ScreenToClient(window.ClientToScreen(evt.GetPosition()))
+        return wx.Rect(self.GetClientSize()).Contains(position)
+
+    # ----
+
+    def _stayOpen(self):
+        """The cursor is over the popup: it is being used."""
+
+        self._entered = True
+        self._leaveTimer.Stop()
+
+    # ----
+
+    def _onEnter(self, evt):
+        evt.Skip()
+        self._stayOpen()
+
+        name = self._rowWindows.get(evt.GetEventObject().GetId())
+        if name is not None:
+            self.showGroup(name)
+
+    # ----
+
+    def _onMotion(self, evt):
+        evt.Skip()
+
+        # whatever was missed, a cursor moving over the popup is still on it
+        if self._isOver(evt):
+            self._stayOpen()
+
+    # ----
+
+    def _onLeave(self, evt):
+        evt.Skip()
+        if not self._entered:
+            return
+
+        # Moving between the popup's own controls leaves one of them at a point
+        # still over the popup; that is not going away, however the next one's
+        # enter comes (under Wayland it need not come at all). Only leaving
+        # the popup's own window, or for a point off it, is.
+        if evt.GetEventObject() is self or not self._isOver(evt):
+            self._leaveTimer.StartOnce(self.LEAVE_DELAY)
+
+    # ----
+
+    def _onLeaveTimer(self, evt):
+        self.close()
+
+    # ----
+
+    def showGroup(self, name):
+        """Show the items of a group beside it."""
+
+        if name == self.current or name not in self._pages:
+            return
+
+        self.current = name
+        self.book.SetSelection(self._pages[name])
+        normal, hover = self._rowColours
+        for rowName, row in self._rows.items():
+            row.SetBackgroundColour(hover if rowName == name else normal)
+            row.Refresh()
+
+    # ----
+
+    def update(self):
+        """Tick everything as the model says."""
+
+        states = {
+            "all": wx.CHK_CHECKED,
+            "some": wx.CHK_UNDETERMINED,
+            "none": wx.CHK_UNCHECKED,
+        }
+        for name, check in self._groupChecks.items():
+            check.Set3StateValue(states[self.model.state(name)])
+        for (name, item), check in self._itemChecks.items():
+            check.SetValue(bool(self.model.itemChecked(name, item)))
+
+    # ----
+
+    def _onGroupCheck(self, name):
+        self.showGroup(name)
+        self._onGroupSet(name, self.model.state(name) == "none")
+
+    # ----
+
+    def _onGroupSet(self, name, checked):
+        self.model.setGroup(name, checked)
+        self.update()
+
+    # ----
+
+    def _onItemCheck(self, name, item, checked):
+        self.model.setItem(name, item, checked)
+        self.update()
+
+    # ----
+
+    def _onAction(self, handler):
+        self.close()
+        wx.CallAfter(handler)
+
+    # ----
+
+    def close(self):
+        """Close the popup as a click elsewhere would."""
+
+        self.Dismiss()
+        self.OnDismiss()
+
+    # ----
+
+    def OnDismiss(self):
+        """Called once closed, by a click elsewhere or by close()."""
+
+        if self._closed:
+            return
+        self._closed = True
+        self._leaveTimer.Stop()
+        if self.onClose is not None:
+            onClose, self.onClose = self.onClose, None
+            wx.CallAfter(onClose)
+        wx.CallAfter(self._destroy)
+
+    # ----
+
+    def _destroy(self):
+        try:
+            self.Destroy()
+        except RuntimeError:
+            pass
+
+    # ----
+
+    def popupBelow(self, window):
+        """Show the popup just under a window, e.g. the button opening it."""
+
+        self.Position(window.ClientToScreen(wx.Point(0, 0)), wx.Size(0, window.GetSize().height))
+        self.Popup()
+
+
 class bgrPanel(wx.Panel):
     """Simple panel with image background.
 

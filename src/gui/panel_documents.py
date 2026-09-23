@@ -33,6 +33,18 @@ from .dlg_notation import dlgNotation
 # DOCUMENTS PANEL
 # --------------
 
+# items that can be picked together by Ctrl/Shift+click
+MARKABLE = ("ruler", "annotation", "match")
+
+
+def _indexOf(items, data):
+    """Index of the very object data among items (not of an equal one), or -1."""
+
+    for index, item in enumerate(items):
+        if item is data:
+            return index
+    return -1
+
 
 class panelDocuments(wx.Panel):
     """Make documents panel."""
@@ -53,6 +65,14 @@ class panelDocuments(wx.Panel):
         self._dropPosition = None
         # selection events are suppressed while the tree is rebuilt internally
         self._skipSelectionEvents = False
+
+        # labels, annotations or matches picked together by Ctrl/Shift+click
+        # (see _markClick): their data, the data of the item they are all
+        # under, and the one a Shift+click reaches from
+        self._marked = []
+        self._markParent = None
+        self._markAnchor = None
+        self._markSelecting = False
 
         # make GUI
         self.makeGUI()
@@ -179,8 +199,12 @@ class panelDocuments(wx.Panel):
             item = self.documentTree.GetSelection()
             itemType = self.documentTree.getItemType(item)
 
+            # delete every item picked together
+            if itemType in MARKABLE and self._markedData():
+                self.onMarkedDelete()
+
             # close document
-            if itemType == "document":
+            elif itemType == "document":
                 self.parent.onDocumentClose()
 
             # delete sequence
@@ -211,6 +235,20 @@ class panelDocuments(wx.Panel):
 
         # get item
         item, flags = self.documentTree.HitTest(evt.GetPosition())
+        itemType = self.documentTree.getItemType(item) if item.IsOk() else None
+
+        # pick labels, annotations or matches together
+        if (
+            itemType in MARKABLE
+            and (evt.ShiftDown() or evt.ControlDown())
+            and flags & (wx.TREE_HITTEST_ONITEMLABEL | wx.TREE_HITTEST_ONITEMICON)
+        ):
+            self._markClick(item, evt.ShiftDown())
+            return
+
+        # a plain click picks one item again
+        if self._marked and not flags & wx.TREE_HITTEST_ONITEMBUTTON:
+            self._clearMarks()
 
         # document solo
         if (evt.AltDown() or evt.ControlDown()) and self.documentTree.getItemIndent(
@@ -253,6 +291,11 @@ class panelDocuments(wx.Panel):
 
         # get item data
         itemData = self.documentTree.GetItemData(item)
+
+        # items picked together
+        if itemType in MARKABLE and self._markedData():
+            self._markedMenu(itemType)
+            return
 
         # popup menu
         menu = wx.Menu()
@@ -510,6 +553,10 @@ class panelDocuments(wx.Panel):
         # ignore selection changes caused by rebuilding the tree
         if self._skipSelectionEvents:
             return
+
+        # a selection made other than by picking items together ends it
+        if not self._markSelecting:
+            self._clearMarks()
 
         # get item
         item = evt.GetItem()
@@ -998,6 +1045,283 @@ class panelDocuments(wx.Panel):
 
     # ----
 
+    # ITEMS PICKED TOGETHER
+
+    # The tree selects one item at a time, and much of the program goes by that
+    # one item (GetSelection), so labels, annotations and matches picked
+    # together by Ctrl/Shift+click are marked on top of it instead: painted as
+    # selected, with the tree's own selection kept on one of them. They are all
+    # under the one item (a document's labels, its annotations, a sequence's
+    # matches), and a plain click or any other selection picks one item again.
+
+    def _markClick(self, item, extend):
+        """Add an item to those picked together, or take it out (Ctrl+click),
+        or pick every one from the last clicked to it (Shift+click)."""
+
+        tree = self.documentTree
+        docIndex = self._getDocumentIndex(item)
+        if docIndex is None or not self.documents[docIndex].visible:
+            wx.Bell()
+            return
+
+        data = tree.GetItemData(item)
+        parentItem = tree.GetItemParent(item)
+        parentData = tree.GetItemData(parentItem)
+        siblings = self._childrenData(parentItem)
+
+        # starting afresh, from the item selected if it is one of the same
+        if parentData is not self._markParent or not self._marked:
+            self._clearMarks()
+            self._markParent = parentData
+            selected = tree.GetSelection()
+            if selected.IsOk() and selected != item and tree.GetItemParent(selected) == parentItem:
+                self._marked = [tree.GetItemData(selected)]
+                self._markAnchor = self._marked[0]
+
+        marked = list(self._marked)
+        if extend:
+            anchor = self._markAnchor if self._markAnchor is not None else data
+            first, last = sorted((_indexOf(siblings, anchor), _indexOf(siblings, data)))
+            if first < 0:
+                first = last
+            marked = siblings[first : last + 1]
+        else:
+            index = _indexOf(marked, data)
+            if index < 0:
+                marked.append(data)
+            else:
+                del marked[index]
+            self._markAnchor = data
+
+        # the tree's own selection stays on one of them
+        focus = data if _indexOf(marked, data) >= 0 else (marked[-1] if marked else data)
+
+        # a single item is just the one selected
+        if len(marked) < 2:
+            self._clearMarks()
+            self._selectItem(self._findChild(parentItem, focus))
+            return
+
+        self._setMarks(parentItem, marked)
+        self._selectItem(self._findChild(parentItem, focus))
+        self._showMarked()
+
+    # ----
+
+    def _selectItem(self, item):
+        """Select an item without ending the picking together."""
+
+        if not item:
+            return
+        self._markSelecting = True
+        try:
+            self.documentTree.SelectItem(item)
+        finally:
+            self._markSelecting = False
+
+    # ----
+
+    def _childrenData(self, parentItem):
+        """Data of the items under an item, in order."""
+
+        tree = self.documentTree
+        buff = []
+        child, cookie = tree.GetFirstChild(parentItem)
+        while child.IsOk():
+            buff.append(tree.GetItemData(child))
+            child, cookie = tree.GetNextChild(parentItem, cookie)
+        return buff
+
+    # ----
+
+    def _findChild(self, parentItem, data):
+        """The item under parentItem holding data, or None."""
+
+        tree = self.documentTree
+        child, cookie = tree.GetFirstChild(parentItem)
+        while child.IsOk():
+            if tree.GetItemData(child) is data:
+                return child
+            child, cookie = tree.GetNextChild(parentItem, cookie)
+        return None
+
+    # ----
+
+    def _markParentItem(self):
+        """The item the picked ones are under, or None once it is gone."""
+
+        if self._markParent is None:
+            return None
+        item = self.documentTree.getItemByData(self._markParent)
+        return item or None
+
+    # ----
+
+    def _markColours(self):
+        """Background and text of an item picked, as of one selected."""
+
+        return (
+            wx.SystemSettings.GetColour(wx.SYS_COLOUR_HIGHLIGHT),
+            wx.SystemSettings.GetColour(wx.SYS_COLOUR_HIGHLIGHTTEXT),
+        )
+
+    # ----
+
+    def _setMarks(self, parentItem, marked):
+        """Paint the items picked, and those no longer picked as they were."""
+
+        tree = self.documentTree
+        background, text = self._markColours()
+        ids = {id(data) for data in marked}
+        visible = self.documents[self._getDocumentIndex(parentItem)].visible
+
+        child, cookie = tree.GetFirstChild(parentItem)
+        while child.IsOk():
+            if id(tree.GetItemData(child)) in ids:
+                tree.SetItemBackgroundColour(child, background)
+                tree.SetItemTextColour(child, text)
+            elif tree.GetItemBackgroundColour(child) == background:
+                tree.SetItemBackgroundColour(child, wx.NullColour)
+                tree.enableItem(child, visible)
+            child, cookie = tree.GetNextChild(parentItem, cookie)
+
+        self._marked = list(marked)
+
+    # ----
+
+    def _clearMarks(self):
+        """Pick one item again: unpaint those picked together."""
+
+        if not self._marked:
+            self._markParent = None
+            self._markAnchor = None
+            return
+
+        parentItem = self._markParentItem()
+        if parentItem is not None:
+            self._setMarks(parentItem, [])
+
+        self._marked = []
+        self._markParent = None
+        self._markAnchor = None
+
+    # ----
+
+    def _markedData(self):
+        """Data of the items picked together, [] unless two or more are.
+
+        Only items still painted as picked count, so nothing rebuilt or gone
+        since is ever acted on.
+        """
+
+        if len(self._marked) < 2:
+            return []
+        parentItem = self._markParentItem()
+        if parentItem is None:
+            return []
+
+        tree = self.documentTree
+        background = self._markColours()[0]
+        ids = {id(data) for data in self._marked}
+        marked = []
+        child, cookie = tree.GetFirstChild(parentItem)
+        while child.IsOk():
+            data = tree.GetItemData(child)
+            if id(data) in ids and tree.GetItemBackgroundColour(child) == background:
+                marked.append(data)
+            child, cookie = tree.GetNextChild(parentItem, cookie)
+
+        # the selected item must be one of them
+        selected = tree.GetSelection()
+        if not selected.IsOk() or id(tree.GetItemData(selected)) not in ids:
+            return []
+
+        return marked if len(marked) >= 2 else []
+
+    # ----
+
+    def _showMarked(self):
+        """Highlight the peaks of every item picked in the spectrum."""
+
+        points = []
+        for data in self._marked:
+            if isinstance(data, doc.ruler):
+                points += [data.mz1, data.mz2]
+            else:
+                points.append(data.mz)
+        self.parent.updateMassPoints(points)
+
+    # ----
+
+    def _markedMenu(self, itemType):
+        """Menu of the items picked together."""
+
+        count = len(self._markedData())
+        names = {
+            "ruler": ("Delete %d Difference Labels", ID_documentRulersDelete, "Delete All Difference Labels"),
+            "annotation": ("Delete %d Annotations", ID_documentAnnotationsDelete, "Delete All Annotations"),
+            "match": ("Delete %d Sequence Matches", ID_sequenceMatchesDelete, "Delete All Matches"),
+        }
+        label, allID, allLabel = names[itemType]
+        handlers = {
+            ID_documentRulersDelete: self.parent.onDocumentRulersDelete,
+            ID_documentAnnotationsDelete: self.parent.onDocumentAnnotationsDelete,
+            ID_sequenceMatchesDelete: self.parent.onSequenceMatchesDelete,
+        }
+
+        menu = wx.Menu()
+        markedID = wx.NewIdRef()
+        menu.Append(markedID, label % count)
+        menu.AppendSeparator()
+        menu.Append(allID, allLabel)
+
+        self.Bind(wx.EVT_MENU, self.onMarkedDelete, id=markedID)
+        self.Bind(wx.EVT_MENU, handlers[allID], id=allID)
+        self.PopupMenu(menu)
+        menu.Destroy()
+
+    # ----
+
+    def onMarkedDelete(self, evt=None):
+        """Delete every label, annotation or match picked together, as one
+        undoable step."""
+
+        marked = self._markedData()
+        docIndex = self._getDocumentIndex(self.documentTree.GetSelection())
+        if not marked or docIndex is None or docIndex != self.parent.currentDocument:
+            wx.Bell()
+            return
+
+        docData = self.documents[docIndex]
+        ids = {id(data) for data in marked}
+
+        def kept(items):
+            return [data for data in items if id(data) not in ids]
+
+        if isinstance(marked[0], doc.ruler):
+            docData.backup(("rulers",))
+            docData.rulers[:] = kept(docData.rulers)
+            changed = ("rulers",)
+        elif isinstance(marked[0], doc.annotation):
+            docData.backup(("annotations",))
+            docData.annotations[:] = kept(docData.annotations)
+            changed = ("annotations",)
+        else:
+            seqIndex = _indexOf(docData.sequences, self._markParent)
+            if seqIndex < 0:
+                wx.Bell()
+                return
+            self.parent.onSequenceSelected(seqIndex)
+            docData.backup(("sequences",))
+            sequence = docData.sequences[seqIndex]
+            sequence.matches[:] = kept(sequence.matches)
+            changed = ("matches",)
+
+        self._clearMarks()
+        self.parent.onDocumentChanged(items=changed)
+
+    # ----
+
     def onNotationDelete(self, evt=None):
         """Delete selected annotation or sequence match."""
 
@@ -1135,6 +1459,9 @@ class panelDocuments(wx.Panel):
     def deleteDocument(self, docIndex):
         """Delete selected document."""
 
+        # the items picked together go with the ones rebuilt
+        self._clearMarks()
+
         # check document
         if docIndex is None:
             return
@@ -1203,6 +1530,9 @@ class panelDocuments(wx.Panel):
         The item is only there while the document has any.
         """
 
+        # the items picked together go with the ones rebuilt
+        self._clearMarks()
+
         # check document
         if docIndex is None or not 0 <= docIndex < len(self.documents):
             return
@@ -1238,6 +1568,9 @@ class panelDocuments(wx.Panel):
 
     def updateAnnotations(self, docIndex, expand=None):
         """Set new annotations for document."""
+
+        # the items picked together go with the ones rebuilt
+        self._clearMarks()
 
         # check document
         if docIndex is None:
@@ -1310,6 +1643,9 @@ class panelDocuments(wx.Panel):
     def deleteSequence(self, docIndex, seqIndex):
         """Delete selected sequence."""
 
+        # the items picked together go with the ones rebuilt
+        self._clearMarks()
+
         # check document
         if docIndex is None or seqIndex is None:
             return
@@ -1347,6 +1683,9 @@ class panelDocuments(wx.Panel):
     def updateSequenceMatches(self, docIndex, seqIndex, expand=False):
         """Set new matches for sequence."""
 
+        # the items picked together go with the ones rebuilt
+        self._clearMarks()
+
         # check document
         if docIndex is None or seqIndex is None:
             return
@@ -1380,6 +1719,9 @@ class panelDocuments(wx.Panel):
 
     def updateSequences(self, docIndex):
         """Set new sequences for current document."""
+
+        # the items picked together go with the ones rebuilt
+        self._clearMarks()
 
         # check document
         if docIndex is None:

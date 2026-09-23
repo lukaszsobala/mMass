@@ -166,14 +166,18 @@ def pairEntries(masses):
     return pairs
 
 
-def entries(names, pairs=True, singles=True):
+def entries(names, pairs=True, singles=True, excluded=()):
     """Flat [(entry name, mono, avg, list name)] of the named lists: their
     entries (unless not singles), and the pairs of those that have them
-    matched (unless not pairs)."""
+    matched (unless not pairs). Entries named in excluded, as (list name,
+    entry name), are left out, and so are the pairs they would be part of."""
 
+    excluded = {tuple(item) for item in excluded}
     buff = []
     for listName in names:
         masses = getList(listName)
+        if excluded:
+            masses = {name: mass for name, mass in masses.items() if (listName, name) not in excluded}
         if singles:
             for name, (mono, avg) in masses.items():
                 buff.append((name, mono, avg, listName))
@@ -181,6 +185,61 @@ def entries(names, pairs=True, singles=True):
             for name, (mono, avg) in pairEntries(masses).items():
                 buff.append((name, mono, avg, listName))
     return buff
+
+
+# CHOOSING ENTRIES
+# ----------------
+
+# A tool can match only some entries of a list: it keeps the lists it matches
+# and the (list name, entry name) of the entries of those it leaves out. An
+# entry is matched when its list is and it is not left out; nothing is kept
+# for a list that is not matched, so ticking one again matches all of it.
+
+
+def listState(lists, excluded, name, entryNames):
+    """How much of a list is matched: "all", "some" or "none"."""
+
+    if name not in lists:
+        return "none"
+    left = {entry for listName, entry in excluded if listName == name}
+    matched = [entry for entry in entryNames if entry not in left]
+    if not matched:
+        return "none"
+    return "all" if len(matched) == len(entryNames) else "some"
+
+
+def setListMatched(lists, excluded, name, matched):
+    """(lists, excluded) with the whole of a list matched, or none of it."""
+
+    lists = [item for item in lists if item != name]
+    if matched:
+        lists.append(name)
+    excluded = [list(item) for item in excluded if item[0] != name]
+    return lists, excluded
+
+
+def setEntryMatched(lists, excluded, name, entry, matched, entryNames):
+    """(lists, excluded) with one entry of a list matched, or not.
+
+    Matching an entry of a list that is not matched matches that entry alone,
+    and leaving out the last one of a list stops the list being matched.
+    """
+
+    if name not in lists:
+        if not matched:
+            return list(lists), [list(item) for item in excluded]
+        lists = list(lists) + [name]
+        excluded = [list(item) for item in excluded if item[0] != name]
+        excluded += [[name, other] for other in entryNames if other != entry]
+        return lists, excluded
+
+    excluded = [list(item) for item in excluded if tuple(item) != (name, entry)]
+    if not matched:
+        excluded.append([name, entry])
+    left = {item[1] for item in excluded if item[0] == name}
+    if all(other in left for other in entryNames):
+        return setListMatched(lists, excluded, name, False)
+    return list(lists), excluded
 
 
 # MATCHING

@@ -28,6 +28,8 @@ from . import mwx
 from . import images
 from . import config
 from . import differences
+from . import doc
+from .ids import ID_viewDiffLabels
 from .mixins import MakeModalMixin
 import mspy
 
@@ -129,16 +131,15 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
         self.difference_value.Bind(wx.EVT_TEXT_ENTER, self.onSearch)
 
         self.lists_butt = wx.Button(
-            panel, -1, "Lists", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
+            panel, -1, "Lists \u25be", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
         )
         self.lists_butt.SetToolTip(
-            wx.ToolTip("Lists of the Mass Differences library (Libraries menu) to match")
+            wx.ToolTip(
+                "Lists of the Mass Differences library (Libraries menu) to match, "
+                "and which of their entries"
+            )
         )
         self.lists_butt.Bind(wx.EVT_BUTTON, self.onListsMenu)
-
-        self.lists_label = wx.StaticText(panel, -1, "")
-        self.lists_label.SetFont(wx.SMALL_FONT)
-        self.updateListsLabel()
 
         massType_label = wx.StaticText(panel, -1, "Mass:")
         massType_label.SetFont(wx.SMALL_FONT)
@@ -174,14 +175,24 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
         )
         self.search_butt.Bind(wx.EVT_BUTTON, self.onSearch)
 
+        self.label_butt = wx.Button(
+            panel, -1, "Label Matched", size=wx.Size(-1, mwx.SMALL_BUTTON_HEIGHT)
+        )
+        self.label_butt.SetToolTip(
+            wx.ToolTip(
+                "Label every highlighted difference in the spectrum "
+                "(right-click a cell to label just that one)"
+            )
+        )
+        self.label_butt.Bind(wx.EVT_BUTTON, self.onLabelMatched)
+
         # pack elements
         sizer = wx.BoxSizer(wx.HORIZONTAL)
         sizer.AddSpacer(mwx.CONTROLBAR_LSPACE)
         sizer.Add(difference_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         sizer.Add(self.difference_value, 0, wx.ALIGN_CENTER_VERTICAL)
         sizer.AddSpacer(20)
-        sizer.Add(self.lists_butt, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
-        sizer.Add(self.lists_label, 0, wx.ALIGN_CENTER_VERTICAL)
+        sizer.Add(self.lists_butt, 0, wx.ALIGN_CENTER_VERTICAL)
         sizer.AddSpacer(20)
         sizer.Add(massType_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         sizer.Add(self.massTypeMo_radio, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
@@ -194,6 +205,7 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
         sizer.Add(self.consolidate_check, 0, wx.ALIGN_CENTER_VERTICAL)
         sizer.AddStretchSpacer()
         sizer.AddSpacer(20)
+        sizer.Add(self.label_butt, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         sizer.Add(self.search_butt, 0, wx.ALIGN_CENTER_VERTICAL)
         sizer.AddSpacer(mwx.CONTROLBAR_RSPACE)
 
@@ -215,11 +227,26 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
         self.makeDifferencesGrid(panel)
         self.makeMatchesGrid(panel)
 
+        # what is matched, under the tables where it has their width, cut
+        # short rather than widening the window
+        self.lists_label = wx.StaticText(
+            panel, -1, "", style=wx.ST_ELLIPSIZE_END | wx.ST_NO_AUTORESIZE
+        )
+        self.lists_label.SetFont(wx.SMALL_FONT)
+        self.lists_label.SetMinSize(wx.Size(60, -1))
+        self.updateListsLabel()
+
         # pack main
-        mainSizer = wx.BoxSizer(wx.HORIZONTAL)
-        mainSizer.Add(self.differencesGrid, 1, wx.EXPAND)
-        mainSizer.AddSpacer(mwx.SASH_SIZE)
-        mainSizer.Add(self.matchesGrid, 0, wx.EXPAND)
+        grids = wx.BoxSizer(wx.HORIZONTAL)
+        grids.Add(self.differencesGrid, 1, wx.EXPAND)
+        grids.AddSpacer(mwx.SASH_SIZE)
+        grids.Add(self.matchesGrid, 0, wx.EXPAND)
+
+        mainSizer = wx.BoxSizer(wx.VERTICAL)
+        mainSizer.Add(grids, 1, wx.EXPAND)
+        mainSizer.Add(
+            self.lists_label, 0, wx.EXPAND | wx.ALL, 4
+        )
 
         # fit layout
         panel.SetSizer(mainSizer)
@@ -249,6 +276,9 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
         self.differencesGrid.Bind(wx.grid.EVT_GRID_SELECT_CELL, self.onCellSelected)
         self.differencesGrid.Bind(
             wx.grid.EVT_GRID_CELL_LEFT_DCLICK, self.onCellActivated
+        )
+        self.differencesGrid.Bind(
+            wx.grid.EVT_GRID_CELL_RIGHT_CLICK, self.onCellRightClick
         )
 
     # ----
@@ -436,6 +466,146 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
 
     # ----
 
+    def onCellRightClick(self, evt):
+        """Offer to label the difference clicked, or all matched ones."""
+
+        row = evt.GetRow()
+        col = evt.GetCol()
+        if not self.currentDifferences or tablePosition(row, col) is None:
+            wx.Bell()
+            return
+
+        # select the cell as a left click would, so it is clear which one it is
+        self.differencesGrid.SetGridCursor(row, col)
+
+        menu = wx.Menu()
+        labelID = wx.NewIdRef()
+        labelAllID = wx.NewIdRef()
+        menu.Append(labelID, "Label Difference in Spectrum")
+        menu.Append(labelAllID, "Label All Matched Differences")
+        menu.Enable(labelAllID, bool(matchedPositions(self.currentDifferences)))
+        menu.Bind(
+            wx.EVT_MENU,
+            lambda e: self.labelDifferences([tablePosition(row, col)]),
+            id=labelID,
+        )
+        menu.Bind(wx.EVT_MENU, self.onLabelMatched, id=labelAllID)
+        self.differencesGrid.PopupMenu(menu)
+        menu.Destroy()
+
+    # ----
+
+    def onLabelMatched(self, evt=None):
+        """Label every matched difference in the spectrum."""
+
+        if self.processing or not self.currentDifferences:
+            wx.Bell()
+            return
+
+        positions = matchedPositions(self.currentDifferences)
+        if not positions:
+            wx.Bell()
+            return
+
+        # a loose tolerance can match hundreds; make sure they are all wanted
+        if len(positions) > LABEL_CONFIRM_COUNT:
+            title = "Label all %d matched differences?" % len(positions)
+            message = (
+                "Every one gets its own label in the spectrum. Undo removes them again."
+            )
+            buttons = [
+                (wx.ID_CANCEL, "Cancel", 80, True, 15),
+                (wx.ID_OK, "Label", 80, False, 0),
+            ]
+            dlg = mwx.dlgMessage(self, title, message, buttons)
+            answer = dlg.ShowModal()
+            dlg.Destroy()
+            if answer != wx.ID_OK:
+                return
+
+        self.labelDifferences(positions)
+
+    # ----
+
+    def labelDifferences(self, positions):
+        """Add a difference label to the spectrum for each (i, j) of the table.
+
+        The labels name what the differences matched here, with this tool's
+        lists and tolerance, and are put over the peaks as a label drawn by
+        hand would be. Differences already labelled are skipped.
+        """
+
+        # the labels go to the current document, which must be the one searched
+        mainFrame = self.parent
+        if (
+            self.currentDocument is None
+            or mainFrame.currentDocument is None
+            or mainFrame.documents[mainFrame.currentDocument] is not self.currentDocument
+        ):
+            wx.Bell()
+            return
+
+        docData = self.currentDocument
+        peaklist = docData.spectrum.peaklist
+        scanID = docData.currentScanID if docData.islcms() else None
+        tolerance = config.peakDifferences["tolerance"]
+        massType = config.peakDifferences["massType"]
+
+        table = self.currentDifferences
+        if not table:
+            wx.Bell()
+            return
+
+        rulers = []
+        for i, j in positions:
+            peaks = []
+            ends = (table[j - 1][0], table[i][0])
+            for mz, index in ends:
+                if 0 <= index < len(peaklist) and peaklist[index].mz == mz:
+                    peaks.append(peaklist[index])
+            if len(peaks) != 2:
+                continue
+            low, high = peaks
+
+            # skip a difference that is labelled already
+            if hasRuler(docData.rulers + rulers, low.mz, high.mz, scanID):
+                continue
+
+            matches = differenceMatches(
+                high.mz - low.mz,
+                self.currentDifference,
+                self._singleEntries,
+                self._pairEntries,
+                tolerance,
+                massType,
+            )
+            rulers.append(
+                doc.ruler(
+                    low.mz,
+                    low.ai,
+                    high.mz,
+                    high.ai,
+                    label=differences.matchNames(matches),
+                    charge=1,
+                    scanID=scanID,
+                    theoretical=matches[0][3] if matches else None,
+                )
+            )
+
+        if not rulers:
+            wx.Bell()
+            return
+
+        # make sure the labels added can be seen
+        if not config.differenceRuler["show"]:
+            mainFrame.onView(wx.CommandEvent(wx.wxEVT_MENU, ID_viewDiffLabels))
+
+        docData.backup(("rulers",))
+        docData.rulers.extend(rulers)
+        mainFrame.onDocumentChanged(items=("rulers",))
+
+    # ----
+
     def onSearch(self, evt):
         """Generate differences and search for specified mass(es)."""
 
@@ -462,6 +632,7 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
         # show processing gauge
         self.onProcessing(True)
         self.search_butt.Enable(False)
+        self.label_butt.Enable(False)
 
         # do processing
         self.processing = threading.Thread(target=self.runSearch)
@@ -478,6 +649,7 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
         # hide processing gauge
         self.onProcessing(False)
         self.search_butt.Enable(True)
+        self.label_butt.Enable(True)
 
     # ----
 
@@ -654,7 +826,7 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
         if self.currentDifference:
             error = diff - self.currentDifference
             if abs(error) <= config.peakDifferences["tolerance"]:
-                self.currentMatches.append([str(self.currentDifference), error])
+                self.currentMatches.append([valueName(self.currentDifference), error])
 
         # search the lists
         massType = config.peakDifferences["massType"]
@@ -732,13 +904,22 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
     # ----
 
     def initLists(self):
-        """Collect the entries of the lists matched, and their pairs."""
+        """Collect the entries matched, and their pairs.
+
+        Done as a search starts, so the table, the matches shown for a cell and
+        the labels made from it all go by the entries it was searched with.
+        """
 
         lists = config.peakDifferences["lists"]
-        self._entries = differences.entries(lists)
-        singles = differences.entries(lists, pairs=False)
+        excluded = config.peakDifferences["excluded"]
+        self._entries = differences.entries(lists, excluded=excluded)
+        singles = differences.entries(lists, pairs=False, excluded=excluded)
         singleNames = {(entry[0], entry[3]) for entry in singles}
         pairs = [entry for entry in self._entries if (entry[0], entry[3]) not in singleNames]
+
+        # the same, whole, to name the differences labelled in the spectrum
+        self._singleEntries = singles
+        self._pairEntries = pairs
 
         # sorted masses, mono and average, to look differences up in
         self._singles = [sorted(entry[1 + massType] for entry in singles) for massType in (0, 1)]
@@ -747,42 +928,39 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
     # ----
 
     def updateListsLabel(self):
-        """Name the lists matched next to the Lists button."""
+        """Name what is matched next to the Lists button."""
 
-        lists = config.peakDifferences["lists"]
-        text = ", ".join(
-            name + (" (+pairs)" if differences.listPairs(name) else "") for name in lists
+        text = listsSummary(
+            config.peakDifferences["lists"],
+            config.peakDifferences["excluded"],
+            {name: list(differences.getList(name)) for name in config.peakDifferences["lists"]},
+            {name: differences.listPairs(name) for name in config.peakDifferences["lists"]},
         )
-        self.lists_label.SetLabel(text or "none")
+        self.lists_label.SetLabel("Matching: " + text)
+        self.lists_label.SetToolTip(wx.ToolTip(text))
         self.lists_label.GetParent().Layout()
 
     # ----
 
     def onListsMenu(self, evt=None):
-        """Choose the lists to match."""
+        """Choose the lists to match, and which of their entries."""
 
-        menu = wx.Menu()
-        handlers = {}
-        for name in differences.availableLists():
-            itemID = wx.NewIdRef()
-            item = menu.AppendCheckItem(itemID, name)
-            item.Check(name in config.peakDifferences["lists"])
-            handlers[int(itemID)] = name
+        model = listsModel(onChange=self.updateListsLabel)
 
-        def onMenu(evt):
-            name = handlers.get(evt.GetId())
-            if name is None:
-                return
-            lists = [item for item in config.peakDifferences["lists"] if item != name]
-            if name not in config.peakDifferences["lists"]:
-                lists.append(name)
-            config.peakDifferences["lists"] = lists
-            self.initLists()
+        def onClose():
             self.updateListsLabel()
 
-        menu.Bind(wx.EVT_MENU, onMenu)
-        self.lists_butt.PopupMenu(menu)
-        menu.Destroy()
+            # a table shown goes by what is matched now
+            if model.changed and self.currentDifferences is not None and not self.processing:
+                self.onSearch(None)
+
+        popup = mwx.checkGroupsPopup(
+            self,
+            model,
+            actions=[("Edit Lists...", self.parent.onLibraryDifferences)],
+            onClose=onClose,
+        )
+        popup.popupBelow(self.lists_butt)
 
     # ----
 
@@ -820,6 +998,143 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
 
     # ----
 
+
+class listsModel:
+    """What the Lists popup ticks: the lists of config.peakDifferences, and
+    the entries of those it leaves out (see mwx.checkGroupsPopup)."""
+
+    def __init__(self, onChange=None):
+        self.onChange = onChange
+        self.changed = False
+        self._items = {}
+
+    def groups(self):
+        return differences.availableLists()
+
+    def hint(self, name):
+        return "+ pairs" if differences.listPairs(name) else ""
+
+    def items(self, name):
+        if name not in self._items:
+            self._items[name] = list(differences.getList(name))
+        return self._items[name]
+
+    def state(self, name):
+        settings = config.peakDifferences
+        return differences.listState(
+            settings["lists"], settings["excluded"], name, self.items(name)
+        )
+
+    def itemChecked(self, name, item):
+        settings = config.peakDifferences
+        return name in settings["lists"] and [name, item] not in settings["excluded"]
+
+    def setGroup(self, name, checked):
+        settings = config.peakDifferences
+        self._set(*differences.setListMatched(settings["lists"], settings["excluded"], name, checked))
+
+    def setItem(self, name, item, checked):
+        settings = config.peakDifferences
+        self._set(
+            *differences.setEntryMatched(
+                settings["lists"], settings["excluded"], name, item, checked, self.items(name)
+            )
+        )
+
+    def _set(self, lists, excluded):
+        config.peakDifferences["lists"] = lists
+        config.peakDifferences["excluded"] = excluded
+        self.changed = True
+        if self.onChange is not None:
+            self.onChange()
+
+
+def listsSummary(lists, excluded, items, pairs):
+    """What is matched, as the toolbar names it: each list matched, with how
+    many of its entries when not all, and whether their pairs are too.
+
+    items are {list name: [entry name]} and pairs {list name: bool}.
+    """
+
+    parts = []
+    for name in lists:
+        names = items.get(name, [])
+        state = differences.listState(lists, excluded, name, names)
+        if state == "none":
+            continue
+        text = name
+        if state == "some":
+            left = {item[1] for item in excluded if item[0] == name}
+            text += " %d/%d" % (len([n for n in names if n not in left]), len(names))
+        if pairs.get(name):
+            text += " (+pairs)"
+        parts.append(text)
+    return ", ".join(parts) or "none"
+
+
+def valueName(value):
+    """A difference searched for, as a label names it: 18 rather than 18.0."""
+
+    return ("%f" % value).rstrip("0").rstrip(".")
+
+
+# More matched differences than this are labelled only once confirmed.
+LABEL_CONFIRM_COUNT = 50
+
+
+def tablePosition(row, col):
+    """(i, j) of the difference shown in a grid cell: currentDifferences[i][j]
+    is the difference between peaks i and j - 1 of the table. None on the
+    diagonal, where a peak meets itself."""
+
+    if row == col:
+        return None
+    if col < row:
+        return (row, col + 1)
+    return (col, row + 1)
+
+
+def matchedPositions(table):
+    """(i, j) of every matched difference of a table, each pair of peaks once."""
+
+    return [
+        (i, j)
+        for i, row in enumerate(table)
+        for j in range(1, i + 1)
+        if row[j][1]
+    ]
+
+
+def differenceMatches(diff, value, singles, pairs, tolerance, massType=0):
+    """What a difference is labelled with, as [(name, error, list name,
+    theoretical)] best first (see differences.match).
+
+    The value searched for comes first, then the lists' entries, their pairs
+    only without an entry matching, as the table highlights them.
+    """
+
+    matches = []
+    if value:
+        error = diff - value
+        if abs(error) <= tolerance:
+            matches.append((valueName(value), error, "", value))
+
+    arguments = (tolerance, massType)
+    return matches + (
+        differences.match(diff, singles, *arguments)
+        or differences.match(diff, pairs, *arguments)
+    )
+
+
+def hasRuler(rulers, mz1, mz2, scanID=None):
+    """Whether one of the rulers joins these two m/z already."""
+
+    return any(
+        ruler.scanID == scanID
+        and abs(ruler.mz1 - mz1) < 1e-6
+        and abs(ruler.mz2 - mz2) < 1e-6
+        for ruler in rulers
+    )
 
 
 def _within(masses, diff, tolerance):
