@@ -232,9 +232,9 @@ class parseMZML:
             data = list(map(list, list(zip(mzData, intData, strict=False))))
         else:
             mzData = numpy.array(mzData)
-            mzData.shape = (-1, 1)
+            mzData = mzData.reshape(-1, 1)
             intData = numpy.array(intData)
-            intData.shape = (-1, 1)
+            intData = intData.reshape(-1, 1)
             data = numpy.concatenate((mzData, intData), axis=1)
             data = data.astype(numpy.float64)
 

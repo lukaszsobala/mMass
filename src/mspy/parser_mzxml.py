@@ -224,7 +224,7 @@ class parseMZXML:
             data = list(map(list, list(zip(data[::2], data[1::2], strict=False))))
         else:
             data = numpy.array(data)
-            data.shape = (-1, 2)
+            data = data.reshape(-1, 2)
             data = data.astype(numpy.float64)
 
         return data

@@ -1826,10 +1826,10 @@ class parseMSD:
 
             # format data
             mzData = numpy.array(mzData)
-            mzData.shape = (-1, 1)
+            mzData = mzData.reshape(-1, 1)
 
             intData = numpy.array(intData)
-            intData.shape = (-1, 1)
+            intData = intData.reshape(-1, 1)
 
             points = numpy.concatenate((mzData, intData), axis=1)
             points = points.astype(numpy.float64)
