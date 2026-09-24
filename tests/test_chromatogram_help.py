@@ -31,3 +31,33 @@ def test_unknown_acquisitions_are_not_guessed_at():
     trace = {"key": (1, 1, "IC1", None), "msLevel": 1, "scans": [1, 2, 3]}
 
     assert chrom.traceHelp(trace) == "Full scans (MS1).\nIC1, 3 scans"
+
+
+@pytest.fixture
+def light(monkeypatch):
+    # the colours need no wx.App (and so no display) in the light theme
+    monkeypatch.setattr(chrom.mwx.images, "is_dark_mode", lambda: False)
+
+
+def _traces():
+    return {
+        "traces": [
+            {"label": label, "msLevel": level, "tic": [(0.1, 1.0), (0.2, 2.0)], "bpc": [(0.1, 1.0), (0.2, 2.0)]}
+            for label, level in (("FTMS", 1), ("ITMS", 1), ("MS2", 2))
+        ]
+    }
+
+
+def test_hidden_traces_are_not_drawn_unless_browsed(light):
+    # TIC and BPC of three traces is six lines; hiding two leaves the browsed pair
+    plots = chrom.makeChromatogramPlots(_traces(), showBPC=True, active=0, hidden={0, 1, 2})
+
+    assert [plot.properties["legend"] for plot in plots] == ["TIC FTMS", "BPC FTMS"]
+
+
+def test_a_hidden_trace_leaves_the_others_their_colours(light):
+    shown = chrom.makeChromatogramPlots(_traces(), showBPC=False)
+    fewer = chrom.makeChromatogramPlots(_traces(), showBPC=False, hidden={1})
+
+    assert [plot.properties["legend"] for plot in fewer] == ["TIC FTMS", "TIC MS2"]
+    assert fewer[1].properties["lineColour"] == shown[2].properties["lineColour"]

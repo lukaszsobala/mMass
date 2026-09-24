@@ -59,6 +59,19 @@ def mathScan(scan, operation, settings):
         raise ValueError(f"{operation} needs more than one spectrum")
 
 
+def combineSpectra(scans, average=True):
+    """Average or sum whole spectra, e.g. those of the visible documents.
+
+    The same combining as for the scans under a chromatogram range
+    (mspy.combinescans), minus alignment and the sampling check, as the user
+    chose these spectra: an average divides each m/z by the spectra covering
+    it, and centroided spectra are merged peak by peak. Returns (combined scan,
+    indexes of the scans used), or (None, []) when no scan has data.
+    """
+
+    return mspy.combinescans(scans, average=average, align=False, sampling=False)
+
+
 def subtractBaseline(scan, settings):
     """Subtract the baseline from a scan's profile."""
 

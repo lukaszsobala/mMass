@@ -2644,22 +2644,13 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             elif config.processing["math"]["operation"] == "squareroot":
                 self.previewData = mspy.squareroot(self.previewData)
 
-            elif config.processing["math"]["operation"] == "averageall":
-                count = 0
-                for item in self.parent.documents:
-                    if item.visible:
-                        self.previewData = mspy.combine(
-                            self.previewData, item.spectrum.profile
-                        )
-                        count += 1
-                self.previewData = mspy.multiply(self.previewData, y=1.0 / count)
-
-            elif config.processing["math"]["operation"] == "combineall":
-                for item in self.parent.documents:
-                    if item.visible:
-                        self.previewData = mspy.combine(
-                            self.previewData, item.spectrum.profile
-                        )
+            elif config.processing["math"]["operation"] in ("averageall", "combineall"):
+                combined, _used = processing.combineSpectra(
+                    [item.spectrum for item in self.parent.documents if item.visible],
+                    average=config.processing["math"]["operation"] == "averageall",
+                )
+                if combined is not None and combined.hasprofile():
+                    self.previewData = combined.profile
 
             elif config.processing["math"]["operation"] == "overlayall":
                 for item in self.parent.documents:
@@ -2864,26 +2855,22 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
                 spectrum = docData.spectrum
 
-                # average spectra
-                if config.processing["math"]["operation"] == "averageall":
-                    docData.title = "Averaged Spectra"
-                    docData.notes = "Averaged Spectra:\n"
-                    count = 0
-                    for item in self.parent.documents:
-                        if item.visible:
-                            spectrum.combine(item.spectrum)
-                            docData.notes += "- " + item.title + "\n"
-                            count += 1
-                    spectrum.multiply(1.0 / count)
-
-                # combine spectra
-                elif config.processing["math"]["operation"] == "combineall":
-                    docData.title = "Combined Spectra"
-                    docData.notes = "Combined Spectra:\n"
-                    for item in self.parent.documents:
-                        if item.visible:
-                            spectrum.combine(item.spectrum)
-                            docData.notes += "- " + item.title + "\n"
+                # average or sum spectra
+                if config.processing["math"]["operation"] in ("averageall", "combineall"):
+                    average = config.processing["math"]["operation"] == "averageall"
+                    docData.title = "Averaged Spectra" if average else "Combined Spectra"
+                    docData.notes = docData.title + ":\n"
+                    documents = [item for item in self.parent.documents if item.visible]
+                    combined, used = processing.combineSpectra(
+                        [item.spectrum for item in documents], average=average
+                    )
+                    if combined is not None:
+                        if combined.hasprofile():
+                            spectrum.setprofile(combined.profile)
+                        else:
+                            spectrum.setpeaklist(combined.peaklist)
+                    for index in used:
+                        docData.notes += "- " + documents[index].title + "\n"
 
                 # overlay spectra
                 elif config.processing["math"]["operation"] == "overlayall":

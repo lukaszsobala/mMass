@@ -43,13 +43,21 @@ def _scan(x, y, number, rt=0.0):
 # ---------------------------------------------------------------------------
 
 
+def combinescans(scans, **kwargs):
+    """mspy.combinescans, for scans that have something to combine."""
+
+    combined, used = mspy.combinescans(scans, **kwargs)
+    assert combined is not None
+    return combined, used
+
+
 def test_combine_averages_or_sums_scans_on_a_shared_raster():
     x = numpy.linspace(500.0, 501.0, 201)
     peak = numpy.exp(-0.5 * ((x - 500.5) / 0.01) ** 2)
     scans = [_scan(x, height * peak, i + 1, rt=float(i)) for i, height in enumerate((100.0, 200.0, 300.0))]
 
-    averaged, used = mspy.combinescans(scans, align=False)
-    summed, _used = mspy.combinescans(scans, average=False, align=False)
+    averaged, used = combinescans(scans, align=False)
+    summed, _used = combinescans(scans, average=False, align=False)
 
     assert used == [0, 1, 2]
     assert averaged.profile[:, 1].max() == pytest.approx(200.0, rel=1e-6)
@@ -68,9 +76,31 @@ def test_combine_never_mixes_scans_of_very_different_sampling():
         _scan(fine, numpy.ones(len(fine)), 3),
     ]
 
-    _combined, used = mspy.combinescans(scans, align=False)
+    _combined, used = combinescans(scans, align=False)
 
     assert used == [0, 2]
+
+
+def test_spectra_chosen_by_the_user_combine_whatever_their_sampling():
+    # the Math panel's Average All / Combine All: documents, not scans of a run
+    fine = numpy.linspace(500.0, 510.0, 5001)
+    coarse = numpy.linspace(505.0, 515.0, 201)
+    a = _scan(fine, numpy.full(len(fine), 2.0), 1)
+    b = _scan(coarse, numpy.full(len(coarse), 4.0), 2)
+
+    summed, used = combinescans([a, b], average=False, align=False, sampling=False)
+    averaged, _used = combinescans([a, b], align=False, sampling=False)
+
+    assert used == [0, 1]
+    # the same sum as the pairwise mspy.combine, on a merged raster
+    pairwise = mspy.combine(a.profile, b.profile)
+    at = numpy.array([502.0, 507.5, 512.0])
+    expected = numpy.interp(at, pairwise[:, 0], pairwise[:, 1])
+    got = numpy.interp(at, summed.profile[:, 0], summed.profile[:, 1])
+    assert got == pytest.approx(expected, rel=1e-6)
+    # an average divides by the spectra covering each m/z, not by all of them
+    got = numpy.interp(at, averaged.profile[:, 0], averaged.profile[:, 1])
+    assert got == pytest.approx([2.0, 3.0, 4.0], rel=1e-6)
 
 
 def test_combine_needs_data():
@@ -91,8 +121,8 @@ def test_centroided_scans_are_combined_peak_by_peak():
         _centroids([(300.05, 30.0), (450.0, 50.0), (451.0, 8.0)], precursor=810.75),
     ]
 
-    averaged, used = mspy.combinescans(scans)
-    summed, _used = mspy.combinescans(scans, average=False)
+    averaged, used = combinescans(scans)
+    summed, _used = combinescans(scans, average=False)
 
     assert used == [0, 1]
     assert not averaged.hasprofile()
@@ -113,7 +143,7 @@ def test_two_peaks_of_one_scan_are_never_merged():
         _centroids([(500.0005, 10.0), (700.0, 1.0), (900.0, 1.0)]),
     ]
 
-    combined, _used = mspy.combinescans(scans)
+    combined, _used = combinescans(scans)
 
     near500 = [peak for peak in combined.peaklist if abs(peak.mz - 500.0) < 0.01]
     assert len(near500) == 2
@@ -173,7 +203,7 @@ def test_a_range_of_fragment_spectra_splits_by_precursor(pwiz):
 def test_fragment_spectra_of_one_precursor_combine(pwiz):
     scans = [pwiz.scan(scanID) for scanID in (3, 10, 24, 37, 44)]
 
-    combined, used = mspy.combinescans(scans)
+    combined, used = combinescans(scans)
 
     assert used == [0, 1, 2, 3, 4]
     assert combined.msLevel == 2
@@ -214,7 +244,7 @@ def test_combined_orbitrap_scans_keep_their_resolution(pwiz):
     ftms = _trace(gdoc.makeChromatograms(scanlist), "FTMS")
     scans = [pwiz.scan(scanID) for scanID in ftms["scans"][:4]]
 
-    combined, used = mspy.combinescans(scans)
+    combined, used = combinescans(scans)
 
     assert used == [0, 1, 2, 3]
     # each scan's calibration offset is removed, and it is only a few ppm
@@ -256,7 +286,7 @@ def run(pwiz):
 
 def _combine(document, scanIDs):
     ftms = _trace(document.chromatograms, "FTMS")
-    combined, used = mspy.combinescans([document.scanCache[i] for i in scanIDs])
+    combined, used = combinescans([document.scanCache[i] for i in scanIDs])
     combination = {
         "mode": "average",
         "scans": [scanIDs[i] for i in used],
@@ -347,7 +377,7 @@ def test_extracted_combined_spectrum_records_what_it_was_made_of(run, tmp_path):
 
 
 def test_extracted_fragment_combination_keeps_its_precursor(pwiz, tmp_path):
-    combined, _used = mspy.combinescans([pwiz.scan(scanID) for scanID in (3, 10, 24)])
+    combined, _used = combinescans([pwiz.scan(scanID) for scanID in (3, 10, 24)])
 
     extracted = gdoc.document()
     extracted.spectrum = combined

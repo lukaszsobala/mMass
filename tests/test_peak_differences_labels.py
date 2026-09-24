@@ -23,7 +23,7 @@ def table(mzs, matched=()):
 
     rows = []
     for x, mz in enumerate(mzs):
-        row = [(mz, x)]
+        row: list[tuple[float, object]] = [(mz, x)]
         for y in range(x + 1):
             row.append((mz - mzs[y], "single" if (x, y + 1) in matched else False))
         rows.append(row)

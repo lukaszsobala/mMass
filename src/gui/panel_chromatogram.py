@@ -82,7 +82,13 @@ def _faded(colour, fraction):
 
 
 def makeChromatogramPlots(
-    chromatograms, showTIC=True, showBPC=True, minPoints=1, legendSuffix="", active=None
+    chromatograms,
+    showTIC=True,
+    showBPC=True,
+    minPoints=1,
+    legendSuffix="",
+    active=None,
+    hidden=(),
 ):
     """Plot objects for the traces of doc.makeChromatograms, one per acquisition.
 
@@ -93,7 +99,8 @@ def makeChromatogramPlots(
     and the others fade, showing which acquisition is being browsed. Traces of
     fragment spectra (see doc.makeChromatograms) are dots only: each is a
     single event of its own precursor, and lines between them would mean
-    nothing.
+    nothing. Traces whose index is in `hidden` are left out, unless browsed;
+    the others keep their colours.
     """
 
     plots = []
@@ -102,6 +109,8 @@ def makeChromatogramPlots(
         if not show:
             continue
         for index, trace in enumerate(traces):
+            if index in hidden and index != active:
+                continue
             points = trace.get(kind) or []
             if len(points) < minPoints:
                 continue
@@ -162,6 +171,12 @@ class panelChromatogram(wx.Panel):
 
         self.showTIC = True
         self.showBPC = False
+
+        # labels of the traces not drawn (unless browsed), kept for the next
+        # run as its traces are likely named alike; or only the browsed trace
+        # is drawn, whichever it is
+        self.hiddenTraces = set()
+        self.activeTraceOnly = False
 
         # trace drawn as the browsed one, and the document it was drawn for
         self._drawnActive = None
@@ -266,6 +281,11 @@ class panelChromatogram(wx.Panel):
         self.bpcCheck.Bind(wx.EVT_CHECKBOX, self.onChromTypeChanged)
         self.bpcCheck.SetToolTip(wx.ToolTip(BPC_HELP))
 
+        self.tracesButt = self._menuButton(panel, ("Traces",))
+        self.tracesButt.SetToolTip(wx.ToolTip("Choose which traces are drawn"))
+        self.tracesButt.Bind(wx.EVT_BUTTON, self.onTracesMenu)
+        self.tracesButt.Hide()
+
         # cut short rather than pushing the buttons over each other in a
         # narrow pane (the Wide Spectrum layout)
         self.scanLabel = wx.StaticText(
@@ -294,6 +314,7 @@ class panelChromatogram(wx.Panel):
         sizer.Add(self.traceSizer, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 8)
         sizer.Add(self.ticCheck, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 8)
         sizer.Add(self.bpcCheck, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 8)
+        sizer.Add(self.tracesButt, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 8)
         sizer.Add(self.scanLabel, 1, wx.ALIGN_CENTER_VERTICAL | wx.LEFT | wx.RIGHT, 10)
         sizer.Add(self.combineButt, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
         sizer.Add(self.extractButt, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 4)
@@ -389,7 +410,10 @@ class panelChromatogram(wx.Panel):
         """One radio button per acquisition; none when the run has one."""
 
         traces = self.traces()
-        labels = [trace.get("label") or "MS1" for trace in traces] if len(traces) > 1 else []
+        labels = [self.traceLabel(trace) for trace in traces] if len(traces) > 1 else []
+        if self.tracesButt.IsShown() != bool(labels):
+            self.tracesButt.Show(bool(labels))
+            self.controlbar.Layout()
         if labels == [button.GetLabel() for button in self.traceButtons]:
             return
 
@@ -438,7 +462,11 @@ class panelChromatogram(wx.Panel):
 
         active = self.activeTraceIndex()
         for plot in makeChromatogramPlots(
-            self.currentDocument.chromatograms, self.showTIC, self.showBPC, active=active
+            self.currentDocument.chromatograms,
+            self.showTIC,
+            self.showBPC,
+            active=active,
+            hidden=self.hiddenTraceIndexes(),
         ):
             container.append(plot)
 
@@ -556,6 +584,83 @@ class panelChromatogram(wx.Panel):
 
         self.showTIC = self.ticCheck.GetValue()
         self.showBPC = self.bpcCheck.GetValue()
+        self.updateChromatogram(keepView=True)
+        self.highlightCurrentScan()
+
+    # ----
+
+    def traceLabel(self, trace):
+        """Name of a trace in the control bar."""
+
+        return trace.get("label") or "MS1"
+
+    # ----
+
+    def hiddenTraceIndexes(self):
+        """Indexes of the current run's traces that are not drawn.
+
+        The browsed trace is drawn whatever this says (makeChromatogramPlots).
+        """
+
+        return {
+            index
+            for index, trace in enumerate(self.traces())
+            if self.activeTraceOnly or self.traceLabel(trace) in self.hiddenTraces
+        }
+
+    # ----
+
+    def onTracesMenu(self, evt):
+        """Choose which traces are drawn; the active (browsed) one always is."""
+
+        traces = self.traces()
+        active = self.activeTraceIndex()
+        hidden = self.hiddenTraceIndexes()
+        menu = wx.Menu()
+        for index, trace in enumerate(traces):
+            label = self.traceLabel(trace)
+            browsed = index == active
+            item = menu.AppendCheckItem(-1, label + (" (active)" if browsed else ""))
+            item.Check(browsed or index not in hidden)
+            item.Enable(not browsed)
+            self.controlbar.Bind(
+                wx.EVT_MENU, lambda evt, label=label: self.onTraceShown(label), item
+            )
+        menu.AppendSeparator()
+        only = menu.AppendCheckItem(-1, "Active Only")
+        only.Check(self.activeTraceOnly)
+        every = menu.Append(-1, "Selected")
+        every.Enable(bool(hidden - {active}))
+        self.controlbar.Bind(
+            wx.EVT_MENU,
+            lambda evt: self.setHiddenTraces(self.hiddenTraces, not self.activeTraceOnly),
+            only,
+        )
+        self.controlbar.Bind(wx.EVT_MENU, lambda evt: self.setHiddenTraces(set()), every)
+        self._popupUnder(self.tracesButt, menu)
+
+    # ----
+
+    def onTraceShown(self, label):
+        """Draw or hide a trace; only the active one drawn becomes a choice."""
+
+        hidden = self.hiddenTraces
+        if self.activeTraceOnly:
+            active = self.activeTraceIndex()
+            hidden = {
+                self.traceLabel(trace)
+                for index, trace in enumerate(self.traces())
+                if index != active
+            }
+        self.setHiddenTraces(hidden ^ {label})
+
+    # ----
+
+    def setHiddenTraces(self, labels, activeOnly=False):
+        """Hide the traces of these labels (or all but the active one)."""
+
+        self.hiddenTraces = set(labels)
+        self.activeTraceOnly = activeOnly
         self.updateChromatogram(keepView=True)
         self.highlightCurrentScan()
 

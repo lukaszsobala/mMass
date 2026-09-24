@@ -766,29 +766,33 @@ def poolscans(scans, align=True, raster=None, average=True):
 # ----
 
 
-def combinescans(scans, average=True, align=True):
-    """Combine scans of one acquisition into a single spectrum.
+def combinescans(scans, average=True, align=True, sampling=True):
+    """Combine scans (or whole spectra) into a single spectrum.
 
     scans (list of mspy.scan) - scans to combine, e.g. those under a range of a
-        chromatogram trace
+        chromatogram trace, or the spectra of several documents
     average (bool) - average the scans (True) or sum them (False)
     align (bool) - remove each scan's relative m/z offset before combining
+    sampling (bool) - combine only scans sampled alike (see below)
 
     Returns (combined scan, indexes into `scans` of the scans used), or
     (None, []) when there is nothing to combine. Profiles are combined when
-    any scan has one, and the peaks picked in single scans do not carry over;
-    scans sampled at very different densities are never combined (see
-    `samplinggroups`) -- when the scans fall into several such groups the
-    largest one is used. Centroided scans (peak lists only, as most MS/MS
-    spectra are stored) are combined peak by peak (see `combinecentroids`).
+    any scan has one, and the peaks picked in single scans do not carry over.
+    With `sampling`, scans sampled at very different densities are never
+    combined (see `samplinggroups`) -- when the scans fall into several such
+    groups the largest one is used; spectra the user chose to combine pass
+    False. Centroided scans (peak lists only, as most MS/MS spectra are
+    stored) are combined peak by peak (see `combinecentroids`).
     """
 
     indexes = [i for i, s in enumerate(scans) if s.hasprofile()]
     if not indexes:
         return combinecentroids(scans, average=average)
 
-    groups = samplinggroups([scans[i] for i in indexes])
-    used = [indexes[i] for i in max(groups, key=len)]
+    used = indexes
+    if sampling:
+        groups = samplinggroups([scans[i] for i in indexes])
+        used = [indexes[i] for i in max(groups, key=len)]
     members = [scans[i] for i in used]
 
     combined = poolscans(members, align=align and len(members) > 1, average=average)
