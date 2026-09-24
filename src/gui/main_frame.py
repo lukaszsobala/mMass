@@ -101,6 +101,59 @@ def _scaledPaneSize(width, height):
     )
 
 
+# height the spectrum (with its toolbar) keeps however tall the bottom row is
+SPECTRUM_MIN_HEIGHT = 250
+
+# window layouts by the menu item choosing them
+LAYOUT_IDS = {
+    ID_windowLayout1: "default",
+    ID_windowLayout2: "layout2",
+    ID_windowLayout3: "layout3",
+    ID_windowLayout4: "layout4",
+}
+
+
+class _BottomSashLimiter(wx.EvtHandler):
+    """Stop the sash above the bottom row where the spectrum row would get
+    too small.
+
+    AUI limits a dragged sash only by the panes of its own dock, so the
+    bottom row could be dragged up over the spectrum. The mouse events of a
+    sash drag go to the frame, and this handler, pushed onto it after the AUI
+    manager, sees them first: it holds the pointer back at the limit before
+    AUI moves the sash there (live, where AUI resizes while dragging).
+    """
+
+    def __init__(self, frame):
+        super().__init__()
+        self.frame = frame
+        self.offset = None  # where in the sash the drag took hold of it
+        self.Bind(wx.EVT_LEFT_DOWN, self.onLeftDown)
+        self.Bind(wx.EVT_MOTION, self.onMove)
+        self.Bind(wx.EVT_LEFT_UP, self.onLeftUp)
+
+    def onLeftDown(self, evt):
+        self.offset = self.frame.bottomSashOffset(evt.GetY())
+        evt.Skip()
+
+    def onMove(self, evt):
+        if self.offset is not None and evt.LeftIsDown():
+            self._limit(evt)
+        evt.Skip()
+
+    def onLeftUp(self, evt):
+        if self.offset is not None:
+            self._limit(evt)
+        self.offset = None
+        evt.Skip()
+
+    def _limit(self, evt):
+        top = self.frame.spectrumPanel.GetPosition().y
+        lowest = top + self.frame.spectrumMinHeight() + (self.offset or 0)
+        if evt.GetY() < lowest:
+            evt.SetY(lowest)
+
+
 class mainFrame(wx.Frame):
 
     # Status-bar fallback for the link-URL hover hint (used on Wayland, where
@@ -167,6 +220,15 @@ class mainFrame(wx.Frame):
         # Wayland menus won't let such a popup map over them, so there we
         # fall back to showing the URL in the status bar.
         self._menuTipEnabled = not self._isWaylandSession()
+
+        # how much larger than forced each pane came out of the last layout
+        # (see onWindowLayout)
+        self._paneSizeExtra = {}
+
+        # whether the first layout at the frame's real size is done; before,
+        # the panes are at their construction sizes, which are no one's choice
+        self._layoutReady = False
+        self._keepingSpectrumRoom = False
 
         # make GUI
         self.makeMenubar()
@@ -247,7 +309,7 @@ class mainFrame(wx.Frame):
         # maximized) size. The first pass runs inside makeGUI while the frame is
         # still at its tiny construction size, so AUI's dock-size constraint
         # clamps the side panes; redoing it here restores the saved widths.
-        wx.CallAfter(self.onWindowLayout, layout=config.main["layout"])
+        wx.CallAfter(self._initialLayout)
 
         # check for available updates
         self.checkVersions()
@@ -1334,6 +1396,7 @@ class mainFrame(wx.Frame):
 
         # make spectrum panel
         self.spectrumPanel = panelSpectrum(self, self.documents)
+        self.spectrumPanel.Bind(wx.EVT_SIZE, self.onSpectrumPaneSize)
 
         # make peaklist panel
         self.peaklistPanel = panelPeaklist(self)
@@ -1364,6 +1427,8 @@ class mainFrame(wx.Frame):
         # manage frames
         self.AUIManager = wx.aui.AuiManager()
         self.AUIManager.SetManagedWindow(self)
+        self._sashLimiter = _BottomSashLimiter(self)
+        self.PushEventHandler(self._sashLimiter)
         self.AUIManager.SetDockSizeConstraint(0.5, 0.5)
 
         self.AUIManager.AddPane(
@@ -1457,21 +1522,15 @@ class mainFrame(wx.Frame):
         if not self.onDocumentCloseAll():
             return
 
-        # save panels' sizes (physical pixels, restored verbatim next launch)
-        (
-            config.main["documentsWidth"],
-            config.main["documentsHeight"],
-        ) = self.documentsPanel.GetSize()
-        (
-            config.main["peaklistWidth"],
-            config.main["peaklistHeight"],
-        ) = self.peaklistPanel.GetSize()
+        # save panels' sizes (physical pixels, restored next launch)
+        self.rememberPaneSizes()
 
         # save config
         config.saveConfig()
 
         # quit application
         evt.Skip()
+        self.RemoveEventHandler(self._sashLimiter)
         self.AUIManager.UnInit()
         self.Destroy()
 
@@ -4912,10 +4971,34 @@ class mainFrame(wx.Frame):
     def onWindowLayout(self, evt=None, layout=None):
         """Apply selected window layout."""
 
+        # the layouts docking the peak list at the bottom squeeze an open peak
+        # editor out of sight, unless the pane would be tall enough for it
+        if evt is not None:
+            layout = LAYOUT_IDS.get(evt.GetId(), "default")
+        # the bottom row shown keeps its height; without one the peak list
+        # gets the height it had there before
+        bottomRow = self._bottomRowHeight()
+        if (
+            layout in ("layout3", "layout4")
+            and self.peaklistPanel.editorShown()
+            and (bottomRow or self._restoredPaneLength(config.main["peaklistHeight"], True))
+            < self.peaklistPanel.editorHeight()
+        ):
+            wx.Bell()
+            # the menu has already marked the layout chosen: mark the one kept
+            self.markLayout(config.main["layout"])
+            return
+
+        # a switch made in the running app keeps the sizes the user gave the
+        # panes (the first layouts, while the frame is still being built, find
+        # them at their construction sizes)
+        if self._layoutReady:
+            self.rememberPaneSizes()
+
         # documents bottom
-        if layout == "layout2" or (evt and evt.GetId() == ID_windowLayout2):
+        if layout == "layout2":
             config.main["layout"] = "layout2"
-            self.menubar.Check(ID_windowLayout2, True)
+            self.markLayout("layout2")
             self.AUIManager.GetPane("documents").Show().Bottom().Layer(0).Row(
                 0
             ).Position(0).MinSize(_scaledPaneSize(100, 195)).BestSize(_scaledPaneSize(100, 195))
@@ -4924,9 +5007,9 @@ class mainFrame(wx.Frame):
             ).MinSize(_scaledPaneSize(195, 100)).BestSize(_scaledPaneSize(195, 100))
 
         # peaklist bottom
-        elif layout == "layout3" or (evt and evt.GetId() == ID_windowLayout3):
+        elif layout == "layout3":
             config.main["layout"] = "layout3"
-            self.menubar.Check(ID_windowLayout3, True)
+            self.markLayout("layout3")
             self.AUIManager.GetPane("documents").Show().Left().Layer(0).Row(0).Position(
                 0
             ).MinSize(_scaledPaneSize(195, 100)).BestSize(_scaledPaneSize(195, 100))
@@ -4935,9 +5018,9 @@ class mainFrame(wx.Frame):
             ).Position(0).MinSize(_scaledPaneSize(100, 195)).BestSize(_scaledPaneSize(100, 195))
 
         # documents and peaklist bottom
-        elif layout == "layout4" or (evt and evt.GetId() == ID_windowLayout4):
+        elif layout == "layout4":
             config.main["layout"] = "layout4"
-            self.menubar.Check(ID_windowLayout4, True)
+            self.markLayout("layout4")
             self.AUIManager.GetPane("documents").Show().Bottom().Layer(0).Row(
                 0
             ).Position(0).MinSize(_scaledPaneSize(100, 195)).BestSize(_scaledPaneSize(100, 195))
@@ -4948,7 +5031,7 @@ class mainFrame(wx.Frame):
         # default
         else:
             config.main["layout"] = "default"
-            self.menubar.Check(ID_windowLayout1, True)
+            self.markLayout("default")
             self.AUIManager.GetPane("documents").Show().Left().Layer(0).Row(0).Position(
                 0
             ).MinSize(_scaledPaneSize(195, 100)).BestSize(_scaledPaneSize(195, 100))
@@ -4967,30 +5050,256 @@ class mainFrame(wx.Frame):
 
             docs = self.AUIManager.GetPane("documents")
             peak = self.AUIManager.GetPane("peaklist")
-            sizes = (
-                (docs, config.main["documentsWidth"], config.main["documentsHeight"]),
-                (peak, config.main["peaklistWidth"], config.main["peaklistHeight"]),
-            )
+            # (pane, saved width, saved height, default, minimum)
+            sizes = [
+                (docs, config.main["documentsWidth"], config.main["documentsHeight"], realMin, realMin),
+                (peak, config.main["peaklistWidth"], config.main["peaklistHeight"], realMin, realMin),
+            ]
+
+            # the chromatogram shares the bottom dock, whose height is set here
+            # too: AUI would keep the one it had in the last layout, however
+            # tall a pane that left it made it
+            chrom = self.AUIManager.GetPane("chromatogram")
+            if chrom.IsOk() and chrom.IsShown():
+                chromBest = _scaledPaneSize(400, 170)
+                sizes.append((chrom, chromBest[0], chromBest[1], chromBest[1], 0))
 
             horizontal = (wx.aui.AUI_DOCK_LEFT, wx.aui.AUI_DOCK_RIGHT)
 
             # force the saved size on the dimension that the dock controls
-            for pane, width, height in sizes:
+            forced = {}
+            for pane, width, height, default, _minimum in sizes:
                 if pane.dock_direction in horizontal:
+                    width = self._restoredPaneLength(width, False, default)
                     pane.MinSize(width, floorMin).BestSize(width, floorMin)
+                    forced[pane.name] = (0, width)
                 else:
+                    height = bottomRow or self._restoredPaneLength(height, True, default)
                     pane.MinSize(floorMin, height).BestSize(floorMin, height)
+                    forced[pane.name] = (1, height)
             self.AUIManager.Update()
 
-            # relax the minimums so the panes can still be shrunk by the user
-            for pane, _width, _height in sizes:
-                if pane.dock_direction in horizontal:
-                    pane.MinSize(realMin, floorMin)
-                else:
-                    pane.MinSize(floorMin, realMin)
+            # a pane can come out a little larger than forced (AUI adds the
+            # room of a neighbour's caption); rememberPaneSizes takes that
+            # off, or every switch would make the pane grow
+            for name, (axis, length) in forced.items():
+                window = self.AUIManager.GetPane(name).window
+                extra = window.GetSize()[axis] - length
+                self._paneSizeExtra[name] = extra if 0 < extra < length else 0
 
-        # apply changes
+            # relax the minimums so the panes can still be shrunk by the user
+            for pane, _width, _height, _default, minimum in sizes:
+                if pane is chrom:
+                    pane.MinSize(self.chromatogramMinSize())
+                elif pane.dock_direction in horizontal:
+                    pane.MinSize(minimum, floorMin)
+                else:
+                    pane.MinSize(floorMin, minimum)
+            self.updatePeaklistMinSize(update=False)
+
+        # apply changes; repaint everything, so no pane is left showing what
+        # was drawn where it now is (Wayland does not always ask)
         self.AUIManager.Update()
+        self.keepSpectrumRoom()
+        self.Refresh()
+
+    # ----
+
+    def chromatogramMinSize(self):
+        """Smallest chromatogram pane: never narrower than its controls (the
+        Wide Spectrum layout shares the bottom row with two more panes)."""
+
+        width, height = _scaledPaneSize(300, 140)
+        return wx.Size(max(width, self.chromatogramPanel.minimumWidth()), height)
+
+    # ----
+
+    def updatePeaklistMinSize(self, update=True):
+        """Keep an open peak editor in sight in a bottom-docked peak list.
+
+        In the bottom row the pane's own minimum is what AUI keeps when the
+        row is dragged smaller; beside the spectrum it is keepSpectrumRoom's
+        job, as AUI does not weigh those panes when the bottom row grows.
+        """
+
+        pane = self.AUIManager.GetPane("peaklist")
+        if not pane.IsOk() or pane.dock_direction != wx.aui.AUI_DOCK_BOTTOM:
+            return
+
+        floorMin, realMin = _scaledPaneSize(100, 195)
+        height = realMin
+        if self.peaklistPanel.editorShown():
+            height = max(height, self.peaklistPanel.editorHeight())
+        pane.MinSize(floorMin, height)
+        if update:
+            self.AUIManager.Update()
+
+    # ----
+
+    def spectrumMinHeight(self):
+        """Height the spectrum row keeps: room for the spectrum, and for the
+        peak editor when the peak list beside the spectrum shows it."""
+
+        height = _scaledPaneSize(0, SPECTRUM_MIN_HEIGHT)[1]
+        pane = self.AUIManager.GetPane("peaklist")
+        if (
+            pane.IsOk()
+            and pane.IsShown()
+            and pane.dock_direction in (wx.aui.AUI_DOCK_LEFT, wx.aui.AUI_DOCK_RIGHT)
+            and self.peaklistPanel.editorShown()
+        ):
+            height = max(height, self.peaklistPanel.editorHeight())
+        return height
+
+    # ----
+
+    def keepSpectrumRoom(self):
+        """Shrink the bottom row back when it leaves the spectrum too little.
+
+        AUI limits a dragged sash only by the panes of the dock it belongs to,
+        so the bottom row can be dragged up until the spectrum (and the panes
+        beside it) are gone. The row's size is only settable through a
+        perspective, which is saved, changed and loaded back.
+        """
+
+        if not self._layoutReady or self._keepingSpectrumRoom:
+            return
+
+        # never in the middle of a drag: AUI holds the mouse for it, and
+        # loading a perspective under it breaks the drag (a sash drag stops
+        # at the limit anyway, see _BottomSashLimiter; this is for the rest)
+        if wx.GetMouseState().LeftIsDown():
+            wx.CallLater(200, self.keepSpectrumRoom)
+            return
+
+        missing = self.spectrumMinHeight() - self.spectrumPanel.GetSize().GetHeight()
+        if missing <= 1:
+            return
+
+        perspective = self.AUIManager.SavePerspective()
+        bottom = "dock_size(%d,0,0)=" % wx.aui.AUI_DOCK_BOTTOM
+        match = re.search(re.escape(bottom) + r"(\d+)", perspective)
+        if match is None:
+            return
+
+        # a window too small for both keeps a sliver of each
+        size = max(int(match.group(1)) - missing, _scaledPaneSize(0, 60)[1])
+        self._keepingSpectrumRoom = True
+        try:
+            self.AUIManager.LoadPerspective(
+                perspective[: match.start(1)] + str(size) + perspective[match.end(1) :]
+            )
+        finally:
+            self._keepingSpectrumRoom = False
+
+    # ----
+
+    def bottomSashOffset(self, y):
+        """Where y (frame client) is in the sash above the bottom row, or None
+        when it is not on it."""
+
+        if not self._layoutReady:
+            return None
+        if not any(
+            pane.IsShown() and pane.IsDocked() and pane.dock_direction == wx.aui.AUI_DOCK_BOTTOM
+            for pane in (self.AUIManager.GetPane(name) for name in ("documents", "peaklist", "chromatogram"))
+            if pane.IsOk()
+        ):
+            return None
+
+        # the sash lies right under the spectrum row
+        rect = self.spectrumPanel.GetRect()
+        sash = self.AUIManager.GetArtProvider().GetMetric(wx.aui.AUI_DOCKART_SASH_SIZE)
+        offset = y - (rect.GetBottom() + 1)
+        return offset if 0 <= offset <= sash else None
+
+    # ----
+
+    def onSpectrumPaneSize(self, evt):
+        """Check the room left to the spectrum once a resize is done."""
+
+        evt.Skip()
+        wx.CallAfter(self.keepSpectrumRoom)
+
+    # ----
+
+    def _initialLayout(self):
+        """Lay out the panes once the frame has its real size."""
+
+        self.onWindowLayout(layout=config.main["layout"])
+        self._layoutReady = True
+
+    # ----
+
+    def _bottomRowHeight(self):
+        """Height of the row of panes docked at the bottom, None if there is none.
+
+        Only in the running app: while the frame is being built the panes are
+        at their construction sizes. The spectrum keeps some room whatever.
+        """
+
+        if not self._layoutReady:
+            return None
+
+        heights = []
+        for name in ("documents", "peaklist", "chromatogram"):
+            pane = self.AUIManager.GetPane(name)
+            if (
+                pane.IsOk()
+                and pane.IsShown()
+                and pane.IsDocked()
+                and pane.dock_direction == wx.aui.AUI_DOCK_BOTTOM
+            ):
+                heights.append(pane.window.GetSize().GetHeight() - self._paneSizeExtra.get(name, 0))
+        if not heights:
+            return None
+
+        spectrum = _scaledPaneSize(100, 200)[1]
+        return max(1, min(max(heights), self.GetClientSize().GetHeight() - spectrum))
+
+    # ----
+
+    def rememberPaneSizes(self):
+        """Keep the sizes of the documents and peak list panes for layouts.
+
+        Only the size the dock sets is kept: the other of a side pane is the
+        frame's height, which a bottom layout would take for its pane's.
+        """
+
+        for name in ("documents", "peaklist"):
+            pane = self.AUIManager.GetPane(name)
+            if not (pane.IsOk() and pane.IsShown() and pane.IsDocked()):
+                continue
+            width, height = pane.window.GetSize()
+            extra = self._paneSizeExtra.get(name, 0)
+            if pane.dock_direction in (wx.aui.AUI_DOCK_LEFT, wx.aui.AUI_DOCK_RIGHT):
+                config.main[name + "Width"] = width - extra
+            else:
+                config.main[name + "Height"] = height - extra
+
+    # ----
+
+    def markLayout(self, layout):
+        """Mark a window layout as the one chosen in the Window menu."""
+
+        for layoutID, name in LAYOUT_IDS.items():
+            if name == layout:
+                self.menubar.Check(layoutID, True)
+
+    # ----
+
+    def _restoredPaneLength(self, saved, vertical, default=None):
+        """A saved pane width (height if vertical) as a layout restores it.
+
+        A saved size taking more than 40 % of the window is not one the user
+        chose (a side pane's height used to be saved, the whole window's, and
+        a bottom layout took it): the default is used then.
+        """
+
+        realMin = _scaledPaneSize(195, 100)[0]
+        clientWidth, clientHeight = self.GetClientSize()
+        limit = max(realMin, int((clientHeight if vertical else clientWidth) * 0.4))
+        return saved if saved <= limit else (realMin if default is None else default)
 
     # ----
 
@@ -5915,14 +6224,16 @@ class mainFrame(wx.Frame):
         The peak editor is a tall, fixed-height panel. When the peak list is
         docked at the bottom the pane is too short for it, clipping its
         controls (GTK 'Negative content' warnings on Linux, clipped buttons on
-        Windows). Fall back to the default layout, where the peak list is
-        docked on the (tall) right-hand side and the editor fits."""
+        Windows). Unless the user made it tall enough, fall back to the default
+        layout, where the peak list is docked on the (tall) right-hand side
+        and the editor fits."""
 
         pane = self.AUIManager.GetPane("peaklist")
         if (
             pane.IsOk()
             and pane.IsDocked()
             and pane.dock_direction == wx.aui.AUI_DOCK_BOTTOM
+            and self.peaklistPanel.GetSize().GetHeight() < self.peaklistPanel.editorHeight()
         ):
             self.onWindowLayout(layout="default")
 
@@ -5937,12 +6248,7 @@ class mainFrame(wx.Frame):
 
         if docData is not None and docData.islcms():
             self.chromatogramPanel.setData(docData)
-            # never narrower than its controls (the Wide Spectrum layout
-            # shares the bottom row with two more panes)
-            minSize = _scaledPaneSize(300, 140)
-            pane.MinSize(
-                max(minSize[0], self.chromatogramPanel.minimumWidth()), minSize[1]
-            )
+            pane.MinSize(self.chromatogramMinSize())
             pane.Show()
         else:
             self.chromatogramPanel.setData(None)
