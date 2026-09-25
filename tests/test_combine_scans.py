@@ -149,6 +149,55 @@ def test_two_peaks_of_one_scan_are_never_merged():
     assert len(near500) == 2
 
 
+def test_merged_peaks_keep_what_the_stronger_peak_knew():
+    a = mspy.peaklist([mspy.peak(300.0, 10.0, charge=2, fwhm=0.3), mspy.peak(300.6, 5.0)])
+    b = mspy.peaklist([mspy.peak(300.05, 30.0, charge=1, fwhm=0.4), mspy.peak(451.0, 8.0, charge=3)])
+
+    merged = {round(peak.mz, 1): peak for peak in mspy.mergecentroids([a, b], average=False)}
+
+    assert sorted(merged) == [300.0, 300.6, 451.0]
+    assert merged[300.0].ai == pytest.approx(40.0)
+    assert merged[300.0].mz == pytest.approx((300.0 * 10 + 300.05 * 30) / 40)
+    assert (merged[300.0].charge, merged[300.0].fwhm) == (1, 0.4)
+    assert merged[451.0].charge == 3
+    # the inputs are left as they were
+    assert (a[0].mz, a[0].ai, b[0].charge) == (300.0, 10.0, 1)
+
+
+def test_math_combine_of_centroided_spectra_merges_like_sum_all():
+    # Math panel: Combine A+B and Sum All Visible give the same peaks
+    a = _centroids([(300.0, 10.0), (300.6, 5.0), (450.02, 100.0)])
+    b = _centroids([(300.05, 30.0), (450.0, 50.0), (451.0, 8.0)])
+    summed, _used = combinescans([a, b], average=False, align=False, sampling=False)
+
+    a.combine(b)
+
+    assert [(round(p.mz, 6), round(p.ai, 6)) for p in a.peaklist] == [
+        (round(p.mz, 6), round(p.ai, 6)) for p in summed.peaklist
+    ]
+    assert len(a.peaklist) == 4
+
+
+def test_centroided_spectra_are_previewed_as_sticks():
+    processing = pytest.importorskip("gui.processing")
+    scan = _centroids([(300.0, 10.0), (450.0, 50.0)])
+
+    points = processing.previewPoints(scan)
+
+    assert points.tolist() == [
+        [300.0, 0.0], [300.0, 10.0], [300.0, 0.0],
+        [450.0, 0.0], [450.0, 50.0], [450.0, 0.0],
+    ]
+    profile = _scan(numpy.array([1.0, 2.0]), numpy.array([3.0, 4.0]), 1)
+    assert processing.previewPoints(profile) is profile.profile
+    assert len(processing.peakSticks(mspy.peaklist())) == 0
+
+    # Combine A+B previews the merged peaks, one stick per ion
+    other = _centroids([(300.05, 30.0), (451.0, 8.0)])
+    points = processing.previewPair("combine", scan, other)
+    assert points[1::3, 1].tolist() == pytest.approx([40.0, 50.0, 8.0])
+
+
 # ---------------------------------------------------------------------------
 # Traces of the example run
 # ---------------------------------------------------------------------------

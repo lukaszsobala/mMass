@@ -5,6 +5,8 @@ config.processing, so the command line can run with a changed copy of them
 without touching the user's configuration.
 """
 
+import numpy
+
 import mspy
 
 
@@ -70,6 +72,39 @@ def combineSpectra(scans, average=True):
     """
 
     return mspy.combinescans(scans, average=average, align=False, sampling=False)
+
+
+def peakSticks(peaklist):
+    """Peaks as points of one line, rising from zero to each peak and back."""
+
+    if not len(peaklist):
+        return numpy.array([])
+
+    points = numpy.zeros((3 * len(peaklist), 2))
+    points[:, 0] = numpy.repeat([peak.mz for peak in peaklist], 3)
+    points[1::3, 1] = [peak.ai for peak in peaklist]
+    return points
+
+
+def previewPoints(scan):
+    """Points to preview a spectrum by: its profile, or its peaks as sticks
+    when it has none (centroided data)."""
+
+    if scan.hasprofile():
+        return scan.profile
+    return peakSticks(scan.peaklist)
+
+
+def previewPair(operation, scanA, scanB):
+    """Preview points of Combine A+B, Overlay A,B or Subtract B, as applying
+    them would give; centroided spectra are combined peak by peak."""
+
+    if operation == "combine" and not (scanA.hasprofile() or scanB.hasprofile()):
+        merged = mspy.mergecentroids([scanA.peaklist, scanB.peaklist], average=False)
+        return peakSticks(merged)
+
+    signal = {"combine": mspy.combine, "overlay": mspy.overlay, "subtract": mspy.subtract}
+    return signal[operation](scanA.profile, scanB.profile)
 
 
 def subtractBaseline(scan, settings):

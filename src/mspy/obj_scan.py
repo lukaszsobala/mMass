@@ -375,9 +375,11 @@ class scan:
                 self.peaklist._setbasepeak()
                 self.peaklist._setRelativeIntensities()
 
-        # use peaklists only
+        # use peaklists only; one ion in both is one peak, as in combinescans
         elif len(self.peaklist) or len(other.peaklist):
-            self.peaklist.combine(other.peaklist)
+            self.setpeaklist(
+                mod_pooling.mergecentroids([self.peaklist, other.peaklist], average=False)
+            )
 
         # clear buffers
         self.reset()

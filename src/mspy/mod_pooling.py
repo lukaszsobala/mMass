@@ -52,7 +52,6 @@ import numpy
 from .mod_stopper import CHECK_FORCE_QUIT
 
 # load objects
-from . import obj_peak
 from . import obj_peaklist
 from . import obj_scan
 
@@ -79,6 +78,13 @@ POOL_MERGE_FRACTION = 0.5
 # were not acquired the same way (e.g. a high- and a low-resolution full scan
 # interleaved in one run) and are never averaged together.
 POOL_SAMPLING_RATIO = 3.0
+
+# Peaks of different centroided spectra are one ion when closer than the spacing
+# of their own peaks allows (see _centroid_tolerance) -- but never farther apart
+# than half a peak width, nor than this (Da). The spacing says little about a
+# sparse list, such as the peaks picked in a spectrum: two peaks 150 Da apart
+# would allow a 75 Da tolerance and merge 450 with 451.
+POOL_CENTROID_MAX_TOLERANCE = 0.5
 
 # Half-width of the window, as a fraction of the pooled FWHM, in which a pooled
 # peak's height is read in a scan. Wide enough to follow the small m/z drift
@@ -837,46 +843,54 @@ def _centroid_tolerance(lists):
 # ----
 
 
-def combinecentroids(scans, average=True):
-    """Combine the peak lists of centroided scans into one.
+def mergecentroids(peaklists, average=True):
+    """Merge peak lists (of centroided spectra) into one.
 
-    scans (list of mspy.scan) - scans holding peak lists
-    average (bool) - average the intensities over the scans (True, a peak
-        missing in a scan counting as zero there) or sum them (False)
+    peaklists (list of mspy.peaklist) - peak lists to merge
+    average (bool) - average the intensities over the lists (True, a peak
+        missing in a list counting as zero there) or sum them (False)
 
-    Peaks of different scans closer than the centroid tolerance (see
-    `_centroid_tolerance`) are one peak, taking at most one peak of each scan;
-    its m/z is their intensity-weighted mean. Returns (combined scan, indexes
-    into `scans` of the scans used), or (None, []) when no scan has peaks.
+    Peaks of different lists closer than the centroid tolerance (see
+    `_centroid_tolerance`, at most half the FWHM of a peak that has one and
+    POOL_CENTROID_MAX_TOLERANCE) are one peak, taking at most one of each list;
+    its m/z is their intensity-weighted mean, and the rest (charge, FWHM, ...)
+    is kept from the most intense of them. Empty lists are left out of the
+    average. Returns a new mspy.peaklist.
     """
 
-    used = [i for i, s in enumerate(scans) if len(s.peaklist)]
-    if not used:
-        return None, []
-
     lists = []
-    for i in used:
-        mz = numpy.array([peak.mz for peak in scans[i].peaklist], dtype=float)
-        ai = numpy.array([peak.ai for peak in scans[i].peaklist], dtype=float)
-        order = numpy.argsort(mz)
-        lists.append((mz[order], ai[order]))
+    for peaklist in peaklists:
+        if not len(peaklist):
+            continue
+        peaks = sorted(peaklist, key=lambda peak: peak.mz)
+        lists.append((numpy.array([peak.mz for peak in peaks], dtype=float), peaks))
+    if not lists:
+        return obj_peaklist.peaklist()
 
-    tolDa, tolRel = _centroid_tolerance([mz for mz, _ai in lists])
+    tolDa, tolRel = _centroid_tolerance([mz for mz, _peaks in lists])
 
     mz = numpy.concatenate([item[0] for item in lists])
-    ai = numpy.concatenate([item[1] for item in lists])
     owner = numpy.concatenate([numpy.full(len(item[0]), n) for n, item in enumerate(lists)])
+    source = [peak for _mz, peaks in lists for peak in peaks]
     order = numpy.argsort(mz, kind="stable")
-    mz, ai, owner = mz[order], ai[order], owner[order]
+    mz, owner = mz[order], owner[order]
+    source = [source[i] for i in order]
+    ai = numpy.array([peak.ai for peak in source], dtype=float)
+    base = numpy.array([peak.base for peak in source], dtype=float)
+    fwhm = numpy.array([peak.fwhm or numpy.inf for peak in source], dtype=float)
 
-    scale = 1.0 / len(used) if average else 1.0
+    scale = 1.0 / len(lists) if average else 1.0
     peaks = []
     start = 0
     while start < len(mz):
 
         CHECK_FORCE_QUIT()
 
-        tolerance = max(tolDa, tolRel * mz[start])
+        tolerance = min(
+            max(tolDa, tolRel * mz[start]),
+            0.5 * fwhm[start],
+            POOL_CENTROID_MAX_TOLERANCE,
+        )
         owners = {int(owner[start])}
         end = start + 1
         while (
@@ -892,10 +906,37 @@ def combinecentroids(scans, average=True):
             centre = float(numpy.average(mz[start:end], weights=weights))
         else:
             centre = float(mz[start:end].mean())
-        peaks.append(obj_peak.peak(mz=centre, ai=float(weights.sum()) * scale))
+
+        peak = copy.deepcopy(source[start + int(numpy.argmax(weights))])
+        peak.setbase(float(base[start:end].sum()) * scale)
+        peak.setai(float(weights.sum()) * scale)
+        peak.setmz(centre)
+        peaks.append(peak)
         start = end
 
-    combined = _pooledscan([scans[i] for i in used], peaklist=obj_peaklist.peaklist(peaks))
+    return obj_peaklist.peaklist(peaks)
+
+
+# ----
+
+
+def combinecentroids(scans, average=True):
+    """Combine the peak lists of centroided scans into one.
+
+    scans (list of mspy.scan) - scans holding peak lists
+    average (bool) - average the intensities over the scans or sum them
+
+    The peaks are merged by `mergecentroids`. Returns (combined scan, indexes
+    into `scans` of the scans used), or (None, []) when no scan has peaks.
+    """
+
+    used = [i for i, s in enumerate(scans) if len(s.peaklist)]
+    if not used:
+        return None, []
+
+    peaklist = mergecentroids([scans[i].peaklist for i in used], average=average)
+
+    combined = _pooledscan([scans[i] for i in used], peaklist=peaklist)
     combined.scanNumber = None
     filterString = scans[used[0]].attributes.get("filterString")
     if filterString:
