@@ -36,6 +36,7 @@ from .mod_calibration import *
 from .mod_peakpicking import *
 from .mod_pooling import acquisitionkey, acquisitiongroups, samplinggroups
 from .mod_pooling import commonraster, alignmentoffsets, poolscans, poolwindows
+from .mod_pooling import combinescans, combinecentroids, mergecentroids
 from .mod_pooling import labelpooled
 from .mod_pooling import guidinggroups, crossguide, scanguide, guidecovers, guidedfeatures
 from .mod_proteo import *

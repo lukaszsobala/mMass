@@ -5,6 +5,8 @@ config.processing, so the command line can run with a changed copy of them
 without touching the user's configuration.
 """
 
+import numpy
+
 import mspy
 
 
@@ -57,6 +59,52 @@ def mathScan(scan, operation, settings):
         scan.squareroot(preservePeaks=bool(settings["math"]["preservePeaks"]))
     else:
         raise ValueError(f"{operation} needs more than one spectrum")
+
+
+def combineSpectra(scans, average=True):
+    """Average or sum whole spectra, e.g. those of the visible documents.
+
+    The same combining as for the scans under a chromatogram range
+    (mspy.combinescans), minus alignment and the sampling check, as the user
+    chose these spectra: an average divides each m/z by the spectra covering
+    it, and centroided spectra are merged peak by peak. Returns (combined scan,
+    indexes of the scans used), or (None, []) when no scan has data.
+    """
+
+    return mspy.combinescans(scans, average=average, align=False, sampling=False)
+
+
+def peakSticks(peaklist):
+    """Peaks as points of one line, rising from zero to each peak and back."""
+
+    if not len(peaklist):
+        return numpy.array([])
+
+    points = numpy.zeros((3 * len(peaklist), 2))
+    points[:, 0] = numpy.repeat([peak.mz for peak in peaklist], 3)
+    points[1::3, 1] = [peak.ai for peak in peaklist]
+    return points
+
+
+def previewPoints(scan):
+    """Points to preview a spectrum by: its profile, or its peaks as sticks
+    when it has none (centroided data)."""
+
+    if scan.hasprofile():
+        return scan.profile
+    return peakSticks(scan.peaklist)
+
+
+def previewPair(operation, scanA, scanB):
+    """Preview points of Combine A+B, Overlay A,B or Subtract B, as applying
+    them would give; centroided spectra are combined peak by peak."""
+
+    if operation == "combine" and not (scanA.hasprofile() or scanB.hasprofile()):
+        merged = mspy.mergecentroids([scanA.peaklist, scanB.peaklist], average=False)
+        return peakSticks(merged)
+
+    signal = {"combine": mspy.combine, "overlay": mspy.overlay, "subtract": mspy.subtract}
+    return signal[operation](scanA.profile, scanB.profile)
 
 
 def subtractBaseline(scan, settings):

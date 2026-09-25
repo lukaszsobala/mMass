@@ -62,40 +62,94 @@ MSD_SCAN_ATTRIBUTES = {
 }
 
 
-def makeChromatograms(scanlist):
-    """Build TIC/BPC traces (MS1 only, retention time in minutes) from a scan index.
+# fragment spectra whose precursors lie closer than this (Da) are spectra of
+# one precursor: DDA picks the same ion again and again at slightly different
+# m/z, and an isolation window is at least about 1 Da wide
+PRECURSOR_TOLERANCE = 0.5
 
-    Returns {"traces": [{"label", "tic", "bpc"}, ...]}, one trace per way the MS1
-    scans were acquired (see mspy.acquisitionkey). A run that interleaves two
-    kinds of full scan -- an Orbitrap and an ion trap one, say -- would otherwise
-    alternate between their very different ion currents in a single trace, which
-    draws as a zigzag. The label names the acquisition ("FTMS", "ITMS", ...) and
-    is empty when the run has only one.
+
+def traceKey(meta):
+    """Key of the chromatogram trace a scan belongs to.
+
+    MS1 scans are split by acquisition (mspy.acquisitionkey). Fragment spectra
+    are split by MS level, polarity and how they were acquired but not by
+    precursor: every precursor of a DDA run is fragmented the same way, and one
+    trace per precursor would be one trace per handful of scans. The precursor
+    m/z and range are taken out of the filter string for that
+    ("ITMS + c ESI d Full ms2 810.79@cid35.00 [210.00-1635.00]" ->
+    "ITMS + c ESI d Full ms2 @cid35.00").
+    """
+
+    key = mspy.acquisitionkey(meta)
+    if key[0] <= 1:
+        return key
+
+    acquisition = re.sub(r"\[[^\]]*\]", "", key[2])
+    acquisition = re.sub(r"\d+(\.\d+)?@", "@", acquisition)
+    acquisition = re.sub(r"\s+", " ", acquisition).strip()
+    return (key[0], key[1], acquisition, None)
+
+
+def makeChromatograms(scanlist, msn=False):
+    """Build TIC/BPC traces (retention time in minutes) from a scan index.
+
+    Returns {"traces": [{"label", "key", "msLevel", "scans", "tic", "bpc"}, ...]},
+    one trace per way the MS1 scans were acquired (see mspy.acquisitionkey). A
+    run that interleaves two kinds of full scan -- an Orbitrap and an ion trap
+    one, say -- would otherwise alternate between their very different ion
+    currents in a single trace, which draws as a zigzag. The label names the
+    acquisition ("FTMS", "ITMS", ...) and is empty when the run has only one;
+    "key" is the trace key (see traceKey) and "scans" the IDs of the trace's
+    scans in retention order.
+
+    With msn, fragment spectra get traces too, one per MS level and way of
+    acquisition ("MS2", or "MS2 ITMS" when there are several), after the MS1
+    ones. Their points are single events of different precursors, not a
+    chromatogram.
     """
 
     groups = {}
-    for _scanID, meta in scanlist.items():
-        if meta.get("msLevel") not in (None, 1):
+    for scanID, meta in scanlist.items():
+        msLevel = meta.get("msLevel") or 1
+        if msLevel > 1 and not msn:
             continue
         rt = meta.get("retentionTime")
         if rt is None:
             continue
-        key = mspy.acquisitionkey(meta)
+        key = traceKey(meta)
         if key not in groups:
-            groups[key] = {"tic": [], "bpc": [], "filterString": meta.get("filterString")}
+            groups[key] = {"tic": [], "bpc": [], "scans": []}
         group = groups[key]
+        group["scans"].append((rt, scanID))
         if meta.get("totIonCurrent") is not None:
             group["tic"].append((rt / 60.0, meta["totIonCurrent"]))
         if meta.get("basePeakIntensity") is not None:
             group["bpc"].append((rt / 60.0, meta["basePeakIntensity"]))
 
-    labels = _acquisitionLabels(list(groups))
+    survey = [key for key in groups if key[0] <= 1]
+    fragments = sorted((key for key in groups if key[0] > 1), key=lambda key: key[0])
+
+    labels = _acquisitionLabels(survey)
+    for key in survey:
+        if len(survey) == 1:
+            labels[key] = "MS1" if fragments else ""
+    for level in sorted({key[0] for key in fragments}):
+        keys = [key for key in fragments if key[0] == level]
+        names = _acquisitionLabels(keys)
+        for key in keys:
+            labels[key] = "MS%d" % level
+            if len(keys) > 1:
+                labels[key] += " " + names[key]
 
     traces = []
-    for key, group in groups.items():
+    for key in survey + fragments:
+        group = groups[key]
         traces.append(
             {
-                "label": labels[key] if len(groups) > 1 else "",
+                "label": labels[key],
+                "key": key,
+                "msLevel": key[0],
+                "scans": [scanID for _rt, scanID in sorted(group["scans"], key=lambda item: item[0])],
                 "tic": sorted(group["tic"]),
                 "bpc": sorted(group["bpc"]),
             }
@@ -126,6 +180,109 @@ def _acquisitionLabels(keys):
         if len(set(labels.values())) == len(keys):
             break
     return labels
+
+
+def scansInRange(scanlist, key, start, end):
+    """IDs of the scans of one trace within a retention time range.
+
+    key is a trace key (see traceKey), start and end are in seconds. The IDs
+    come in retention order.
+    """
+
+    found = []
+    for scanID, meta in scanlist.items():
+        rt = meta.get("retentionTime")
+        if rt is None or not start <= rt <= end:
+            continue
+        if traceKey(meta) == key:
+            found.append((rt, scanID))
+
+    return [scanID for _rt, scanID in sorted(found, key=lambda item: item[0])]
+
+
+def precursorGroups(scanlist, scanIDs, tolerance=PRECURSOR_TOLERANCE):
+    """Split fragment spectra into groups of one precursor each.
+
+    Precursors are sorted and split wherever the next one is more than
+    `tolerance` (Da) away, and scans of the same m/z but different known
+    charges are kept apart. Returns [(precursor m/z, [scan IDs]), ...] in order
+    of m/z, the m/z being the mean of the group's; scans without a precursor
+    form a group with m/z None.
+    """
+
+    known = []
+    unknown = []
+    for scanID in scanIDs:
+        meta = scanlist.get(scanID) or {}
+        if meta.get("precursorMZ") is None:
+            unknown.append(scanID)
+        else:
+            known.append((float(meta["precursorMZ"]), meta.get("precursorCharge"), scanID))
+
+    groups = []
+    for charge in sorted({item[1] for item in known}, key=lambda value: (value is None, value or 0)):
+        items = sorted(item for item in known if item[1] == charge)
+        current = []
+        for item in items:
+            if current and item[0] - current[-1][0] > tolerance:
+                groups.append(current)
+                current = []
+            current.append(item)
+        if current:
+            groups.append(current)
+
+    # a scan of unknown charge goes with a group of known charge at its m/z
+    merged = []
+    for group in groups:
+        if group[0][1] is None:
+            for other in merged:
+                if other[0][1] is not None and abs(other[0][0] - group[0][0]) <= tolerance:
+                    other.extend(group)
+                    break
+            else:
+                merged.append(group)
+        else:
+            merged.append(group)
+
+    result = []
+    for group in sorted(merged, key=lambda items: items[0][0]):
+        order = [scanID for scanID in scanIDs if scanID in {item[2] for item in group}]
+        result.append((sum(item[0] for item in group) / len(group), order))
+    if unknown:
+        result.append((None, unknown))
+
+    return result
+
+
+def scansText(count):
+    """ "1 scan", "4 scans"."""
+
+    return "%d scan%s" % (count, "" if count == 1 else "s")
+
+
+def combinationText(combination, source=""):
+    """Describe what a combined spectrum was made of, for document notes."""
+
+    scans = combination.get("scans") or []
+    what = "Averaged" if combination.get("mode") != "sum" else "Summed"
+    text = "%s spectrum of %s" % (what, scansText(len(scans)))
+    if source:
+        text += " of %s" % source
+    text += ".\n"
+    if combination.get("acquisition"):
+        text += "Acquisition: %s\n" % combination["acquisition"]
+    if combination.get("precursorMZ") is not None:
+        text += "Precursor m/z: %.4f\n" % combination["precursorMZ"]
+    rtRange = combination.get("rtRange")
+    if rtRange:
+        text += "Retention time: %.2f-%.2f min\n" % (rtRange[0] / 60.0, rtRange[1] / 60.0)
+    text += "Scans: %s\n" % ", ".join(str(scanID) for scanID in scans)
+    return text
+
+
+# a combined spectrum stands in for the scan shown; the key difference rulers
+# drawn on it are filed under
+COMBINED_SCAN_ID = "combined"
 
 
 class document:
@@ -163,6 +320,11 @@ class document:
         # from; None once every scan is held in the document (e.g. a run
         # reopened from .msd)
         self.scanSource: Any = None
+        # a spectrum combined from several scans of the run, shown in place of
+        # a scan: what it was made of (see showCombined), or None. It is
+        # volatile -- never cached or saved with the run -- and currentScanID
+        # is None while it is shown.
+        self.combined: Any = None
 
         self.colour = (0, 0, 255)
         self.style = wx.SOLID  # type: ignore[attr-defined]
@@ -192,6 +354,90 @@ class document:
     def islcms(self):
         """Return True if this document is a browsable multi-scan LC-MS run."""
         return bool(self.scanlist) and len(self.scanlist) > 1
+
+    # ----
+
+    def showsRunScan(self):
+        """Return True if this is an LC-MS run showing one of its own scans."""
+        return self.islcms() and not self.combined
+
+    # ----
+
+    def shownScanKey(self):
+        """What the shown spectrum is filed under in a run (e.g. by rulers).
+
+        The scan ID, COMBINED_SCAN_ID for a combined spectrum, or None when the
+        document is not an LC-MS run.
+        """
+
+        if not self.islcms():
+            return None
+        if self.combined:
+            return COMBINED_SCAN_ID
+        return self.currentScanID
+
+    # ----
+
+    def lastScanID(self):
+        """The scan shown, or the one a combined spectrum replaced."""
+
+        if self.combined:
+            return self.combined.get("anchor")
+        return self.currentScanID
+
+    # ----
+
+    def showScan(self, scanID, scan):
+        """Show a scan of the run, dropping a combined spectrum.
+
+        The scan shown until now stays cached with its edits, so returning to it
+        restores them. Undo history belongs to the spectrum it was made on, so it
+        is cleared.
+        """
+
+        if self.combined:
+            self._dropCombined()
+        elif self.currentScanID is not None:
+            self.scanCache[self.currentScanID] = self.spectrum
+
+        self.spectrum = scan
+        self.currentScanID = scanID
+        self.backup(None)
+
+    # ----
+
+    def showCombined(self, spectrum, combination, key=None):
+        """Show a spectrum combined from scans of the run in place of a scan.
+
+        combination (dict) - what the spectrum was made of: "mode" ("average"
+            or "sum"), "scans" (scan IDs), "rtRange" (seconds) and "acquisition"
+            (filter string or instrument configuration); kept with the spectrum
+            as its "combination" attribute, which .msd files save
+        key - acquisition key of the combined scans (the chromatogram trace)
+
+        The combined spectrum is volatile: showing a scan drops it, and it is not
+        saved with the run.
+        """
+
+        anchor = self.lastScanID()
+        if self.combined:
+            self._dropCombined()
+        elif self.currentScanID is not None:
+            self.scanCache[self.currentScanID] = self.spectrum
+
+        spectrum.attributes["combination"] = dict(combination)
+        self.combined = dict(combination, anchor=anchor, key=key)
+        self.spectrum = spectrum
+        self.currentScanID = None
+        self.backup(None)
+
+    # ----
+
+    def _dropCombined(self):
+        """Forget the combined spectrum and the rulers drawn on it."""
+
+        self.combined = None
+        self.rulers[:] = [item for item in self.rulers if item.scanID != COMBINED_SCAN_ID]
 
     # ----
 
@@ -510,24 +756,34 @@ class document:
         buff += "    <notes>%s</notes>\n" % self._escape(self.notes)
         buff += "  </description>\n\n"
 
+        # a run showing a combined spectrum is saved as it was before: the
+        # combined spectrum is volatile, the scan it replaced is the shown one
+        spectrum = self.spectrum
+        shownID = self.currentScanID
+        if self.islcms() and self.combined:
+            anchor = self.combined.get("anchor")
+            if anchor in self.scanCache:
+                spectrum = self.scanCache[anchor]
+                shownID = anchor
+
         # format spectrum
         precision = config.main["dataPrecision"]
         endian = sys.byteorder
-        points = self.spectrum.profile
+        points = spectrum.profile
         mzArray, intArray = self._convertSpectrum(points, precision)
         attributes = 'points="%s"' % len(points)
-        if self.spectrum.scanNumber is not None:
-            attributes += ' scanNumber="%s"' % self.spectrum.scanNumber
-        if self.spectrum.msLevel is not None:
-            attributes += ' msLevel="%s"' % self.spectrum.msLevel
-        if self.spectrum.retentionTime is not None:
-            attributes += ' retentionTime="%s"' % self.spectrum.retentionTime
-        if self.spectrum.precursorMZ is not None:
-            attributes += ' precursorMZ="%s"' % self.spectrum.precursorMZ
-        if self.spectrum.precursorCharge is not None:
-            attributes += ' precursorCharge="%s"' % self.spectrum.precursorCharge
-        if self.spectrum.polarity is not None:
-            attributes += ' polarity="%s"' % self.spectrum.polarity
+        if spectrum.scanNumber is not None:
+            attributes += ' scanNumber="%s"' % spectrum.scanNumber
+        if spectrum.msLevel is not None:
+            attributes += ' msLevel="%s"' % spectrum.msLevel
+        if spectrum.retentionTime is not None:
+            attributes += ' retentionTime="%s"' % spectrum.retentionTime
+        if spectrum.precursorMZ is not None:
+            attributes += ' precursorMZ="%s"' % spectrum.precursorMZ
+        if spectrum.precursorCharge is not None:
+            attributes += ' precursorCharge="%s"' % spectrum.precursorCharge
+        if spectrum.polarity is not None:
+            attributes += ' polarity="%s"' % spectrum.polarity
 
         buff += "  <spectrum %s>\n" % attributes
         if len(points) > 0:
@@ -539,12 +795,15 @@ class document:
                 '    <intArray precision="%s" compression="zlib" endian="%s">%s</intArray>\n'
                 % (precision, endian, intArray.decode("utf-8"))
             )
+        combination = spectrum.attributes.get("combination")
+        if isinstance(combination, dict):
+            buff += self._formatCombination(combination)
         buff += "  </spectrum>\n\n"
 
         # format peaklist
-        if len(self.spectrum.peaklist):
+        if len(spectrum.peaklist):
             buff += "  <peaklist>\n"
-            buff += self._formatPeaks(self.spectrum.peaklist, "    ")
+            buff += self._formatPeaks(spectrum.peaklist, "    ")
             buff += "  </peaklist>\n\n"
 
         # format annotations
@@ -571,9 +830,11 @@ class document:
 
         # format difference rulers (new in this release; older readers skip the
         # element, and no other format has anywhere to keep them)
-        if len(self.rulers):
+        # (those drawn on a combined spectrum go with it)
+        rulers = [item for item in self.rulers if item.scanID != COMBINED_SCAN_ID]
+        if len(rulers):
             buff += "  <rulers>\n"
-            for ruler in self.rulers:
+            for ruler in rulers:
                 attributes = (
                     'mz1="%.6f" ai1="%.6f" mz2="%.6f" ai2="%.6f" charge="%d"'
                     % (ruler.mz1, ruler.ai1, ruler.mz2, ruler.ai2, ruler.charge)
@@ -675,7 +936,7 @@ class document:
 
         # format chromatogram (all scans of an LC-MS run)
         if self.islcms():
-            buff += self._formatChromatogram()
+            buff += self._formatChromatogram(shownID)
 
         buff += "</mSD>\n"
 
@@ -768,7 +1029,29 @@ class document:
 
     # ----
 
-    def _formatChromatogram(self):
+    def _formatCombination(self, combination):
+        """Format what a combined spectrum was made of (mSD <combination>)."""
+
+        attributes = 'mode="%s"' % ("sum" if combination.get("mode") == "sum" else "average")
+        scans = " ".join(str(scanID) for scanID in combination.get("scans") or [])
+        attributes += ' scans="%s"' % self._escape(scans)
+        rtRange = combination.get("rtRange")
+        if rtRange:
+            attributes += ' rtStart="%s" rtEnd="%s"' % (rtRange[0], rtRange[1])
+        if combination.get("acquisition"):
+            attributes += ' acquisition="%s"' % self._escape(combination["acquisition"])
+        if combination.get("precursorMZ") is not None:
+            attributes += ' precursorMZ="%.6f"' % float(combination["precursorMZ"])
+        if combination.get("source"):
+            attributes += ' source="%s"' % self._escape(combination["source"])
+        if combination.get("aligned"):
+            attributes += ' aligned="1"'
+
+        return "    <combination %s />\n" % attributes
+
+    # ----
+
+    def _formatChromatogram(self, shownID):
         """Format every scan of an LC-MS run as the mSD <chromatogram> element.
 
         Older readers look each mSD section up by tag name anywhere in the file,
@@ -778,15 +1061,16 @@ class document:
         skips the rest. That shown scan is not stored a second time; its <scan>
         entry carries metadata only.
 
-        Every scan must already be loaded into scanCache.
+        Every scan must already be loaded into scanCache. shownID is the scan
+        stored in <spectrum>.
         """
 
         precision = config.main["dataPrecision"]
         endian = sys.byteorder
 
         buff = '  <chromatogram scans="%d"' % len(self.scanlist)
-        if self.currentScanID is not None:
-            buff += ' currentScan="%s"' % self._escape(str(self.currentScanID))
+        if shownID is not None:
+            buff += ' currentScan="%s"' % self._escape(str(shownID))
         buff += ">\n"
 
         for scanID, meta in self.scanlist.items():
@@ -798,7 +1082,7 @@ class document:
                 attributes += ' %s="%s"' % (name, self._escape(str(value)))
 
             scan = self.scanCache.get(scanID)
-            if scanID == self.currentScanID:
+            if scanID == shownID:
                 buff += "    <scan %s current=\"1\" />\n" % attributes
                 continue
             if scan is None:
@@ -1761,6 +2045,11 @@ class parseMSD:
                 except ValueError:
                     pass
 
+            # what a combined spectrum was made of
+            combinationTags = spectrumTags[0].getElementsByTagName("combination")
+            if combinationTags:
+                self.handleCombination(combinationTags[0])
+
             # get mzArray
             mzData = None
             mzArrayTags = spectrumTags[0].getElementsByTagName("mzArray")
@@ -1836,6 +2125,34 @@ class parseMSD:
 
             # add to spectrum
             self.document.spectrum.setprofile(points)
+
+    # ----
+
+    def handleCombination(self, tag):
+        """Get what a combined spectrum was made of (mSD <combination>)."""
+
+        combination = {
+            "mode": "sum" if tag.getAttribute("mode") == "sum" else "average",
+            "scans": [self._convertScanID(item) for item in tag.getAttribute("scans").split()],
+            "acquisition": tag.getAttribute("acquisition"),
+            "source": tag.getAttribute("source"),
+            "aligned": tag.getAttribute("aligned") == "1",
+        }
+        if tag.hasAttribute("precursorMZ"):
+            try:
+                combination["precursorMZ"] = float(tag.getAttribute("precursorMZ"))
+            except ValueError:
+                self.errors.append("Incorrect combination data.")
+        if tag.hasAttribute("rtStart") and tag.hasAttribute("rtEnd"):
+            try:
+                combination["rtRange"] = (
+                    float(tag.getAttribute("rtStart")),
+                    float(tag.getAttribute("rtEnd")),
+                )
+            except ValueError:
+                self.errors.append("Incorrect combination data.")
+
+        self.document.spectrum.attributes["combination"] = combination
 
     # ----
 
@@ -2066,7 +2383,7 @@ class parseMSD:
         self.document.scanlist = scanlist
         self.document.scanCache = scanCache
         self.document.currentScanID = currentID
-        self.document.chromatograms = makeChromatograms(scanlist)
+        self.document.chromatograms = makeChromatograms(scanlist, msn=True)
         self.document.scanSource = None
 
     # ----
@@ -2784,7 +3101,7 @@ def readRun(path, docType, scanlist):
 
     # attach chromatogram / scan index
     docData.scanlist = scanlist
-    docData.chromatograms = makeChromatograms(scanlist)
+    docData.chromatograms = makeChromatograms(scanlist, msn=True)
     docData.currentScanID = initialID
     docData.scanCache = {initialID: spectrum}
     docData.scanSource = (path, docType)

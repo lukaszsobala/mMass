@@ -2028,7 +2028,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         """Enable LC-MS pooling controls for the current document and mode."""
 
         document = self.currentDocument
-        isLCMS = bool(document is not None and document.islcms())
+        isLCMS = bool(document is not None and document.showsRunScan())
         mode = self.peakpickingPool_choice.GetSelection()
 
         self.peakpickingAllScans_check.Enable(isLCMS)
@@ -2581,6 +2581,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         try:
 
             # get spectrum A
+            scanA = None
             if config.processing["math"]["operation"] in (
                 "averageall",
                 "combineall",
@@ -2595,9 +2596,9 @@ class panelProcessing(wx.Frame, MakeModalMixin):
                 titleA = self.mathSpectrumA_choice.GetStringSelection()
                 if titleA and titleA != "None":
                     indexA = int(titleA.split(":")[0][1:])
-                    self.previewData = self.parent.documents[indexA - 1].spectrum.profile
+                    scanA = self.parent.documents[indexA - 1].spectrum
                 elif self.currentDocument:
-                    self.previewData = self.currentDocument.spectrum.profile
+                    scanA = self.currentDocument.spectrum
                 else:
                     wx.Bell()
                     return
@@ -2605,10 +2606,14 @@ class panelProcessing(wx.Frame, MakeModalMixin):
                 wx.Bell()
                 return
             else:
-                self.previewData = self.currentDocument.spectrum.profile
+                scanA = self.currentDocument.spectrum
+
+            # a centroided spectrum is previewed by its peaks
+            if scanA is not None:
+                self.previewData = processing.previewPoints(scanA)
 
             # get spectrum B (only used by the combine/overlay/subtract branches)
-            spectrumB = None
+            scanB = None
             if config.processing["math"]["operation"] in (
                 "combine",
                 "overlay",
@@ -2617,7 +2622,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
                 title = self.mathSpectrumB_choice.GetStringSelection()
                 if title != "None":
                     index = int(title.split(":")[0][1:])
-                    spectrumB = self.parent.documents[index - 1].spectrum.profile
+                    scanB = self.parent.documents[index - 1].spectrum
                 else:
                     wx.Bell()
                     return
@@ -2627,14 +2632,11 @@ class panelProcessing(wx.Frame, MakeModalMixin):
                 self.previewData = mspy.normalize(self.previewData)
                 self.previewData = mspy.multiply(self.previewData, y=100)
 
-            elif config.processing["math"]["operation"] == "combine":
-                self.previewData = mspy.combine(self.previewData, spectrumB)
-
-            elif config.processing["math"]["operation"] == "overlay":
-                self.previewData = mspy.overlay(self.previewData, spectrumB)
-
-            elif config.processing["math"]["operation"] == "subtract":
-                self.previewData = mspy.subtract(self.previewData, spectrumB)
+            # combine, overlay or subtract (only these get spectrum B)
+            elif scanA is not None and scanB is not None:
+                self.previewData = processing.previewPair(
+                    config.processing["math"]["operation"], scanA, scanB
+                )
 
             elif config.processing["math"]["operation"] == "multiply":
                 self.previewData = mspy.multiply(
@@ -2644,22 +2646,13 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             elif config.processing["math"]["operation"] == "squareroot":
                 self.previewData = mspy.squareroot(self.previewData)
 
-            elif config.processing["math"]["operation"] == "averageall":
-                count = 0
-                for item in self.parent.documents:
-                    if item.visible:
-                        self.previewData = mspy.combine(
-                            self.previewData, item.spectrum.profile
-                        )
-                        count += 1
-                self.previewData = mspy.multiply(self.previewData, y=1.0 / count)
-
-            elif config.processing["math"]["operation"] == "combineall":
-                for item in self.parent.documents:
-                    if item.visible:
-                        self.previewData = mspy.combine(
-                            self.previewData, item.spectrum.profile
-                        )
+            elif config.processing["math"]["operation"] in ("averageall", "combineall"):
+                combined, _used = processing.combineSpectra(
+                    [item.spectrum for item in self.parent.documents if item.visible],
+                    average=config.processing["math"]["operation"] == "averageall",
+                )
+                if combined is not None:
+                    self.previewData = processing.previewPoints(combined)
 
             elif config.processing["math"]["operation"] == "overlayall":
                 for item in self.parent.documents:
@@ -2864,26 +2857,22 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
                 spectrum = docData.spectrum
 
-                # average spectra
-                if config.processing["math"]["operation"] == "averageall":
-                    docData.title = "Averaged Spectra"
-                    docData.notes = "Averaged Spectra:\n"
-                    count = 0
-                    for item in self.parent.documents:
-                        if item.visible:
-                            spectrum.combine(item.spectrum)
-                            docData.notes += "- " + item.title + "\n"
-                            count += 1
-                    spectrum.multiply(1.0 / count)
-
-                # combine spectra
-                elif config.processing["math"]["operation"] == "combineall":
-                    docData.title = "Combined Spectra"
-                    docData.notes = "Combined Spectra:\n"
-                    for item in self.parent.documents:
-                        if item.visible:
-                            spectrum.combine(item.spectrum)
-                            docData.notes += "- " + item.title + "\n"
+                # average or sum spectra
+                if config.processing["math"]["operation"] in ("averageall", "combineall"):
+                    average = config.processing["math"]["operation"] == "averageall"
+                    docData.title = "Averaged Spectra" if average else "Combined Spectra"
+                    docData.notes = docData.title + ":\n"
+                    documents = [item for item in self.parent.documents if item.visible]
+                    combined, used = processing.combineSpectra(
+                        [item.spectrum for item in documents], average=average
+                    )
+                    if combined is not None:
+                        if combined.hasprofile():
+                            spectrum.setprofile(combined.profile)
+                        else:
+                            spectrum.setpeaklist(combined.peaklist)
+                    for index in used:
+                        docData.notes += "- " + documents[index].title + "\n"
 
                 # overlay spectra
                 elif config.processing["math"]["operation"] == "overlayall":
@@ -3067,7 +3056,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             return
 
         document = self.currentDocument
-        isLCMS = not batch and document.islcms()
+        isLCMS = not batch and document.showsRunScan()
 
         # for LC-MS runs, optionally pick peaks in every scan of the run, and
         # optionally from scans pooled across the run

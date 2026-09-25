@@ -460,8 +460,11 @@ class panelPeaklist(wx.Panel):
         self.peakReplace_butt.Bind(wx.EVT_BUTTON, self.onReplacePeak)
         self.peakReplace_butt.Enable(False)
 
-        # pack elements
-        grid = wx.GridBagSizer(mwx.GRIDBAG_VSPACE, mwx.GRIDBAG_HSPACE)
+        # pack elements; tighter than the tool panels (half their spacing),
+        # so the editor fits a peak list docked in the bottom row
+        vspace = max(2, mwx.GRIDBAG_VSPACE // 2)
+        margin = max(3, mwx.PANEL_SPACE_MAIN // 2)
+        grid = wx.GridBagSizer(vspace, mwx.GRIDBAG_HSPACE)
         grid.Add(peakMz_label, (0, 0), flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL)
         grid.Add(self.peakMz_value, (0, 1), flag=wx.EXPAND)
         grid.Add(peakAi_label, (1, 0), flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL)
@@ -495,8 +498,8 @@ class panelPeaklist(wx.Panel):
         buttons.Add(self.peakReplace_butt, 0)
 
         mainSizer = wx.BoxSizer(wx.VERTICAL)
-        mainSizer.Add(grid, 0, wx.EXPAND | wx.ALL, 10)
-        mainSizer.Add(buttons, 0, wx.ALIGN_CENTER | wx.RIGHT | wx.LEFT | wx.BOTTOM, 10)
+        mainSizer.Add(grid, 0, wx.EXPAND | wx.ALL, margin)
+        mainSizer.Add(buttons, 0, wx.ALIGN_CENTER | wx.RIGHT | wx.LEFT | wx.BOTTOM, margin)
 
         # fit layout
         mainSizer.Fit(panel)
@@ -517,6 +520,8 @@ class panelPeaklist(wx.Panel):
         self.editPeak_butt.SetBitmapLabel(images.lib["peaklistEditorOn"])
         self.mainSizer.Show(1)
         self.Layout()
+        self.parent.updatePeaklistMinSize()
+        self.parent.keepSpectrumRoom()
 
     # ----
 
@@ -526,6 +531,7 @@ class panelPeaklist(wx.Panel):
         self.editPeak_butt.SetBitmapLabel(images.lib["peaklistEditorOff"])
         self.mainSizer.Hide(1)
         self.Layout()
+        self.parent.updatePeaklistMinSize()
 
     # ----
 
@@ -901,11 +907,29 @@ class panelPeaklist(wx.Panel):
 
     # ----
 
+    def editorShown(self):
+        """Whether the peak editor is open."""
+
+        return self.mainSizer.IsShown(1)
+
+    # ----
+
+    def editorHeight(self):
+        """Height the panel needs to show the editor: it, the toolbar and a
+        few rows of the list above them."""
+
+        editor = self.mainSizer.GetItem(1).GetWindow()
+        toolbar = self.mainSizer.GetItem(2).GetWindow()
+        rows = 4 * int(self.peakList.GetCharHeight() * 1.6)
+        return editor.GetBestSize().GetHeight() + toolbar.GetSize().GetHeight() + rows
+
+    # ----
+
     def onEdit(self, evt):
         """Show / hide peak editing panel."""
 
         # hide peak editing panel
-        if self.mainSizer.IsShown(1):
+        if self.editorShown():
             self._hidePeakEditor()
 
         # show peak editing panel

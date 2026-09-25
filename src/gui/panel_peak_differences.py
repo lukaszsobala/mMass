@@ -547,7 +547,7 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
 
         docData = self.currentDocument
         peaklist = docData.spectrum.peaklist
-        scanID = docData.currentScanID if docData.islcms() else None
+        scanID = docData.shownScanKey()
         tolerance = config.peakDifferences["tolerance"]
         massType = config.peakDifferences["massType"]
 
