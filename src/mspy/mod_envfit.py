@@ -233,9 +233,9 @@ class envfit:
             self.ncomposition[x] = self.models[x][3]
 
         # get calculated points
-        raster.shape = (-1, 1)
+        raster = raster.reshape(-1, 1)
         intensities = numpy.sum(models * [[x] for x in fit], axis=0)
-        intensities.shape = (-1, 1)
+        intensities = intensities.reshape(-1, 1)
         self.model = numpy.concatenate((raster, intensities), axis=1).copy()
 
         # estimate effective resolution at the modeled envelope apex

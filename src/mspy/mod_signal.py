@@ -612,8 +612,8 @@ def movaver(signal, window, cycles=1, style="flat"):
         cycles -= 1
 
     # return smoothed data
-    xAxis.shape = (-1, 1)
-    yAxis.shape = (-1, 1)
+    xAxis = xAxis.reshape(-1, 1)
+    yAxis = yAxis.reshape(-1, 1)
     data = numpy.concatenate((xAxis, yAxis), axis=1)
 
     return data.copy()
@@ -664,7 +664,7 @@ def savgol(signal, window, cycles=1, order=3):
 
     # return smoothed data
     yAxis = numpy.array(yAxis)
-    yAxis.shape = (-1, 1)
+    yAxis = yAxis.reshape(-1, 1)
     data = numpy.concatenate((xAxis, yAxis), axis=1)
 
     return data.copy()
