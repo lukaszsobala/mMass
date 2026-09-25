@@ -626,17 +626,17 @@ class panelChromatogram(wx.Panel):
             self.controlbar.Bind(
                 wx.EVT_MENU, lambda evt, label=label: self.onTraceShown(label), item
             )
+        # two modes: the traces checked above, or the active trace only
         menu.AppendSeparator()
-        only = menu.AppendCheckItem(-1, "Active Only")
-        only.Check(self.activeTraceOnly)
-        every = menu.Append(-1, "Selected")
-        every.Enable(bool(hidden - {active}))
+        selected = menu.AppendRadioItem(-1, "Selected")
+        only = menu.AppendRadioItem(-1, "Active Only")
+        (only if self.activeTraceOnly else selected).Check(True)
         self.controlbar.Bind(
-            wx.EVT_MENU,
-            lambda evt: self.setHiddenTraces(self.hiddenTraces, not self.activeTraceOnly),
-            only,
+            wx.EVT_MENU, lambda evt: self.setHiddenTraces(self.hiddenTraces, True), only
         )
-        self.controlbar.Bind(wx.EVT_MENU, lambda evt: self.setHiddenTraces(set()), every)
+        self.controlbar.Bind(
+            wx.EVT_MENU, lambda evt: self.setHiddenTraces(self.hiddenTraces), selected
+        )
         self._popupUnder(self.tracesButt, menu)
 
     # ----
