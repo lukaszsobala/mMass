@@ -13,13 +13,13 @@ authors = [
     { name = "Martin Strohalm" }
 ]
 license = { text = "GPL-3.0-or-later" }
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 dependencies = [
     "numpy>=2.0",
-    "numba",
+    "numba>=0.60",
     "wxPython>=4.3.1",
     "xdgenvpy>=3.0.0,<4.0.0",
-    "requests>=2.25.1"
+    "requests>=2.32"
 ]
 
 [project.optional-dependencies]
@@ -27,7 +27,7 @@ test = [
     "pytest",
     "pytest-cov",
     "numpy>=2.0",
-    "numba",
+    "numba>=0.60",
 ]
 
 [project.urls]
@@ -58,9 +58,9 @@ pythonpath = ["src"]
 # wxPython is intentionally NOT a test dependency: every target tested here
 # imports without wx. The Numba @njit kernels in mspy/calculations.py compile
 # lazily on first call (~5-10s once per session); this is expected.
-# NOTE: pytest-cov currently crashes under Python 3.14 + NumPy 2.4 (coverage's
-# tracer trips numpy's "cannot load module more than once" guard). Plain
-# `pytest` is unaffected; run coverage on Python <=3.13 if needed.
+# pytest-cov works on Python 3.14 again (checked with coverage 7.16.2 +
+# NumPy 2.5.3); coverage 7.14 + NumPy 2.4 tripped numpy's "cannot load module
+# more than once" guard.
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "B"]
