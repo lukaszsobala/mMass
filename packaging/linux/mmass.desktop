@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=mMass
+GenericName=Mass Spectrometry Tool
+Comment=Open source mass spectrometry tool
+Exec=mmass %F
+Icon=mmass
+Terminal=false
+Categories=Science;Chemistry;
+Keywords=mass spectrometry;MALDI;proteomics;spectrum;mzML;
+MimeType=application/x-mmass-document;application/x-mmass-session;application/x-mzml;application/x-mzxml;application/x-mzdata;application/x-mgf;
+StartupWMClass=mmass

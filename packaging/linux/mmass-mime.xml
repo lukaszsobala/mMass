@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-mmass-document">
+    <comment>mMass spectrum document</comment>
+    <sub-class-of type="application/xml"/>
+    <glob pattern="*.msd"/>
+    <root-XML localName="mSD"/>
+  </mime-type>
+  <mime-type type="application/x-mmass-session">
+    <comment>mMass session</comment>
+    <sub-class-of type="application/xml"/>
+    <glob pattern="*.mses"/>
+    <root-XML localName="mMassSession"/>
+  </mime-type>
+  <mime-type type="application/x-mzml">
+    <comment>mzML mass spectrometry data</comment>
+    <sub-class-of type="application/xml"/>
+    <glob pattern="*.mzml" case-sensitive="false"/>
+  </mime-type>
+  <mime-type type="application/x-mzxml">
+    <comment>mzXML mass spectrometry data</comment>
+    <sub-class-of type="application/xml"/>
+    <glob pattern="*.mzxml" case-sensitive="false"/>
+  </mime-type>
+  <mime-type type="application/x-mzdata">
+    <comment>mzData mass spectrometry data</comment>
+    <sub-class-of type="application/xml"/>
+    <glob pattern="*.mzdata" case-sensitive="false"/>
+  </mime-type>
+  <mime-type type="application/x-mgf">
+    <comment>Mascot Generic Format peak list</comment>
+    <sub-class-of type="text/plain"/>
+    <glob pattern="*.mgf" case-sensitive="false"/>
+  </mime-type>
+</mime-info>

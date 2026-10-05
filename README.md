@@ -12,6 +12,8 @@ Thank you also to Dreaming Spires for the initial Python 3 port.
 
 mMass is now a fully pure-Python package (native C extensions were removed and replaced with Numba/SciPy), making it trivial to install via modern package managers like `uv` or `pip`.
 
+Ready-made packages are attached to each [release](https://github.com/lukaszsobala/mMass/releases): a Windows installer, a macOS disk image, and Linux `.deb`, `.rpm` and `.AppImage` packages (see [Linux packages](#linux-packages)).
+
 ### Linux, Windows and macOS
 We recommend using [uv](https://github.com/astral-sh/uv) or pip to install the package directly into a virtual environment.
 
@@ -243,6 +245,46 @@ notarized**, so end users hit a one-time Gatekeeper prompt and a slow first laun
 (see the macOS notes under *Running the application*). Signing and notarization
 with an Apple Developer ID — which removes both — is documented in
 [`packaging/macos/SIGNING.md`](packaging/macos/SIGNING.md).
+
+### Linux packages
+
+Releases carry `.deb`, `.rpm` and `.AppImage` packages for `x86_64`/`amd64`
+and `aarch64`/`arm64`. They hold a PyInstaller bundle (installed to
+`/opt/mmass`, with `mmass` on the `PATH`) that uses the system's GTK 3 and
+glibc, so they need glibc 2.35 or newer (Ubuntu 22.04, Debian 12, Fedora 36,
+openSUSE Leap 16 or later). The `.deb`/`.rpm` declare the system libraries
+they need; the AppImage assumes GTK 3 is installed, as it is on any desktop.
+Each build is installed and run on Ubuntu 22.04 and 24.04, Debian 12 and 13,
+the latest Fedora and openSUSE Tumbleweed, on both architectures.
+
+They are built by `.github/workflows/linux-packages.yml` on Ubuntu 22.04
+runners. PyPI has no Linux wheels of wxPython, so
+`.github/workflows/linux-wxpython-wheel.yml` builds one from the sdist (without
+the wxWidgets features mMass does not use, and with built-in image libraries)
+once per wxPython version, Python version and architecture, and keeps it as an
+asset of a `wxpython-<version>-linux-r<revision>` prerelease for later builds;
+the versions are set in `packaging/linux/wxpython-wheel.env`.
+
+Local build (on Ubuntu 22.04, or in an `ubuntu:22.04` container, for the
+widest compatibility):
+
+```sh
+packaging/linux/install_build_deps.sh
+packaging/linux/install_packaging_tools.sh ~/.local/bin   # nfpm, appimagetool
+packaging/linux/build_wxpython_wheel.sh 4.3.1 wheelhouse  # slow; or reuse a wheel
+python -m pip install wheelhouse/wxpython-*.whl -e . pyinstaller
+python packaging/linux/build_linux_packages.py
+packaging/linux/smoke_test.sh build/dist/linux/mmass/mmass
+# install and run the packages on a clean system, e.g.
+docker run --rm -v "$PWD:/src:ro" fedora:latest \
+    sh /src/packaging/linux/install_test.sh /src/build/installer/linux
+```
+
+The bundle is written to `build/dist/linux/` and the packages to
+`build/installer/linux/`. Which libraries the bundle takes from the host, and
+the package dependencies that follow from them, are listed in
+`packaging/linux/linux_libs.py`; the build fails if the bundle needs a library
+that is neither bundled nor listed there.
 
 ## Contributing
 
