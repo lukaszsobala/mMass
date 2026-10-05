@@ -1,0 +1,148 @@
+name: Build Linux Packages
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+  pull_request:
+    paths:
+      - "packaging/linux/**"
+      - ".github/workflows/linux-*.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  wxpython-wheel:
+    uses: ./.github/workflows/linux-wxpython-wheel.yml
+
+  build:
+    needs: wxpython-wheel
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: x86_64
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    # The container, not the runner, sets the oldest system the packages run
+    # on: Enterprise Linux 9 (glibc 2.34). Keep it in step with
+    # linux-wxpython-wheel.yml.
+    container: almalinux:9
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+
+    steps:
+      - name: Install git
+        run: dnf install -y -q git
+
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Read wheel settings
+        run: |
+          grep -E '^[A-Z_]+=' packaging/linux/wxpython-wheel.env >> "$GITHUB_ENV"
+          . packaging/linux/wxpython-wheel.env
+          echo "WHEEL_TAG=wxpython-${WXPYTHON_VERSION}-linux-r${WHEEL_REVISION}" >> "$GITHUB_ENV"
+
+      - name: Install build dependencies
+        run: |
+          packaging/linux/install_build_deps.sh
+          packaging/linux/install_github_cli.sh
+          packaging/linux/install_packaging_tools.sh /usr/local/bin
+
+      - name: Set up Python
+        run: packaging/linux/install_python.sh "$PYTHON_VERSION" "$RUNNER_TEMP/venv" >> "$GITHUB_PATH"
+
+      - name: Install Python dependencies
+        run: |
+          pytag="cp${PYTHON_VERSION/./}"
+          gh release download "$WHEEL_TAG" -D wheelhouse \
+            -p "wxpython-${WXPYTHON_VERSION}-${pytag}-${pytag}-linux_$(uname -m).whl"
+          python -m pip install --upgrade pip
+          python -m pip install wheelhouse/*.whl
+          python -m pip install -e .
+          python -m pip install pyinstaller
+
+      - name: Build packages
+        run: python packaging/linux/build_linux_packages.py
+
+      - name: Smoke test the bundle
+        run: packaging/linux/smoke_test.sh build/dist/linux/mmass/mmass
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: mMass-linux-${{ matrix.arch }}
+          path: build/installer/linux/*
+          if-no-files-found: error
+
+  # Install the packages on clean systems: checks the declared dependencies
+  # pull in everything the bundle takes from the host, and that the AppImage
+  # runs on the host's GTK.
+  test:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, aarch64]
+        image:
+          - ubuntu:22.04
+          - ubuntu:24.04
+          - debian:12
+          - debian:13
+          - fedora:latest
+          - opensuse/tumbleweed
+          - almalinux:9
+          - almalinux:10
+    runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    container: ${{ matrix.image }}
+
+    steps:
+      # only for actions/checkout; install_test.sh installs everything else
+      - name: Install git
+        run: |
+          case "${{ matrix.image }}" in
+            ubuntu*|debian*) apt-get update && apt-get install -y git ;;
+            fedora*|almalinux*) dnf install -y git-core ;;
+            opensuse*) zypper --non-interactive install git-core ;;
+          esac
+
+      - name: Check out test scripts
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: packaging/linux
+          sparse-checkout-cone-mode: false
+
+      - name: Download packages
+        uses: actions/download-artifact@v8
+        with:
+          name: mMass-linux-${{ matrix.arch }}
+          path: packages
+
+      - name: Test AppImage and package
+        run: sh packaging/linux/install_test.sh packages
+
+  publish:
+    if: github.event_name == 'release'
+    needs: test
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+
+    steps:
+      - name: Download packages
+        uses: actions/download-artifact@v8
+        with:
+          pattern: mMass-linux-*
+          path: packages
+          merge-multiple: true
+
+      - name: Attach packages to release
+        run: gh release upload "${{ github.event.release.tag_name }}" packages/* --clobber

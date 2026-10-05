@@ -1,0 +1,86 @@
+name: Build wxPython Wheels for Linux
+
+# PyPI has no Linux wheels of wxPython, so the Linux packages are built with a
+# wheel built here from the sdist. That takes tens of minutes per
+# architecture, so each wheel is built once and kept as an asset of a
+# prerelease tagged wxpython-<version>-linux-r<revision> (see
+# packaging/linux/wxpython-wheel.env); later runs find it there and skip the
+# build. Delete an asset (or bump WHEEL_REVISION) to force a rebuild.
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: write
+
+jobs:
+  build-wheel:
+    strategy:
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    # The container, not the runner, sets the oldest system the packages run
+    # on: Enterprise Linux 9 (glibc 2.34). Keep it in step with linux-packages.yml.
+    container: almalinux:9
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+
+    steps:
+      - name: Install git
+        run: dnf install -y -q git
+
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Read wheel settings
+        run: |
+          grep -E '^[A-Z_]+=' packaging/linux/wxpython-wheel.env >> "$GITHUB_ENV"
+          . packaging/linux/wxpython-wheel.env
+          pytag="cp${PYTHON_VERSION/./}"
+          echo "WHEEL_TAG=wxpython-${WXPYTHON_VERSION}-linux-r${WHEEL_REVISION}" >> "$GITHUB_ENV"
+          echo "WHEEL_NAME=wxpython-${WXPYTHON_VERSION}-${pytag}-${pytag}-linux_$(uname -m).whl" >> "$GITHUB_ENV"
+
+      - name: Install GitHub CLI
+        run: packaging/linux/install_github_cli.sh
+
+      - name: Look for an existing wheel
+        id: existing
+        run: |
+          if gh release view "$WHEEL_TAG" --json assets -q '.assets[].name' 2>/dev/null \
+              | grep -qxF "$WHEEL_NAME"; then
+            echo "$WHEEL_NAME is already in release $WHEEL_TAG; nothing to build."
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install build dependencies
+        if: steps.existing.outputs.found != 'true'
+        run: packaging/linux/install_build_deps.sh
+
+      - name: Set up Python
+        if: steps.existing.outputs.found != 'true'
+        run: packaging/linux/install_python.sh "$PYTHON_VERSION" "$RUNNER_TEMP/venv" >> "$GITHUB_PATH"
+
+      - name: Build wheel
+        if: steps.existing.outputs.found != 'true'
+        run: PYTHON=python packaging/linux/build_wxpython_wheel.sh "$WXPYTHON_VERSION" wheelhouse
+
+      - name: Check wheel name
+        if: steps.existing.outputs.found != 'true'
+        run: test -f "wheelhouse/$WHEEL_NAME"
+
+      - name: Upload wheel to release
+        if: steps.existing.outputs.found != 'true'
+        run: |
+          # both architectures race to create the release; the loser carries on
+          gh release view "$WHEEL_TAG" > /dev/null 2>&1 \
+            || gh release create "$WHEEL_TAG" --prerelease --latest=false \
+                 --target "$GITHUB_SHA" \
+                 --title "wxPython ${WXPYTHON_VERSION} wheels for the Linux packages" \
+                 --notes "Build input of the Linux packages, not an mMass release: wxPython ${WXPYTHON_VERSION} built on AlmaLinux 9 by .github/workflows/linux-wxpython-wheel.yml." \
+            || gh release view "$WHEEL_TAG" > /dev/null
+          gh release upload "$WHEEL_TAG" "wheelhouse/$WHEEL_NAME" --clobber

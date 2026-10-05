@@ -12,6 +12,8 @@ Thank you also to Dreaming Spires for the initial Python 3 port.
 
 mMass is now a fully pure-Python package (native C extensions were removed and replaced with Numba/SciPy), making it trivial to install via modern package managers like `uv` or `pip`.
 
+Ready-made packages are attached to each [release](https://github.com/lukaszsobala/mMass/releases): a Windows installer, a macOS disk image, and Linux `.deb`, `.rpm` and `.AppImage` packages (see [Linux packages](#linux-packages)).
+
 ### Linux, Windows and macOS
 We recommend using [uv](https://github.com/astral-sh/uv) or pip to install the package directly into a virtual environment.
 
@@ -243,6 +245,53 @@ notarized**, so end users hit a one-time Gatekeeper prompt and a slow first laun
 (see the macOS notes under *Running the application*). Signing and notarization
 with an Apple Developer ID — which removes both — is documented in
 [`packaging/macos/SIGNING.md`](packaging/macos/SIGNING.md).
+
+### Linux packages
+
+Releases carry `.deb`, `.rpm` and `.AppImage` packages for `x86_64`/`amd64`
+and `aarch64`/`arm64`. They hold a PyInstaller bundle (installed to
+`/opt/mmass`, with `mmass` on the `PATH`) that uses the system's GTK 3 and
+glibc. They are built on AlmaLinux 9, so they run on systems at least as new:
+glibc 2.34 or newer, i.e. RHEL/AlmaLinux/Rocky 9, Ubuntu 22.04, Debian 12,
+Fedora 35, openSUSE Leap 16 or later. The `.deb`/`.rpm` declare the system
+libraries they need; the AppImage assumes GTK 3 is installed, as it is on any
+desktop. Each build is installed and run on AlmaLinux 9 and 10, Ubuntu 22.04
+and 24.04, Debian 12 and 13, the latest Fedora and openSUSE Tumbleweed, on both
+architectures (on AlmaLinux 10 without starting the GUI, as it has no Xvfb).
+
+They are built by `.github/workflows/linux-packages.yml` in an `almalinux:9`
+container, with a [python-build-standalone](https://github.com/astral-sh/python-build-standalone)
+Python. PyPI has no Linux wheels of wxPython, so
+`.github/workflows/linux-wxpython-wheel.yml` builds one from the sdist (without
+the wxWidgets features mMass does not use, and with built-in image libraries)
+once per wxPython version, Python version and architecture, and keeps it as an
+asset of a `wxpython-<version>-linux-r<revision>` prerelease for later builds;
+the versions are set in `packaging/linux/wxpython-wheel.env`.
+
+Local build, in an `almalinux:9` container (`docker run -it -v "$PWD:/src" -w /src almalinux:9`):
+
+```sh
+packaging/linux/install_build_deps.sh
+packaging/linux/install_packaging_tools.sh /usr/local/bin   # nfpm, appimagetool
+export PATH="$(packaging/linux/install_python.sh 3.14 /opt/venv):$PATH"
+packaging/linux/build_wxpython_wheel.sh 4.3.1 wheelhouse    # slow; or reuse a wheel
+python -m pip install wheelhouse/wxpython-*.whl -e . pyinstaller
+python packaging/linux/build_linux_packages.py
+packaging/linux/smoke_test.sh build/dist/linux/mmass/mmass
+```
+
+Then, to install and run the packages on a clean system:
+
+```sh
+docker run --rm -v "$PWD:/src:ro" ubuntu:24.04 \
+    sh /src/packaging/linux/install_test.sh /src/build/installer/linux
+```
+
+The bundle is written to `build/dist/linux/` and the packages to
+`build/installer/linux/`. Which libraries the bundle takes from the host, and
+the package dependencies that follow from them, are listed in
+`packaging/linux/linux_libs.py`; the build fails if the bundle needs a library
+that is neither bundled nor listed there, or a glibc newer than 2.34.
 
 ## Contributing
 
