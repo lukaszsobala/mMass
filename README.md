@@ -257,7 +257,8 @@ Fedora 35, openSUSE Leap 16 or later. The `.deb`/`.rpm` declare the system
 libraries they need; the AppImage assumes GTK 3 is installed, as it is on any
 desktop. Each build is installed and run on AlmaLinux 9 and 10, Ubuntu 22.04
 and 24.04, Debian 12 and 13, the latest Fedora and openSUSE Tumbleweed, on both
-architectures (on AlmaLinux 10 without starting the GUI, as it has no Xvfb).
+architectures (on AlmaLinux 10 without starting the GUI, as it has no Xvfb;
+openSUSE on x86_64 only, as its aarch64 mirrors proved unreliable).
 
 They are built by `.github/workflows/linux-packages.yml` in an `almalinux:9`
 container, with a [python-build-standalone](https://github.com/astral-sh/python-build-standalone)

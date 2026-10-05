@@ -110,6 +110,13 @@ jobs:
           - opensuse/tumbleweed
           - almalinux:9
           - almalinux:10
+        exclude:
+          # aarch64 Tumbleweed is an openSUSE "ports" architecture whose
+          # mirrors served noarch packages failing the repository's checksums
+          # (busybox-less, hicolor-icon-theme) run after run; the rpm's
+          # dependencies are tested on x86_64 Tumbleweed and aarch64 Fedora/Alma
+          - arch: aarch64
+            image: opensuse/tumbleweed
     runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     container: ${{ matrix.image }}
 
