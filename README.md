@@ -26,10 +26,12 @@ systems and others (it has been tested on Linux `riscv64` as well).
 
 ### Linux
 
-The packages run on any distribution at least as new as RHEL/AlmaLinux/Rocky 9,
-Ubuntu 22.04, Debian 12, Fedora 35 or openSUSE Leap 16, on `x86_64` and `aarch64`.
-They need GTK 3, which every desktop has; the `.deb` and `.rpm` install whatever
-else is missing.
+The packages run on RHEL/AlmaLinux/Rocky 9 or newer, Ubuntu 22.04 or newer,
+Debian 12 or newer, and current Fedora and openSUSE (Tumbleweed, Leap 16), on
+`x86_64` and `aarch64`. On `x86_64` the processor must support x86-64-v2, as
+NumPy requires: any Intel or AMD processor from about 2011 on does. They need
+GTK 3, which every desktop has; the `.deb` and `.rpm` install whatever else is
+missing.
 
 ```sh
 sudo apt install ./mMass-<version>-linux-amd64.deb                          # Ubuntu, Debian
@@ -37,7 +39,8 @@ sudo dnf install ./mMass-<version>-linux-x86_64.rpm                         # Fe
 sudo zypper install --allow-unsigned-rpm ./mMass-<version>-linux-x86_64.rpm # openSUSE
 ```
 
-mMass then appears in the applications menu, opens its file types (`.msd`,
+(apt may note that the "download is performed unsandboxed as root"; that is
+harmless.) mMass then appears in the applications menu, opens its file types (`.msd`,
 `.mses`, mzML, mzXML, mzData, MGF) from the file manager, and runs from a
 terminal as `mmass`. To remove it, use `sudo apt remove mmass`,
 `sudo dnf remove mmass` or `sudo zypper remove mmass`; your settings in
@@ -309,10 +312,7 @@ python packaging/macos/build_macos_dmg.py
 ```
 
 The `.app` is written to `build/dist/macos/` and the `.dmg` to
-`build/installer/macos/`. The build is **ad-hoc signed and not notarized**.
-Signing and notarization with an Apple Developer ID, which removes the
-Gatekeeper prompt and the slow first launch, is documented in
-[`packaging/macos/SIGNING.md`](packaging/macos/SIGNING.md).
+`build/installer/macos/`.
 
 </details>
 
