@@ -21,14 +21,19 @@ jobs:
   build-wheel:
     strategy:
       matrix:
-        # Ubuntu 22.04 (glibc 2.35) is the oldest system the packages run on
-        runner: [ubuntu-22.04, ubuntu-22.04-arm]
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
     runs-on: ${{ matrix.runner }}
+    # The container, not the runner, sets the oldest system the packages run
+    # on: Enterprise Linux 9 (glibc 2.34). Keep it in step with linux-packages.yml.
+    container: almalinux:9
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
 
     steps:
+      - name: Install git
+        run: dnf install -y -q git
+
       - name: Check out source
         uses: actions/checkout@v6
 
@@ -40,6 +45,9 @@ jobs:
           echo "WHEEL_TAG=wxpython-${WXPYTHON_VERSION}-linux-r${WHEEL_REVISION}" >> "$GITHUB_ENV"
           echo "WHEEL_NAME=wxpython-${WXPYTHON_VERSION}-${pytag}-${pytag}-linux_$(uname -m).whl" >> "$GITHUB_ENV"
 
+      - name: Install GitHub CLI
+        run: packaging/linux/install_github_cli.sh
+
       - name: Look for an existing wheel
         id: existing
         run: |
@@ -49,15 +57,13 @@ jobs:
             echo "found=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Set up Python
-        if: steps.existing.outputs.found != 'true'
-        uses: actions/setup-python@v6
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
       - name: Install build dependencies
         if: steps.existing.outputs.found != 'true'
         run: packaging/linux/install_build_deps.sh
+
+      - name: Set up Python
+        if: steps.existing.outputs.found != 'true'
+        run: packaging/linux/install_python.sh "$PYTHON_VERSION" "$RUNNER_TEMP/venv" >> "$GITHUB_PATH"
 
       - name: Build wheel
         if: steps.existing.outputs.found != 'true'
@@ -75,6 +81,6 @@ jobs:
             || gh release create "$WHEEL_TAG" --prerelease --latest=false \
                  --target "$GITHUB_SHA" \
                  --title "wxPython ${WXPYTHON_VERSION} wheels for the Linux packages" \
-                 --notes "Build input of the Linux packages, not an mMass release: wxPython ${WXPYTHON_VERSION} built on Ubuntu 22.04 by .github/workflows/linux-wxpython-wheel.yml." \
+                 --notes "Build input of the Linux packages, not an mMass release: wxPython ${WXPYTHON_VERSION} built on AlmaLinux 9 by .github/workflows/linux-wxpython-wheel.yml." \
             || gh release view "$WHEEL_TAG" > /dev/null
           gh release upload "$WHEEL_TAG" "wheelhouse/$WHEEL_NAME" --clobber

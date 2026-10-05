@@ -28,7 +28,12 @@ case "$family" in
         apt-get install -y -q xvfb gawk libgtk-3-0t64 \
             || apt-get install -y -q xvfb gawk libgtk-3-0 ;;
     dnf)
-        dnf install -y -q xorg-x11-server-Xvfb gawk gtk3 ;;
+        dnf install -y -q gawk gtk3
+        # Enterprise Linux 10 has no Xvfb any more
+        if ! dnf install -y -q xorg-x11-server-Xvfb; then
+            echo "No Xvfb on ${PRETTY_NAME:-$ID}: the GUI start is not tested"
+            export MMASS_SMOKE_NO_GUI=1
+        fi ;;
     zypper)
         zypper --non-interactive --quiet install xorg-x11-server-Xvfb gawk libgtk-3-0 ;;
 esac

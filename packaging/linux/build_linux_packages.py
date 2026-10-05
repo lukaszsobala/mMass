@@ -74,6 +74,12 @@ def parse_args() -> argparse.Namespace:
         default="Łukasz Sobala <lukasz.sobala@hirszfeld.pl>",
         help="Maintainer field of the .deb/.rpm.",
     )
+    parser.add_argument(
+        "--max-glibc",
+        default="2.34",
+        help="Fail if the bundle needs a newer glibc (default: 2.34, the "
+        "glibc of Enterprise Linux 9, the oldest supported system).",
+    )
     parser.add_argument("--nfpm", default="nfpm", help="nfpm executable.")
     parser.add_argument(
         "--appimagetool", default="appimagetool", help="appimagetool executable."
@@ -250,6 +256,12 @@ def main() -> int:
     host, glibc = linux_libs.inspect_bundle(bundle)
     print("Bundle checked; host libraries:", " ".join(host))
     print("Newest glibc symbol version:", ".".join(map(str, glibc)))
+    max_glibc = tuple(int(part) for part in args.max_glibc.split("."))
+    if glibc > max_glibc:
+        print(f"The bundle needs glibc {'.'.join(map(str, glibc))}, newer than "
+              f"{args.max_glibc}: it was built on too new a system, or with a "
+              "Python or library built on one.")
+        return 2
 
     version = args.version or read_project_version(project_root)
     output_dir = Path(args.output_dir).resolve() if args.output_dir else (

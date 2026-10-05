@@ -10,8 +10,8 @@ break them with "version `X' not found".
 
 So the libraries below are taken from the host -- glibc, the GTK 3 stack and
 the base libraries that stack itself loads -- and everything else the bundle
-needs is bundled. The build host is Ubuntu 22.04 (glibc 2.35), which every
-target distribution matches or exceeds.
+needs is bundled. The build host is AlmaLinux 9 (glibc 2.34, GTK 3.24.31),
+which every target distribution matches or exceeds.
 
 ``HOST_LIBS`` maps each host soname to the Debian/Ubuntu package that provides
 it. Packages renamed in the 64-bit time_t transition (Ubuntu 24.04, Debian 13)
@@ -53,12 +53,13 @@ HOST_LIBS = {
     "libuuid.so.1": "libuuid1",
     "libssl.so.3": "libssl3t64 | libssl3",
     "libcrypto.so.3": "libssl3t64 | libssl3",
-    # GLib and GTK 3
+    # GLib and GTK 3. libgthread-2.0 (an empty compatibility stub, which wx
+    # links when built on Enterprise Linux) is bundled instead: openSUSE ships
+    # it apart from GLib, so a GTK 3 install does not bring it
     "libglib-2.0.so.0": "libglib2.0-0t64 | libglib2.0-0",
     "libgobject-2.0.so.0": "libglib2.0-0t64 | libglib2.0-0",
     "libgio-2.0.so.0": "libglib2.0-0t64 | libglib2.0-0",
     "libgmodule-2.0.so.0": "libglib2.0-0t64 | libglib2.0-0",
-    "libgthread-2.0.so.0": "libglib2.0-0t64 | libglib2.0-0",
     "libgtk-3.so.0": "libgtk-3-0t64 | libgtk-3-0",
     "libgdk-3.so.0": "libgtk-3-0t64 | libgtk-3-0",
     "libgdk_pixbuf-2.0.so.0": "libgdk-pixbuf-2.0-0 | libgdk-pixbuf2.0-0",

@@ -6,6 +6,10 @@
 # 2. GUI: start mMass under Xvfb, which loads wxPython against the host GTK;
 #    still running after the timeout, without a traceback, counts as success.
 #
+# The headless step already loads wxPython (and so every GTK and X11 library).
+# MMASS_SMOKE_NO_GUI=1 skips the GUI step, for systems that have no Xvfb
+# (Enterprise Linux 10).
+#
 # Usage: smoke_test.sh MMASS_COMMAND [ARG...]   (needs awk, timeout and Xvfb)
 
 set -eu
@@ -37,6 +41,12 @@ if [ "$peaks" != "$expected" ]; then
     echo "Unexpected peak list:"
     echo "$peaks"
     exit 1
+fi
+
+if [ "${MMASS_SMOKE_NO_GUI:-0}" = 1 ]; then
+    echo "== GUI start SKIPPED (MMASS_SMOKE_NO_GUI=1)"
+    echo "Smoke test passed (headless only)."
+    exit 0
 fi
 
 echo "== GUI start under Xvfb"

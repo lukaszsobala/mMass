@@ -24,16 +24,23 @@ jobs:
     strategy:
       matrix:
         include:
-          - runner: ubuntu-22.04
+          - runner: ubuntu-24.04
             arch: x86_64
-          - runner: ubuntu-22.04-arm
+          - runner: ubuntu-24.04-arm
             arch: aarch64
     runs-on: ${{ matrix.runner }}
+    # The container, not the runner, sets the oldest system the packages run
+    # on: Enterprise Linux 9 (glibc 2.34). Keep it in step with
+    # linux-wxpython-wheel.yml.
+    container: almalinux:9
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
 
     steps:
+      - name: Install git
+        run: dnf install -y -q git
+
       - name: Check out source
         uses: actions/checkout@v6
 
@@ -43,16 +50,14 @@ jobs:
           . packaging/linux/wxpython-wheel.env
           echo "WHEEL_TAG=wxpython-${WXPYTHON_VERSION}-linux-r${WHEEL_REVISION}" >> "$GITHUB_ENV"
 
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
       - name: Install build dependencies
         run: |
           packaging/linux/install_build_deps.sh
-          sudo apt-get install -y --no-install-recommends xvfb
-          packaging/linux/install_packaging_tools.sh "$HOME/.local/bin"
+          packaging/linux/install_github_cli.sh
+          packaging/linux/install_packaging_tools.sh /usr/local/bin
+
+      - name: Set up Python
+        run: packaging/linux/install_python.sh "$PYTHON_VERSION" "$RUNNER_TEMP/venv" >> "$GITHUB_PATH"
 
       - name: Install Python dependencies
         run: |
@@ -93,6 +98,8 @@ jobs:
           - debian:13
           - fedora:latest
           - opensuse/tumbleweed
+          - almalinux:9
+          - almalinux:10
     runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     container: ${{ matrix.image }}
 
@@ -102,7 +109,7 @@ jobs:
         run: |
           case "${{ matrix.image }}" in
             ubuntu*|debian*) apt-get update && apt-get install -y git ;;
-            fedora*) dnf install -y git-core ;;
+            fedora*|almalinux*) dnf install -y git-core ;;
             opensuse*) zypper --non-interactive install git-core ;;
           esac
 

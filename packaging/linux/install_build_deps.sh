@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Install the Ubuntu packages needed to build the wxPython wheel and the
-# Linux packages of mMass. Meant for the Ubuntu 22.04 build host (CI runner or
-# an ubuntu:22.04 container); run as root or with sudo available.
+# Install the packages needed to build the wxPython wheel and the Linux
+# packages of mMass. Meant for the almalinux:9 build container: its glibc
+# (2.34), GTK and libstdc++ set the oldest system the packages run on, and
+# Enterprise Linux 9 is the oldest target. Run as root or with sudo available.
 #
-# Deliberately absent: the -dev packages of webkit2gtk, gstreamer, SDL2,
+# Deliberately absent: the -devel packages of webkit2gtk, gstreamer, SDL2,
 # libnotify, libsecret, libcurl, libjpeg and libtiff. mMass uses only core wx,
 # wx.aui and wx.grid, so without them wxWidgets builds without the features
 # that would add host dependencies, and uses its built-in image libraries
@@ -16,16 +17,20 @@ if [ "$(id -u)" -ne 0 ]; then
     SUDO="sudo"
 fi
 
-export DEBIAN_FRONTEND=noninteractive
-$SUDO apt-get update
-$SUDO apt-get install -y --no-install-recommends \
-    build-essential \
-    ca-certificates \
-    curl \
+$SUDO dnf install -y -q \
+    binutils \
     file \
-    libgl1-mesa-dev \
-    libglu1-mesa-dev \
-    libgtk-3-dev \
-    libsm-dev \
-    libxtst-dev \
-    pkg-config
+    findutils \
+    gcc-c++ \
+    git \
+    gtk3-devel \
+    gzip \
+    jq \
+    libSM-devel \
+    libXtst-devel \
+    make \
+    mesa-libGL-devel \
+    mesa-libGLU-devel \
+    tar \
+    which \
+    xorg-x11-server-Xvfb
