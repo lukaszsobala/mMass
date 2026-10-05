@@ -4,7 +4,6 @@ import sys
 
 import pytest
 
-from gui import config
 from mmass_app import app
 
 
@@ -48,6 +47,9 @@ def test_library_path_untouched_when_not_frozen(monkeypatch):
 def test_unwritable_config_directory_reports_failure(tmp_path):
     # e.g. the read-only bundled configs/ of a packaged install: a failed
     # write must be reported, not raised (it used to crash the GUI at start)
+    config = pytest.importorskip(
+        "gui.config", reason="GUI dependencies (xdgenvpy) not available"
+    )
     missing = tmp_path / "missing" / "config.json"
 
     assert config.write_file_atomically(str(missing), b"{}") is False
