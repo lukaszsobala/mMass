@@ -71,7 +71,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--maintainer",
-        default="Łukasz Sobala",
+        default="Łukasz Sobala <lukasz.sobala@hirszfeld.pl>",
         help="Maintainer field of the .deb/.rpm.",
     )
     parser.add_argument("--nfpm", default="nfpm", help="nfpm executable.")
