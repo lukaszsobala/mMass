@@ -5,6 +5,8 @@
 #    runs the frozen NumPy, Numba (JIT compilation), parsers and writers;
 # 2. GUI: start mMass under Xvfb, which loads wxPython against the host GTK;
 #    still running after the timeout, without a traceback, counts as success.
+#    It starts with an empty home, as a new user, and must create its
+#    configuration in ~/.config/mmass.
 #
 # The headless step already loads wxPython (and so every GTK and X11 library).
 # MMASS_SMOKE_NO_GUI=1 skips the GUI step, for systems that have no Xvfb
@@ -53,11 +55,20 @@ echo "== GUI start under Xvfb"
 Xvfb :99 -screen 0 1280x1024x24 > /dev/null 2>&1 &
 xvfb=$!
 sleep 3
+# as a new user would start it: an empty home (no ~/.config yet) and no
+# MMASS_CONFIG_DIR, so the config must land in ~/.config/mmass, not in the
+# bundle (read-only once installed)
+mkdir "$work/home"
 status=0
-DISPLAY=:99 timeout 30 "$@" > "$work/gui.log" 2>&1 || status=$?
+env -u MMASS_CONFIG_DIR -u XDG_CONFIG_HOME HOME="$work/home" DISPLAY=:99 \
+    timeout 30 "$@" > "$work/gui.log" 2>&1 || status=$?
 if [ "$status" -ne 124 ] || grep -q Traceback "$work/gui.log"; then
     echo "The GUI did not keep running (exit status $status):"
     cat "$work/gui.log"
+    exit 1
+fi
+if [ -z "$(ls -A "$work/home/.config/mmass" 2>/dev/null)" ]; then
+    echo "The GUI wrote no configuration to ~/.config/mmass"
     exit 1
 fi
 

@@ -94,9 +94,14 @@ def write_file_atomically(path, data):
     path = os.path.realpath(path)
 
     directory = os.path.dirname(os.path.abspath(path))
-    handle, tmppath = tempfile.mkstemp(
-        dir=directory, prefix=".%s." % os.path.basename(path), suffix=".tmp"
-    )
+    try:
+        handle, tmppath = tempfile.mkstemp(
+            dir=directory, prefix=".%s." % os.path.basename(path), suffix=".tmp"
+        )
+    except OSError:
+        # a read-only config directory (e.g. the bundled defaults of a
+        # packaged install): report the failure like any other write error
+        return False
     try:
         with os.fdopen(handle, "wb") as f:
             f.write(data)
@@ -186,8 +191,10 @@ elif sys.platform.startswith("linux") or sys.platform.startswith("freebsd"):
     home = os.path.expanduser("~")
     userconf = XDGPackage("mmass").XDG_CONFIG_HOME
     if os.path.exists(home) and not os.path.exists(userconf):
+        # makedirs: a new account may have no ~/.config yet, and the bundled
+        # configs/ fallback is read-only in a packaged install
         try:
-            os.mkdir(userconf)
+            os.makedirs(userconf, exist_ok=True)
         except Exception:
             pass
     if os.path.exists(userconf):

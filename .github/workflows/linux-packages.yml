@@ -7,10 +7,14 @@ on:
   workflow_dispatch:
   release:
     types: [published]
+  # the packages carry src/ frozen with the dependencies in pyproject.toml, so
+  # changes there can break them as much as changes to the packaging can
   pull_request:
     paths:
       - "packaging/linux/**"
       - ".github/workflows/linux-*.yml"
+      - "src/**"
+      - "pyproject.toml"
 
 permissions:
   contents: write
