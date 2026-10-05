@@ -82,6 +82,16 @@ jobs:
           path: build/installer/linux/*
           if-no-files-found: error
 
+      # for the test job, which then needs neither git nor a checkout (on
+      # openSUSE git-core pulls in busybox packages, and installing those
+      # failed when the aarch64 mirrors were out of sync)
+      - name: Upload test scripts
+        uses: actions/upload-artifact@v7
+        with:
+          name: mMass-test-scripts-${{ matrix.arch }}
+          path: packaging/linux/*_test.sh
+          if-no-files-found: error
+
   # Install the packages on clean systems: checks the declared dependencies
   # pull in everything the bundle takes from the host, and that the AppImage
   # runs on the host's GTK.
@@ -103,21 +113,13 @@ jobs:
     runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     container: ${{ matrix.image }}
 
+    # nothing is installed before install_test.sh, which installs what it needs
     steps:
-      # only for actions/checkout; install_test.sh installs everything else
-      - name: Install git
-        run: |
-          case "${{ matrix.image }}" in
-            ubuntu*|debian*) apt-get update && apt-get install -y git ;;
-            fedora*|almalinux*) dnf install -y git-core ;;
-            opensuse*) zypper --non-interactive install git-core ;;
-          esac
-
-      - name: Check out test scripts
-        uses: actions/checkout@v6
+      - name: Download test scripts
+        uses: actions/download-artifact@v8
         with:
-          sparse-checkout: packaging/linux
-          sparse-checkout-cone-mode: false
+          name: mMass-test-scripts-${{ matrix.arch }}
+          path: tests
 
       - name: Download packages
         uses: actions/download-artifact@v8
@@ -126,7 +128,7 @@ jobs:
           path: packages
 
       - name: Test AppImage and package
-        run: sh packaging/linux/install_test.sh packages
+        run: sh tests/install_test.sh packages
 
   publish:
     if: github.event_name == 'release'

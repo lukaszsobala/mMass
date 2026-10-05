@@ -35,8 +35,8 @@ case "$family" in
             export MMASS_SMOKE_NO_GUI=1
         fi ;;
     zypper)
-        # --force-resolution: git-core pulls in busybox-gawk, which conflicts
-        # with gawk and makes a non-interactive zypper give up
+        # --force-resolution: busybox-gawk (which git-core, for one, pulls in)
+        # conflicts with gawk and makes a non-interactive zypper give up
         zypper --non-interactive --quiet install --force-resolution \
             xorg-x11-server-Xvfb gawk libgtk-3-0 ;;
 esac
