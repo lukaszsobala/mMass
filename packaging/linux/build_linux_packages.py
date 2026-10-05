@@ -20,6 +20,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from packaging.version import Version
+
 import linux_libs
 
 # platform.machine() -> (Debian architecture, RPM/AppImage architecture);
@@ -263,7 +265,20 @@ def main() -> int:
               "Python or library built on one.")
         return 2
 
-    version = args.version or read_project_version(project_root)
+    # the bundle takes its version from the installed metadata, which a stale
+    # src/mMass.egg-info in a local checkout can shadow
+    project_version = read_project_version(project_root)
+    reported = subprocess.run(
+        [str(bundle / "mmass"), "--version"],
+        check=True, capture_output=True, text=True,
+    ).stdout.split()[-1]
+    if Version(reported) != Version(project_version):
+        print(f"The bundle reports version {reported}, but pyproject.toml has "
+              f"{project_version}: rebuild it after removing stale metadata "
+              "(src/mMass.egg-info) and reinstalling mMass.")
+        return 2
+
+    version = args.version or project_version
     output_dir = Path(args.output_dir).resolve() if args.output_dir else (
         project_root / "build" / "installer" / "linux")
     output_dir.mkdir(parents=True, exist_ok=True)

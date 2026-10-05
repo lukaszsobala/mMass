@@ -20,6 +20,9 @@ def restore_library_path(environ=os.environ):
     then load the bundle's libgomp, libpython, wx, ... instead of their own.
     The dynamic loader reads the variable only at startup, so restoring it
     does not change how mMass itself finds the bundled libraries.
+
+    PYINSTALLER_RESET_ENVIRONMENT tells a started program that is itself
+    frozen with PyInstaller to ignore the _PYI_* variables it inherits.
     """
 
     if not (getattr(sys, "frozen", False) and sys.platform.startswith("linux")):
@@ -29,6 +32,7 @@ def restore_library_path(environ=os.environ):
         environ.pop("LD_LIBRARY_PATH", None)
     else:
         environ["LD_LIBRARY_PATH"] = original
+    environ["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
 
 
 def main(argv=None):

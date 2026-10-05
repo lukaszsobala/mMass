@@ -19,7 +19,7 @@ def test_bundle_library_path_is_dropped(frozen_linux):
 
     app.restore_library_path(environ)
 
-    assert "LD_LIBRARY_PATH" not in environ
+    assert environ == {"PYINSTALLER_RESET_ENVIRONMENT": "1"}
 
 
 def test_user_library_path_is_restored(frozen_linux):
@@ -30,7 +30,10 @@ def test_user_library_path_is_restored(frozen_linux):
 
     app.restore_library_path(environ)
 
-    assert environ == {"LD_LIBRARY_PATH": "/home/u/lib"}
+    assert environ == {
+        "LD_LIBRARY_PATH": "/home/u/lib",
+        "PYINSTALLER_RESET_ENVIRONMENT": "1",
+    }
 
 
 def test_library_path_untouched_when_not_frozen(monkeypatch):
