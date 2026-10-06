@@ -88,3 +88,22 @@ def test_x11_dpi_is_the_last_resort(x11_session):
     answers["xrdb"] = "Xft.antialias:\t1\nXft.dpi:\t192\n"
 
     assert display_scale.get_ui_scale() == 2.0
+
+
+def test_kde_without_kscreen_answer_means_no_scaling(x11_session, monkeypatch):
+    # Plasma 5.27 on AlmaLinux 9: when kscreen-doctor did not answer in time,
+    # the GNOME probe's gsettings fallback gave a 4x UI here too
+    monkeypatch.setenv("XDG_CURRENT_DESKTOP", "KDE")
+
+    assert display_scale.get_ui_scale() == 1.0
+
+
+def test_kde_x11_integer_scale_is_left_to_gtk(x11_session, monkeypatch):
+    # Plasma on X11 at 200% exports GDK_SCALE=2 and sets Xft.dpi to 192
+    answers, _xsettings = x11_session
+    monkeypatch.setenv("XDG_CURRENT_DESKTOP", "KDE")
+    monkeypatch.setenv("GDK_SCALE", "2")
+    answers["kscreen-doctor"] = "Output: 1 default enabled connected Scale: 1\n"
+    answers["xrdb"] = "Xft.dpi:\t192\n"
+
+    assert display_scale.get_ui_scale() == 1.0
