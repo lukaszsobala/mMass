@@ -4,13 +4,13 @@
     <comment>mMass spectrum document</comment>
     <sub-class-of type="application/xml"/>
     <glob pattern="*.msd"/>
-    <root-XML localName="mSD"/>
+    <root-XML namespaceURI="" localName="mSD"/>
   </mime-type>
   <mime-type type="application/x-mmass-session">
     <comment>mMass session</comment>
     <sub-class-of type="application/xml"/>
     <glob pattern="*.mses"/>
-    <root-XML localName="mMassSession"/>
+    <root-XML namespaceURI="" localName="mMassSession"/>
   </mime-type>
   <mime-type type="application/x-mzml">
     <comment>mzML mass spectrometry data</comment>
