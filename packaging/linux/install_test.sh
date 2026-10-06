@@ -59,6 +59,20 @@ case "$family" in
 esac
 sh "$HERE/smoke_test.sh" mmass
 
+# The package manager's MIME trigger only prints the errors in our file, and
+# update-mime-database exits 0 regardless: compile it alone and read the output
+if command -v update-mime-database >/dev/null; then
+    mimedir=$(mktemp -d)
+    mkdir "$mimedir/packages"
+    cp /usr/share/mime/packages/mmass.xml "$mimedir/packages/"
+    errors=$(update-mime-database "$mimedir" 2>&1 | grep -i error || true)
+    rm -r "$mimedir"
+    if [ -n "$errors" ]; then
+        echo "$errors" >&2
+        exit 1
+    fi
+fi
+
 echo "== removal"
 case "$family" in
     deb) apt-get remove -y -q mmass ;;
