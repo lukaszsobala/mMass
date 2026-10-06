@@ -10,52 +10,151 @@ Thank you also to Dreaming Spires for the initial Python 3 port.
 
 ## Installation
 
-mMass is now a fully pure-Python package (native C extensions were removed and replaced with Numba/SciPy), making it trivial to install via modern package managers like `uv` or `pip`.
+The easiest way is a ready-made package from the
+[releases page](https://github.com/lukaszsobala/mMass/releases):
 
-### Linux, Windows and macOS
-We recommend using [uv](https://github.com/astral-sh/uv) or pip to install the package directly into a virtual environment.
+| System | File | |
+| --- | --- | --- |
+| Windows (x64) | `mMass-<version>-windows-x64-setup.exe` | run the installer |
+| macOS (Apple Silicon) | `mMass-<version>-macos-arm64.dmg` | see [macOS](#macos) |
+| Ubuntu, Debian, Mint, ... | `mMass-<version>-linux-amd64.deb` / `-arm64.deb` | see [Linux](#linux) |
+| Fedora, RHEL, AlmaLinux, Rocky, openSUSE, ... | `mMass-<version>-linux-x86_64.rpm` / `-aarch64.rpm` | see [Linux](#linux) |
+| Any other Linux | `mMass-<version>-linux-x86_64.AppImage` / `-aarch64.AppImage` | see [Linux](#linux) |
 
-On Linux, this involves compiling `wxPython`, which will take at least 5 minutes on a fast computer, and up to 1 hour on slower CPUs. On Windows and macOS the compilation is not necessary — `wxPython` installs from a prebuilt wheel almost instantly.
+mMass can also be [run from source](#running-from-source) with Python, on these
+systems and others (it has been tested on Linux `riscv64` as well).
 
-Depending on your environment, you may need system-level GUI dependencies installed for `wxPython` to build or run seamlessly. For example, on Ubuntu 26.04 or Debian 13 (Trixie):
+### Linux
+
+The packages run on RHEL/AlmaLinux/Rocky 9 or newer, Ubuntu 22.04 or newer,
+Debian 12 or newer, and current Fedora and openSUSE (Tumbleweed, Leap 16), on
+`x86_64` and `aarch64`. On `x86_64` the processor must support x86-64-v2, as
+NumPy requires: any Intel or AMD processor from about 2011 on does. They need
+GTK 3, which every desktop has; the `.deb` and `.rpm` install whatever else is
+missing.
+
+```sh
+sudo apt install ./mMass-<version>-linux-amd64.deb                          # Ubuntu, Debian
+sudo dnf install ./mMass-<version>-linux-x86_64.rpm                         # Fedora, RHEL, Alma, Rocky
+sudo zypper install --allow-unsigned-rpm ./mMass-<version>-linux-x86_64.rpm # openSUSE
+```
+
+(apt may note that the "download is performed unsandboxed as root"; that is
+harmless.) mMass then appears in the applications menu, opens its file types (`.msd`,
+`.mses`, mzML, mzXML, mzData, MGF) from the file manager, and runs from a
+terminal as `mmass`. To remove it, use `sudo apt remove mmass`,
+`sudo dnf remove mmass` or `sudo zypper remove mmass`; your settings in
+`~/.config/mmass` are kept.
+
+The AppImage needs no installation:
+
+```sh
+chmod +x mMass-<version>-linux-x86_64.AppImage
+./mMass-<version>-linux-x86_64.AppImage
+```
+
+It uses FUSE, which desktop systems have; where it is missing (e.g. in a
+container), add `--appimage-extract-and-run`. Tools such as
+[Gear Lever](https://flathub.org/apps/it.mijorus.gearlever) can add it to the
+applications menu.
+
+<details>
+<summary>Which systems the Linux packages are tested on</summary>
+
+Every build is installed and started on AlmaLinux 9 and 10, Ubuntu 22.04 and
+24.04, Debian 12 and 13, the latest Fedora and openSUSE Tumbleweed, on both
+architectures. Exceptions: on AlmaLinux 10 the window is not opened (it has no
+virtual display server for the test), and openSUSE is tested on `x86_64` only
+(its `aarch64` mirrors proved unreliable).
+
+</details>
+
+### macOS
+
+Copy `mMass.app` from the disk image into **Applications** and start it from
+there. The app is not yet signed by Apple, so:
+
+- **macOS may refuse to open it** the first time ("cannot be opened because Apple
+  cannot check it", or "is damaged"). Right-click the app → **Open** → **Open**,
+  or allow it in **System Settings → Privacy & Security → Open Anyway**.
+- **The first launch is slow**: the Dock icon may bounce for a minute or more
+  before the window appears. Later launches are fast.
+
+<details>
+<summary>Why, and other ways to deal with it</summary>
+
+Because the build is unsigned, macOS Gatekeeper scans the whole bundle on the
+first run, on top of the cold load of the scientific stack (Numba/LLVM) and the
+first-run Numba cache warmup. The quarantine flag can also be cleared from a
+terminal:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/mMass.app
+```
+
+Don't run the app from the mounted `.dmg`: from the read-only image, macOS
+moves it to a random location first (*app translocation*), which can stop the
+window from appearing.
+
+On macOS, running mMass [from source](#running-from-source) avoids all of this:
+it starts quickly and always reflects the current code.
+
+</details>
+
+### Windows
+
+Run the installer. Settings are stored in `%APPDATA%\mMass` (settings an older version kept
+in its install folder are copied there on first start). Uninstalling keeps them, unless
+you tick the option to remove them.
+
+### Running from source
+
+mMass is a pure-Python package (Numba instead of native C extensions), installed
+with [uv](https://github.com/astral-sh/uv) or pip into a virtual environment:
+
+```bash
+git clone https://github.com/lukaszsobala/mMass.git
+cd mMass
+
+uv venv && source .venv/bin/activate && uv pip install -e .
+# or: python -m venv .venv && source .venv/bin/activate && pip install -e .
+
+mmass
+```
+
+On Windows and macOS wxPython installs from a prebuilt wheel. On Linux it is
+compiled, which takes from 5 minutes on a fast computer to an hour on a slow
+one, and needs development packages, e.g. on Ubuntu 26.04 or Debian 13:
+
 ```bash
 sudo apt install python3-dev libgtk-3-dev freeglut3-dev libwebkitgtk-6.0-dev libjpeg-dev libpng-dev libtiff-dev libsdl2-dev libnotify-dev libsm-dev
 ```
 
-```bash
-# Clone the repository
-git clone https://github.com/lukaszsobala/mMass.git
-cd mMass
+`python src/mmass_app/app.py` also starts mMass from a checkout.
 
-# Install via uv
-uv venv
-source .venv/bin/activate
-uv pip install -e .
+## Using mMass
 
-# Or using standard pip
-python -m venv .venv
-source .venv/bin/activate
-pip install -e .
-```
-
-
-
-### Running the application
-Once installed, the CLI wrapper is available globally within your virtual environment:
-
-```sh
-mmass
-```
-
-Documents, Bruker dataset folders or a saved session (`.mses`) given on the command line are opened at startup:
+Documents, Bruker dataset folders or a saved session (`.mses`) given on the
+command line are opened at startup:
 
 ```sh
 mmass spectrum.mzML spectrum2.msd bruker_dataset/
 mmass --help
 ```
 
-`mmass convert` converts documents without opening the GUI, and also can draw spectra as images
-using the spectrum settings of the GUI:
+Two commands work without the GUI: `mmass convert` converts documents (and
+draws spectra as images), and `mmass process` runs processing steps such as
+baseline correction, smoothing and peak picking on many files at once:
+
+```sh
+mmass convert spectrum.mzML spectrum.msd
+mmass process *.mzML --baseline --smooth --find-peaks -f csv --peak-list -d peaks
+```
+
+<details>
+<summary>Converting from the command line</summary>
+
+`mmass convert` uses the spectrum settings of the GUI for images:
 
 ```sh
 mmass convert spectrum.mzML spectrum.msd
@@ -70,6 +169,11 @@ for a dark background, `--range 400-1500` to show part of the spectrum). A conve
 cannot work, such as a session or a FASTA file into a spectrum format, or several spectra into
 one text file, is refused with the reason. Image output needs a display; on a headless machine run
 it under `xvfb-run`.
+
+</details>
+
+<details>
+<summary>Processing from the command line</summary>
 
 `mmass process` runs processing steps, in the order given, before writing the result:
 
@@ -128,35 +232,7 @@ Both commands can write one input to standard output with `-o -` and the format 
 e.g. `mmass process sample.mzML --find-peaks --peak-list -f csv -o - | sort -t, -k2 -gr`. They exit
 with 0 when every input was written, 1 when some could not be, and 2 when the arguments are wrong.
 
-You can also run it generically:
-
-```sh
-python src/mmass_app/app.py
-```
-
-### macOS: prefer running from source
-
-On macOS the **recommended way to run mMass is directly from Python** (the `mmass`
-command in your virtual environment, as above). It starts quickly, always reflects
-the current code, and avoids the packaging caveats below.
-
-The packaged `.app` / `.dmg` build also works, but note:
-
-- **The first launch is slow** — the Dock icon may bounce for a minute or more
-  before the window appears. This is a one-time cost: the build is not yet
-  signed/notarized by Apple, so macOS Gatekeeper scans the entire bundle on first
-  run, on top of the cold load of the scientific stack (Numba/LLVM/SciPy) and the
-  first-run Numba cache warmup. **Subsequent launches are fast.** It is not frozen
-  — give it time.
-- **Gatekeeper may block it** on first open (*"can't be opened because Apple cannot
-  check it…"* or *"is damaged"*). Because the build is unsigned, clear it once with
-  any of:
-  - right-click the app → **Open** → **Open**, or
-  - **System Settings → Privacy & Security → Open Anyway**, or
-  - `xattr -dr com.apple.quarantine /Applications/mMass.app`
-- Always **copy the app into `/Applications`** before launching (don't run it from
-  the mounted `.dmg`) — running from the read-only image triggers Gatekeeper *app
-  translocation*, which can prevent the window from appearing.
+</details>
 
 ### Configuration files
 
@@ -173,6 +249,9 @@ Settings and libraries are JSON, stored per user:
 `MMASS_CONFIG_DIR` to override the location on any platform — useful for a
 portable install, or to point a second machine at a shared directory.
 
+<details>
+<summary>Settings from mMass versions before 7.0</summary>
+
 Releases before 7.0 used XML. Each file is migrated once, automatically, on
 first launch: the values are rewritten as JSON and the original is renamed to
 `<name>.xml.migrated` rather than deleted, so nothing is lost and you can roll
@@ -187,30 +266,30 @@ running an older mMass keeps working.
 The compound and reference library editors import either format, so libraries
 shared by other mMass users still load whether they are XML or JSON.
 
+</details>
+
 ### High-DPI scaling
 
-The UI scales itself to your display automatically (Windows, MacOS, GNOME and KDE on
+The UI scales itself to your display automatically (Windows, macOS, GNOME and KDE on
 both X11 and Wayland). To override the detected factor, set `MMASS_UI_SCALE`
 (e.g. `MMASS_UI_SCALE=2 mmass` for 200%), or set `MMASS_UI_AUTOSCALE=0` to
 disable autodetection.
 
-## Packaging
+## Building packages
 
-Simply build mMass using modern Python buildup tools:
+The release packages are built by the GitHub workflows in `.github/workflows/`.
+A wheel and source distribution are built with:
+
 ```bash
 uv pip install build
 python -m build
 ```
-The universal wheel and source dist will be produced natively in `dist/`.
 
-### Windows installer
+<details>
+<summary>Windows installer</summary>
 
-The repository includes a two-step Windows packaging flow:
-
-1. Build a one-folder app bundle with PyInstaller.
-2. Wrap the bundle into a standard installer `.exe` using NSIS.
-
-Local build (Windows host):
+A one-folder app bundle is built with PyInstaller and wrapped into an installer
+`.exe` with NSIS. On a Windows host:
 
 ```powershell
 python -m pip install -e .
@@ -219,30 +298,68 @@ python -m pip install pyinstaller
 python packaging/windows/build_windows_installer.py
 ```
 
-Installer output is written to `build/installer/windows/`.
+The installer is written to `build/installer/windows/`.
 
-On Windows, runtime user configuration is stored in `%APPDATA%\mMass` (with
-automatic migration from legacy install-local `gui\configs` files on first
-run).
+</details>
 
-During uninstall, user config is kept by default. The uninstaller offers an
-optional checkbox to remove `%APPDATA%\mMass`.
+<details>
+<summary>macOS app and disk image</summary>
 
-### macOS app and disk image
-
-The repository builds an `arm64` `.app` bundle (PyInstaller) and wraps it into a
-`.dmg`:
+An `arm64` `.app` bundle (PyInstaller) is built and wrapped into a `.dmg`:
 
 ```sh
 python packaging/macos/build_macos_dmg.py
 ```
 
 The `.app` is written to `build/dist/macos/` and the `.dmg` to
-`build/installer/macos/`. The build is currently **ad-hoc signed and not
-notarized**, so end users hit a one-time Gatekeeper prompt and a slow first launch
-(see the macOS notes under *Running the application*). Signing and notarization
-with an Apple Developer ID — which removes both — is documented in
-[`packaging/macos/SIGNING.md`](packaging/macos/SIGNING.md).
+`build/installer/macos/`.
+
+</details>
+
+<details>
+<summary>Linux packages</summary>
+
+The packages hold a PyInstaller bundle (installed to `/opt/mmass`, with `mmass`
+on the `PATH`) that uses the system's GTK 3 and glibc. They are built on
+AlmaLinux 9, which sets the oldest system they run on (glibc 2.34).
+
+They are built by `.github/workflows/linux-packages.yml` in an `almalinux:9`
+container, with a [python-build-standalone](https://github.com/astral-sh/python-build-standalone)
+Python. PyPI has no Linux wheels of wxPython, so
+`.github/workflows/linux-wxpython-wheel.yml` builds one from the sdist (without
+the wxWidgets features mMass does not use, and with built-in image libraries)
+once per wxPython version, Python version and architecture, and keeps it as an
+asset of a `wxpython-<version>-linux-r<revision>` prerelease for later builds;
+the versions are set in `packaging/linux/wxpython-wheel.env`.
+
+Local build, in an `almalinux:9` container (`docker run -it -v "$PWD:/src" -w /src almalinux:9`):
+
+```sh
+packaging/linux/install_build_deps.sh
+packaging/linux/install_packaging_tools.sh /usr/local/bin   # nfpm, appimagetool
+export PATH="$(packaging/linux/install_python.sh 3.14 /opt/venv):$PATH"
+packaging/linux/build_wxpython_wheel.sh 4.3.1 wheelhouse    # slow; or reuse a wheel
+python -m pip install wheelhouse/wxpython-*.whl -e . pyinstaller
+python packaging/linux/build_linux_packages.py
+packaging/linux/smoke_test.sh build/dist/linux/mmass/mmass
+```
+
+Then, to install and run the packages on a clean system:
+
+```sh
+docker run --rm -v "$PWD:/src:ro" ubuntu:24.04 \
+    sh /src/packaging/linux/install_test.sh /src/build/installer/linux
+```
+
+The bundle is written to `build/dist/linux/` and the packages to
+`build/installer/linux/`. Which libraries the bundle takes from the host, and
+the package dependencies that follow from them, are listed in
+`packaging/linux/linux_libs.py`. The build fails if the bundle needs a library
+that is neither bundled nor listed there, a glibc newer than 2.34, or reports a
+version other than the one in `pyproject.toml` (remove a stale
+`mMass.egg-info` and reinstall if it does).
+
+</details>
 
 ## Contributing
 

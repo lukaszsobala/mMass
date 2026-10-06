@@ -469,22 +469,13 @@ def _detect_gnome() -> float | None:
             "org.gnome.Mutter.DisplayConfig.GetCurrentState",
         ]
     )
+    # No fallback to the gsettings scaling-factor: GNOME applies it only
+    # through the XSETTINGS Gdk/WindowScalingFactor, which _detect_linux
+    # divides out anyway, and without Mutter (another desktop, a remote
+    # session) nothing applies it at all. Its "uint32 2" output also once
+    # parsed as 32, which gave a 4x UI on every such session.
     if output:
-        scale = _parse_gnome_state(output)
-        if scale:
-            return scale
-
-    # Fallback: integer scaling-factor set via gsettings (X11 / non-fractional).
-    output = _run(
-        ["gsettings", "get", "org.gnome.desktop.interface", "scaling-factor"]
-    )
-    if output:
-        match = re.search(r"(\d+)", output)
-        if match:
-            value = int(match.group(1))
-            if value >= 1:  # 0 means "auto", which tells us nothing
-                return float(value)
-
+        return _parse_gnome_state(output)
     return None
 
 
