@@ -12,7 +12,13 @@ permissions:
   contents: write
 
 jobs:
+  wxpython-wheel:
+    uses: ./.github/workflows/windows-macos-wxpython-wheel.yml
+    with:
+      runner: windows-latest
+
   build-windows-installer:
+    needs: wxpython-wheel
     runs-on: windows-latest
 
     steps:
@@ -22,7 +28,13 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: "3.14"
+          python-version: ${{ needs.wxpython-wheel.outputs.python-version }}
+
+      - name: Download wxPython wheel
+        uses: actions/download-artifact@v8
+        with:
+          name: wxpython-wheel
+          path: wheelhouse
 
       - name: Install NSIS
         shell: pwsh
@@ -34,12 +46,17 @@ jobs:
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
+          python -m pip install (Get-ChildItem wheelhouse/*.whl).FullName
           python -m pip install -e .
           python -m pip install pyinstaller
 
       - name: Build installer
         shell: pwsh
         run: python packaging/windows/build_windows_installer.py
+
+      - name: Smoke test the bundle
+        shell: pwsh
+        run: python packaging/smoke_test.py build/dist/windows/mMass/mMass.exe
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v7

@@ -8,6 +8,7 @@ be imported (e.g. wxPython missing).
 """
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -201,7 +202,7 @@ def test_user_added_links_survive_but_builtin_links_track_the_code(
     target = str(tmp_path / "config.json")
     assert config.saveConfig(target)
 
-    stored = json.loads(open(target).read())["links"]
+    stored = json.loads(Path(target).read_text())["links"]
     assert "myCustomLink" in stored
     assert builtin not in stored, "a built-in link must not be written"
 

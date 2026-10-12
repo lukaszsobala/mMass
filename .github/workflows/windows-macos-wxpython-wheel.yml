@@ -1,0 +1,134 @@
+name: Build wxPython Wheel for Windows or macOS
+
+# PyPI has wxPython wheels for Windows and macOS, but only for the Python
+# versions that existed when that wxPython was released: 4.3.1 stops at 3.14.
+# For a newer Python the installers are built with a wheel built here from the
+# sdist, the way wxPython's own CI builds the PyPI wheels (pip with the MSVC
+# environment on Windows, cibuildwheel on macOS). That takes an hour or two,
+# so the wheel is built once and kept as an asset of a prerelease tagged
+# wxpython-<version>-<windows|macos>-r<revision> (see
+# packaging/wxpython-wheel.env); later runs find it there and skip the build.
+# Delete an asset (or bump WHEEL_REVISION) to force a rebuild.
+#
+# The wheel is handed to the calling workflow as the artifact "wxpython-wheel".
+# Once PyPI has wheels for the Python in wxpython-wheel.env, this workflow and
+# the jobs calling it can go.
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: Runner to build on; its system and architecture are the wheel's.
+        required: true
+        type: string
+    outputs:
+      python-version:
+        description: Python version (X.Y) the wheel is for, from packaging/wxpython-wheel.env.
+        value: ${{ jobs.build-wheel.outputs.python-version }}
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build-wheel:
+    runs-on: ${{ inputs.runner }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    outputs:
+      python-version: ${{ steps.settings.outputs.python-version }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Read wheel settings
+        id: settings
+        run: |
+          grep -E '^[A-Z_]+=' packaging/wxpython-wheel.env >> "$GITHUB_ENV"
+          . packaging/wxpython-wheel.env
+          pytag="cp${PYTHON_VERSION/./}"
+          case "$RUNNER_OS-$RUNNER_ARCH" in
+              Windows-X64) system=windows; platform=win_amd64 ;;
+              # the wheel's macOS version is whatever cibuildwheel targets
+              macOS-ARM64) system=macos; platform='macosx_*_arm64' ;;
+              *) echo "No wxPython wheel is built for $RUNNER_OS-$RUNNER_ARCH" >&2; exit 2 ;;
+          esac
+          echo "WHEEL_TAG=wxpython-${WXPYTHON_VERSION}-${system}-r${WHEEL_REVISION}" >> "$GITHUB_ENV"
+          echo "WHEEL_PATTERN=wxpython-${WXPYTHON_VERSION}-${pytag}-${pytag}-${platform}.whl" >> "$GITHUB_ENV"
+          echo "CIBW_BUILD=${pytag}-macosx_arm64" >> "$GITHUB_ENV"
+          echo "python-version=${PYTHON_VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Look for an existing wheel
+        id: existing
+        run: |
+          if gh release download "$WHEEL_TAG" -p "$WHEEL_PATTERN" -D wheelhouse 2>/dev/null; then
+            echo "$(ls wheelhouse) is already in release $WHEEL_TAG; nothing to build."
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Python
+        if: steps.existing.outputs.found != 'true'
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Set up MSVC
+        if: steps.existing.outputs.found != 'true' && runner.os == 'Windows'
+        uses: step-security/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Build wheel (Windows)
+        if: steps.existing.outputs.found != 'true' && runner.os == 'Windows'
+        env:
+          # the options of wxPython's own release wheels
+          WXPYTHON_BUILD_ARGS: --release --cairo
+        # -v: without it pip shows nothing of the build for an hour
+        run: |
+          python -m pip wheel -v --no-deps --no-binary wxPython \
+            "wxPython==${WXPYTHON_VERSION}" -w wheelhouse
+
+      - name: Build wheel (macOS)
+        if: steps.existing.outputs.found != 'true' && runner.os == 'macOS'
+        env:
+          WXPYTHON_BUILD_ARGS: --release
+        run: |
+          python -m pip download --no-deps --no-binary :all: \
+            "wxPython==${WXPYTHON_VERSION}" -d sdist
+          python -m pip install cibuildwheel
+          python -m cibuildwheel "sdist/wxpython-${WXPYTHON_VERSION}.tar.gz" --output-dir wheelhouse
+
+      - name: Check wheel
+        if: steps.existing.outputs.found != 'true'
+        # the parts of wxPython mMass uses; a wheel that does not import must
+        # not reach the release, where every later build would pick it up
+        run: |
+          ls -l wheelhouse
+          test "$(ls wheelhouse/$WHEEL_PATTERN | wc -l)" -eq 1
+          python -m pip install wheelhouse/$WHEEL_PATTERN
+          python -c "import wx, wx.aui, wx.grid; print(wx.version())"
+
+      - name: Upload wheel to release
+        if: steps.existing.outputs.found != 'true'
+        run: |
+          gh release view "$WHEEL_TAG" > /dev/null 2>&1 \
+            || gh release create "$WHEEL_TAG" --prerelease --latest=false \
+                 --target "$GITHUB_SHA" \
+                 --title "wxPython ${WXPYTHON_VERSION} wheels for the ${RUNNER_OS} installer" \
+                 --notes "Build input of the ${RUNNER_OS} installer, not an mMass release: wxPython ${WXPYTHON_VERSION} built from the sdist by .github/workflows/windows-macos-wxpython-wheel.yml."
+          gh release upload "$WHEEL_TAG" wheelhouse/$WHEEL_PATTERN --clobber
+
+      - name: Hand wheel to the calling workflow
+        uses: actions/upload-artifact@v7
+        with:
+          name: wxpython-wheel
+          path: wheelhouse/*.whl
+          if-no-files-found: error

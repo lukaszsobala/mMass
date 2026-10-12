@@ -16,10 +16,10 @@ set -euo pipefail
 VERSION="${1:?Python version (X.Y) required}"
 VENV_DIR="$(realpath -m "${2:?virtual environment directory required}")"
 
-UV_VERSION="0.12.23"
+UV_VERSION="0.13.0"
 case "$(uname -m)" in
-    x86_64) UV_SHA256="9167d72b3319674b6303c4cbe071854bba13ebdf3d76b1a7cbdc175471fb66d6" ;;
-    aarch64) UV_SHA256="6524bd338177ed50d035d39354e12545e993bbeba2ecbddf0480c5b3a81d313f" ;;
+    x86_64) UV_SHA256="1468ebd5a5541121837c5a2817b9972ba6090fa6caa3d142620850a47fb75154" ;;
+    aarch64) UV_SHA256="3ccfb6af6e242433eb552f7d9676abd5412c6595c497e990d9c8cb7b5bd4d2c3" ;;
     *) echo "Unsupported architecture: $(uname -m)" >&2; exit 2 ;;
 esac
 
