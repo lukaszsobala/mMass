@@ -4,7 +4,7 @@ name: Build wxPython Wheels for Linux
 # wheel built here from the sdist. That takes tens of minutes per
 # architecture, so each wheel is built once and kept as an asset of a
 # prerelease tagged wxpython-<version>-linux-r<revision> (see
-# packaging/linux/wxpython-wheel.env); later runs find it there and skip the
+# packaging/wxpython-wheel.env); later runs find it there and skip the
 # build. Delete an asset (or bump WHEEL_REVISION) to force a rebuild.
 
 env:
@@ -39,8 +39,8 @@ jobs:
 
       - name: Read wheel settings
         run: |
-          grep -E '^[A-Z_]+=' packaging/linux/wxpython-wheel.env >> "$GITHUB_ENV"
-          . packaging/linux/wxpython-wheel.env
+          grep -E '^[A-Z_]+=' packaging/wxpython-wheel.env >> "$GITHUB_ENV"
+          . packaging/wxpython-wheel.env
           pytag="cp${PYTHON_VERSION/./}"
           echo "WHEEL_TAG=wxpython-${WXPYTHON_VERSION}-linux-r${WHEEL_REVISION}" >> "$GITHUB_ENV"
           echo "WHEEL_NAME=wxpython-${WXPYTHON_VERSION}-${pytag}-${pytag}-linux_$(uname -m).whl" >> "$GITHUB_ENV"

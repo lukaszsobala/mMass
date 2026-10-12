@@ -277,7 +277,16 @@ disable autodetection.
 
 ## Building packages
 
-The release packages are built by the GitHub workflows in `.github/workflows/`.
+The release packages are built by the GitHub workflows in `.github/workflows/`,
+with the Python version set in `packaging/wxpython-wheel.env`. wxPython 4.3.1
+has no PyPI wheels for Python 3.15, so
+`.github/workflows/windows-macos-wxpython-wheel.yml` builds the Windows and
+macOS ones from the sdist, once, and keeps them as assets of the
+`wxpython-<version>-windows-r<revision>` and `-macos-r<revision>` prereleases
+(for Linux, see below). Without such a wheel, `pip install -e .` on Python 3.15
+builds wxPython itself, which takes an hour or two and needs Visual Studio or
+Xcode.
+
 A wheel and source distribution are built with:
 
 ```bash
@@ -330,7 +339,7 @@ Python. PyPI has no Linux wheels of wxPython, so
 the wxWidgets features mMass does not use, and with built-in image libraries)
 once per wxPython version, Python version and architecture, and keeps it as an
 asset of a `wxpython-<version>-linux-r<revision>` prerelease for later builds;
-the versions are set in `packaging/linux/wxpython-wheel.env`.
+the versions are set in `packaging/wxpython-wheel.env`.
 
 Local build, in an `almalinux:9` container (`docker run -it -v "$PWD:/src" -w /src almalinux:9`):
 

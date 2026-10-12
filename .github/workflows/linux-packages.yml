@@ -12,6 +12,7 @@ on:
   pull_request:
     paths:
       - "packaging/linux/**"
+      - "packaging/wxpython-wheel.env"
       - ".github/workflows/linux-*.yml"
       - "src/**"
       - "pyproject.toml"
@@ -50,8 +51,8 @@ jobs:
 
       - name: Read wheel settings
         run: |
-          grep -E '^[A-Z_]+=' packaging/linux/wxpython-wheel.env >> "$GITHUB_ENV"
-          . packaging/linux/wxpython-wheel.env
+          grep -E '^[A-Z_]+=' packaging/wxpython-wheel.env >> "$GITHUB_ENV"
+          . packaging/wxpython-wheel.env
           echo "WHEEL_TAG=wxpython-${WXPYTHON_VERSION}-linux-r${WHEEL_REVISION}" >> "$GITHUB_ENV"
 
       - name: Install build dependencies
