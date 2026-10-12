@@ -337,7 +337,7 @@ Local build, in an `almalinux:9` container (`docker run -it -v "$PWD:/src" -w /s
 ```sh
 packaging/linux/install_build_deps.sh
 packaging/linux/install_packaging_tools.sh /usr/local/bin   # nfpm, appimagetool
-export PATH="$(packaging/linux/install_python.sh 3.14 /opt/venv):$PATH"
+export PATH="$(packaging/linux/install_python.sh 3.15 /opt/venv):$PATH"
 packaging/linux/build_wxpython_wheel.sh 4.3.1 wheelhouse    # slow; or reuse a wheel
 python -m pip install wheelhouse/wxpython-*.whl -e . pyinstaller
 python packaging/linux/build_linux_packages.py
