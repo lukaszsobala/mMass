@@ -11,6 +11,7 @@ RequestExecutionLevel admin
 SetCompressor /SOLID lzma
 
 !include "MUI2.nsh"
+!include "LogicLib.nsh"
 
 !ifndef APP_VERSION
   !error "APP_VERSION define is required"
@@ -26,6 +27,48 @@ SetCompressor /SOLID lzma
 
 !define APP_NAME "mMass"
 !define COMPANY_NAME "mMass Project"
+
+!define APP_EXE "$INSTDIR\mMass.exe"
+
+; File associations. Each ProgID names a kind of file and carries the icon
+; (the one embedded in mMass.exe) and the command that opens it. Both go under
+; HKLM\Software\Classes in the 64-bit registry view, which is where Explorer
+; looks for them (the installer itself is a 32-bit program).
+!macro RegisterProgId PROGID DESC
+  WriteRegStr HKLM "Software\Classes\${PROGID}" "" "${DESC}"
+  WriteRegStr HKLM "Software\Classes\${PROGID}\DefaultIcon" "" "${APP_EXE},0"
+  WriteRegStr HKLM "Software\Classes\${PROGID}\shell\open" "FriendlyAppName" "${APP_NAME}"
+  WriteRegStr HKLM "Software\Classes\${PROGID}\shell\open\command" "" '"${APP_EXE}" "%1"'
+!macroend
+
+; mMass's own formats: mMass is their default program, also when an older
+; install (or another program) registered them under a different ProgID.
+!macro ClaimExt EXT PROGID
+  WriteRegStr HKLM "Software\Classes\${EXT}\OpenWithProgids" "${PROGID}" ""
+  WriteRegStr HKLM "Software\Classes\${EXT}" "" "${PROGID}"
+!macroend
+
+; Formats shared with other programs: mMass is always offered under "Open
+; with", but becomes the default only when no other program has claimed the
+; extension, so installing mMass never takes mzML, mzXML, mzData or MGF files
+; away from another viewer.
+!macro RegisterExt EXT PROGID
+  WriteRegStr HKLM "Software\Classes\${EXT}\OpenWithProgids" "${PROGID}" ""
+  ReadRegStr $1 HKLM "Software\Classes\${EXT}" ""
+  ${If} $1 == ""
+    WriteRegStr HKLM "Software\Classes\${EXT}" "" "${PROGID}"
+  ${EndIf}
+!macroend
+
+!macro UnregisterExt EXT PROGID
+  DeleteRegValue HKLM "Software\Classes\${EXT}\OpenWithProgids" "${PROGID}"
+  ReadRegStr $1 HKLM "Software\Classes\${EXT}" ""
+  ${If} $1 == "${PROGID}"
+    DeleteRegValue HKLM "Software\Classes\${EXT}" ""
+  ${EndIf}
+  DeleteRegKey /ifempty HKLM "Software\Classes\${EXT}\OpenWithProgids"
+  DeleteRegKey /ifempty HKLM "Software\Classes\${EXT}"
+!macroend
 
 Name "${APP_NAME} ${APP_VERSION}"
 OutFile "${OUTPUT_NAME}"
@@ -93,6 +136,21 @@ Section "Install"
   CreateShortcut "$SMPROGRAMS\${APP_NAME}\Uninstall mMass.lnk" "$INSTDIR\Uninstall.exe"
   CreateShortcut "$DESKTOP\mMass.lnk" "$INSTDIR\mMass.exe" "" "$INSTDIR\mMass.exe" 0
 
+  ; File associations: documents and sessions are mMass's own (ClaimExt), the
+  ; open data formats are shared with other programs (RegisterExt).
+  SetRegView 64
+  !insertmacro RegisterProgId "mMass.Document" "mMass spectrum document"
+  !insertmacro RegisterProgId "mMass.Session" "mMass session"
+  !insertmacro RegisterProgId "mMass.Data" "Mass spectrometry data"
+  !insertmacro ClaimExt ".msd" "mMass.Document"
+  !insertmacro ClaimExt ".mses" "mMass.Session"
+  !insertmacro RegisterExt ".mzML" "mMass.Data"
+  !insertmacro RegisterExt ".mzXML" "mMass.Data"
+  !insertmacro RegisterExt ".mzData" "mMass.Data"
+  !insertmacro RegisterExt ".mgf" "mMass.Data"
+  SetRegView default
+  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
+
   WriteUninstaller "$INSTDIR\Uninstall.exe"
 SectionEnd
 
@@ -150,4 +208,17 @@ skip_user_config_delete:
 
   DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}"
   DeleteRegKey HKLM "Software\${APP_NAME}"
+
+  SetRegView 64
+  !insertmacro UnregisterExt ".msd" "mMass.Document"
+  !insertmacro UnregisterExt ".mses" "mMass.Session"
+  !insertmacro UnregisterExt ".mzML" "mMass.Data"
+  !insertmacro UnregisterExt ".mzXML" "mMass.Data"
+  !insertmacro UnregisterExt ".mzData" "mMass.Data"
+  !insertmacro UnregisterExt ".mgf" "mMass.Data"
+  DeleteRegKey HKLM "Software\Classes\mMass.Document"
+  DeleteRegKey HKLM "Software\Classes\mMass.Session"
+  DeleteRegKey HKLM "Software\Classes\mMass.Data"
+  SetRegView default
+  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
 SectionEnd
