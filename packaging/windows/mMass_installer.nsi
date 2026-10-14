@@ -17,6 +17,12 @@ SetCompressor /SOLID lzma
   !error "APP_VERSION define is required"
 !endif
 
+; APP_VERSION as four numbers (windows_version.numeric_version), for the
+; installer's own version resource
+!ifndef APP_VERSION_NUMERIC
+  !error "APP_VERSION_NUMERIC define is required"
+!endif
+
 !ifndef SOURCE_DIR
   !error "SOURCE_DIR define is required"
 !endif
@@ -71,6 +77,15 @@ SetCompressor /SOLID lzma
 !macroend
 
 Name "${APP_NAME} ${APP_VERSION}"
+
+VIProductVersion "${APP_VERSION_NUMERIC}"
+VIFileVersion "${APP_VERSION_NUMERIC}"
+VIAddVersionKey /LANG=0 "ProductName" "${APP_NAME}"
+VIAddVersionKey /LANG=0 "ProductVersion" "${APP_VERSION}"
+VIAddVersionKey /LANG=0 "FileDescription" "${APP_NAME} Setup"
+VIAddVersionKey /LANG=0 "FileVersion" "${APP_VERSION}"
+VIAddVersionKey /LANG=0 "CompanyName" "${COMPANY_NAME}"
+VIAddVersionKey /LANG=0 "LegalCopyright" "GPL-3.0-or-later"
 OutFile "${OUTPUT_NAME}"
 InstallDir "$PROGRAMFILES64\${APP_NAME}"
 InstallDirRegKey HKLM "Software\${APP_NAME}" "InstallDir"
@@ -126,6 +141,7 @@ Section "Install"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}" "DisplayName" "${APP_NAME} ${APP_VERSION}"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}" "DisplayVersion" "${APP_VERSION}"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}" "Publisher" "${COMPANY_NAME}"
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}" "DisplayIcon" "${APP_EXE},0"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}" "InstallLocation" "$INSTDIR"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}" "UninstallString" '"$INSTDIR\Uninstall.exe"'
   WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}" "NoModify" 1

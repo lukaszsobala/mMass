@@ -4,11 +4,12 @@
 from __future__ import annotations
 
 import argparse
-import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+from windows_version import numeric_version, read_project_version
 
 
 def parse_args() -> argparse.Namespace:
@@ -28,7 +29,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--version",
         default=None,
-        help="Override installer version label (default: project version).",
+        help="Override the version of the installer and of the mMass.exe it "
+        "builds (default: project version).",
     )
     parser.add_argument(
         "--bundle-dir",
@@ -46,15 +48,6 @@ def parse_args() -> argparse.Namespace:
         help="Installer filename (default: mMass-<version>-windows-x64-setup.exe).",
     )
     return parser.parse_args()
-
-
-def read_project_version(project_root: Path) -> str:
-    pyproject = project_root / "pyproject.toml"
-    text = pyproject.read_text(encoding="utf-8")
-    match = re.search(r'^version\s*=\s*"([^"]+)"', text, re.MULTILINE)
-    if not match:
-        raise RuntimeError(f"Could not find version in {pyproject}")
-    return match.group(1)
 
 
 def main() -> int:
@@ -75,8 +68,10 @@ def main() -> int:
         print(f"Installer script not found: {installer_script}")
         return 2
 
+    version = args.version or read_project_version(project_root)
+
     if not args.skip_bundle:
-        bundle_cmd = [sys.executable, str(bundle_script)]
+        bundle_cmd = [sys.executable, str(bundle_script), "--version", version]
         if args.force:
             bundle_cmd.append("--force")
         print("Running:", " ".join(bundle_cmd))
@@ -96,7 +91,6 @@ def main() -> int:
         print("Install NSIS from https://nsis.sourceforge.io/Download")
         return 2
 
-    version = args.version or read_project_version(project_root)
     default_output_dir = project_root / "build" / "installer" / "windows"
     output_dir = Path(args.output_dir).resolve() if args.output_dir else default_output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -107,6 +101,7 @@ def main() -> int:
     nsis_cmd = [
         "makensis",
         f"/DAPP_VERSION={version}",
+        "/DAPP_VERSION_NUMERIC=" + ".".join(map(str, numeric_version(version))),
         f"/DSOURCE_DIR={bundle_dir}",
         f"/DOUTPUT_NAME={output_file}",
         str(installer_script),

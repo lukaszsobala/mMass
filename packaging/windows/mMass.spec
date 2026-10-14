@@ -1,11 +1,22 @@
+import os
+import sys
 from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_data_files
+
+sys.path.insert(0, SPECPATH)
+import windows_version  # noqa: E402
 
 
 PROJECT_ROOT = Path(SPECPATH).resolve().parents[1]
 APP_ICON = PROJECT_ROOT / "src" / "gui" / "images" / "msw" / "icon.ico"
 APP_MANIFEST = Path(SPECPATH) / "mMass.manifest"
+
+# The build wrapper injects the version via the environment; a bare
+# "pyinstaller mMass.spec" takes the project's.
+APP_VERSION = os.environ.get("MMASS_APP_VERSION") or windows_version.read_project_version(
+    PROJECT_ROOT
+)
 
 datas = [
     (str(PROJECT_ROOT / "src" / "gui" / "configs"), "gui/configs"),
@@ -64,6 +75,7 @@ exe = EXE(
     argv_emulation=False,
     icon=str(APP_ICON),
     manifest=str(APP_MANIFEST),
+    version=windows_version.version_resource(APP_VERSION),
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
