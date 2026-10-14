@@ -17,6 +17,47 @@ datas = [
 ]
 datas += collect_data_files("xdgenvpy")
 
+# Document icons go to Contents/Resources, where the Info.plist below finds
+# them by file name.
+DOC_ICONS = PROJECT_ROOT / "src" / "gui" / "images" / "mac"
+datas += [(str(icon), ".") for icon in sorted(DOC_ICONS.glob("icon_doc_*.icns"))]
+
+
+def _file_type(uti, description, extensions, conforms_to, icon):
+    return {
+        "UTTypeIdentifier": uti,
+        "UTTypeDescription": description,
+        "UTTypeConformsTo": conforms_to,
+        "UTTypeIconFile": icon,
+        "UTTypeTagSpecification": {"public.filename-extension": extensions},
+    }
+
+
+def _document_type(name, uti, icon, role, rank):
+    return {
+        "CFBundleTypeName": name,
+        "LSItemContentTypes": [uti],
+        "CFBundleTypeIconFile": icon,
+        "CFBundleTypeRole": role,
+        "LSHandlerRank": rank,
+    }
+
+
+# mMass's own formats are exported (declared and owned by mMass), the open
+# data formats imported: mMass describes them but other programs may claim
+# them, so it opens them only as an alternative (LSHandlerRank).
+EXPORTED_TYPES = [
+    ("org.mmass.msd", "mMass Spectrum Document", ["msd"], ["public.xml"], "icon_doc_msd.icns"),
+    ("org.mmass.mses", "mMass Session", ["mses"], ["public.xml"], "icon_doc_mses.icns"),
+]
+IMPORTED_TYPES = [
+    ("org.mmass.mzml", "mzML Mass Spectrometry Data", ["mzml"], ["public.xml"], "icon_doc_mzml.icns"),
+    ("org.mmass.mzxml", "mzXML Mass Spectrometry Data", ["mzxml"], ["public.xml"], "icon_doc_mzxml.icns"),
+    ("org.mmass.mzdata", "mzData Mass Spectrometry Data", ["mzdata"], ["public.xml"], "icon_doc_mzdata.icns"),
+    ("org.mmass.mgf", "Mascot Generic Format Peak List", ["mgf"], ["public.plain-text"], "icon_doc_mgf.icns"),
+    ("org.mmass.xy", "XY Spectrum Data", ["xy"], ["public.plain-text"], "icon_doc_xy.icns"),
+]
+
 # Nothing to force in: PyInstaller's bundled hooks already collect numba and
 # llvmlite correctly. A blanket collect_submodules("numba") would additionally
 # pull in numba.tests, which imports pandas/matplotlib/pytest when they happen
@@ -96,25 +137,21 @@ app = BUNDLE(
         "NSHighResolutionCapable": True,
         "LSMinimumSystemVersion": "11.0",
         "NSHumanReadableCopyright": "GPL-3.0-or-later",
+        "UTExportedTypeDeclarations": [_file_type(*t) for t in EXPORTED_TYPES],
+        "UTImportedTypeDeclarations": [_file_type(*t) for t in IMPORTED_TYPES],
         "CFBundleDocumentTypes": [
-            {
-                "CFBundleTypeName": "mMass Spectrum Document",
-                "CFBundleTypeExtensions": ["msd"],
-                "CFBundleTypeRole": "Editor",
-                "LSHandlerRank": "Owner",
-            },
+            _document_type(description, uti, icon, "Editor", "Owner")
+            for uti, description, _, _, icon in EXPORTED_TYPES
+        ]
+        + [
+            _document_type(description, uti, icon, "Viewer", "Alternate")
+            for uti, description, _, _, icon in IMPORTED_TYPES
+        ]
+        + [
+            # generic text and XML exports, which mMass reads as well
             {
                 "CFBundleTypeName": "Mass Spectrometry Data",
-                "CFBundleTypeExtensions": [
-                    "mzml",
-                    "mzxml",
-                    "mzdata",
-                    "mgf",
-                    "xml",
-                    "xy",
-                    "asc",
-                    "txt",
-                ],
+                "CFBundleTypeExtensions": ["xml", "asc", "txt"],
                 "CFBundleTypeRole": "Viewer",
                 "LSHandlerRank": "Alternate",
             },

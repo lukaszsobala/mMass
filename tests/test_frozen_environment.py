@@ -44,6 +44,29 @@ def test_library_path_untouched_when_not_frozen(monkeypatch):
     assert environ == {"LD_LIBRARY_PATH": "/usr/local/lib"}
 
 
+def test_multiprocessing_helpers_are_diverted_first(monkeypatch):
+    # a frozen build runs its own executable again for multiprocessing's
+    # helper processes; unless freeze_support() runs before the arguments
+    # are parsed, each helper starts another (empty) mMass window
+    import multiprocessing
+
+    class Diverted(Exception):
+        pass
+
+    def freeze_support():
+        raise Diverted
+
+    def parse_args(argv):
+        raise AssertionError("arguments parsed before freeze_support()")
+
+    monkeypatch.setattr(multiprocessing, "freeze_support", freeze_support)
+    monkeypatch.setattr(app.cli, "parse_args", parse_args)
+
+    helper = "from multiprocessing.resource_tracker import main;main(5)"
+    with pytest.raises(Diverted):
+        app.main(["-B", "-S", "-I", "-c", helper])
+
+
 def test_unwritable_config_directory_reports_failure(tmp_path):
     # e.g. the read-only bundled configs/ of a packaged install: a failed
     # write must be reported, not raised (it used to crash the GUI at start)

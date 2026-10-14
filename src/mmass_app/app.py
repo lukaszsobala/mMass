@@ -5,6 +5,7 @@ imported once it is known which one is wanted, so --help answers at once and a
 conversion or batch processing never starts the GUI.
 """
 
+import multiprocessing
 import os
 import sys
 
@@ -36,6 +37,12 @@ def restore_library_path(environ=os.environ):
 
 
 def main(argv=None):
+    # A frozen build starts multiprocessing's helper processes (the resource
+    # tracker, the forkserver) by running its own executable again. Without
+    # this call that copy parses the helper's command line as mMass arguments
+    # and opens a second, empty window. PyInstaller's runtime hook makes it
+    # run the helper and exit; in a normal run it does nothing.
+    multiprocessing.freeze_support()
     restore_library_path()
     if argv is None:
         argv = sys.argv[1:]

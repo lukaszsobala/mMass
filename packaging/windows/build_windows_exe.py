@@ -4,10 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+from windows_version import read_project_version
 
 
 def parse_args() -> argparse.Namespace:
@@ -18,6 +21,11 @@ def parse_args() -> argparse.Namespace:
         "--force",
         action="store_true",
         help="Allow running on non-Windows hosts (for CI/cross checks).",
+    )
+    parser.add_argument(
+        "--version",
+        default=None,
+        help="Override the executable's version (default: project version).",
     )
     return parser.parse_args()
 
@@ -66,8 +74,17 @@ def main() -> int:
         str(spec_file),
     ]
 
+    # PyInstaller does not forward variables into the spec, so the version is
+    # passed through the environment and read by the spec as MMASS_APP_VERSION.
+    version = args.version or read_project_version(project_root)
     print("Running:", " ".join(cmd))
-    subprocess.run(cmd, check=True, cwd=str(project_root))
+    print("Executable version:", version)
+    subprocess.run(
+        cmd,
+        check=True,
+        cwd=str(project_root),
+        env={**os.environ, "MMASS_APP_VERSION": version},
+    )
 
     output = dist_dir / "mMass"
     root_exe = dist_dir / "mMass.exe"
