@@ -683,9 +683,11 @@ comparePeaklists = {
     "ratioCheck": 0,
     "ratioDirection": 1,
     "ratioThreshold": 2,
-    "alignmentStats": ["median", "mean", "min", "max", "range", "count", "duplicate"],
-    "alignmentColumns": ["mz", "int", "sn", "fwhm", "resol", "envarea", "envint"],
+    "alignmentStats": ["id", "median", "mean", "min", "max", "range", "count", "duplicate"],
+    "alignmentColumns": ["mz", "ppm", "int", "sn", "fwhm", "resol", "envarea", "envint"],
     "alignmentDuplicates": "rows",
+    "alignmentLayout": "column",
+    "alignmentTwoRowHeader": 0,
     "alignmentSeparator": "tab",
 }
 
