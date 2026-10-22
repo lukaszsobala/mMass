@@ -62,3 +62,16 @@ def test_signal_gaussian_apex():
     apex = peak[int(numpy.argmax(peak[:, 1]))]
     assert apex[0] == pytest.approx(1000.0, abs=0.01)
     assert apex[1] == pytest.approx(100.0, rel=0.02)
+
+
+def test_signal_rescale_does_not_start_numba_tbb_pool():
+    # a parallel kernel starts TBB, after which every fork in the process (the
+    # GNOME image loaders fork when a dialog loads an icon) prints "Attempted
+    # to fork from a non-main thread" -- see the note above signal_rescale
+    assert not calc.signal_rescale.targetoptions.get("parallel")
+
+    out = calc.signal_rescale(
+        numpy.array([[1.0, 2.0], [3.0, 4.0]]), 2.0, 0.5, 1.0, 0.0
+    )
+
+    assert out.tolist() == [[3, 1], [7, 2]]
