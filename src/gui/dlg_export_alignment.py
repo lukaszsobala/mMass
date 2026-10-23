@@ -23,6 +23,10 @@ from . import mwx
 from . import config
 from . import alignment
 
+# how much of the table the preview shows
+PREVIEW_GROUPS = 12
+PREVIEW_ROWS = 8
+
 # ALIGNED TABLE EXPORT DIALOG
 # ---------------------------
 
@@ -36,14 +40,21 @@ SEPARATORS = [
 
 DUPLICATES = [
     (alignment.DUPLICATES_ROWS, "Put on their own rows"),
-    (alignment.DUPLICATES_IGNORE, "Leave out"),
+    (alignment.DUPLICATES_IGNORE, "Keep the most intense only"),
+    (alignment.DUPLICATES_SUM, "Add up intensities"),
+]
+
+LAYOUTS = [
+    (alignment.LAYOUT_COLUMN, "Wide, documents grouped by column"),
+    (alignment.LAYOUT_DOCUMENT, "Wide, columns grouped by document"),
+    (alignment.LAYOUT_LONG, "Long, one row per peak"),
 ]
 
 
 class dlgExportAlignment(wx.Dialog):
     """Pick the columns of the aligned peak table, and where to put it."""
 
-    def __init__(self, parent, documents=0, groups=0):
+    def __init__(self, parent, groups, titles):
 
         wx.Dialog.__init__(
             self,
@@ -53,8 +64,12 @@ class dlgExportAlignment(wx.Dialog):
             style=wx.DEFAULT_DIALOG_STYLE | wx.STAY_ON_TOP,
         )
 
-        self.documents = documents
         self.groups = groups
+        self.titles = titles
+
+        # the top of the table is all the preview shows, so that is all it
+        # builds, however many groups there are
+        self.previewGroups = alignment.firstGroups(groups, PREVIEW_GROUPS)
 
         # set by the accept buttons, read by the caller
         self.destination = None
@@ -85,7 +100,7 @@ class dlgExportAlignment(wx.Dialog):
             self,
             -1,
             "%d group(s) of peaks across %d document(s)."
-            % (self.groups, self.documents),
+            % (len(self.groups), len(self.titles)),
         )
 
         stats = self.makeColumnBox(
@@ -93,7 +108,7 @@ class dlgExportAlignment(wx.Dialog):
             alignment.STAT_COLUMNS,
             config.comparePeaklists["alignmentStats"],
             self.statChecks,
-            rows=4,
+            rows=3,
         )
 
         columns = self.makeColumnBox(
@@ -101,10 +116,11 @@ class dlgExportAlignment(wx.Dialog):
             alignment.PEAK_COLUMNS,
             config.comparePeaklists["alignmentColumns"],
             self.peakChecks,
-            rows=5,
+            rows=6,
         )
 
         options = self.makeOptions()
+        preview = self.makePreview()
         buttons = self.makeButtons()
 
         # pack elements
@@ -126,6 +142,12 @@ class dlgExportAlignment(wx.Dialog):
         )
         sizer.Add(
             options, 0, wx.LEFT | wx.RIGHT | wx.TOP, mwx.PANEL_SPACE_MAIN
+        )
+        sizer.Add(
+            preview,
+            0,
+            wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP,
+            mwx.PANEL_SPACE_MAIN,
         )
         sizer.Add(buttons, 0, wx.CENTER | wx.ALL, mwx.PANEL_SPACE_MAIN)
 
@@ -156,6 +178,29 @@ class dlgExportAlignment(wx.Dialog):
 
     def makeOptions(self):
         """Duplicate handling and separator."""
+
+        layout_label = wx.StaticText(self, -1, "Layout:")
+        self.layout_choice = wx.Choice(
+            self,
+            -1,
+            choices=[title for _key, title in LAYOUTS],
+            size=wx.Size(200, mwx.CHOICE_HEIGHT),
+        )
+        mwx.fitChoice(self.layout_choice)
+        self.layout_choice.Select(
+            self.indexOf(
+                [key for key, _title in LAYOUTS],
+                config.comparePeaklists["alignmentLayout"],
+            )
+        )
+
+        self.header_check = wx.CheckBox(self, -1, "Two-row header")
+        self.header_check.SetValue(
+            bool(config.comparePeaklists["alignmentTwoRowHeader"])
+        )
+        self.header_check.SetToolTip(
+            "Name of the block above, name of the column below."
+        )
 
         duplicates_label = wx.StaticText(self, -1, "Duplicate peaks:")
         self.duplicates_choice = wx.Choice(
@@ -189,19 +234,110 @@ class dlgExportAlignment(wx.Dialog):
 
         grid = wx.GridBagSizer(mwx.GRIDBAG_VSPACE, mwx.GRIDBAG_HSPACE)
         grid.Add(
-            duplicates_label,
+            layout_label,
             (0, 0),
             flag=wx.ALIGN_CENTER_VERTICAL | wx.ALIGN_RIGHT,
         )
-        grid.Add(self.duplicates_choice, (0, 1))
+        grid.Add(self.layout_choice, (0, 1))
         grid.Add(
-            separator_label,
+            duplicates_label,
             (1, 0),
             flag=wx.ALIGN_CENTER_VERTICAL | wx.ALIGN_RIGHT,
         )
-        grid.Add(self.separator_choice, (1, 1))
+        grid.Add(self.duplicates_choice, (1, 1))
+        grid.Add(
+            separator_label,
+            (2, 0),
+            flag=wx.ALIGN_CENTER_VERTICAL | wx.ALIGN_RIGHT,
+        )
+        grid.Add(self.separator_choice, (2, 1))
+        grid.Add(self.header_check, (2, 2), flag=wx.ALIGN_CENTER_VERTICAL)
 
         return grid
+
+    # ----
+
+    def makePreview(self):
+        """The top of the table as it would be written."""
+
+        sizer = mwx.staticBoxSizer(self, "Preview", wx.VERTICAL)
+
+        self.preview_list = wx.ListCtrl(
+            self,
+            -1,
+            size=wx.Size(560, 170),
+            style=wx.LC_REPORT | wx.LC_HRULES | wx.LC_VRULES | wx.BORDER_THEME,
+        )
+        sizer.Add(self.preview_list, 1, wx.EXPAND | wx.ALL, mwx.PANEL_SPACE_MAIN // 2)
+
+        # whatever changes the table changes the preview
+        for check in list(self.statChecks.values()) + list(self.peakChecks.values()):
+            check.Bind(wx.EVT_CHECKBOX, self.onPreview)
+        self.layout_choice.Bind(wx.EVT_CHOICE, self.onPreview)
+        self.duplicates_choice.Bind(wx.EVT_CHOICE, self.onPreview)
+        self.header_check.Bind(wx.EVT_CHECKBOX, self.onPreview)
+
+        self.updatePreview()
+
+        return sizer
+
+    # ----
+
+    def onPreview(self, evt):
+        """Redraw the preview after a change of columns or options."""
+
+        self.updatePreview()
+
+    # ----
+
+    def updatePreview(self):
+        """Fill the preview with the first rows of the table."""
+
+        stats, columns, duplicates, layout, twoRow = self.readParams()
+
+        # the long layout has no blocks to name
+        self.header_check.Enable(layout != alignment.LAYOUT_LONG)
+
+        header, rows = alignment.buildAlignmentTable(
+            self.previewGroups,
+            self.titles,
+            statColumns=stats,
+            peakColumns=columns,
+            duplicates=duplicates,
+            layout=layout,
+            twoRowHeader=twoRow,
+        )
+
+        # a list can only head its columns with one row, so a second header
+        # row goes in as the first line
+        headings = alignment.headerRows(header)
+        header = headings[0]
+        rows = headings[1:] + rows
+
+        control = self.preview_list
+
+        control.Freeze()
+        control.ClearAll()
+
+        for index, title in enumerate(header):
+            control.InsertColumn(index, title)
+
+        for number, row in enumerate(rows[:PREVIEW_ROWS]):
+            cells = [alignment.formatValue(value) for value in row]
+            if not cells:
+                break
+            control.InsertItem(number, cells[0])
+            for index, cell in enumerate(cells[1:], 1):
+                control.SetItem(number, index, cell)
+
+        for index in range(len(header)):
+            control.SetColumnWidth(index, wx.LIST_AUTOSIZE_USEHEADER)
+            # a header wider than its numbers is what sets the width; cap it
+            # so one long document title cannot push the rest off the screen
+            if control.GetColumnWidth(index) < 60:
+                control.SetColumnWidth(index, 60)
+
+        control.Thaw()
 
     # ----
 
@@ -263,8 +399,8 @@ class dlgExportAlignment(wx.Dialog):
 
     # ----
 
-    def getParams(self):
-        """Get all params from dialog."""
+    def readParams(self):
+        """Columns and options as they stand in the dialog right now."""
 
         stats = [
             key for key, check in self.statChecks.items() if check.GetValue()
@@ -273,16 +409,27 @@ class dlgExportAlignment(wx.Dialog):
             key for key, check in self.peakChecks.items() if check.GetValue()
         ]
 
+        duplicates = DUPLICATES[self.duplicates_choice.GetSelection()][0]
+        layout = LAYOUTS[self.layout_choice.GetSelection()][0]
+
+        return stats, columns, duplicates, layout, self.header_check.GetValue()
+
+    # ----
+
+    def getParams(self):
+        """Get all params from dialog."""
+
+        stats, columns, duplicates, layout, twoRow = self.readParams()
+
         # a table of nothing but empty lines is never what was meant
         if not stats and not columns:
             return False
 
         config.comparePeaklists["alignmentStats"] = stats
         config.comparePeaklists["alignmentColumns"] = columns
-
-        config.comparePeaklists["alignmentDuplicates"] = DUPLICATES[
-            self.duplicates_choice.GetSelection()
-        ][0]
+        config.comparePeaklists["alignmentLayout"] = layout
+        config.comparePeaklists["alignmentDuplicates"] = duplicates
+        config.comparePeaklists["alignmentTwoRowHeader"] = int(twoRow)
 
         config.comparePeaklists["alignmentSeparator"] = SEPARATORS[
             self.separator_choice.GetSelection()

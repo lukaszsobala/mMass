@@ -1,5 +1,5 @@
 import numpy as np
-from numba import njit, prange
+from numba import njit
 
 
 def signal_interpolate_x(x1, y1, x2, y2, y):
@@ -440,11 +440,18 @@ def signal_filter(array, resol):
     return buff[:count].copy()
 
 
-@njit(cache=True, fastmath=True, parallel=True)
+# Serial on purpose. The plot runs signal_filter first, so this only ever sees
+# a few points per pixel column (~6k for a 1500 px plot, ~16k at 4000 px,
+# however long the spectrum), where serial is 2-5x faster than prange: the
+# thread hand-off costs more than the work. A parallel kernel would also start
+# numba's TBB pool, after which every fork anywhere in the process -- GNOME's
+# glycin image loaders fork when a dialog loads an icon -- prints "Attempted
+# to fork from a non-main thread".
+@njit(cache=True, fastmath=True)
 def signal_rescale(array, scaleX, scaleY, shiftX, shiftY):
     n = len(array)
     out = np.empty((n, 2), dtype=np.int32)
-    for i in prange(n):
+    for i in range(n):
         out[i, 0] = int(round(array[i, 0] * scaleX + shiftX))
         out[i, 1] = int(round(array[i, 1] * scaleY + shiftY))
     return out

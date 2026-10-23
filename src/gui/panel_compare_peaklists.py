@@ -808,9 +808,8 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         groups = self._alignmentGroups()
 
         # get columns
-        dlg = dlgExportAlignment(
-            self, documents=len(self.currentDocuments), groups=len(groups)
-        )
+        titles = [getattr(document, "title", "") for document in self.currentDocuments]
+        dlg = dlgExportAlignment(self, groups, titles)
         if dlg.ShowModal() != wx.ID_OK:
             dlg.Destroy()
             return
@@ -821,10 +820,12 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
         # make the table
         header, rows = alignment.buildAlignmentTable(
             groups,
-            [getattr(document, "title", "") for document in self.currentDocuments],
+            titles,
             statColumns=config.comparePeaklists["alignmentStats"],
             peakColumns=config.comparePeaklists["alignmentColumns"],
             duplicates=config.comparePeaklists["alignmentDuplicates"],
+            layout=config.comparePeaklists["alignmentLayout"],
+            twoRowHeader=config.comparePeaklists["alignmentTwoRowHeader"],
         )
 
         separator = separatorValue(config.comparePeaklists["alignmentSeparator"])
