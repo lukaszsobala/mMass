@@ -437,6 +437,8 @@ def buildAlignmentTable(
     def flatName(upper, lower):
         return upper + NAME_SEPARATOR + lower if upper else lower
 
+    # one row of names, or two rows of them: callers go through headerRows()
+    header: list
     if twoRowHeader and not long:
         header = [
             [upper for upper, _lower in columnNames],

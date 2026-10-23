@@ -404,7 +404,7 @@ def test_both_wide_layouts_hold_the_same_values():
         (0, 100.0, peak(100.0, ai=10.0)),
         (2, 100.1, peak(100.1, ai=20.0)),
     ]
-    kwargs = dict(statColumns=["id"], peakColumns=["mz", "ai"])
+    kwargs: dict = dict(statColumns=["id"], peakColumns=["mz", "ai"])
 
     _h1, byDocument = alignment.buildAlignmentTable([group], ["a", "b", "c"], **kwargs)
     _h2, byColumn = alignment.buildAlignmentTable(
