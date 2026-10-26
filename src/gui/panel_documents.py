@@ -1435,8 +1435,13 @@ class panelDocuments(wx.Panel):
             self.parent.onDocumentSelected(None)
             return
 
-        # get item
+        # a hidden document can't be selected; the tree vetoes it with a beep
+        # meant for a click, so don't ask for it here
         docData = self.documents[docIndex]
+        if not docData.visible:
+            return
+
+        # get item
         docItem = self.documentTree.getItemByData(docData)
 
         # select document

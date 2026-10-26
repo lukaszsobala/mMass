@@ -327,6 +327,7 @@ main = {
     "dataPrecision": 32,
     "lastDir": "",
     "lastSeqDir": "",
+    "lastSessionDir": "",
     "errorUnits": "Da",
     "printQuality": 5,
     "useServer": 1,
