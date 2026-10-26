@@ -2805,7 +2805,7 @@ class mainFrame(wx.Frame):
             if not path.lower().endswith(session.SESSION_EXTENSION):
                 path += session.SESSION_EXTENSION
 
-            config.main["lastDir"] = os.path.split(path)[0]
+            config.main["lastSessionDir"] = os.path.split(path)[0]
 
         # save session
         data = session.makeSession(
@@ -2837,8 +2837,12 @@ class mainFrame(wx.Frame):
 
         # ask for the session file
         if not path:
+            # sessions have their own last-used folder: opening one reads
+            # spectra from elsewhere, which moves the documents' folder
             lastDir = ""
-            if os.path.exists(config.main["lastDir"]):
+            if os.path.exists(config.main["lastSessionDir"]):
+                lastDir = config.main["lastSessionDir"]
+            elif os.path.exists(config.main["lastDir"]):
                 lastDir = config.main["lastDir"]
             wildcard = session.SESSION_WILDCARD + "|All files|*.*"
             dlg = wx.FileDialog(
@@ -2892,7 +2896,7 @@ class mainFrame(wx.Frame):
         if self.documents and not self.onDocumentCloseAll():
             return False
 
-        config.main["lastDir"] = os.path.split(path)[0]
+        config.main["lastSessionDir"] = os.path.split(path)[0]
 
         # open documents, keeping track of which session entry each one came
         # from; a session usually holds several documents, so they are read as
