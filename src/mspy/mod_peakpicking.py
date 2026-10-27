@@ -430,6 +430,37 @@ def labelpeak(signal, mz=None, minX=None, maxX=None, pickingHeight=0.75, baselin
 # ----
 
 
+def _merge_split_apexes(signal, candidates, baseline):
+    """Merge neighbouring apex candidates that are one noisy peak.
+
+    candidates - [mz, ai, base, sn, fwhm] rows in m/z order, as labelscan builds
+    them. Two real peaks show a dip between them only once they are more than
+    about one FWHM apart (two equal Gaussians one FWHM apart have none at all),
+    and then it is deep; a dip shallower than the local noise is the noise on one
+    peak's top. Such a pair keeps its taller maximum. The noise is the baseline's
+    noise width there; without a baseline, 5% of the lower apex stands in.
+    """
+
+    merged = [candidates[0]]
+    for peak in candidates[1:]:
+        last = merged[-1]
+        i1 = mod_signal.locate(signal, last[0])
+        i2 = mod_signal.locate(signal, peak[0])
+        lower = min(last[1], peak[1])
+        valley = float(numpy.min(signal[i1:i2 + 1, 1])) if i2 > i1 else lower
+        noise = 0.0
+        if baseline is not None and len(baseline):
+            middle = 0.5 * (last[0] + peak[0])
+            noise = float(numpy.interp(middle, baseline[:, 0], baseline[:, 2]))
+        tolerance = noise if noise > 0.0 else 0.05 * (lower - max(last[2], peak[2]))
+        if lower - valley < tolerance:
+            if peak[1] > last[1]:
+                merged[-1] = peak
+            continue
+        merged.append(peak)
+    return merged
+
+
 def labelscan(
     signal,
     minX=None,
@@ -501,16 +532,28 @@ def labelscan(
 
     CHECK_FORCE_QUIT()
 
-    # remove peaks bellow threshold
+    # remove peaks bellow threshold. Only a peak with NO S/N (no baseline to
+    # measure it against) is exempt from the S/N threshold -- an S/N of exactly 0
+    # is a maximum lying on the baseline itself, which is never a peak (counting
+    # data has plenty of them, and they used to slip through as "no S/N").
     threshold = max(basepeak * relThreshold, absThreshold)
     candidates = []
     for peak in buff:
         if (
             peak[0] > 0
+            and (peak[1] - peak[2]) > 0.0
             and (peak[1] - peak[2]) >= threshold
-            and (not peak[3] or peak[3] >= snThreshold)
+            and (peak[3] is None or peak[3] >= snThreshold)
         ):
             candidates.append(peak)
+
+    # One peak, one apex. Picking at the apex takes every local maximum, and noise
+    # on a peak's top splits it into maxima a few samples apart that would both
+    # pass (on a measured file nearly half the picked peaks were such twins).
+    # Centroiding below the apex groups them already; at the apex they are merged
+    # here (see `_merge_split_apexes`).
+    if pickingHeight >= 1.0 and len(candidates) > 1:
+        candidates = _merge_split_apexes(signal, candidates, baseline)
 
     # make centroides
     if pickingHeight < 1.0:
@@ -590,8 +633,9 @@ def labelscan(
     for peak in candidates:
         if (
             peak[0] > 0
+            and (peak[1] - peak[2]) > 0.0
             and (peak[1] - peak[2]) >= threshold
-            and (not peak[3] or peak[3] >= snThreshold)
+            and (peak[3] is None or peak[3] >= snThreshold)
         ):
             peak[4] = mod_signal.width(
                 signal, peak[0], (peak[2] + ((peak[1] - peak[2]) * 0.5))
