@@ -334,11 +334,11 @@ def test_envelope_extent_ignores_a_neighbours_signal():
 def test_envelope_extent_grows_with_mass():
     """The modelled extent is a property of the SPECIES, not a per-spectrum constant.
 
-    The averagine lambda is proportional to neutral mass, so a heavier envelope has
+    The expected isotope steps grow with neutral mass, so a heavier envelope has
     more significant isotopes and must be modelled with more of them. (Files whose
     species span a narrow mass range all come out the same length, which is correct
     but easy to mistake for a fixed number.) The count also depends on the
-    averagine model's carbon density, and -- since it is derived from the NEUTRAL
+    averagine model's composition, and -- since it is derived from the NEUTRAL
     mass -- not on the charge the species happens to be seen at.
     """
 
@@ -349,8 +349,14 @@ def test_envelope_extent_grows_with_mass():
     lengths = [extent(mz) for mz in (900.0, 1500.0, 2340.0, 3650.0, 8000.0)]
     assert lengths == sorted(lengths)
     assert lengths[0] < lengths[-1]          # genuinely mass-dependent, not fixed
-    # carbon-richer model -> heavier tail -> more isotopes at the same mass
-    assert extent(3000.0, averagine="lipid") > extent(3000.0, averagine="carbohydrate")
+    # more heavy-isotope atoms per dalton -> heavier tail -> more isotopes at the
+    # same mass (fatty acyl chains > amino acids > hexoses, whose oxygen-18 only
+    # partly makes up for their lower carbon density)
+    assert (
+        extent(8000.0, averagine="lipid")
+        > extent(8000.0, averagine="protein")
+        > extent(8000.0, averagine="carbohydrate")
+    )
     # the same neutral species is modelled identically at any charge
     assert extent(30000.0, charge=1) == extent(3000.0, charge=10)
 
@@ -460,14 +466,18 @@ def test_reconvert_keeps_detected_isotopes_beyond_the_theoretical_tail():
     Theory alone cannot settle this. On the measured files the isotope that must
     be DROPPED (a measured 1002.43, saved with six isotopes whose last two sit
     on noise) carries 0.84% of its apex, while the one that must be KEPT here is
-    smaller still at 0.39% -- so no significance cutoff separates them. The
+    smaller still at 0.52% -- so no significance cutoff separates them. The
     difference is that one was a real detected peak and the other was tail an
     older method walked onto the neighbouring noise, and after conversion the
     isotope peaks are gone from the list, so a rebuild can never re-derive it.
     That is what the recorded ``detected`` count is for.
     """
 
-    pl, profile = _deisotoped()
+    # a ~891 Da peptide whose fifth isotope is still a detected peak, one past the
+    # four its theoretical extent models
+    pl = build_envelope_peaklist(formula="C40H62N10O13", threshold=0.002)
+    profile = mspy.profile(pl, fwhm=0.05, points=20)
+    pl.deisotope(maxCharge=3, mzTolerance=0.05, intTolerance=0.5)
     pl.labelenvelopes(label="1st", signal=profile, defaultFwhm=0.05, nonIdeality=0.4)
     stored = list(pl[0].attributes["envelope"]["isotopes"])
     detected = pl[0].attributes["envelope"]["detected"]

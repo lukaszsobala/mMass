@@ -109,8 +109,9 @@ def test_two_species_not_merged_into_one_charge_series():
 
 
 def test_cluster_pattern_poisson_shape():
-    """_cluster_pattern returns a normalized, single-moded Poisson averagine slice."""
-    parent = mspy.peak(mz=2000.0, ai=1000.0, charge=1)
+    """_cluster_pattern returns a normalized, single-moded averagine slice."""
+    # below ~1.8 kDa a peptide's monoisotopic peak is still its tallest
+    parent = mspy.peak(mz=1500.0, ai=1000.0, charge=1)
     pattern = mpp._cluster_pattern(parent, size=6)
 
     assert len(pattern) == 6

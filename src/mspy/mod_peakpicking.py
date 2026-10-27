@@ -43,31 +43,22 @@ AVERAGE_AMINO = {"C": 4.9384, "H": 7.7583, "N": 1.3577, "O": 1.4773, "S": 0.0417
 AVERAGE_BASE = {"C": 9.75, "H": 12.25, "N": 3.75, "O": 6, "P": 1}
 ENVELOPE_NON_IDEALITY_DEFAULT = 0.20
 
-# Averagine models selectable for isotope-envelope modeling. Each maps a short
-# key to (a) the average building-block elemental composition used to build a
-# real isotope pattern, and (b) the Poisson "lambda factor": the expected number
-# of +1 isotopes per dalton, which the fast isotope approximation multiplies by
-# the neutral mass. The +1 spacing is dominated by 13C (1.07% natural
-# abundance), so the factor is ~ (carbons per block / block mass) * 0.0107. The
-# protein factor reproduces the historical 0.000475 constant; the others follow
-# from their carbon density (more carbon per Da -> larger factor):
-#   carbohydrate  C6H10O5 (anhydrohexose):  6 / 162.14 * 0.0107 = 0.000396
-#   lipid         C16H32O2 (fatty acyl):   16 / 256.43 * 0.0107 = 0.000668
+# Averagine models selectable for isotope-envelope modeling: each maps a short
+# key to the average building-block elemental composition of that compound
+# class. The isotope pattern of a species is built from it (see
+# `_averagine_pattern`), scaled to the species' mass.
 AVERAGINE_MODELS = {
     "protein": {
         "label": "Protein (amino acid)",
         "composition": AVERAGE_AMINO,
-        "lambdaFactor": 0.000475,
     },
     "carbohydrate": {
         "label": "Carbohydrate (hexose)",
         "composition": {"C": 6, "H": 10, "O": 5},
-        "lambdaFactor": 0.000396,
     },
     "lipid": {
         "label": "Lipid (fatty acyl)",
         "composition": {"C": 16, "H": 32, "O": 2},
-        "lambdaFactor": 0.000668,
     },
 }
 DEFAULT_AVERAGINE = "protein"
@@ -79,10 +70,79 @@ def _averagine_model(averagineType):
     return AVERAGINE_MODELS.get(averagineType, AVERAGINE_MODELS[DEFAULT_AVERAGINE])
 
 
-def _averagine_lambda(averagineType):
-    """Poisson lambda factor (expected +1 isotopes per Da) for an averagine type."""
+_AVERAGINE_RATES = {}
 
-    return _averagine_model(averagineType)["lambdaFactor"]
+
+def _averagine_rates(averagineType):
+    """Expected +1 and +2 isotope steps per dalton of an averagine type.
+
+    Every atom of the building block can carry a heavier isotope: one mass unit
+    heavier (13C, 2H, 15N, 17O, 33S) or two (18O, 34S). The number of each kind in
+    a molecule is Poisson distributed with mean (atoms) x (heavy/light abundance
+    ratio), and summing over the block per dalton gives two rates. Counting 13C
+    alone -- the old model -- left out a tenth of a peptide's +1 rate and every
+    +2 step, so real tails ran heavier than the model: +2 by a third and +3 by
+    nearly double on measured glycans, and a 4 kDa peptide's apex on the wrong
+    isotope. These two rates reproduce exact isotope patterns to about 1 %.
+    """
+
+    rates = _AVERAGINE_RATES.get(averagineType)
+    if rates is not None:
+        return rates
+    composition = _averagine_composition(averagineType)
+    blockMass = 0.0
+    step1 = 0.0
+    step2 = 0.0
+    for symbol, count in composition.items():
+        element = blocks.elements[symbol]
+        isotopes = element.isotopes
+        light = min(isotopes)
+        lightAbundance = isotopes[light][1]
+        blockMass += count * element.mass[1]
+        if lightAbundance <= 0.0:
+            continue
+        step1 += count * isotopes.get(light + 1, (0.0, 0.0))[1] / lightAbundance
+        step2 += count * isotopes.get(light + 2, (0.0, 0.0))[1] / lightAbundance
+    rates = (step1 / blockMass, step2 / blockMass) if blockMass > 0.0 else (0.0, 0.0)
+    _AVERAGINE_RATES[averagineType] = rates
+    return rates
+
+
+def _averagine_lambda(averagineType):
+    """Expected +1 isotope steps per Da of an averagine type (see `_averagine_rates`)."""
+
+    return _averagine_rates(averagineType)[0]
+
+
+def _compound_poisson(lam1, lam2, size):
+    """Isotope pattern P(k), k < size, of a species expecting `lam1` +1 steps and
+    `lam2` +2 steps: the two counts are independent Poisson variables, and isotope
+    k is every way of making k mass units from them."""
+
+    if size <= 0:
+        return []
+    lam1 = max(0.0, float(lam1))
+    lam2 = max(0.0, float(lam2))
+    if lam1 + lam2 >= 700.0:
+        return [0.0] * size
+    ones = [math.exp(-lam1)]
+    for i in range(1, size):
+        ones.append(ones[-1] * lam1 / i)
+    twos = [math.exp(-lam2)]
+    for j in range(1, size // 2 + 1):
+        twos.append(twos[-1] * lam2 / j)
+    return [
+        math.fsum(twos[j] * ones[k - 2 * j] for j in range(k // 2 + 1))
+        for k in range(size)
+    ]
+
+
+def _averagine_pattern(neutralMass, averagineType, size):
+    """Isotope pattern P(k), k < size, of an averagine species of `neutralMass`."""
+
+    rate1, rate2 = _averagine_rates(averagineType)
+    mass = max(0.0, float(neutralMass))
+    return _compound_poisson(mass * rate1, mass * rate2, size)
 
 
 def _averagine_composition(averagineType):
@@ -870,8 +930,6 @@ def _cluster_weights(cluster, averagineType=DEFAULT_AVERAGINE):
             mod_basics.mz(mono_mz, charge=0, currentCharge=parent.charge, massType=1),
             massType=1,
         )
-        lam = max(0.0, neutralMass * _averagine_lambda(averagineType))
-
         # Find maximum required isotope index
         max_iso = 30
         for i, p in enumerate(cluster):
@@ -880,14 +938,7 @@ def _cluster_weights(cluster, averagineType=DEFAULT_AVERAGINE):
                 iso_idx = i
             max_iso = max(max_iso, int(iso_idx) + 1)
 
-        pattern = []
-        p_val = math.exp(-lam) if lam < 700 else 0.0
-        for i in range(max_iso):
-            if i == 0:
-                pattern.append(p_val)
-            else:
-                p_val = p_val * (lam / i)
-                pattern.append(p_val)
+        pattern = _averagine_pattern(neutralMass, averagineType, max_iso)
 
         total = sum(pattern)
         if total > 0.0:
@@ -913,12 +964,13 @@ def _cluster_weights(cluster, averagineType=DEFAULT_AVERAGINE):
 def _cluster_poisson(cluster, averagineType=DEFAULT_AVERAGINE):
     """The averagine Poisson parameters behind `_cluster_weights` for a cluster.
 
-    Returns ``(lambda, indices)`` -- the averagine lambda for this cluster's
-    neutral mass and the isotope index of each of its peaks -- or None for a
-    cluster with no charge (whose weights come from the peak heights, not from a
-    Poisson pattern at all). Together they regenerate the same weights via
-    `_poisson_weights`, which is what lets the group fit re-derive the pattern at a
-    data-pinned lambda instead of the generic averagine one.
+    Returns ``(lambda, indices, ratio)`` -- the expected +1 steps for this
+    cluster's neutral mass, the isotope index of each of its peaks, and the ratio
+    of +2 to +1 steps of its averagine type -- or None for a cluster with no charge
+    (whose weights come from the peak heights, not from an isotope pattern at
+    all). Together they regenerate the same weights via `_poisson_weights`, which
+    is what lets the group fit re-derive the pattern at a data-pinned lambda
+    instead of the generic averagine one.
     """
 
     if not cluster:
@@ -938,7 +990,8 @@ def _cluster_poisson(cluster, averagineType=DEFAULT_AVERAGINE):
         mod_basics.mz(mono_mz, charge=0, currentCharge=parent.charge, massType=1),
         massType=1,
     )
-    lam = max(0.0, neutralMass * _averagine_lambda(averagineType))
+    rate1, rate2 = _averagine_rates(averagineType)
+    lam = max(0.0, neutralMass * rate1)
     if lam <= 0.0:
         return None
 
@@ -948,7 +1001,7 @@ def _cluster_poisson(cluster, averagineType=DEFAULT_AVERAGINE):
         if idx is None:
             idx = i
         indices.append(int(idx))
-    return (lam, indices)
+    return (lam, indices, rate2 / rate1 if rate1 > 0.0 else 0.0)
 
 
 # ----
@@ -1183,7 +1236,8 @@ def _soft_isotope_model(isotopes, x, y, fwhm, nonIdeality=None):
 
 
 def _cluster_pattern(parent, size, averagineType=DEFAULT_AVERAGINE):
-    """Get expected isotope pattern slice for parent peak using Poisson Averagine approximation."""
+    """Expected isotope pattern slice for a parent peak, apex-normalised (see
+    `_averagine_pattern`)."""
     if size <= 0:
         return []
 
@@ -1191,20 +1245,7 @@ def _cluster_pattern(parent, size, averagineType=DEFAULT_AVERAGINE):
         mod_basics.mz(parent.mz, charge=0, currentCharge=parent.charge, massType=1),
         massType=1,
     )
-
-    # Averagine Poisson approximation: expected number of +1 isotopes per Da,
-    # dominated by 13C. The factor depends on the selected averagine type's
-    # carbon density (see AVERAGINE_MODELS); protein ~ 0.000475.
-    lam = neutralMass * _averagine_lambda(averagineType)
-
-    pattern = []
-    p = math.exp(-lam) if lam < 700 else 0.0
-    for i in range(size):
-        if i == 0:
-            pattern.append(p)
-        else:
-            p = p * (lam / i)
-            pattern.append(p)
+    pattern = _averagine_pattern(neutralMass, averagineType, size)
 
     # If lambda is huge, exponential might underflow to 0. Fallback scaling:
     if sum(pattern) <= 0.0:
@@ -1597,7 +1638,7 @@ def _envelope_gaussian_column(x, isotopes, sigma):
 
 ENVELOPE_CAP_ANCHOR_FRACTION = 0.75
 ENVELOPE_CAP_CONTEST_FRACTION = 0.10
-ENVELOPE_CAP_CONTEST_MIN_FRACTION = 0.50
+ENVELOPE_CAP_CONTEST_MIN_FRACTION = 0.65
 
 # A neighbour only makes one of this envelope's peaks genuinely "contested" -- and
 # so allowed to bind the amplitude cap -- when the isotope it puts there is a real
@@ -1618,20 +1659,21 @@ ENVELOPE_CAP_CONTEST_MIN_FRACTION = 0.50
 ENVELOPE_CAP_CONTEST_NEIGHBOUR_FRACTION = 0.15
 
 # A buried envelope's major peak is trimmed to its residual (see the gated
-# residual pass in `_apportion_group_areas`) only when the neighbour dominating
-# that shared peak is itself a MINOR isotope of its own pattern -- its weight is
-# below this fraction of its apex. Below the gate the neighbour takes only a
-# small bite of the shared peak, so the residual leaves the buried species its
-# real share; above it (a light species' +1 sitting under a heavier mono) the
-# residual would crush a real labelled peak, so the shape split is kept instead.
-# Sits between the measured minor-tail cases (dominant weight ~0.20-0.37, trimmed)
-# and the major-peak case that must stay visible (test_small_envelope_under_large
-# _neighbour_keeps_fair_share, dominant weight ~0.475, left alone).
-ENVELOPE_RESIDUAL_MINOR_GATE = 0.40
+# residual pass in `_apportion_group_areas`) only when the neighbour claiming
+# that shared peak claims it with the TAIL of its own pattern -- an isotope at
+# least this many steps from the neighbour's apex. There the neighbour's claim
+# is a bite of its own shape, so the residual leaves the buried species its real
+# share; on the neighbour's apex or the isotope next to it (a light species' +1
+# sitting under a heavier mono) the residual would crush a real labelled peak,
+# so the shape split is kept instead. The distance is measured in isotopes, not
+# in weight: with real isotope patterns a +2 at 1.8 kDa is as abundant as a +1
+# at 1 kDa (both ~0.5 of their apex), so no weight separates the two cases.
+ENVELOPE_RESIDUAL_MINOR_STEPS = 2
 
 
 def _envelope_amp_cap(
-    areaColumn, x, capSignal, shaped, fwhm, otherFrac=None, neighbourStakes=None
+    areaColumn, x, capSignal, shaped, fwhm, otherFrac=None, neighbourStakes=None,
+    anchorWeights=None,
 ):
     """Largest amplitude whose modelled envelope stays under ``capSignal``.
 
@@ -1704,6 +1746,13 @@ def _envelope_amp_cap(
     the per-point fraction of the structural signal contributed by the *other*
     envelopes in the group; ``None`` (an isolated envelope, no competitors) means
     nothing is contested and only the abundant anchor binds.
+
+    Which isotopes are abundant is a property of the SPECIES. ``anchorWeights``
+    (aligned with ``shaped``) gives its theoretical pattern when ``shaped`` was
+    bent toward the data (an isolated envelope's soft model): a contaminant on
+    the +1 bends that isotope up, and judged on the bent shape the true apex can
+    drop out of the anchors -- leaving the cap anchored on the contaminant
+    itself.
     """
 
     if not shaped or areaColumn.size == 0:
@@ -1713,24 +1762,31 @@ def _envelope_amp_cap(
     wMax = max(weights) if weights else 0.0
     if wMax <= 0.0:
         return None
+    # which isotopes are the species' abundant ones (see the note above)
+    species = weights
+    if anchorWeights is not None and len(anchorWeights) == len(weights):
+        species = [max(0.0, float(w)) for w in anchorWeights]
+    speciesMax = max(species) if species else 0.0
+    if speciesMax <= 0.0:
+        species, speciesMax = weights, wMax
 
     # window half-width: wide enough to catch the real apex (which may sit a
     # fraction of the peak width off the model grid) yet far inside the isotope
     # spacing so it never samples a neighbouring isotope
     halfWin = max(0.6 * float(fwhm), 1e-3)
-    anchorWeight = ENVELOPE_CAP_ANCHOR_FRACTION * wMax
+    anchorWeight = ENVELOPE_CAP_ANCHOR_FRACTION * speciesMax
 
     cap = None
     for idx, (mz, w) in enumerate(shaped):
         # skip the near-zero tail entirely: unreliable and never a real ceiling
-        if float(w) < 0.1 * wMax:
+        if species[idx] < 0.1 * speciesMax:
             continue
         i1 = int(numpy.searchsorted(x, mz - halfWin, side="left"))
         i2 = int(numpy.searchsorted(x, mz + halfWin, side="right"))
         if i2 <= i1:
             continue
 
-        isAnchor = float(w) >= anchorWeight
+        isAnchor = species[idx] >= anchorWeight
         contested = False
         if otherFrac is not None:
             # a contested isotope may bind only if it is itself a *significant*
@@ -1784,9 +1840,8 @@ def _neighbour_stakes(k, capInfo):
     envelope's own weight at the point is small, even against a negligible
     neighbour.
 
-    This is the shared measurement behind both the cap's contested test
-    (``ENVELOPE_CAP_CONTEST_NEIGHBOUR_FRACTION``) and the residual pass's
-    discriminator (`_dominant_shared_weight`).
+    This is the measurement behind the cap's contested test
+    (``ENVELOPE_CAP_CONTEST_NEIGHBOUR_FRACTION``).
     """
 
     shaped, fwhm = capInfo[k]
@@ -1809,32 +1864,46 @@ def _neighbour_stakes(k, capInfo):
     return stakes
 
 
-def _dominant_shared_weight(k, capInfo, x):
-    """Largest apex-relative weight any OTHER envelope has at one of envelope k's
-    own MAJOR isotopes -- the "signal 1" residual discriminator.
+def _dominant_shared_steps(k, capInfo):
+    """How close to its own apex a neighbour claims one of envelope k's MAJOR
+    isotopes -- the "signal 1" residual discriminator.
 
     For each of k's significant peaks (weight >= ``ENVELOPE_CAP_CONTEST_MIN_FRACTION``
-    of its apex) we take that neighbour's own apex-relative weight at the same m/z
-    (`_neighbour_stakes`). A small result means k's major peak sits on a
-    neighbour's MINOR tail (the neighbour takes only a small bite, so trimming k to
-    the residual leaves it its fair share); a large result means it sits on a
-    neighbour's MAJOR peak (a light species' +1 under a heavier mono), where the
-    residual would crush a real labelled peak. Returns 0.0 when nothing competes at
-    k's major peaks.
+    of its apex) and each other envelope that genuinely claims it (its own
+    apex-relative weight there at least ``ENVELOPE_CAP_CONTEST_NEIGHBOUR_FRACTION``,
+    as in `_neighbour_stakes`), the distance in isotopes from that neighbour's
+    apex. Returns the smallest such distance, or None when nothing competes at
+    k's major peaks. A large distance means k's major peak sits on a neighbour's
+    TAIL (trimming k to the residual leaves it its fair share); 0 or 1 means it
+    sits on the neighbour's apex region (a light species' +1 under a heavier
+    mono), where the residual would crush a real labelled peak.
     """
 
-    shaped, _fwhm = capInfo[k]
+    shaped, fwhm = capInfo[k]
     if not shaped:
-        return 0.0
+        return None
     wMax = max((float(w) for _mz, w in shaped), default=0.0) or 1.0
-    stakes = _neighbour_stakes(k, capInfo)
-    worst = 0.0
-    for (_mz, w), stake in zip(shaped, stakes, strict=True):
+    halfWin = max(0.6 * float(fwhm), 1e-3)
+    nearest = None
+    for mz, w in shaped:
         if float(w) < ENVELOPE_CAP_CONTEST_MIN_FRACTION * wMax:
             continue
-        if stake > worst:
-            worst = stake
-    return worst
+        for j, (shpJ, _fwhmJ) in enumerate(capInfo):
+            if j == k or not shpJ:
+                continue
+            ordered = sorted((float(m), float(wj)) for m, wj in shpJ)
+            weightsJ = [wj for _m, wj in ordered]
+            wMaxJ = max(weightsJ) or 1.0
+            apexJ = weightsJ.index(max(weightsJ))
+            for index, (mzj, wj) in enumerate(ordered):
+                if abs(mzj - float(mz)) > halfWin:
+                    continue
+                if wj / wMaxJ < ENVELOPE_CAP_CONTEST_NEIGHBOUR_FRACTION:
+                    continue
+                steps = abs(index - apexJ)
+                if nearest is None or steps < nearest:
+                    nearest = steps
+    return nearest
 
 
 def _has_unshared_major(k, capInfo, otherFrac, x):
@@ -1869,7 +1938,7 @@ def _has_unshared_major(k, capInfo, otherFrac, x):
 
 # How far the per-envelope Poisson lambda may be re-fit away from the averagine
 # prediction, as a fraction of it (see `_refit_poisson_lambda`). Averagine gives
-# lambda = mass * lambdaFactor from a single generic carbon density, so it is a
+# lambda from a single generic building-block composition, so it is a
 # class average, not this analyte: the three shipped models already disagree by
 # -17%/+41% about the same 1030 Da species, and a real molecule can sit outside
 # all three. The band is wide enough that the data may pull the shape across that
@@ -1901,14 +1970,16 @@ ENVELOPE_LAMBDA_REFIT_MIN_WEIGHT = 0.05
 ENVELOPE_LAMBDA_REFIT_MIN_OWNERSHIP = 0.5
 
 
-def _poisson_weights(indices, lam):
-    """Averagine isotope weights at an arbitrary Poisson ``lam``.
+def _poisson_weights(indices, lam, ratio=0.0):
+    """Averagine isotope weights at an arbitrary ``lam`` (+1 steps expected).
 
-    Mirrors `_cluster_weights` exactly -- the same 30-term pattern, the same
-    normalisation by the *full* pattern sum rather than by the selected slice --
-    so swapping ``lam`` is the only difference between the two. Keeping the
-    normalisation identical is what makes areas fitted at a re-fit lambda directly
-    comparable to averagine ones.
+    ``ratio`` is the averagine type's +2 to +1 step ratio, so the +2 steps scale
+    with ``lam`` -- a re-fit lambda stands for a lighter or heavier species of the
+    same composition. Mirrors `_cluster_weights` exactly -- the same 30-term
+    pattern, the same normalisation by the *full* pattern sum rather than by the
+    selected slice -- so swapping ``lam`` is the only difference between the two.
+    Keeping the normalisation identical is what makes areas fitted at a re-fit
+    lambda directly comparable to averagine ones.
     """
 
     lam = max(0.0, float(lam))
@@ -1916,14 +1987,7 @@ def _poisson_weights(indices, lam):
     for idx in indices:
         maxIso = max(maxIso, int(idx) + 1)
 
-    pattern = []
-    value = math.exp(-lam) if lam < 700 else 0.0
-    for i in range(maxIso):
-        if i == 0:
-            pattern.append(value)
-        else:
-            value = value * (lam / i)
-            pattern.append(value)
+    pattern = _compound_poisson(lam, lam * max(0.0, float(ratio)), maxIso)
 
     total = sum(pattern)
     if total <= 0.0:
@@ -1935,13 +1999,13 @@ def _poisson_weights(indices, lam):
 
 
 def _refit_poisson_lambda(
-    positions, indices, lamAveragine, x, observed, residual, fwhm
+    positions, indices, lamAveragine, x, observed, residual, fwhm, ratio=0.0
 ):
     """Re-fit an envelope's Poisson lambda to its own (de-blended) signal.
 
-    Averagine sets ``lam = mass * lambdaFactor`` from a generic carbon density, and
-    the whole isotope pattern follows from that one number: ``w_i = e^-lam lam^i /
-    i!``. So an error in lam does not just tilt the pattern, it *compounds along
+    Averagine sets ``lam`` (the expected +1 steps, with the +2 steps in a fixed
+    ratio to them) from a generic composition, and the whole isotope pattern
+    follows from that one number (see `_averagine_pattern`). So an error in lam does not just tilt the pattern, it *compounds along
     it* -- the relative error in ``w_i`` grows like ``i``. The monoisotopic and +1
     peaks are therefore the trustworthy part of a modelled envelope, the +2/+3 tail
     the speculative part. That matters most where an envelope's tail lands on a
@@ -1957,7 +2021,7 @@ def _refit_poisson_lambda(
 
     Two things make this safe where free per-isotope soft-modelling (`nonIdeality`,
     deliberately inert in a crowd) is not. The family is a strict one-parameter
-    Poisson, so the shape cannot bend a single tail weight up onto a neighbour's
+    one (the averagine composition, scaled), so the shape cannot bend a single tail weight up onto a neighbour's
     peak -- it can only slide along the physical carbon-count axis, and any move
     that inflates the tail must lower the mono in the same breath. And the search
     is confined to ``ENVELOPE_LAMBDA_REFIT_BAND`` around averagine, so the result
@@ -1994,7 +2058,7 @@ def _refit_poisson_lambda(
     if lamAveragine <= 0.0 or len(indices) < 2 or len(x) == 0:
         return None
 
-    baseWeights = _poisson_weights(indices, lamAveragine)
+    baseWeights = _poisson_weights(indices, lamAveragine, ratio)
     if not baseWeights:
         return None
     wMax = max(baseWeights)
@@ -2036,7 +2100,7 @@ def _refit_poisson_lambda(
     lo = lamAveragine * (1.0 - ENVELOPE_LAMBDA_REFIT_BAND)
     hi = lamAveragine
     for lam in numpy.linspace(lo, hi, ENVELOPE_LAMBDA_REFIT_STEPS):
-        trial = _poisson_weights(isoIdx, lam)
+        trial = _poisson_weights(isoIdx, lam, ratio)
         if not trial:
             continue
         model = numpy.array(trial, dtype=float)
@@ -2058,7 +2122,7 @@ def _refit_poisson_lambda(
     return best
 
 
-def _apportion_group_areas(areaColumns, apexColumns, x, y, capInfo=None):
+def _apportion_group_areas(areaColumns, apexColumns, x, y, capInfo=None, anchorInfo=None):
     """Split the observed signal among overlapping envelopes, then fit each area.
 
     Two column sets are supplied per envelope:
@@ -2123,7 +2187,7 @@ def _apportion_group_areas(areaColumns, apexColumns, x, y, capInfo=None):
     the neighbours' own fitted contribution) can support, so the summed model pokes
     above the curve at that peak even though the group integral is bounded. Each
     such envelope is re-fit to that residual and trimmed to it (never raised).
-    ``_dominant_shared_weight`` and ``_has_unshared_major`` gate it so it fires only
+    ``_dominant_shared_steps`` and ``_has_unshared_major`` gate it so it fires only
     where the residual equals the fair share -- a neighbour that takes only a small
     minor-tail bite, or an envelope with its own unshared major peak to pin it --
     and never on a light species' +1 buried under a heavier mono, which the shape
@@ -2211,6 +2275,7 @@ def _apportion_group_areas(areaColumns, apexColumns, x, y, capInfo=None):
                     fwhm,
                     otherFrac=otherFracs[k],
                     neighbourStakes=neighbourStakes[k],
+                    anchorWeights=anchorInfo[k] if anchorInfo is not None else None,
                 )
                 if cap is not None:
                     amp = min(amp, cap)
@@ -2238,7 +2303,7 @@ def _apportion_group_areas(areaColumns, apexColumns, x, y, capInfo=None):
     # an envelope to its residual. Guarded so it fires only where residual == fair
     # share:
     #   * the neighbour dominating this envelope's major peak must itself be a
-    #     MINOR isotope there (`_dominant_shared_weight` below the gate) -- a small
+    #     TAIL isotope there (`_dominant_shared_steps` at least the gate) -- a small
     #     bite that leaves the buried species its real share; OR
     #   * the envelope must own an unshared major peak (`_has_unshared_major`) that
     #     independently pins its size, so the residual is trustworthy even against
@@ -2259,7 +2324,8 @@ def _apportion_group_areas(areaColumns, apexColumns, x, y, capInfo=None):
             shaped, _fwhm = capInfo[k]
             if not shaped:
                 continue
-            gentle = _dominant_shared_weight(k, capInfo, x) < ENVELOPE_RESIDUAL_MINOR_GATE
+            steps = _dominant_shared_steps(k, capInfo)
+            gentle = steps is None or steps >= ENVELOPE_RESIDUAL_MINOR_STEPS
             if not (gentle or _has_unshared_major(k, capInfo, otherFracs[k], x)):
                 continue
             # residual = observed minus every OTHER envelope's fitted contribution
@@ -2469,6 +2535,9 @@ def _fit_group_areas(metas, x, y, nonIdeality, refinePattern=True):
     areaColumns = []
     apexColumns = []
     capInfo = []
+    # the theoretical pattern of an envelope whose shape was bent toward the data,
+    # so its amplitude cap judges the species' abundant isotopes, not the bent ones
+    anchorInfo = [None] * K
     for k, (fwhm, sigma, isotopes, storedShape, _poisson) in enumerate(metas):
         if not norm_ok[k]:
             areaColumns.append(numpy.zeros(len(x), dtype=float))
@@ -2511,6 +2580,8 @@ def _fit_group_areas(metas, x, y, nonIdeality, refinePattern=True):
         if K == 1 and (storedShape is None or _is_regular_isotope_grid(storedShape)):
             shaped = _soft_isotope_model(isotopes, x, y, fwhm, nonIdeality=nonIdeality)
             shapes[k] = shaped
+            # _soft_isotope_model returns the isotopes in m/z order
+            anchorInfo[k] = [float(w) for _mz, w in sorted(isotopes)]
         elif storedShape is not None and not _is_regular_isotope_grid(storedShape):
             shaped = storedShape
             shapes[k] = shaped
@@ -2535,7 +2606,9 @@ def _fit_group_areas(metas, x, y, nonIdeality, refinePattern=True):
         # against this envelope's own apportioned share at its isotope apexes
         capInfo.append((shaped, fwhm))
 
-    areas = _apportion_group_areas(areaColumns, apexColumns, x, y, capInfo=capInfo)
+    areas = _apportion_group_areas(
+        areaColumns, apexColumns, x, y, capInfo=capInfo, anchorInfo=anchorInfo
+    )
 
     # Data-pinned isotope pattern (one damped refinement step).
     #
@@ -2563,7 +2636,7 @@ def _fit_group_areas(metas, x, y, nonIdeality, refinePattern=True):
         for k, (fwhm, sigma, isotopes, _storedShape, poisson) in enumerate(metas):
             if not (norm_ok[k] and onAveragine[k]) or not poisson:
                 continue
-            lamAveragine, indices = poisson
+            lamAveragine, indices, ratio = poisson
             # this envelope alone: observed minus every OTHER envelope's model
             residual = numpy.clip(
                 yy - (frozen - max(0.0, float(areas[k])) * areaColumns[k]), 0.0, None
@@ -2576,10 +2649,11 @@ def _fit_group_areas(metas, x, y, nonIdeality, refinePattern=True):
                 yy,
                 residual,
                 fwhm,
+                ratio=ratio,
             )
             if lam is None:
                 continue
-            weights = _poisson_weights(indices, lam)
+            weights = _poisson_weights(indices, lam, ratio)
             if not weights or max(weights) <= 0.0:
                 continue
             shaped = [
@@ -2593,7 +2667,7 @@ def _fit_group_areas(metas, x, y, nonIdeality, refinePattern=True):
 
         if refit:
             areas = _apportion_group_areas(
-                areaColumns, apexColumns, x, y, capInfo=capInfo
+                areaColumns, apexColumns, x, y, capInfo=capInfo, anchorInfo=anchorInfo
             )
 
     return areas, shapes
@@ -3980,8 +4054,7 @@ def _isotope_pattern_at_mass(neutralMass, averagineType=DEFAULT_AVERAGINE, size=
     """Apex-normalized isotope pattern for a neutral mass and averagine type.
 
     Protein uses the precomputed real-averagine lookup table (unchanged); the
-    other types use the Poisson +1 approximation scaled by their carbon density
-    (see AVERAGINE_MODELS). Only ratios between adjacent isotopes are used by the
+    other types build the pattern from their composition (`_averagine_pattern`). Only ratios between adjacent isotopes are used by the
     caller, so the apex normalization here matches the lookup table convention.
     """
 
@@ -3989,15 +4062,7 @@ def _isotope_pattern_at_mass(neutralMass, averagineType=DEFAULT_AVERAGINE, size=
         idx = int(min(15000, int(max(0.0, neutralMass))) / 200)
         return patternLookupTable[idx]
 
-    lam = max(0.0, neutralMass * _averagine_lambda(averagineType))
-    pattern = []
-    p = math.exp(-lam) if lam < 700 else 0.0
-    for i in range(size):
-        if i == 0:
-            pattern.append(p)
-        else:
-            p = p * (lam / i)
-            pattern.append(p)
+    pattern = _averagine_pattern(neutralMass, averagineType, size)
 
     apex = max(pattern) if pattern else 0.0
     if apex <= 0.0:
