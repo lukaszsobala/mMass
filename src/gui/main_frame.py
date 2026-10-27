@@ -552,6 +552,9 @@ class mainFrame(wx.Frame):
             ID_viewPeaklistColumnEnvArea, "Env. Area", "", wx.ITEM_CHECK
         )
         viewPeaklistColumns.Append(
+            ID_viewPeaklistColumnEnvErr, "Env. Area Uncertainty", "", wx.ITEM_CHECK
+        )
+        viewPeaklistColumns.Append(
             ID_viewPeaklistColumnEnvInt, "Summed Env. Intensity", "", wx.ITEM_CHECK
         )
         viewPeaklistColumns.Append(ID_viewPeaklistColumnFwhm, "FWHM", "", wx.ITEM_CHECK)
@@ -649,6 +652,9 @@ class mainFrame(wx.Frame):
             wx.EVT_MENU, self.onViewPeaklistColumns, id=ID_viewPeaklistColumnEnvArea
         )
         self.Bind(
+            wx.EVT_MENU, self.onViewPeaklistColumns, id=ID_viewPeaklistColumnEnvErr
+        )
+        self.Bind(
             wx.EVT_MENU, self.onViewPeaklistColumns, id=ID_viewPeaklistColumnEnvInt
         )
         self.Bind(wx.EVT_MENU, self.onViewPeaklistColumns, id=ID_viewPeaklistColumnFwhm)
@@ -742,6 +748,10 @@ class mainFrame(wx.Frame):
         self.menubar.Check(
             ID_viewPeaklistColumnEnvArea,
             bool("envarea" in config.main["peaklistColumns"]),
+        )
+        self.menubar.Check(
+            ID_viewPeaklistColumnEnvErr,
+            bool("enverr" in config.main["peaklistColumns"]),
         )
         self.menubar.Check(
             ID_viewPeaklistColumnEnvInt,
@@ -3715,6 +3725,7 @@ class mainFrame(wx.Frame):
             ID_viewPeaklistColumnZ: "z",
             ID_viewPeaklistColumnMass: "mass",
             ID_viewPeaklistColumnEnvArea: "envarea",
+            ID_viewPeaklistColumnEnvErr: "enverr",
             ID_viewPeaklistColumnEnvInt: "envint",
             ID_viewPeaklistColumnFwhm: "fwhm",
             ID_viewPeaklistColumnResol: "resol",

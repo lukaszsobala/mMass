@@ -92,9 +92,14 @@ def test_envelope_metadata_shape():
     pl.labelenvelopes(label="1st", signal=profile, defaultFwhm=0.05, nonIdeality=0.4)
     env = pl[0].attributes["envelope"]
 
+    # fitted against a profile, so it also carries the area uncertainty and the
+    # local pedestal it was measured above
     assert set(env.keys()) == {
         "area", "sumint", "fwhm", "shape", "isotopes", "averagineType", "detected",
+        "areaError", "pedestal",
     }
+    assert env["areaError"] >= 0.0
+    assert env["pedestal"] and all(len(point) == 2 for point in env["pedestal"])
     assert env["shape"] == "gaussian"
     assert env["area"] > 0.0
     assert env["sumint"] > 0.0

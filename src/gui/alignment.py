@@ -26,6 +26,8 @@ Deliberately free of wxPython and of gui.config so it can be unit tested
 headlessly: everything it needs arrives as arguments.
 """
 
+import math
+
 # ALIGNED PEAK TABLE
 # ------------------
 
@@ -62,6 +64,7 @@ PEAK_COLUMNS = [
     ("fwhm", "FWHM"),
     ("resol", "Resolution"),
     ("envarea", "Envelope area"),
+    ("enverr", "Envelope area uncertainty"),
     ("envint", "Envelope int. sum"),
     ("group", "Peak group"),
     ("label", "Label"),
@@ -198,6 +201,9 @@ def peakValue(peak, column, mz=None, reference=None):
 
     if column == "envarea":
         return _envelope(peak).get("area")
+
+    if column == "enverr":
+        return _envelope(peak).get("areaError")
 
     if column == "envint":
         return _envelope(peak).get("sumint")
@@ -342,6 +348,12 @@ def _cell(entry, column, reference):
     """One cell for a (mz, peak, members) entry."""
 
     mz, peak, members = entry
+
+    # independent uncertainties of summed areas add in quadrature
+    if len(members) > 1 and column == "enverr":
+        values = [peakValue(member, column) for member in members]
+        values = [value for value in values if value is not None]
+        return math.sqrt(sum(value * value for value in values)) if values else None
 
     if len(members) > 1 and column in ADDITIVE_COLUMNS:
         values = [peakValue(member, column) for member in members]

@@ -776,8 +776,14 @@ def labelenvelope(
 # ----
 
 
-def envelopeprofile(envelope, raster=None, points=30):
-    """Make Gaussian profile for one envelope metadata dict."""
+def envelopeprofile(envelope, raster=None, points=30, onPedestal=False):
+    """Make Gaussian profile for one envelope metadata dict.
+
+    onPedestal (bool) - lay the envelope on the local pedestal its area was
+        measured above (the "pedestal" stored with it, see `envelopepedestal`),
+        as it sits in the spectrum. Without it the profile starts at zero and
+        integrates to the area.
+    """
 
     if not envelope:
         return numpy.array([])
@@ -808,7 +814,26 @@ def envelopeprofile(envelope, raster=None, points=30):
         amplitude = area * float(weight) / norm
         y += amplitude * numpy.exp(-0.5 * ((raster - float(mz)) / sigma) ** 2)
 
+    if onPedestal:
+        y += envelopepedestal(envelope, raster)[:, 1]
+
     return numpy.column_stack((raster, y))
+
+
+def envelopepedestal(envelope, raster):
+    """The local pedestal an envelope's area was measured above, on `raster`.
+
+    Returns (mz, level) rows; the level is zero everywhere for an envelope that
+    carries no pedestal (fitted without a profile, or saved by an older version).
+    """
+
+    raster = numpy.asarray(raster, dtype=float)
+    pedestal = envelope.get("pedestal") if envelope else None
+    if not pedestal:
+        return numpy.column_stack((raster, numpy.zeros(len(raster), dtype=float)))
+    mzs = [float(point[0]) for point in pedestal]
+    levels = [float(point[1]) for point in pedestal]
+    return numpy.column_stack((raster, numpy.interp(raster, mzs, levels)))
 
 
 # ----
@@ -2106,7 +2131,11 @@ def _apportion_group_areas(areaColumns, apexColumns, x, y, capInfo=None):
     if K == 0 or len(x) == 0:
         return [0.0] * K
 
-    yy = numpy.clip(y, 0.0, None)
+    # The signal above the local pedestal, NOT clipped at zero: the amplitudes are
+    # least-squares fits and the group budget an integral, both linear in the
+    # data, so noise below zero must count against noise above it. Clipping it
+    # would read the noise as signal and inflate every weak envelope.
+    yy = numpy.asarray(y, dtype=float)
 
     # structural competition per envelope: at each point, the fraction of the
     # (abundance-normalised) signal contributed by the OTHER envelopes in the
@@ -2554,19 +2583,465 @@ def _fit_group_areas(metas, x, y, nonIdeality, refinePattern=True):
 # ----
 
 
+# LOCAL PEDESTAL AND AREA UNCERTAINTY
+#
+# Envelope areas are fitted to the signal above a smooth local PEDESTAL, which is
+# estimated per overlap group together with the envelopes themselves:
+#
+#     y = sum_k a_k * envelope_k + pedestal(x) + noise (+ unlabelled peaks)
+#
+# The pedestal is whatever the envelopes cannot explain and varies slowly: a
+# leftover spectrum baseline, chemical noise, the deliberate offset the baseline
+# correction leaves behind. Fitting it locally makes the area independent of how
+# (or whether) the user corrected the baseline, and -- because the envelopes are
+# in the same fit -- it still works where peaks leave no clean gap to read the
+# baseline from (a crowded low-resolution region, where the spectrum-wide median
+# baseline rides up into the peaks). Once subtracted, the existing apportionment
+# runs unchanged on what is left.
+
+# m/z between the knots of a piecewise-linear pedestal; a group window up to this
+# wide gets a single straight line
+ENVELOPE_PEDESTAL_KNOT_SPACING = 20.0
+
+# a point more than this many noise sigmas ABOVE the fitted model is an
+# unlabelled peak and does not inform the pedestal (nor does one this far BELOW
+# the model inside a modelled peak -- an isotope pattern that is not quite
+# averagine); below the model off the peaks it is kept: it is the baseline
+ENVELOPE_PEDESTAL_OUTLIER_SIGMAS = 2.5
+ENVELOPE_PEDESTAL_MAX_ITERATIONS = 10
+
+# a window with at least this share of its points on one lowest value has a
+# floor (clipped, zero-filled or counting data) and the floor is the pedestal
+ENVELOPE_PEDESTAL_FLOOR_FRACTION = 0.2
+
+# The area uncertainty is read from the noise of the group fit's residual at the
+# points no envelope reaches -- those where the fitted envelopes stay below this
+# fraction of their maximum (with fewer than ENVELOPE_NOISE_MIN_POINTS of them,
+# every point counts)
+ENVELOPE_NOISE_OFFPEAK_FRACTION = 0.01
+ENVELOPE_NOISE_MIN_POINTS = 20
+
+# the noise correlation between neighbouring points (an oversampled or smoothed
+# profile) is followed out to the first lag where it drops below this
+ENVELOPE_NOISE_MIN_CORRELATION = 0.05
+ENVELOPE_NOISE_MAX_LAG = 64
+
+
+class _GroupPedestal:
+    """The pedestal fitted under one overlap group, and how it depends on the
+    data (which the area uncertainty needs: the pedestal is read from the same
+    noisy points as the envelopes)."""
+
+    def __init__(self, level, basis, projection, floored):
+        self.level = level  # pedestal at every window point
+        self.floored = floored  # points that sat on a floor (see _fit_group_pedestal)
+        self.basis = basis  # n x nb: pedestal = basis @ coefficients
+        self._projection = projection  # nb x n: coefficients = projection @ y
+
+    def propagate(self, weights):
+        """Turn a linear estimator `amp = weights . y` of the signal ABOVE the
+        pedestal into the equivalent estimator of the raw signal, so its variance
+        also carries the pedestal's own uncertainty."""
+
+        return weights - self._projection.T @ (self.basis.T @ weights)
+
+
+def _pedestal_basis(x):
+    """Smooth pedestal basis over a group window (columns, n x nb).
+
+    A straight line for a window up to ENVELOPE_PEDESTAL_KNOT_SPACING wide --
+    almost every group -- and beyond that a piecewise-linear curve (hat functions
+    on evenly spaced knots), so a wide crowd can follow a curved baseline without
+    one far end dictating the other.
+    """
+
+    n = len(x)
+    lo = float(x[0])
+    hi = float(x[-1])
+    span = hi - lo
+    if n < 2 or span <= 0.0:
+        return numpy.ones((n, 1), dtype=float)
+    segments = max(1, int(math.ceil(span / ENVELOPE_PEDESTAL_KNOT_SPACING)))
+    if segments == 1:
+        t = (x - 0.5 * (lo + hi)) / (0.5 * span)
+        return numpy.column_stack((numpy.ones(n, dtype=float), t))
+    knots = numpy.linspace(lo, hi, segments + 1)
+    step = knots[1] - knots[0]
+    return numpy.column_stack(
+        [numpy.clip(1.0 - numpy.abs(x - knot) / step, 0.0, None) for knot in knots]
+    )
+
+
+def _local_gaussian_column(x, isotopes, sigma, reach=8.0):
+    """`_envelope_gaussian_column`, evaluated only within `reach` sigmas of each
+    isotope (beyond that a Gaussian is below 1e-14 of its apex). The pedestal fit
+    builds many columns over wide windows; this keeps it cheap."""
+
+    column = numpy.zeros(len(x), dtype=float)
+    norm = sigma * math.sqrt(2.0 * math.pi)
+    if norm <= 0.0:
+        return column
+    for mz, weight in isotopes:
+        mz = float(mz)
+        i1 = int(numpy.searchsorted(x, mz - reach * sigma, side="left"))
+        i2 = int(numpy.searchsorted(x, mz + reach * sigma, side="right"))
+        if i1 < i2:
+            column[i1:i2] += (float(weight) / norm) * numpy.exp(
+                -0.5 * ((x[i1:i2] - mz) / sigma) ** 2
+            )
+    return column
+
+
+def _pedestal_columns(x, members):
+    """Envelope columns the pedestal is fitted against.
+
+    `members` holds (isotopes, sigma) per envelope of the group. An isolated
+    envelope gets one free column per isotope, so a pattern that is not quite
+    averagine is still matched exactly and none of the mismatch leaks into the
+    pedestal. Overlapping envelopes keep one rigid column each: free isotopes of
+    several interleaved envelopes form a comb dense enough to imitate a flat
+    pedestal, and the fixed patterns are what keeps the two apart.
+    """
+
+    if len(members) == 1:
+        isotopes, sigma = members[0]
+        positions = []
+        for mz, _weight in sorted(isotopes):
+            # positions closer than a quarter of the FWHM (0.6 sigma) cannot be
+            # told apart
+            if positions and float(mz) - positions[-1] < 0.6 * sigma:
+                continue
+            positions.append(float(mz))
+        columns = [_local_gaussian_column(x, [(mz, 1.0)], sigma) for mz in positions]
+    else:
+        columns = [
+            _local_gaussian_column(x, isotopes, sigma) for isotopes, sigma in members
+        ]
+    return [column for column in columns if numpy.any(column > 0.0)]
+
+
+def _robust_sigma(values, floored=None):
+    """Noise sigma of fit residuals, read from their LOWER side.
+
+    The residuals are taken about zero -- the fitted pedestal plus envelopes.
+    Whatever the model misses (an unlabelled peak, a shoulder, chemical noise)
+    only ever ADDS signal, so it sits on the upper side, and in a busy window it
+    can be most of the points there. Below zero there is noise alone. So the
+    spread is read from the residuals below zero together with the same number
+    of the SMALLEST residuals above it -- the noise's own upper half -- and the
+    large positive ones, the structure, never enter.
+
+    `floored` marks points that sat on a floor (noise clipped at zero, a
+    zero-filled profile): they are known only to lie below it, so they count
+    towards the lower half without a magnitude. Too few points below zero to
+    tell (noise-free or nearly empty data) falls back to the plain MAD.
+    """
+
+    values = numpy.asarray(values, dtype=float)
+    if len(values) == 0:
+        return 0.0
+    if floored is None or len(floored) != len(values):
+        floored = numpy.zeros(len(values), dtype=bool)
+    below = values[(values < 0.0) & ~floored]
+    lowerCount = len(below) + int(numpy.count_nonzero(floored))
+    if lowerCount < 5:
+        return 1.4826 * float(numpy.median(numpy.abs(values - numpy.median(values))))
+    above = numpy.sort(values[(values >= 0.0) & ~floored])[:lowerCount]
+    magnitudes = numpy.concatenate((-below, above))
+    if len(magnitudes) == 0:
+        return 0.0
+    return 1.4826 * float(numpy.median(magnitudes))
+
+
+def _fit_group_pedestal(x, y, columns):
+    """Fit the local pedestal under one overlap group (see above).
+
+    Least squares of the envelope `columns` plus a smooth pedestal basis, iterated
+    so the pedestal ignores what the envelopes cannot explain: a point well above
+    the model is an unlabelled peak, and a point well below it INSIDE a modelled
+    peak is a pattern that is not quite averagine -- neither says anything about
+    the baseline. Returns a `_GroupPedestal`, or None when the window holds too few
+    points to tell the pedestal from the envelopes.
+    """
+
+    n = len(x)
+    nColumns = len(columns)
+    if n < nColumns + 5:
+        return None
+
+    # points on a floor: their residual only bounds the noise from above, so they
+    # are ranked apart when the outlier threshold is read (see _robust_sigma)
+    floorValue = float(numpy.min(y))
+    floored = y <= floorValue + 1e-12 * max(1.0, float(numpy.max(numpy.abs(y))))
+    if numpy.count_nonzero(floored) <= 1:
+        floored = numpy.zeros(n, dtype=bool)
+
+    if numpy.count_nonzero(floored) >= ENVELOPE_PEDESTAL_FLOOR_FRACTION * n:
+        # The data has a floor: noise clipped at zero by a baseline correction,
+        # a profile the instrument zero-filled between peaks, ion counts. Whoever
+        # put the floor there put it at the baseline, so the floor IS the
+        # pedestal. Fitting one instead would read the mean of the noise left
+        # above the floor (its lower half is gone) as baseline and shave that
+        # much off every weak envelope.
+        level = numpy.full(n, floorValue, dtype=float)
+        basis = numpy.zeros((n, 0), dtype=float)
+        projection = numpy.zeros((0, n), dtype=float)
+    else:
+        basis = _pedestal_basis(x)
+        design = numpy.column_stack(list(columns) + [basis]) if columns else basis
+        parameters = design.shape[1]
+        if n < parameters + 3:
+            return None
+
+        # The fit is solved through its small (parameters x parameters) normal
+        # equations: formed once over the whole window, then only the rows an
+        # iteration drops are taken back out. A window can hold thousands of
+        # points against a few dozen parameters, and this keeps every iteration
+        # at the cost of the rows that change.
+        gram = design.T @ design
+        moment = design.T @ y
+
+        def _solve(gramKeep, momentKeep):
+            return numpy.linalg.lstsq(gramKeep, momentKeep, rcond=None)[0]
+
+        # noise-free data has no spread to measure; anything above round-off counts
+        floor = 1e-9 * float(numpy.max(numpy.abs(y))) if n else 0.0
+        keep = numpy.ones(n, dtype=bool)
+        gramKeep, momentKeep = gram, moment
+        for _iteration in range(ENVELOPE_PEDESTAL_MAX_ITERATIONS):
+            coefficients = _solve(gramKeep, momentKeep)
+            residual = y - design @ coefficients
+            envelopes = design[:, :nColumns] @ coefficients[:nColumns] if nColumns else 0.0
+            threshold = ENVELOPE_PEDESTAL_OUTLIER_SIGMAS * max(
+                _robust_sigma(residual[keep], floored[keep]), floor
+            )
+            if threshold <= 0.0:
+                break
+            unexplained = residual > threshold
+            overshot = (residual < -threshold) & (envelopes > threshold)
+            nextKeep = ~(unexplained | overshot)
+            if numpy.count_nonzero(nextKeep) < parameters + 3 or numpy.array_equal(nextKeep, keep):
+                break
+            keep = nextKeep
+            dropped = design[~keep]
+            gramKeep = gram - dropped.T @ dropped
+            momentKeep = moment - dropped.T @ y[~keep]
+
+        # how the pedestal coefficients depend on the data (zero at dropped
+        # points): the pedestal rows of (A^T A)^-1 A^T over the kept points
+        inverse = numpy.linalg.pinv(gramKeep)
+        projection = numpy.zeros((basis.shape[1], n), dtype=float)
+        projection[:, keep] = inverse[nColumns:, :] @ design[keep].T
+        level = basis @ (projection @ y)
+
+    return _GroupPedestal(level, basis, projection, floored)
+
+
+def _roughness_sigma(residual, mask):
+    """Noise sigma from point-to-point roughness: the MAD of second differences
+    over runs of `mask`ed points. Anything smooth on the scale of a few points --
+    a peak, a shoulder, a slow background -- barely registers, so this reads the
+    noise where its LEVEL cannot be read (see `_noise_sigma`); for a smoothed
+    profile it reads low."""
+
+    triple = mask[:-2] & mask[1:-1] & mask[2:]
+    if numpy.count_nonzero(triple) < 10:
+        return 0.0
+    second = (residual[:-2] - 2.0 * residual[1:-1] + residual[2:])[triple]
+    return 1.4826 * float(numpy.median(numpy.abs(second - numpy.median(second)))) / math.sqrt(6.0)
+
+
+def _noise_sigma(residual, mask, floored):
+    """Noise sigma of the group fit's residual at the `mask`ed (off-peak) points.
+
+    Read from the lower side of the residual (`_robust_sigma`), so an unlabelled
+    peak or a shoulder -- which only add signal -- does not pass for noise. On
+    data with a floor the floored points stand in for the lower half; but where
+    MORE points sit on the floor than above it, the floor was laid above the
+    noise (a baseline cut deeper than the noise, then smoothed): what rises above
+    it is structure, the noise level is gone, and only its point-to-point
+    roughness is left to read.
+    """
+
+    values = residual[mask]
+    flooredHere = floored[mask]
+    nFloored = int(numpy.count_nonzero(flooredHere))
+    nAbove = int(numpy.count_nonzero((values >= 0.0) & ~flooredHere))
+    if nFloored > nAbove and nFloored >= ENVELOPE_PEDESTAL_FLOOR_FRACTION * len(values):
+        return _roughness_sigma(residual, mask & ~floored)
+    return _robust_sigma(values, flooredHere)
+
+
+def _noise_correlation(residual, mask):
+    """Correlation of the noise between points 1, 2, ... apart, read from the
+    residual at the `mask`ed points, up to the first lag where it fades."""
+
+    if numpy.count_nonzero(mask) < 10:
+        return []
+    centred = residual - float(numpy.mean(residual[mask]))
+    power = float(numpy.mean(centred[mask] ** 2))
+    if power <= 0.0:
+        return []
+    correlation = []
+    for lag in range(1, min(ENVELOPE_NOISE_MAX_LAG, len(residual) // 4) + 1):
+        pairs = mask[:-lag] & mask[lag:]
+        if numpy.count_nonzero(pairs) < 10:
+            break
+        rho = float(numpy.mean(centred[:-lag][pairs] * centred[lag:][pairs])) / power
+        if rho < ENVELOPE_NOISE_MIN_CORRELATION:
+            break
+        correlation.append(min(rho, 1.0))
+    return correlation
+
+
+def _group_area_errors(x, columns, weights, pedestal, residual):
+    """Noise uncertainty (one sigma) of each envelope amplitude in a group.
+
+    Each amplitude is, to first order, a linear estimator of the signal: the
+    least-squares fit of the envelope's unit-area column to its apportioned share,
+    ``amp = <column * share, y> / <column, column>``, with the shares of the fitted
+    decomposition (``weights[k] * column_k`` -- the fitted amplitudes, or whatever
+    the caller apportioned by). Its variance follows from the noise of the group
+    fit's `residual` -- level (`_noise_sigma`) and correlation between neighbouring
+    points, both read where no envelope reaches -- and includes the uncertainty of
+    the pedestal fitted from the same points. Read off the peaks, the residual is
+    noise and background wiggle the pedestal cannot follow, not the fit's own
+    misfit; the caps and overlap trims are not linear and are not modelled.
+    """
+
+    K = len(columns)
+    n = len(x)
+    if n < 2:
+        return [None] * K
+
+    parts = [max(0.0, float(weight)) * column for weight, column in zip(weights, columns, strict=True)]
+    total = numpy.zeros(n, dtype=float)
+    for part in parts:
+        total = total + part
+    if not numpy.any(total > 0.0):
+        # nothing fitted: split by pattern alone
+        parts = list(columns)
+        total = numpy.zeros(n, dtype=float)
+        for part in parts:
+            total = total + part
+
+    floored = pedestal.floored if pedestal is not None else numpy.zeros(n, dtype=bool)
+    peak = float(numpy.max(total)) if numpy.any(total > 0.0) else 0.0
+    offPeak = total <= ENVELOPE_NOISE_OFFPEAK_FRACTION * peak
+    if numpy.count_nonzero(offPeak) < ENVELOPE_NOISE_MIN_POINTS:
+        offPeak = numpy.ones(n, dtype=bool)
+    noise = _noise_sigma(residual, offPeak, floored)
+    if noise <= 0.0:
+        return [0.0] * K
+    # the correlation is read where the residual is noise, not structure
+    quiet = offPeak & ~floored & (numpy.abs(residual) <= ENVELOPE_PEDESTAL_OUTLIER_SIGMAS * noise)
+    correlation = _noise_correlation(residual, quiet)
+
+    errors = []
+    for column, part in zip(columns, parts, strict=True):
+        energy = float(column @ column)
+        if energy <= 0.0:
+            errors.append(None)
+            continue
+        if K == 1:
+            share = 1.0
+        else:
+            share = numpy.divide(part, total, out=numpy.zeros(n), where=total > 0.0)
+        estimator = column * share / energy
+        if pedestal is not None:
+            estimator = pedestal.propagate(estimator)
+        variance = float(estimator @ estimator)
+        for lag, rho in enumerate(correlation, start=1):
+            if lag >= n:
+                break
+            variance += 2.0 * rho * float(estimator[:-lag] @ estimator[lag:])
+        errors.append(noise * math.sqrt(max(variance, 0.0)))
+    return errors
+
+
+def pedestallevel(pedestal, mz):
+    """Level of a stored envelope pedestal ((mz, level) points) at m/z."""
+
+    if not pedestal:
+        return 0.0
+    mzs = [float(point[0]) for point in pedestal]
+    levels = [float(point[1]) for point in pedestal]
+    return float(numpy.interp(float(mz), mzs, levels))
+
+
+def _rebase_on_pedestal(peak, pedestal):
+    """Read a detected peak's intensity from the envelope pedestal, not from the
+    picking baseline.
+
+    A modelled placeholder isotope (intensity 0, it was never measured) is left
+    alone. The peak's S/N keeps the noise it was picked with: only the height it
+    is read from changes.
+    """
+
+    if peak.intensity <= 0.0:
+        return
+    base = pedestallevel(pedestal, peak.mz)
+    sn = peak.sn
+    if sn and peak.ai != peak.base:
+        noise = (peak.ai - peak.base) / sn
+        sn = (peak.ai - base) / noise if noise else sn
+    peak.setbase(base)
+    peak.setsn(sn)
+
+
+def _sample_pedestal(x, level, isotopes, fwhm):
+    """The fitted pedestal under one envelope, as (mz, level) points spanning the
+    range the envelope is drawn over (see `envelopeprofile`), so the display can
+    lay the envelope on exactly the pedestal its area was measured above."""
+
+    if not isotopes or len(x) == 0:
+        return []
+    mzs = sorted(float(mz) for mz, _weight in isotopes)
+    reach = 5.0 * float(fwhm) if fwhm and fwhm > 0.0 else 0.0
+    positions = [mzs[0] - reach] + mzs + [mzs[-1] + reach]
+    levels = numpy.interp(positions, x, level)
+    return [(float(mz), float(value)) for mz, value in zip(positions, levels, strict=True)]
+
+
+# ----
+
+
 def _fit_envelope_areas_shaped(
     clusters, signal, defaultFwhm, nonIdeality=None,
     averagineType=DEFAULT_AVERAGINE, refinePattern=True,
 ):
     """Joint envelope area fit, also returning the isotope shape used per cluster.
 
+    Returns (areas, shapes); see `_fit_envelope_areas_detailed`, which also
+    reports the local pedestal and the area uncertainty.
+    """
+
+    areas, shapes, _details = _fit_envelope_areas_detailed(
+        clusters, signal, defaultFwhm, nonIdeality=nonIdeality,
+        averagineType=averagineType, refinePattern=refinePattern,
+    )
+    return areas, shapes
+
+
+def _fit_envelope_areas_detailed(
+    clusters, signal, defaultFwhm, nonIdeality=None,
+    averagineType=DEFAULT_AVERAGINE, refinePattern=True,
+):
+    """Joint envelope area fit, with the shape, pedestal and uncertainty per cluster.
+
     Overlapping envelopes are fit together (globally apportioning the shared
-    signal); non-overlapping ones are fit independently for speed. Without a
+    signal); non-overlapping ones are fit independently for speed. Each overlap
+    group is fitted above its own local pedestal (see `_fit_group_pedestal`), so
+    the area is what the envelope adds to the spectrum -- not the baseline under
+    it -- whether or not the profile was baseline-corrected first. Without a
     profile each area is estimated from the envelope's own peak heights.
 
-    Returns (areas, shapes) where shapes[k] is the per-isotope (mz, weight)
-    model the fit used for cluster k (weights summing to 1), so callers can
-    store and draw exactly the envelope the area was fitted to.
+    Returns (areas, shapes, details). shapes[k] is the per-isotope (mz, weight)
+    model the fit used for cluster k, so callers can store and draw exactly the
+    envelope the area was fitted to. details[k] holds, when a profile was fitted,
+    "areaError" -- the one-sigma uncertainty of the area, on the same scale as
+    areas[k] -- and "pedestal" -- (mz, level) points of the pedestal under the
+    envelope, to draw it on. It is empty without a profile.
     """
 
     # fallback when profile is not available
@@ -2599,12 +3074,12 @@ def _fit_envelope_areas_shaped(
             areas.append(max(0.0, best_int / w) * scale)
             # no profile to reshape against: the shape is the theoretical pattern
             shapes.append([(p.mz, wt) for p, wt in zip(cluster, weights, strict=True)])
-        return areas, shapes
+        return areas, shapes, [{} for _cluster in clusters]
 
     xFull = signal[:, 0].astype(float)
     yFull = signal[:, 1].astype(float)
     if len(xFull) == 0:
-        return [0.0] * len(clusters), [[] for _ in clusters]
+        return [0.0] * len(clusters), [[] for _ in clusters], [{} for _ in clusters]
 
     # per-cluster geometry and m/z span (padded for the Gaussian wings)
     metas = []
@@ -2640,6 +3115,7 @@ def _fit_envelope_areas_shaped(
 
     areas = [0.0] * len(clusters)
     shapes = [list(meta[2]) for meta in metas]
+    details = [{} for _cluster in clusters]
 
     # fit each connected overlap group on its own local signal window
     for group in _overlap_groups(intervals):
@@ -2649,19 +3125,50 @@ def _fit_envelope_areas_shaped(
         x = xFull[mask]
         if len(x) == 0:
             continue
-        # copy so the zero-floor never mutates the caller's spectrum
+        # copy so the pedestal subtraction never touches the caller's spectrum
         y = yFull[mask].copy()
-        y[y < 0.0] = 0.0
 
         groupMetas = [metas[i] for i in group]
+
+        # The local pedestal, fitted against the envelopes' own patterns (a merged
+        # representative's stored shape -- its grid cannot be re-derived), then
+        # taken off. What is left is the signal the envelopes are made of. It is
+        # NOT clipped at zero: below the pedestal is noise, and dropping its
+        # negative half would add a positive bias to every weak envelope.
+        members = []
+        for fwhm, sigma, isotopes, storedShape, _poisson in groupMetas:
+            pattern = isotopes
+            if storedShape is not None and not _is_regular_isotope_grid(storedShape):
+                pattern = storedShape
+            members.append((pattern, sigma))
+        pedestal = _fit_group_pedestal(x, y, _pedestal_columns(x, members))
+        if pedestal is not None:
+            y = y - pedestal.level
+
         groupAreas, groupShapes = _fit_group_areas(
             groupMetas, x, y, nonIdeality, refinePattern=refinePattern
         )
-        for idx, area, shape in zip(group, groupAreas, groupShapes, strict=True):
+
+        # what the fitted envelopes leave unexplained, for the area uncertainty
+        columns = [
+            _local_gaussian_column(x, shape, meta[1])
+            for shape, meta in zip(groupShapes, groupMetas, strict=True)
+        ]
+        residual = y.copy()
+        for area, column in zip(groupAreas, columns, strict=True):
+            residual -= max(0.0, float(area)) * column
+        errors = _group_area_errors(x, columns, groupAreas, pedestal, residual)
+
+        for idx, area, shape, error, meta in zip(
+            group, groupAreas, groupShapes, errors, groupMetas, strict=True
+        ):
             areas[idx] = area
             shapes[idx] = shape
+            details[idx] = {"areaError": error}
+            if pedestal is not None:
+                details[idx]["pedestal"] = _sample_pedestal(x, pedestal.level, shape, meta[0])
 
-    return areas, shapes
+    return areas, shapes, details
 
 
 def _fit_envelope_areas(
@@ -3254,7 +3761,7 @@ def relabelenvelopes(
     if not clusters:
         return copy.deepcopy(peaklist)
 
-    areas, shapes = _fit_envelope_areas_shaped(
+    areas, shapes, details = _fit_envelope_areas_detailed(
         clusters,
         signal,
         defaultFwhm,
@@ -3276,6 +3783,7 @@ def relabelenvelopes(
     pruned_clusters = []
     pruned_areas = []
     pruned_shapes = []
+    pruned_details = []
     for c, cluster in enumerate(clusters):
         a = float(max(0.0, areas[c])) if c < len(areas) else 0.0
         if (
@@ -3288,9 +3796,11 @@ def relabelenvelopes(
             pruned_clusters.append(cluster)
             pruned_areas.append(a)
             pruned_shapes.append(shapes[c] if c < len(shapes) else [])
+            pruned_details.append(details[c] if c < len(details) else {})
     clusters = pruned_clusters
     areas = pruned_areas
     shapes = pruned_shapes
+    details = pruned_details
 
     for c, cluster in enumerate(clusters):
         parent = cluster[0]
@@ -3343,10 +3853,13 @@ def relabelenvelopes(
         # rescale keeps area*weight (the drawn envelope) and sumint invariant, so
         # only the bare `area` number is put on a common scale.
         area_val = float(areas[c])
+        area_err = details[c].get("areaError")
         shapeSum = math.fsum(float(w) for _, w in isotopes_data)
         if shapeSum > 0.0:
             isotopes_data = [(mz, float(w) / shapeSum) for mz, w in isotopes_data]
             area_val *= shapeSum
+            if area_err is not None:
+                area_err *= shapeSum
 
         # summed envelope intensity: the sum of the intensities (heights) of the
         # isotope peaks that make up this envelope. It is derived from the same
@@ -3383,6 +3896,19 @@ def relabelenvelopes(
             # isotope pattern, and hence the apportioned area, genuinely changes).
             "averagineType": averagineType,
         }
+        # one-sigma uncertainty of the area, and the local pedestal it was
+        # measured above (drawn under the envelope so the display shows exactly
+        # what was summed) -- only when a profile was fitted
+        if area_err is not None:
+            envelope["areaError"] = float(area_err)
+        pedestal = details[c].get("pedestal")
+        if pedestal:
+            envelope["pedestal"] = pedestal
+            # the envelope's peaks are measured above the same pedestal as its
+            # area, so its intensity (and a "sum"/"average" label) agrees with
+            # the area and the drawn envelope
+            for peak in cluster:
+                _rebase_on_pedestal(peak, pedestal)
 
         peaks = labelenvelope(
             cluster,

@@ -27,6 +27,7 @@ from .ids import (
     ID_viewPeaklistColumnAi,
     ID_viewPeaklistColumnBase,
     ID_viewPeaklistColumnEnvArea,
+    ID_viewPeaklistColumnEnvErr,
     ID_viewPeaklistColumnEnvInt,
     ID_viewPeaklistColumnFwhm,
     ID_viewPeaklistColumnGroup,
@@ -63,6 +64,7 @@ PEAKLIST_COLUMNS = {
     "z": ("z", wx.LIST_FORMAT_RIGHT),
     "mass": ("mass", wx.LIST_FORMAT_RIGHT),
     "envarea": ("env. area", wx.LIST_FORMAT_RIGHT),
+    "enverr": ("± env. area", wx.LIST_FORMAT_RIGHT),
     "envint": ("sum. env. int.", wx.LIST_FORMAT_RIGHT),
     "fwhm": ("fwhm", wx.LIST_FORMAT_RIGHT),
     "resol": ("resol.", wx.LIST_FORMAT_RIGHT),
@@ -574,13 +576,16 @@ class panelPeaklist(wx.Panel):
 
         envelope = self._getEnvelopeData(peak)
         if envelope:
-            profile = mspy.envelopeprofile(envelope, points=40)
+            # drawn on the pedestal its area was measured above, and shaded only
+            # down to it: the shaded band is exactly what the area sums
+            profile = mspy.envelopeprofile(envelope, points=40, onPedestal=True)
             if len(profile):
                 self.parent.updateTmpSpectrum(
                     profile,
                     fillUnder=True,
                     fillUnderAlpha=115,
                     showOutline=False,
+                    fillBase=mspy.envelopepedestal(envelope, profile[:, 0]),
                 )
                 # centre the view on the labelled (monoisotopic) peak, not on
                 # the middle of the envelope, so the isotopes trail off to the
@@ -631,6 +636,8 @@ class panelPeaklist(wx.Panel):
                     "fwhm": fwhm,
                     "shape": "gaussian",
                     "isotopes": [(p.mz, weights[i]) for i, p in enumerate(isotopes)],
+                    # the heights above were measured from each peak's baseline
+                    "pedestal": [(p.mz, p.base) for p in isotopes],
                 }
 
         return None
@@ -702,6 +709,9 @@ class panelPeaklist(wx.Panel):
         menu.Append(ID_viewPeaklistColumnMass, "Mass", "", wx.ITEM_CHECK)
         menu.Append(ID_viewPeaklistColumnEnvArea, "Env. Area", "", wx.ITEM_CHECK)
         menu.Append(
+            ID_viewPeaklistColumnEnvErr, "Env. Area Uncertainty", "", wx.ITEM_CHECK
+        )
+        menu.Append(
             ID_viewPeaklistColumnEnvInt, "Summed Env. Intensity", "", wx.ITEM_CHECK
         )
         menu.Append(ID_viewPeaklistColumnFwhm, "FWHM", "", wx.ITEM_CHECK)
@@ -733,6 +743,10 @@ class panelPeaklist(wx.Panel):
         menu.Check(
             ID_viewPeaklistColumnEnvArea,
             bool("envarea" in config.main["peaklistColumns"]),
+        )
+        menu.Check(
+            ID_viewPeaklistColumnEnvErr,
+            bool("enverr" in config.main["peaklistColumns"]),
         )
         menu.Check(
             ID_viewPeaklistColumnEnvInt,
@@ -776,6 +790,11 @@ class panelPeaklist(wx.Panel):
             wx.EVT_MENU,
             self.parent.onViewPeaklistColumns,
             id=ID_viewPeaklistColumnEnvArea,
+        )
+        self.Bind(
+            wx.EVT_MENU,
+            self.parent.onViewPeaklistColumns,
+            id=ID_viewPeaklistColumnEnvErr,
         )
         self.Bind(
             wx.EVT_MENU,
@@ -1334,6 +1353,9 @@ class panelPeaklist(wx.Panel):
                 elif column == "envarea":
                     envelope = peak.attributes.get("envelope", {})
                     row.append(envelope.get("area"))
+                elif column == "enverr":
+                    envelope = peak.attributes.get("envelope", {})
+                    row.append(envelope.get("areaError"))
                 elif column == "envint":
                     envelope = peak.attributes.get("envelope", {})
                     row.append(envelope.get("sumint"))
@@ -1630,6 +1652,10 @@ class panelPeaklist(wx.Panel):
                 data = intFormat % (item[x])
 
             elif column == "envarea":
+                if item[x] is not None:
+                    data = intFormat % (item[x])
+
+            elif column == "enverr":
                 if item[x] is not None:
                     data = intFormat % (item[x])
 
@@ -2150,6 +2176,11 @@ class dlgCopy(wx.Dialog):
             config.export["peaklistColumns"].count("envarea")
         )
 
+        self.peaklistColumnEnvErr_check = wx.CheckBox(self, -1, "Env. Area Uncertainty")
+        self.peaklistColumnEnvErr_check.SetValue(
+            config.export["peaklistColumns"].count("enverr")
+        )
+
         self.peaklistColumnEnvInt_check = wx.CheckBox(self, -1, "Summed Env. Int.")
         self.peaklistColumnEnvInt_check.SetValue(
             config.export["peaklistColumns"].count("envint")
@@ -2177,7 +2208,8 @@ class dlgCopy(wx.Dialog):
         grid.Add(self.peaklistColumnFwhm_check, (2, 2))
         grid.Add(self.peaklistColumnResol_check, (3, 2))
         grid.Add(self.peaklistColumnEnvArea_check, (4, 2))
-        grid.Add(self.peaklistColumnGroup_check, (5, 2))
+        grid.Add(self.peaklistColumnEnvErr_check, (5, 2))
+        grid.Add(self.peaklistColumnGroup_check, (6, 2))
         grid.Add(self.peaklistColumnEnvInt_check, (6, 0))
 
         staticSizer.Add(grid, 0, wx.ALL, 5)
@@ -2226,6 +2258,8 @@ class dlgCopy(wx.Dialog):
             config.export["peaklistColumns"].append("resol")
         if self.peaklistColumnEnvArea_check.IsChecked():
             config.export["peaklistColumns"].append("envarea")
+        if self.peaklistColumnEnvErr_check.IsChecked():
+            config.export["peaklistColumns"].append("enverr")
         if self.peaklistColumnEnvInt_check.IsChecked():
             config.export["peaklistColumns"].append("envint")
         if self.peaklistColumnGroup_check.IsChecked():

@@ -983,6 +983,10 @@ class document:
                 sumint = envelope.get("sumint")
                 if sumint is not None:
                     envAttributes.append('sumint="%.12g"' % float(sumint))
+                # one-sigma uncertainty of the area
+                areaError = envelope.get("areaError")
+                if areaError is not None:
+                    envAttributes.append('areaError="%.12g"' % float(areaError))
                 fwhm = envelope.get("fwhm")
                 if fwhm is not None:
                     envAttributes.append('fwhm="%.12g"' % float(fwhm))
@@ -1018,6 +1022,20 @@ class document:
                         indent,
                         isoMZ,
                         isoIntensity,
+                    )
+
+                # the local pedestal the area was measured above, so the reloaded
+                # envelope is drawn where it was fitted
+                for point in envelope.get("pedestal") or []:
+                    try:
+                        pedMZ = float(point[0])
+                        pedLevel = float(point[1])
+                    except (TypeError, ValueError, IndexError):
+                        continue
+                    buff += '%s    <pedestal mz="%.12g" level="%.12g" />\n' % (
+                        indent,
+                        pedMZ,
+                        pedLevel,
                     )
 
                 buff += "%s  </envelope>\n" % indent
@@ -2253,6 +2271,12 @@ class parseMSD:
                         )
                     if envelopeTag.hasAttribute("fwhm"):
                         envelope["fwhm"] = float(envelopeTag.getAttribute("fwhm"))
+                    # absent for envelopes fitted without a profile or saved by
+                    # an older version: no uncertainty is shown for them
+                    if envelopeTag.hasAttribute("areaError"):
+                        envelope["areaError"] = float(
+                            envelopeTag.getAttribute("areaError")
+                        )
                 except ValueError:
                     envelope = None
 
@@ -2282,6 +2306,22 @@ class parseMSD:
                         except ValueError:
                             continue
                         envelope["isotopes"].append((isoMZ, isoIntensity))
+
+                    # absent in older files: the envelope is then drawn from zero,
+                    # as its area was measured
+                    pedestal = []
+                    for pedestalTag in envelopeTag.getElementsByTagName("pedestal"):
+                        try:
+                            pedestal.append(
+                                (
+                                    float(pedestalTag.getAttribute("mz")),
+                                    float(pedestalTag.getAttribute("level")),
+                                )
+                            )
+                        except ValueError:
+                            continue
+                    if pedestal:
+                        envelope["pedestal"] = pedestal
 
                     if envelope["isotopes"]:
                         peak.attributes["envelope"] = envelope
@@ -3142,6 +3182,7 @@ PEAKLIST_COLUMNS = {
     "fwhm": ("fwhm", lambda peak: peak.fwhm),
     "resol": ("resol.", lambda peak: peak.resolution),
     "envarea": ("env. area", lambda peak: _envelopeValue(peak, "area")),
+    "enverr": ("env. area err.", lambda peak: _envelopeValue(peak, "areaError")),
     "envint": ("sum. env. int.", lambda peak: _envelopeValue(peak, "sumint")),
     "group": ("group", lambda peak: peak.group),
 }

@@ -1308,8 +1308,13 @@ class panelSpectrum(wx.Panel):
         fillUnder=False,
         fillUnderAlpha=70,
         showOutline=True,
+        fillBase=None,
     ):
-        """Set new data to tmp spectrum."""
+        """Set new data to tmp spectrum.
+
+        fillBase - (x, y) rows the fill stops at instead of zero (the pedestal an
+            envelope sits on), so only the band between them is shaded
+        """
 
         self.currentTmpSpectrum = points
         self.currentTmpSpectrumFlip = flipped
@@ -1317,6 +1322,7 @@ class panelSpectrum(wx.Panel):
             "fillUnder": fillUnder,
             "fillUnderAlpha": fillUnderAlpha,
             "showOutline": showOutline,
+            "fillBase": fillBase,
         }
 
         # check spectrum
@@ -1358,6 +1364,7 @@ class panelSpectrum(wx.Panel):
             showPoints=False,
             fillUnder=fillUnder,
             fillUnderAlpha=fillUnderAlpha,
+            fillBase=fillBase,
             exactFit=True,
             pointColour=config.spectrum["tmpSpectrumColour"],
             lineColour=config.spectrum["tmpSpectrumColour"],
@@ -1809,7 +1816,7 @@ class panelSpectrum(wx.Panel):
             peak.isotope = x
 
         averagineType = config.processing["peakpicking"].get("averagineType", "protein")
-        areas, shapes = mspy.mod_peakpicking._fit_envelope_areas_shaped(
+        areas, shapes, details = mspy.mod_peakpicking._fit_envelope_areas_detailed(
             [cluster],
             spectrum.profile,
             defaultFwhm,
@@ -1826,6 +1833,12 @@ class panelSpectrum(wx.Panel):
             "shape": "gaussian",
             "isotopes": isotopes_data,
         }
+        # the area's uncertainty and the pedestal it was measured above
+        detail = details[0] if details else {}
+        if detail.get("areaError") is not None:
+            envelope_data["areaError"] = float(detail["areaError"])
+        if detail.get("pedestal"):
+            envelope_data["pedestal"] = detail["pedestal"]
 
         labeled_peaks = mspy.labelenvelope(
             cluster,

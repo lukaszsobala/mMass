@@ -1585,6 +1585,24 @@ def _measure(x, y, baseline, mz, fwhm):
 # ----
 
 
+def _on_pedestal(measured, pedestal, mz):
+    """(ai, base, sn) measured above an envelope's fitted pedestal rather than
+    the scan baseline, so an envelope's intensity agrees with its area. The S/N
+    keeps the noise it was measured with."""
+
+    ai, base, sn = measured
+    if not pedestal:
+        return measured
+    level = mod_peakpicking.pedestallevel(pedestal, mz)
+    if sn and ai != base:
+        noise = (ai - base) / sn
+        sn = (ai - level) / noise if noise else sn
+    return ai, level, sn
+
+
+# ----
+
+
 def _is_present(ai, base, sn, snThreshold):
     """Same acceptance rule labelscan applies to a picked peak."""
 
@@ -1780,7 +1798,7 @@ def labelpooled(
     # one joint fit over present AND missing envelopes, so the overlap groups are
     # the pooled ones and a missing species still accounts for its own signal
     if clusters:
-        areas, shapes = mod_peakpicking._fit_envelope_areas_shaped(
+        areas, shapes, details = mod_peakpicking._fit_envelope_areas_detailed(
             clusters,
             signal,
             defaultFwhm,
@@ -1789,7 +1807,7 @@ def labelpooled(
             refinePattern=refinePattern,
         )
     else:
-        areas, shapes = [], []
+        areas, shapes, details = [], [], []
 
     for k, envelope in enumerate(envelopes):
         if not present[k]:
@@ -1804,10 +1822,14 @@ def labelpooled(
         # relabelenvelopes does, so areas stay on the common scale
         isotopes = shapes[k] if k < len(shapes) and shapes[k] else list(envelope["isotopes"])
         area = float(max(0.0, areas[k])) if k < len(areas) else 0.0
+        detail = details[k] if k < len(details) else {}
+        areaError = detail.get("areaError")
         shapeSum = math.fsum(float(w) for _mz, w in isotopes)
         if shapeSum > 0.0:
             isotopes = [(float(mz), float(w) / shapeSum) for mz, w in isotopes]
             area *= shapeSum
+            if areaError is not None:
+                areaError *= shapeSum
         sigma = mod_peakpicking._fwhm_to_sigma(fwhm)
         norm = sigma * math.sqrt(2.0 * math.pi)
         weightSum = sum(float(w) for _mz, w in isotopes)
@@ -1816,11 +1838,19 @@ def labelpooled(
         updated["area"] = area
         updated["sumint"] = (area / norm) * weightSum if norm > 0.0 else 0.0
         updated["isotopes"] = isotopes
+        # this scan's own pedestal and uncertainty, never the pooled spectrum's
+        updated.pop("areaError", None)
+        updated.pop("pedestal", None)
+        if areaError is not None:
+            updated["areaError"] = float(areaError)
+        pedestal = detail.get("pedestal")
+        if pedestal:
+            updated["pedestal"] = pedestal
 
         if label == "isotopes":
             # every isotope is its own labelled peak, measured at its own m/z
             for peak in members:
-                ai, base, sn = _measure(x, y, baseline, peak.mz, fwhm)
+                ai, base, sn = _on_pedestal(_measure(x, y, baseline, peak.mz, fwhm), pedestal, peak.mz)
                 new = copy.deepcopy(peak)
                 new.setai(ai)
                 new.setbase(base)
@@ -1828,9 +1858,11 @@ def labelpooled(
                 new.attributes["envelope"] = updated
                 labelled.append(new)
         else:
-            ai, base, sn = _envelope_display(
-                envelope, measurements[k], label, intensity
-            )
+            measured = [
+                _on_pedestal(m, pedestal, mz)
+                for m, (mz, _w) in zip(measurements[k], envelope["isotopes"], strict=True)
+            ]
+            ai, base, sn = _envelope_display(envelope, measured, label, intensity)
             for peak in members:
                 new = copy.deepcopy(peak)
                 new.setai(ai)
@@ -2024,9 +2056,10 @@ def _labelguided(signal, peaks, baseline, guide, snThreshold, label, intensity):
 
     x = signal[:, 0]
     y = numpy.asarray(signal[:, 1], dtype=float)
+    # the scan baseline, only where a group's own pedestal cannot be fitted
+    fallback = None
     if baseline is not None and len(baseline):
-        y = y - numpy.interp(x, baseline[:, 0], baseline[:, 1])
-    y = numpy.clip(y, 0.0, None)
+        fallback = numpy.interp(x, baseline[:, 0], baseline[:, 1])
 
     # one component per species: an envelope with all of its member peaks, or a
     # plain peak
@@ -2082,6 +2115,8 @@ def _labelguided(signal, peaks, baseline, guide, snThreshold, label, intensity):
 
     areas = [0.0] * len(components)
     shares = [1.0] * len(components)
+    errors: list[float | None] = [None] * len(components)
+    pedestals: list[list[tuple[float, float]] | None] = [None] * len(components)
     for group in mod_peakpicking._overlap_groups(intervals):
 
         CHECK_FORCE_QUIT()
@@ -2107,6 +2142,17 @@ def _labelguided(signal, peaks, baseline, guide, snThreshold, label, intensity):
         xs = x[mask]
         ys = y[mask]
 
+        # the species are fitted above the group's own local pedestal, as in
+        # mspy.mod_peakpicking (not clipped at zero: below it is noise)
+        pedestal = mod_peakpicking._fit_group_pedestal(
+            xs, ys,
+            mod_peakpicking._pedestal_columns(xs, [(c["isotopes"], c["sigma"]) for c in members]),
+        )
+        if pedestal is not None:
+            ys = ys - pedestal.level
+        elif fallback is not None:
+            ys = ys - fallback[mask]
+
         columns = [
             mod_peakpicking._envelope_gaussian_column(xs, c["isotopes"], c["sigma"])
             for c in members
@@ -2123,6 +2169,20 @@ def _labelguided(signal, peaks, baseline, guide, snThreshold, label, intensity):
             if energy > 0.0:
                 areas[k] = max(0.0, float(numpy.sum(column * ys * share)) / energy)
 
+        # the uncertainty of each area, shared out as the areas were (by prior)
+        residual = ys.copy()
+        for k, column in zip(group, columns, strict=True):
+            residual -= areas[k] * column
+        groupErrors = mod_peakpicking._group_area_errors(
+            xs, columns, [c["prior"] for c in members], pedestal, residual
+        )
+        for k, component, error in zip(group, members, groupErrors, strict=True):
+            errors[k] = error
+            if pedestal is not None:
+                pedestals[k] = mod_peakpicking._sample_pedestal(
+                    xs, pedestal.level, component["isotopes"], component["fwhm"]
+                )
+
     labelled = []
     for k, component in enumerate(components):
 
@@ -2135,10 +2195,12 @@ def _labelguided(signal, peaks, baseline, guide, snThreshold, label, intensity):
         if area <= 0.0 or norm <= 0.0 or shares[k] < POOL_GUIDE_MIN_SHARE:
             continue
 
-        # (ai, base, sn) of every isotope, as the fit draws it on the baseline
+        # (ai, base, sn) of every isotope, as the fit draws it on its pedestal
         measured = []
         for mz, w in isotopes:
             base, noise = _baseline_at(baseline, mz)
+            if pedestals[k]:
+                base = mod_peakpicking.pedestallevel(pedestals[k], mz)
             height = area * w / norm
             measured.append((base + height, base, height / noise if noise else None))
         ai, base, sn = measured[component["apex"]]
@@ -2163,6 +2225,14 @@ def _labelguided(signal, peaks, baseline, guide, snThreshold, label, intensity):
         updated["sumint"] = area / norm
         updated["isotopes"] = isotopes
         updated["fwhm"] = fwhm
+        # this scan's own pedestal and uncertainty, never the reference's
+        updated.pop("areaError", None)
+        updated.pop("pedestal", None)
+        error = errors[k]
+        if error is not None:
+            updated["areaError"] = float(error)
+        if pedestals[k]:
+            updated["pedestal"] = pedestals[k]
 
         if label == "isotopes":
             display = None

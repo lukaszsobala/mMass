@@ -891,6 +891,9 @@ class points:
             "lineStyle": _WX_PENSTYLE_SOLID,
             "fillUnder": False,
             "fillUnderAlpha": 60,
+            # lower edge of the fill as (x, y) rows -- e.g. the pedestal an
+            # envelope sits on -- instead of the zero line
+            "fillBase": None,
             "xOffsetDigits": 2,
             "yOffsetDigits": 0,
         }
@@ -1058,14 +1061,27 @@ class points:
         yShift += self.properties["yOffset"] * yScale
 
         # filter and scale data
+        data = None
         if filterSize and len(self.cropped) and self.properties.get("showLines", True):
             data_res = filterSize / abs(xScale)
-            filtered = calculations.signal_filter(self.cropped, data_res)
-            self.scaled = _scaleAndShift(filtered, xScale, yScale, xShift, yShift)
+            data = calculations.signal_filter(self.cropped, data_res)
         elif len(self.cropped):
-            self.scaled = _scaleAndShift(self.cropped, xScale, yScale, xShift, yShift)
+            data = self.cropped
+        if data is not None:
+            self.scaled = _scaleAndShift(data, xScale, yScale, xShift, yShift)
         else:
             self.scaled = numpy.array([])
+
+        # the fill's lower edge, sampled at the very points the upper edge was,
+        # so the two outline one band
+        self.scaledFillBase = None
+        fillBase = self.properties.get("fillBase")
+        if data is not None and fillBase is not None and len(fillBase):
+            fillBase = numpy.asarray(fillBase, dtype=numpy.float64)
+            lower = numpy.column_stack(
+                (data[:, 0], numpy.interp(data[:, 0], fillBase[:, 0], fillBase[:, 1]))
+            ).astype(numpy.float64)
+            self.scaledFillBase = _scaleAndShift(lower, xScale, yScale, xShift, yShift)
 
         self.currentScale = scale
         self.currentShift = shift
@@ -1113,10 +1129,15 @@ class points:
                         int(self.properties.get("fillUnderAlpha", 60)),
                     )
 
-                polygon = numpy.empty((len(self.scaled) + 2, 2), dtype=numpy.int32)
-                polygon[0] = (self.scaled[0][0], baseline)
-                polygon[1:-1] = self.scaled
-                polygon[-1] = (self.scaled[-1][0], baseline)
+                lower = getattr(self, "scaledFillBase", None)
+                if lower is not None and len(lower) == len(self.scaled):
+                    # a band: along the curve, then back along its lower edge
+                    polygon = numpy.vstack((self.scaled, lower[::-1])).astype(numpy.int32)
+                else:
+                    polygon = numpy.empty((len(self.scaled) + 2, 2), dtype=numpy.int32)
+                    polygon[0] = (self.scaled[0][0], baseline)
+                    polygon[1:-1] = self.scaled
+                    polygon[-1] = (self.scaled[-1][0], baseline)
 
                 drawDc = dc
                 fillBrush = wx.Brush(fillColour, _WX_BRUSHSTYLE_SOLID)

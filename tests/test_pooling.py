@@ -447,6 +447,38 @@ def test_missing_envelope_still_accounts_for_its_own_signal():
     assert areaA(missing) == pytest.approx(areaA(both), rel=0.01)
 
 
+@pytest.mark.parametrize("guided", [False, True])
+def test_each_scan_measures_its_envelopes_above_its_own_pedestal(guided):
+    """A scan whose baseline sits higher gets the same areas: each scan fits its
+    own pedestal (never the one stored on the pooled or reference feature), and
+    reports it together with the area uncertainty."""
+
+    if guided:
+        x = numpy.arange(1030.0, 1065.0, 0.06)
+        fwhm, guide = 0.45, _flat_guide(1030.0, 1065.0)
+    else:
+        x = _raster(1040.0, 1060.0)
+        fwhm, guide = 1046.54 / 40000.0, None
+    clean = _envelope(x, 1046.54, 1, 1000.0, fwhm)
+
+    def label(y):
+        feature = _stored_envelope_peak(1046.54, 1, 0.026 if guided else fwhm)
+        feature.attributes["envelope"]["pedestal"] = [(1040.0, 999.0), (1060.0, 999.0)]
+        feature.attributes["envelope"]["areaError"] = 99.0
+        labelled = mspy.labelpooled(
+            numpy.column_stack([x, y]), mspy.peaklist([feature]), averagineType="protein", guide=guide
+        )
+        return _get(labelled, 1046.54, 1, ppm=5.0 if guided else 15.0).attributes["envelope"]
+
+    flat = label(clean)
+    raised = label(clean + 200.0)
+
+    assert raised["area"] == pytest.approx(flat["area"], rel=0.01)
+    assert mpp.pedestallevel(raised["pedestal"], 1046.54) == pytest.approx(200.0, abs=1.0)
+    assert mpp.pedestallevel(flat["pedestal"], 1046.54) == pytest.approx(0.0, abs=1.0)
+    assert raised["areaError"] < 1.0
+
+
 # ---------------------------------------------------------------------------
 # The whole thing
 # ---------------------------------------------------------------------------
