@@ -36,8 +36,7 @@ def _raster(lo, hi, step=0.004, reference=800.0):
 def _envelope(x, mono, charge, height, fwhm, ppm=0.0):
     """Protein-averagine isotope envelope with its apex isotope at `height`."""
 
-    lam = (mono - PROTON) * charge * mpp.AVERAGINE_MODELS["protein"]["lambdaFactor"]
-    weights = [math.exp(-lam) * lam**k / math.factorial(k) for k in range(10)]
+    weights = mpp._averagine_pattern((mono - PROTON) * charge, "protein", 10)
     apex = max(weights)
     sigma = fwhm / 2.3548
     y = numpy.zeros(len(x))
@@ -82,7 +81,7 @@ def _run(species, nscans=12, noise=10.0, ppms=None, lo=780.0, hi=1230.0, seed=3,
 def _pick(scan, snThreshold):
     """The Find Peaks pipeline (panel_processing.pickPeaksOnScan), through `scan`."""
 
-    scan.labelscan(pickingHeight=0.5, snThreshold=snThreshold, baselineWindow=0.01, baselineOffset=0.5)
+    scan.labelscan(pickingHeight=0.5, snThreshold=snThreshold, baselineWindow=0.01, baselineOffset=0.0)
     scan.deisotope(maxCharge=3, mzTolerance=0.02, intTolerance=0.5, averagineType="protein")
     scan.labelenvelopes(
         label="1st",
@@ -273,9 +272,10 @@ def test_alignment_keeps_pooled_peaks_at_their_true_width():
             for mono, _charge, _height in species
         ])
 
-    # 10 ppm of drift against peaks 25-37 ppm wide
+    # 10 ppm of drift against peaks 25-37 ppm wide. Aligned widths scatter by
+    # the noise alone: over ten random runs the worst peak is 3-12 % off.
     assert numpy.mean(widths(smeared)) > 1.2
-    assert numpy.all(numpy.abs(widths(aligned) - 1.0) < 0.1)
+    assert numpy.all(numpy.abs(widths(aligned) - 1.0) < 0.15)
 
 
 def test_pool_windows_cover_the_whole_run_like_poolscans():
@@ -335,9 +335,9 @@ def test_labelled_peaks_sit_where_each_scan_records_them():
     assert len(features) == 2
 
     for index, (scan, offset) in enumerate(zip(scans, pooled.attributes["alignment"], strict=True)):
-        scan.baseline(window=0.01, offset=0.5)
+        scan.baseline(window=0.01, offset=0.0)
         scan.labelpooled(pooled.peaklist, snThreshold=3.0, baselineWindow=0.01,
-                         baselineOffset=0.5, averagineType="protein", alignment=offset)
+                         baselineOffset=0.0, averagineType="protein", alignment=offset)
         assert len(scan.peaklist) == 2
         for k, (peak, feature, mono) in enumerate(
             zip(scan.peaklist, features, (800.40, 1046.54), strict=True)
@@ -366,7 +366,7 @@ def test_labelled_envelope_area_follows_the_scans_abundance():
     areas = []
     for scan, offset in zip(scans, pooled.attributes["alignment"], strict=True):
         scan.labelpooled(pooled.peaklist, snThreshold=3.0, baselineWindow=0.01,
-                         baselineOffset=0.5, averagineType="protein", alignment=offset)
+                         baselineOffset=0.0, averagineType="protein", alignment=offset)
         areas.append(scan.peaklist[0].attributes["envelope"]["area"])
 
     assert areas[1] / areas[0] == pytest.approx(2.0, rel=0.15)
@@ -384,7 +384,7 @@ def test_species_too_weak_in_a_scan_is_left_out_there():
 
     for index, (scan, offset) in enumerate(zip(scans, pooled.attributes["alignment"], strict=True)):
         scan.labelpooled(pooled.peaklist, snThreshold=3.0, baselineWindow=0.01,
-                         baselineOffset=0.5, averagineType="protein", alignment=offset)
+                         baselineOffset=0.0, averagineType="protein", alignment=offset)
         assert _find(scan.peaklist, 800.40, 2) is not None
         assert (_find(scan.peaklist, 1046.54, 1) is not None) == (index < 3)
 
@@ -447,6 +447,38 @@ def test_missing_envelope_still_accounts_for_its_own_signal():
     assert areaA(missing) == pytest.approx(areaA(both), rel=0.01)
 
 
+@pytest.mark.parametrize("guided", [False, True])
+def test_each_scan_measures_its_envelopes_above_its_own_pedestal(guided):
+    """A scan whose baseline sits higher gets the same areas: each scan fits its
+    own pedestal (never the one stored on the pooled or reference feature), and
+    reports it together with the area uncertainty."""
+
+    if guided:
+        x = numpy.arange(1030.0, 1065.0, 0.06)
+        fwhm, guide = 0.45, _flat_guide(1030.0, 1065.0)
+    else:
+        x = _raster(1040.0, 1060.0)
+        fwhm, guide = 1046.54 / 40000.0, None
+    clean = _envelope(x, 1046.54, 1, 1000.0, fwhm)
+
+    def label(y):
+        feature = _stored_envelope_peak(1046.54, 1, 0.026 if guided else fwhm)
+        feature.attributes["envelope"]["pedestal"] = [(1040.0, 999.0), (1060.0, 999.0)]
+        feature.attributes["envelope"]["areaError"] = 99.0
+        labelled = mspy.labelpooled(
+            numpy.column_stack([x, y]), mspy.peaklist([feature]), averagineType="protein", guide=guide
+        )
+        return _get(labelled, 1046.54, 1, ppm=5.0 if guided else 15.0).attributes["envelope"]
+
+    flat = label(clean)
+    raised = label(clean + 200.0)
+
+    assert raised["area"] == pytest.approx(flat["area"], rel=0.01)
+    assert mpp.pedestallevel(raised["pedestal"], 1046.54) == pytest.approx(200.0, abs=1.0)
+    assert mpp.pedestallevel(flat["pedestal"], 1046.54) == pytest.approx(0.0, abs=1.0)
+    assert raised["areaError"] < 1.0
+
+
 # ---------------------------------------------------------------------------
 # The whole thing
 # ---------------------------------------------------------------------------
@@ -479,7 +511,7 @@ def test_pooled_picking_finds_species_single_scans_miss():
     positions = None
     for scan, offset in zip(scans, pooled.attributes["alignment"], strict=True):
         scan.labelpooled(pooled.peaklist, snThreshold=1.5, baselineWindow=0.01,
-                         baselineOffset=0.5, averagineType="protein", alignment=offset)
+                         baselineOffset=0.0, averagineType="protein", alignment=offset)
         found = [_get(scan.peaklist, mono, charge) for mono, charge, _h in species]
         mzs = [peak.attributes["referenceMz"] for peak in found]
         assert positions is None or mzs == positions
@@ -599,7 +631,7 @@ def test_guided_scans_are_labelled_with_the_fine_species():
 
     areas = []
     for index, scan in enumerate(scans):
-        scan.labelpooled(features, snThreshold=3.0, baselineWindow=0.01, baselineOffset=0.5,
+        scan.labelpooled(features, snThreshold=3.0, baselineWindow=0.01, baselineOffset=0.0,
                          averagineType="protein", guide=mspy.scanguide(guide, index))
         assert len(scan.peaklist) == len(fine.peaklist)
         for feature in fine.peaklist:

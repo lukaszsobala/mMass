@@ -3,6 +3,7 @@
 labelpoint / labelpeak / labelscan / deconvolute / averagine.
 """
 
+import numpy
 import pytest
 
 import mspy
@@ -264,3 +265,58 @@ def test_noise_comb_gate_leaves_a_clean_spectrum_alone(monkeypatch):
 
     assert gated == ungated
     assert len(gated) == 2
+
+
+# ---------------------------------------------------------------------------
+# Apex picking (picking height 100 %)
+# ---------------------------------------------------------------------------
+
+
+def _noisy_peaks(centres, height=100.0, fwhm=0.1, noise=2.0, level=20.0, seed=4):
+    x = numpy.arange(990.0, 1010.0, fwhm / 20.0)
+    sigma = fwhm / 2.3548
+    y = numpy.full(len(x), level)
+    for centre in centres:
+        y += height * numpy.exp(-0.5 * ((x - centre) / sigma) ** 2)
+    y += numpy.random.default_rng(seed).normal(0.0, noise, len(x))
+    return numpy.column_stack((x, y)).astype(numpy.float64)
+
+
+@pytest.mark.parametrize("seed", range(8))
+def test_noise_on_a_peak_top_does_not_split_it_at_the_apex(seed):
+    """Picking at the apex took every local maximum, and noise on a peak's top
+    splits it into maxima a few samples apart -- two peaks, and later two
+    envelopes sharing one species' area."""
+
+    profile = _noisy_peaks([1000.0], seed=seed)
+    scan = mspy.scan(profile=profile)
+    scan.labelscan(pickingHeight=1.0, snThreshold=5.0, baselineWindow=0.01, baselineOffset=0.0)
+
+    near = [p for p in scan.peaklist if abs(p.mz - 1000.0) < 0.1]
+    assert len(near) == 1
+    assert near[0].ai == pytest.approx(max(profile[abs(profile[:, 0] - 1000.0) < 0.1, 1]))
+
+
+def test_resolved_peaks_stay_apart_at_the_apex():
+    profile = _noisy_peaks([1000.0, 1000.25])
+    scan = mspy.scan(profile=profile)
+    scan.labelscan(pickingHeight=1.0, snThreshold=5.0, baselineWindow=0.01, baselineOffset=0.0)
+
+    mzs = sorted(p.mz for p in scan.peaklist if abs(p.mz - 1000.1) < 0.3)
+    assert len(mzs) == 2
+    assert mzs == pytest.approx([1000.0, 1000.25], abs=0.02)
+
+
+def test_maxima_on_the_baseline_are_never_peaks():
+    """A local maximum lying exactly on the baseline has S/N 0; that is not "no
+    S/N" and must not slip past the S/N threshold (counting data, whose noise
+    takes few distinct values, has many of them)."""
+
+    x = numpy.arange(990.0, 1010.0, 0.005)
+    rng = numpy.random.default_rng(1)
+    y = numpy.round(rng.poisson(8.0, len(x)).astype(float))
+    profile = numpy.column_stack((x, y)).astype(numpy.float64)
+    scan = mspy.scan(profile=profile)
+    scan.labelscan(pickingHeight=1.0, snThreshold=3.0, baselineWindow=0.01, baselineOffset=0.0)
+
+    assert all(p.intensity > 0.0 and p.sn >= 3.0 for p in scan.peaklist)

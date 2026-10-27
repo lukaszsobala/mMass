@@ -335,6 +335,26 @@ def test_adding_up_a_column_nobody_has_stays_empty():
     assert rows[0] == [10.0]
 
 
+def test_summed_area_uncertainties_add_in_quadrature():
+    """Two areas added up carry the uncertainty of their sum: independent
+    errors add in quadrature, not linearly."""
+
+    first = mspy.peak(mz=100.0, ai=90.0, envelope={"area": 10.0, "areaError": 3.0})
+    second = mspy.peak(mz=100.1, ai=30.0, envelope={"area": 5.0, "areaError": 4.0})
+
+    header, rows = alignment.buildAlignmentTable(
+        [[(0, 100.0, first), (0, 100.1, second)]],
+        ["a"],
+        statColumns=[],
+        peakColumns=["envarea", "enverr"],
+        duplicates=alignment.DUPLICATES_SUM,
+    )
+
+    row = dict(zip(header, rows[0], strict=True))
+    assert row["a | Envelope area"] == 15.0
+    assert row["a | Envelope area uncertainty"] == 5.0
+
+
 # ---------------------------------------------------------------------------
 # ppm error
 # ---------------------------------------------------------------------------

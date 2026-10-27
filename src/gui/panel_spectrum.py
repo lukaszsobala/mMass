@@ -29,6 +29,7 @@ from . import images
 from . import config
 from . import doc
 from . import differences
+from . import processing
 import mspy
 import mspy.plot
 
@@ -1130,9 +1131,7 @@ class panelSpectrum(wx.Panel):
             return
 
         # get baseline window (for area calculation)
-        baselineWindow = 1.0
-        if config.processing["peakpicking"]["baseline"]:
-            baselineWindow = 1.0 / config.processing["baseline"]["precision"]
+        baselineWindow = processing.baselineWindow(config.processing)
 
         # get basic values
         position = self.spectrumCanvas.getCursorPosition()
@@ -1279,7 +1278,7 @@ class panelSpectrum(wx.Panel):
                     minX=position[0] - distance[0],
                     maxX=position[0],
                     baselineWindow=baselineWindow,
-                    baselineOffset=config.processing["baseline"]["offset"],
+                    baselineOffset=processing.MEASUREMENT_BASELINE_OFFSET,
                 )
                 format = "area: %s   " % areaFormat
                 label += format % area
@@ -1308,8 +1307,13 @@ class panelSpectrum(wx.Panel):
         fillUnder=False,
         fillUnderAlpha=70,
         showOutline=True,
+        fillBase=None,
     ):
-        """Set new data to tmp spectrum."""
+        """Set new data to tmp spectrum.
+
+        fillBase - (x, y) rows the fill stops at instead of zero (the pedestal an
+            envelope sits on), so only the band between them is shaded
+        """
 
         self.currentTmpSpectrum = points
         self.currentTmpSpectrumFlip = flipped
@@ -1317,6 +1321,7 @@ class panelSpectrum(wx.Panel):
             "fillUnder": fillUnder,
             "fillUnderAlpha": fillUnderAlpha,
             "showOutline": showOutline,
+            "fillBase": fillBase,
         }
 
         # check spectrum
@@ -1358,6 +1363,7 @@ class panelSpectrum(wx.Panel):
             showPoints=False,
             fillUnder=fillUnder,
             fillUnderAlpha=fillUnderAlpha,
+            fillBase=fillBase,
             exactFit=True,
             pointColour=config.spectrum["tmpSpectrumColour"],
             lineColour=config.spectrum["tmpSpectrumColour"],
@@ -1618,13 +1624,11 @@ class panelSpectrum(wx.Panel):
             return
 
         # get baseline window
-        baselineWindow = 1.0
-        if config.processing["peakpicking"]["baseline"]:
-            baselineWindow = 1.0 / config.processing["baseline"]["precision"]
+        baselineWindow = processing.baselineWindow(config.processing)
 
         # get baseline
         baseline = self.documents[self.currentDocument].spectrum.baseline(
-            window=baselineWindow, offset=config.processing["baseline"]["offset"]
+            window=baselineWindow, offset=processing.MEASUREMENT_BASELINE_OFFSET
         )
 
         # label peak
@@ -1659,9 +1663,7 @@ class panelSpectrum(wx.Panel):
         """
 
         # baseline window is the same for every document
-        baselineWindow = 1.0
-        if config.processing["peakpicking"]["baseline"]:
-            baselineWindow = 1.0 / config.processing["baseline"]["precision"]
+        baselineWindow = processing.baselineWindow(config.processing)
 
         # label the apex peak in each visible spectrum that has profile data
         changed = []
@@ -1678,7 +1680,7 @@ class panelSpectrum(wx.Panel):
                 maxX = rawSelection[2] - docData.offset[0]
 
             baseline = docData.spectrum.baseline(
-                window=baselineWindow, offset=config.processing["baseline"]["offset"]
+                window=baselineWindow, offset=processing.MEASUREMENT_BASELINE_OFFSET
             )
 
             peak = mspy.labelpeak(
@@ -1720,13 +1722,11 @@ class panelSpectrum(wx.Panel):
             return
 
         # get baseline window
-        baselineWindow = 1.0
-        if config.processing["peakpicking"]["baseline"]:
-            baselineWindow = 1.0 / config.processing["baseline"]["precision"]
+        baselineWindow = processing.baselineWindow(config.processing)
 
         # get baseline
         baseline = self.documents[self.currentDocument].spectrum.baseline(
-            window=baselineWindow, offset=config.processing["baseline"]["offset"]
+            window=baselineWindow, offset=processing.MEASUREMENT_BASELINE_OFFSET
         )
 
         # label point
@@ -1761,13 +1761,11 @@ class panelSpectrum(wx.Panel):
             return
 
         # get baseline window
-        baselineWindow = 1.0
-        if config.processing["peakpicking"]["baseline"]:
-            baselineWindow = 1.0 / config.processing["baseline"]["precision"]
+        baselineWindow = processing.baselineWindow(config.processing)
 
         # get baseline
         baseline = self.documents[self.currentDocument].spectrum.baseline(
-            window=baselineWindow, offset=config.processing["baseline"]["offset"]
+            window=baselineWindow, offset=processing.MEASUREMENT_BASELINE_OFFSET
         )
 
         # label isotopes
@@ -1809,12 +1807,13 @@ class panelSpectrum(wx.Panel):
             peak.isotope = x
 
         averagineType = config.processing["peakpicking"].get("averagineType", "protein")
-        areas, shapes = mspy.mod_peakpicking._fit_envelope_areas_shaped(
+        areas, shapes, details = mspy.mod_peakpicking._fit_envelope_areas_detailed(
             [cluster],
             spectrum.profile,
             defaultFwhm,
             nonIdeality=config.processing["deisotoping"]["envelopeNonIdeality"],
             averagineType=averagineType,
+            avoid=mspy.mod_peakpicking._species_intervals(spectrum.peaklist, defaultFwhm),
         )
         area_val = max(0.0, float(areas[0])) if areas else 0.0
 
@@ -1826,6 +1825,12 @@ class panelSpectrum(wx.Panel):
             "shape": "gaussian",
             "isotopes": isotopes_data,
         }
+        # the area's uncertainty and the pedestal it was measured above
+        detail = details[0] if details else {}
+        if detail.get("areaError") is not None:
+            envelope_data["areaError"] = float(detail["areaError"])
+        if detail.get("pedestal"):
+            envelope_data["pedestal"] = detail["pedestal"]
 
         labeled_peaks = mspy.labelenvelope(
             cluster,

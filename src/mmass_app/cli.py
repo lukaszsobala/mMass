@@ -82,6 +82,7 @@ PEAKLIST_COLUMNS = {
     "fwhm": "peak width",
     "resol": "resolution",
     "envarea": "envelope area",
+    "enverr": "envelope area uncertainty (one sigma)",
     "envint": "summed envelope intensity",
     "group": "group",
 }

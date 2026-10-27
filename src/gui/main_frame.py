@@ -48,6 +48,7 @@ from . import libs
 from . import doc
 from . import session
 from . import differences
+from . import processing as processingSteps
 
 from .panel_about import panelAbout
 from .panel_calibration import panelCalibration
@@ -552,6 +553,9 @@ class mainFrame(wx.Frame):
             ID_viewPeaklistColumnEnvArea, "Env. Area", "", wx.ITEM_CHECK
         )
         viewPeaklistColumns.Append(
+            ID_viewPeaklistColumnEnvErr, "Env. Area Uncertainty", "", wx.ITEM_CHECK
+        )
+        viewPeaklistColumns.Append(
             ID_viewPeaklistColumnEnvInt, "Summed Env. Intensity", "", wx.ITEM_CHECK
         )
         viewPeaklistColumns.Append(ID_viewPeaklistColumnFwhm, "FWHM", "", wx.ITEM_CHECK)
@@ -649,6 +653,9 @@ class mainFrame(wx.Frame):
             wx.EVT_MENU, self.onViewPeaklistColumns, id=ID_viewPeaklistColumnEnvArea
         )
         self.Bind(
+            wx.EVT_MENU, self.onViewPeaklistColumns, id=ID_viewPeaklistColumnEnvErr
+        )
+        self.Bind(
             wx.EVT_MENU, self.onViewPeaklistColumns, id=ID_viewPeaklistColumnEnvInt
         )
         self.Bind(wx.EVT_MENU, self.onViewPeaklistColumns, id=ID_viewPeaklistColumnFwhm)
@@ -742,6 +749,10 @@ class mainFrame(wx.Frame):
         self.menubar.Check(
             ID_viewPeaklistColumnEnvArea,
             bool("envarea" in config.main["peaklistColumns"]),
+        )
+        self.menubar.Check(
+            ID_viewPeaklistColumnEnvErr,
+            bool("enverr" in config.main["peaklistColumns"]),
         )
         self.menubar.Check(
             ID_viewPeaklistColumnEnvInt,
@@ -3715,6 +3726,7 @@ class mainFrame(wx.Frame):
             ID_viewPeaklistColumnZ: "z",
             ID_viewPeaklistColumnMass: "mass",
             ID_viewPeaklistColumnEnvArea: "envarea",
+            ID_viewPeaklistColumnEnvErr: "enverr",
             ID_viewPeaklistColumnEnvInt: "envint",
             ID_viewPeaklistColumnFwhm: "fwhm",
             ID_viewPeaklistColumnResol: "resol",
@@ -5628,8 +5640,8 @@ class mainFrame(wx.Frame):
             spectrum_data = getattr(document, "spectrum", None)
             if spectrum_data and spectrum_data.hasprofile():
                 spectrum_data.baseline(
-                    window=(1.0 / config.processing["baseline"]["precision"]),
-                    offset=config.processing["baseline"]["offset"],
+                    window=processingSteps.baselineWindow(config.processing),
+                    offset=processingSteps.MEASUREMENT_BASELINE_OFFSET,
                 )
 
     # ----
@@ -5678,8 +5690,8 @@ class mainFrame(wx.Frame):
 
         # precalculate baseline
         document.spectrum.baseline(
-            window=(1.0 / config.processing["baseline"]["precision"]),
-            offset=config.processing["baseline"]["offset"],
+            window=processingSteps.baselineWindow(config.processing),
+            offset=processingSteps.MEASUREMENT_BASELINE_OFFSET,
         )
 
     # ----
@@ -5868,8 +5880,8 @@ class mainFrame(wx.Frame):
         # precalculate baseline for the initial scan
         if document.spectrum.hasprofile():
             document.spectrum.baseline(
-                window=(1.0 / config.processing["baseline"]["precision"]),
-                offset=config.processing["baseline"]["offset"],
+                window=processingSteps.baselineWindow(config.processing),
+                offset=processingSteps.MEASUREMENT_BASELINE_OFFSET,
             )
 
     # ----
@@ -5993,8 +6005,8 @@ class mainFrame(wx.Frame):
 
         if scan.hasprofile():
             scan.baseline(
-                window=(1.0 / config.processing["baseline"]["precision"]),
-                offset=config.processing["baseline"]["offset"],
+                window=processingSteps.baselineWindow(config.processing),
+                offset=processingSteps.MEASUREMENT_BASELINE_OFFSET,
             )
         document.scanCache[scanID] = scan
 
@@ -6095,8 +6107,8 @@ class mainFrame(wx.Frame):
                 )
                 if combined is not None and combined.hasprofile():
                     combined.baseline(
-                        window=(1.0 / config.processing["baseline"]["precision"]),
-                        offset=config.processing["baseline"]["offset"],
+                        window=processingSteps.baselineWindow(config.processing),
+                        offset=processingSteps.MEASUREMENT_BASELINE_OFFSET,
                     )
                 if combined is not None:
                     self._combinedScan = (combined, [found[i] for i in used])
@@ -6403,8 +6415,9 @@ class mainFrame(wx.Frame):
         fillUnder=False,
         fillUnderAlpha=70,
         showOutline=True,
+        fillBase=None,
     ):
-        """Update tmp spectrum in canvas."""
+        """Update tmp spectrum in canvas (see panelSpectrum.updateTmpSpectrum)."""
         self.spectrumPanel.updateTmpSpectrum(
             points,
             flipped=flipped,
@@ -6412,6 +6425,7 @@ class mainFrame(wx.Frame):
             fillUnder=fillUnder,
             fillUnderAlpha=fillUnderAlpha,
             showOutline=showOutline,
+            fillBase=fillBase,
         )
 
     # ----

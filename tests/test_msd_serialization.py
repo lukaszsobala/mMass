@@ -107,6 +107,39 @@ def test_detected_isotope_count_survives_msd_roundtrip():
     assert "detected" not in by_mz[1900].attributes["envelope"]
 
 
+def test_envelope_pedestal_and_area_uncertainty_survive_msd_roundtrip():
+    """The pedestal an envelope's area was measured above, and the area's
+    uncertainty, persist across save + reload -- so a reopened envelope is drawn
+    where it was fitted. An older envelope carries neither and gains neither."""
+
+    fitted = mspy.peak(mz=1802.0, ai=100.0, base=12.0, charge=1, isotope=0, fwhm=0.16)
+    fitted.attributes["envelope"] = {
+        "area": 137.0, "sumint": 800.0, "fwhm": 0.16, "shape": "gaussian",
+        "areaError": 4.25,
+        "pedestal": [(1801.2, 12.5), (1802.0, 12.0), (1803.0, 11.4), (1803.8, 11.0)],
+        "isotopes": [(1802.0, 0.6), (1803.0, 0.4)],
+    }
+    legacy = mspy.peak(mz=1900.0, ai=50.0, charge=1, isotope=0, fwhm=0.11)
+    legacy.attributes["envelope"] = {
+        "area": 60.0, "sumint": 400.0, "fwhm": 0.11, "shape": "gaussian",
+        "isotopes": [(1900.0, 1.0)],
+    }
+
+    xml, reloaded = _roundtrip([fitted, legacy])
+
+    assert 'areaError="4.25"' in xml
+    by_mz = {round(p.mz): p for p in reloaded}
+    envelope = by_mz[1802].attributes["envelope"]
+    assert envelope["areaError"] == pytest.approx(4.25)
+    assert envelope["pedestal"] == pytest.approx(
+        [(1801.2, 12.5), (1802.0, 12.0), (1803.0, 11.4), (1803.8, 11.0)]
+    )
+    # the isotopes are untouched by the pedestal points saved next to them
+    assert envelope["isotopes"] == pytest.approx([(1802.0, 0.6), (1803.0, 0.4)])
+    assert "areaError" not in by_mz[1900].attributes["envelope"]
+    assert "pedestal" not in by_mz[1900].attributes["envelope"]
+
+
 
 # ---------------------------------------------------------------------------
 # LC-MS runs: every scan in one .msd

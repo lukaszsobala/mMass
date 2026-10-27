@@ -398,6 +398,7 @@ class peaklist:
         averagineType=mod_peakpicking.DEFAULT_AVERAGINE,
         preserveSeeds=False,
         refinePattern=True,
+        otherPeaks=None,
     ):
         """Convert deisotoped peak clusters to envelope labels."""
 
@@ -418,6 +419,7 @@ class peaklist:
             averagineType=averagineType,
             preserveSeeds=preserveSeeds,
             refinePattern=refinePattern,
+            otherPeaks=otherPeaks,
         )
 
         # store data

@@ -147,7 +147,7 @@ def test_non_ideality_is_inert_for_overlapping_envelopes():
 
 
 def test_averagine_models_registered():
-    """The three selectable averagine models exist with distinct lambda factors."""
+    """The three selectable averagine models exist with distinct isotope rates."""
     assert set(mpp.AVERAGINE_MODELS) == {"protein", "carbohydrate", "lipid"}
     assert mpp.DEFAULT_AVERAGINE == "protein"
     # carbon density drives the +1 isotope rate: lipid > protein > carbohydrate
@@ -156,6 +156,44 @@ def test_averagine_models_registered():
         < mpp._averagine_lambda("protein")
         < mpp._averagine_lambda("lipid")
     )
+
+
+@pytest.mark.parametrize(
+    "averagine, composition",
+    [
+        ("protein", {"C": 4.9384, "H": 7.7583, "N": 1.3577, "O": 1.4773, "S": 0.0417}),
+        ("carbohydrate", {"C": 6, "H": 10, "O": 5}),
+        ("lipid", {"C": 16, "H": 32, "O": 2}),
+    ],
+)
+@pytest.mark.parametrize("mass", [900.0, 1500.0, 2500.0, 4000.0])
+def test_averagine_pattern_matches_the_exact_isotope_distribution(averagine, composition, mass):
+    """The modelled pattern is the real one for the averagine composition.
+
+    Counting only 13C, the old model put a 2.5 kDa peptide's +2 a fifth and its
+    +3 two fifths too low, and a 4 kDa peptide's apex on the wrong isotope; real
+    tails were heavier than the model on every measured envelope. Every heavy
+    isotope of every element (2H, 13C, 15N, 17O/18O, 33S/34S) now counts, and the
+    pattern matches mspy's exact calculation for the same molecule.
+    """
+
+    elements = mspy.blocks.elements
+    block = sum(elements[e].mass[1] * n for e, n in composition.items())
+    counts = {e: round(mass / block * n) for e, n in composition.items()}
+    formula = "".join(f"{e}{n}" for e, n in counts.items() if n)
+    exact = mspy.pattern(formula, fwhm=0.001, threshold=0.0001, charge=0, real=False)
+    mono = exact[0][0]
+    expected = [
+        sum(i for mz, i in exact if abs(mz - mono - k * mpp.ISOTOPE_DISTANCE) < 0.3)
+        for k in range(5)
+    ]
+    neutral = sum(elements[e].mass[1] * n for e, n in counts.items())
+    modelled = mpp._averagine_pattern(neutral, averagine, 5)
+
+    expected = numpy.array(expected) / max(expected)
+    modelled = numpy.array(modelled) / max(modelled)
+    assert numpy.argmax(modelled) == numpy.argmax(expected)
+    assert modelled == pytest.approx(expected, abs=0.025)
 
 
 def test_averagine_type_changes_isotope_weights():
@@ -614,7 +652,7 @@ def test_residual_trim_leaves_major_peak_neighbour_visible():
     coincides with a *major* isotope of the dominant (a light +1 species one Da
     apart), the residual -- observed minus the tall dominant's contribution --
     would leave the neighbour almost nothing, silently discarding a labelled peak.
-    ``_dominant_shared_weight`` above ``ENVELOPE_RESIDUAL_MINOR_GATE`` keeps this
+    ``_dominant_shared_steps`` below ``ENVELOPE_RESIDUAL_MINOR_STEPS`` keeps this
     case on the shape split, so the neighbour stays clearly visible.
     """
 

@@ -41,33 +41,30 @@ from . import mod_signal
 ISOTOPE_DISTANCE = 1.00287
 AVERAGE_AMINO = {"C": 4.9384, "H": 7.7583, "N": 1.3577, "O": 1.4773, "S": 0.0417}
 AVERAGE_BASE = {"C": 9.75, "H": 12.25, "N": 3.75, "O": 6, "P": 1}
-ENVELOPE_NON_IDEALITY_DEFAULT = 0.20
+# How far (relative) an isolated envelope's isotope pattern may bend from the
+# averagine model toward the data. On 58 isolated, S/N > 30 envelopes of the
+# sample files the real patterns differ from the (full-composition) model by
+# 5% (median) / 12% (90th percentile) on isotopes of >= half the apex, and by
+# 10% / 23% on those of 20-50%: 0.30 lets ~95% of that through while still
+# clipping a contaminant on an isotope position back to a plausible height.
+ENVELOPE_NON_IDEALITY_DEFAULT = 0.30
 
-# Averagine models selectable for isotope-envelope modeling. Each maps a short
-# key to (a) the average building-block elemental composition used to build a
-# real isotope pattern, and (b) the Poisson "lambda factor": the expected number
-# of +1 isotopes per dalton, which the fast isotope approximation multiplies by
-# the neutral mass. The +1 spacing is dominated by 13C (1.07% natural
-# abundance), so the factor is ~ (carbons per block / block mass) * 0.0107. The
-# protein factor reproduces the historical 0.000475 constant; the others follow
-# from their carbon density (more carbon per Da -> larger factor):
-#   carbohydrate  C6H10O5 (anhydrohexose):  6 / 162.14 * 0.0107 = 0.000396
-#   lipid         C16H32O2 (fatty acyl):   16 / 256.43 * 0.0107 = 0.000668
+# Averagine models selectable for isotope-envelope modeling: each maps a short
+# key to the average building-block elemental composition of that compound
+# class. The isotope pattern of a species is built from it (see
+# `_averagine_pattern`), scaled to the species' mass.
 AVERAGINE_MODELS = {
     "protein": {
         "label": "Protein (amino acid)",
         "composition": AVERAGE_AMINO,
-        "lambdaFactor": 0.000475,
     },
     "carbohydrate": {
         "label": "Carbohydrate (hexose)",
         "composition": {"C": 6, "H": 10, "O": 5},
-        "lambdaFactor": 0.000396,
     },
     "lipid": {
         "label": "Lipid (fatty acyl)",
         "composition": {"C": 16, "H": 32, "O": 2},
-        "lambdaFactor": 0.000668,
     },
 }
 DEFAULT_AVERAGINE = "protein"
@@ -79,10 +76,79 @@ def _averagine_model(averagineType):
     return AVERAGINE_MODELS.get(averagineType, AVERAGINE_MODELS[DEFAULT_AVERAGINE])
 
 
-def _averagine_lambda(averagineType):
-    """Poisson lambda factor (expected +1 isotopes per Da) for an averagine type."""
+_AVERAGINE_RATES = {}
 
-    return _averagine_model(averagineType)["lambdaFactor"]
+
+def _averagine_rates(averagineType):
+    """Expected +1 and +2 isotope steps per dalton of an averagine type.
+
+    Every atom of the building block can carry a heavier isotope: one mass unit
+    heavier (13C, 2H, 15N, 17O, 33S) or two (18O, 34S). The number of each kind in
+    a molecule is Poisson distributed with mean (atoms) x (heavy/light abundance
+    ratio), and summing over the block per dalton gives two rates. Counting 13C
+    alone -- the old model -- left out a tenth of a peptide's +1 rate and every
+    +2 step, so real tails ran heavier than the model: +2 by a third and +3 by
+    nearly double on measured glycans, and a 4 kDa peptide's apex on the wrong
+    isotope. These two rates reproduce exact isotope patterns to about 1 %.
+    """
+
+    rates = _AVERAGINE_RATES.get(averagineType)
+    if rates is not None:
+        return rates
+    composition = _averagine_composition(averagineType)
+    blockMass = 0.0
+    step1 = 0.0
+    step2 = 0.0
+    for symbol, count in composition.items():
+        element = blocks.elements[symbol]
+        isotopes = element.isotopes
+        light = min(isotopes)
+        lightAbundance = isotopes[light][1]
+        blockMass += count * element.mass[1]
+        if lightAbundance <= 0.0:
+            continue
+        step1 += count * isotopes.get(light + 1, (0.0, 0.0))[1] / lightAbundance
+        step2 += count * isotopes.get(light + 2, (0.0, 0.0))[1] / lightAbundance
+    rates = (step1 / blockMass, step2 / blockMass) if blockMass > 0.0 else (0.0, 0.0)
+    _AVERAGINE_RATES[averagineType] = rates
+    return rates
+
+
+def _averagine_lambda(averagineType):
+    """Expected +1 isotope steps per Da of an averagine type (see `_averagine_rates`)."""
+
+    return _averagine_rates(averagineType)[0]
+
+
+def _compound_poisson(lam1, lam2, size):
+    """Isotope pattern P(k), k < size, of a species expecting `lam1` +1 steps and
+    `lam2` +2 steps: the two counts are independent Poisson variables, and isotope
+    k is every way of making k mass units from them."""
+
+    if size <= 0:
+        return []
+    lam1 = max(0.0, float(lam1))
+    lam2 = max(0.0, float(lam2))
+    if lam1 + lam2 >= 700.0:
+        return [0.0] * size
+    ones = [math.exp(-lam1)]
+    for i in range(1, size):
+        ones.append(ones[-1] * lam1 / i)
+    twos = [math.exp(-lam2)]
+    for j in range(1, size // 2 + 1):
+        twos.append(twos[-1] * lam2 / j)
+    return [
+        math.fsum(twos[j] * ones[k - 2 * j] for j in range(k // 2 + 1))
+        for k in range(size)
+    ]
+
+
+def _averagine_pattern(neutralMass, averagineType, size):
+    """Isotope pattern P(k), k < size, of an averagine species of `neutralMass`."""
+
+    rate1, rate2 = _averagine_rates(averagineType)
+    mass = max(0.0, float(neutralMass))
+    return _compound_poisson(mass * rate1, mass * rate2, size)
 
 
 def _averagine_composition(averagineType):
@@ -364,6 +430,37 @@ def labelpeak(signal, mz=None, minX=None, maxX=None, pickingHeight=0.75, baselin
 # ----
 
 
+def _merge_split_apexes(signal, candidates, baseline):
+    """Merge neighbouring apex candidates that are one noisy peak.
+
+    candidates - [mz, ai, base, sn, fwhm] rows in m/z order, as labelscan builds
+    them. Two real peaks show a dip between them only once they are more than
+    about one FWHM apart (two equal Gaussians one FWHM apart have none at all),
+    and then it is deep; a dip shallower than the local noise is the noise on one
+    peak's top. Such a pair keeps its taller maximum. The noise is the baseline's
+    noise width there; without a baseline, 5% of the lower apex stands in.
+    """
+
+    merged = [candidates[0]]
+    for peak in candidates[1:]:
+        last = merged[-1]
+        i1 = mod_signal.locate(signal, last[0])
+        i2 = mod_signal.locate(signal, peak[0])
+        lower = min(last[1], peak[1])
+        valley = float(numpy.min(signal[i1:i2 + 1, 1])) if i2 > i1 else lower
+        noise = 0.0
+        if baseline is not None and len(baseline):
+            middle = 0.5 * (last[0] + peak[0])
+            noise = float(numpy.interp(middle, baseline[:, 0], baseline[:, 2]))
+        tolerance = noise if noise > 0.0 else 0.05 * (lower - max(last[2], peak[2]))
+        if lower - valley < tolerance:
+            if peak[1] > last[1]:
+                merged[-1] = peak
+            continue
+        merged.append(peak)
+    return merged
+
+
 def labelscan(
     signal,
     minX=None,
@@ -435,16 +532,28 @@ def labelscan(
 
     CHECK_FORCE_QUIT()
 
-    # remove peaks bellow threshold
+    # remove peaks bellow threshold. Only a peak with NO S/N (no baseline to
+    # measure it against) is exempt from the S/N threshold -- an S/N of exactly 0
+    # is a maximum lying on the baseline itself, which is never a peak (counting
+    # data has plenty of them, and they used to slip through as "no S/N").
     threshold = max(basepeak * relThreshold, absThreshold)
     candidates = []
     for peak in buff:
         if (
             peak[0] > 0
+            and (peak[1] - peak[2]) > 0.0
             and (peak[1] - peak[2]) >= threshold
-            and (not peak[3] or peak[3] >= snThreshold)
+            and (peak[3] is None or peak[3] >= snThreshold)
         ):
             candidates.append(peak)
+
+    # One peak, one apex. Picking at the apex takes every local maximum, and noise
+    # on a peak's top splits it into maxima a few samples apart that would both
+    # pass (on a measured file nearly half the picked peaks were such twins).
+    # Centroiding below the apex groups them already; at the apex they are merged
+    # here (see `_merge_split_apexes`).
+    if pickingHeight >= 1.0 and len(candidates) > 1:
+        candidates = _merge_split_apexes(signal, candidates, baseline)
 
     # make centroides
     if pickingHeight < 1.0:
@@ -524,8 +633,9 @@ def labelscan(
     for peak in candidates:
         if (
             peak[0] > 0
+            and (peak[1] - peak[2]) > 0.0
             and (peak[1] - peak[2]) >= threshold
-            and (not peak[3] or peak[3] >= snThreshold)
+            and (peak[3] is None or peak[3] >= snThreshold)
         ):
             peak[4] = mod_signal.width(
                 signal, peak[0], (peak[2] + ((peak[1] - peak[2]) * 0.5))
@@ -776,8 +886,14 @@ def labelenvelope(
 # ----
 
 
-def envelopeprofile(envelope, raster=None, points=30):
-    """Make Gaussian profile for one envelope metadata dict."""
+def envelopeprofile(envelope, raster=None, points=30, onPedestal=False):
+    """Make Gaussian profile for one envelope metadata dict.
+
+    onPedestal (bool) - lay the envelope on the local pedestal its area was
+        measured above (the "pedestal" stored with it, see `envelopepedestal`),
+        as it sits in the spectrum. Without it the profile starts at zero and
+        integrates to the area.
+    """
 
     if not envelope:
         return numpy.array([])
@@ -808,7 +924,26 @@ def envelopeprofile(envelope, raster=None, points=30):
         amplitude = area * float(weight) / norm
         y += amplitude * numpy.exp(-0.5 * ((raster - float(mz)) / sigma) ** 2)
 
+    if onPedestal:
+        y += envelopepedestal(envelope, raster)[:, 1]
+
     return numpy.column_stack((raster, y))
+
+
+def envelopepedestal(envelope, raster):
+    """The local pedestal an envelope's area was measured above, on `raster`.
+
+    Returns (mz, level) rows; the level is zero everywhere for an envelope that
+    carries no pedestal (fitted without a profile, or saved by an older version).
+    """
+
+    raster = numpy.asarray(raster, dtype=float)
+    pedestal = envelope.get("pedestal") if envelope else None
+    if not pedestal:
+        return numpy.column_stack((raster, numpy.zeros(len(raster), dtype=float)))
+    mzs = [float(point[0]) for point in pedestal]
+    levels = [float(point[1]) for point in pedestal]
+    return numpy.column_stack((raster, numpy.interp(raster, mzs, levels)))
 
 
 # ----
@@ -845,8 +980,6 @@ def _cluster_weights(cluster, averagineType=DEFAULT_AVERAGINE):
             mod_basics.mz(mono_mz, charge=0, currentCharge=parent.charge, massType=1),
             massType=1,
         )
-        lam = max(0.0, neutralMass * _averagine_lambda(averagineType))
-
         # Find maximum required isotope index
         max_iso = 30
         for i, p in enumerate(cluster):
@@ -855,14 +988,7 @@ def _cluster_weights(cluster, averagineType=DEFAULT_AVERAGINE):
                 iso_idx = i
             max_iso = max(max_iso, int(iso_idx) + 1)
 
-        pattern = []
-        p_val = math.exp(-lam) if lam < 700 else 0.0
-        for i in range(max_iso):
-            if i == 0:
-                pattern.append(p_val)
-            else:
-                p_val = p_val * (lam / i)
-                pattern.append(p_val)
+        pattern = _averagine_pattern(neutralMass, averagineType, max_iso)
 
         total = sum(pattern)
         if total > 0.0:
@@ -888,12 +1014,13 @@ def _cluster_weights(cluster, averagineType=DEFAULT_AVERAGINE):
 def _cluster_poisson(cluster, averagineType=DEFAULT_AVERAGINE):
     """The averagine Poisson parameters behind `_cluster_weights` for a cluster.
 
-    Returns ``(lambda, indices)`` -- the averagine lambda for this cluster's
-    neutral mass and the isotope index of each of its peaks -- or None for a
-    cluster with no charge (whose weights come from the peak heights, not from a
-    Poisson pattern at all). Together they regenerate the same weights via
-    `_poisson_weights`, which is what lets the group fit re-derive the pattern at a
-    data-pinned lambda instead of the generic averagine one.
+    Returns ``(lambda, indices, ratio)`` -- the expected +1 steps for this
+    cluster's neutral mass, the isotope index of each of its peaks, and the ratio
+    of +2 to +1 steps of its averagine type -- or None for a cluster with no charge
+    (whose weights come from the peak heights, not from an isotope pattern at
+    all). Together they regenerate the same weights via `_poisson_weights`, which
+    is what lets the group fit re-derive the pattern at a data-pinned lambda
+    instead of the generic averagine one.
     """
 
     if not cluster:
@@ -913,7 +1040,8 @@ def _cluster_poisson(cluster, averagineType=DEFAULT_AVERAGINE):
         mod_basics.mz(mono_mz, charge=0, currentCharge=parent.charge, massType=1),
         massType=1,
     )
-    lam = max(0.0, neutralMass * _averagine_lambda(averagineType))
+    rate1, rate2 = _averagine_rates(averagineType)
+    lam = max(0.0, neutralMass * rate1)
     if lam <= 0.0:
         return None
 
@@ -923,7 +1051,7 @@ def _cluster_poisson(cluster, averagineType=DEFAULT_AVERAGINE):
         if idx is None:
             idx = i
         indices.append(int(idx))
-    return (lam, indices)
+    return (lam, indices, rate2 / rate1 if rate1 > 0.0 else 0.0)
 
 
 # ----
@@ -1048,6 +1176,32 @@ def _project_unimodal(weights):
     return best_fit
 
 
+def _isotope_heights(isotopes, x, y, fwhm):
+    """Observed height of each isotope: one least-squares fit of a Gaussian per
+    isotope (at its position, at the envelope's width) to the profile.
+
+    The fit uses every point of each peak, so noise averages out instead of
+    being picked up -- the maximum of a window is pushed up by the noise, most of
+    all on a faint isotope, which flattened the observed pattern and inflated
+    weak envelopes -- and isotopes that overlap at low resolution are separated
+    instead of each reading its neighbour's flank. Negative heights (an isotope
+    lost in the noise) read as zero.
+    """
+
+    heights = numpy.zeros(len(isotopes), dtype=float)
+    if not len(x) or not len(y) or fwhm <= 0.0 or not isotopes:
+        return heights
+    sigma = _fwhm_to_sigma(float(fwhm))
+    norm = sigma * math.sqrt(2.0 * math.pi)
+    columns = [_local_gaussian_column(x, [(mz, norm)], sigma) for mz, _w in isotopes]
+    design = numpy.column_stack(columns)
+    used = numpy.any(design > 1e-6, axis=1)
+    if numpy.count_nonzero(used) < len(isotopes):
+        return heights
+    fitted = numpy.linalg.lstsq(design[used], numpy.asarray(y, dtype=float)[used], rcond=None)[0]
+    return numpy.clip(fitted, 0.0, None)
+
+
 def _soft_isotope_model(isotopes, x, y, fwhm, nonIdeality=None):
     """Reshape averagine isotopes toward observed evidence within a bounded band.
 
@@ -1080,14 +1234,7 @@ def _soft_isotope_model(isotopes, x, y, fwhm, nonIdeality=None):
         return ordered
     theory /= total
 
-    obs = numpy.zeros(len(ordered), dtype=float)
-    if len(x) and len(y) and fwhm > 0.0:
-        half_window = max(0.35 * float(fwhm), 1e-4)
-        for i, (mz, _) in enumerate(ordered):
-            i1 = numpy.searchsorted(x, mz - half_window, side='left')
-            i2 = numpy.searchsorted(x, mz + half_window, side='right')
-            if i1 < i2:
-                obs[i] = max(0.0, float(numpy.max(y[i1:i2])))
+    obs = _isotope_heights(ordered, x, y, fwhm)
 
     obs_total = float(numpy.sum(obs))
     if obs_total > 0.0:
@@ -1139,7 +1286,8 @@ def _soft_isotope_model(isotopes, x, y, fwhm, nonIdeality=None):
 
 
 def _cluster_pattern(parent, size, averagineType=DEFAULT_AVERAGINE):
-    """Get expected isotope pattern slice for parent peak using Poisson Averagine approximation."""
+    """Expected isotope pattern slice for a parent peak, apex-normalised (see
+    `_averagine_pattern`)."""
     if size <= 0:
         return []
 
@@ -1147,20 +1295,7 @@ def _cluster_pattern(parent, size, averagineType=DEFAULT_AVERAGINE):
         mod_basics.mz(parent.mz, charge=0, currentCharge=parent.charge, massType=1),
         massType=1,
     )
-
-    # Averagine Poisson approximation: expected number of +1 isotopes per Da,
-    # dominated by 13C. The factor depends on the selected averagine type's
-    # carbon density (see AVERAGINE_MODELS); protein ~ 0.000475.
-    lam = neutralMass * _averagine_lambda(averagineType)
-
-    pattern = []
-    p = math.exp(-lam) if lam < 700 else 0.0
-    for i in range(size):
-        if i == 0:
-            pattern.append(p)
-        else:
-            p = p * (lam / i)
-            pattern.append(p)
+    pattern = _averagine_pattern(neutralMass, averagineType, size)
 
     # If lambda is huge, exponential might underflow to 0. Fallback scaling:
     if sum(pattern) <= 0.0:
@@ -1553,7 +1688,7 @@ def _envelope_gaussian_column(x, isotopes, sigma):
 
 ENVELOPE_CAP_ANCHOR_FRACTION = 0.75
 ENVELOPE_CAP_CONTEST_FRACTION = 0.10
-ENVELOPE_CAP_CONTEST_MIN_FRACTION = 0.50
+ENVELOPE_CAP_CONTEST_MIN_FRACTION = 0.65
 
 # A neighbour only makes one of this envelope's peaks genuinely "contested" -- and
 # so allowed to bind the amplitude cap -- when the isotope it puts there is a real
@@ -1574,20 +1709,21 @@ ENVELOPE_CAP_CONTEST_MIN_FRACTION = 0.50
 ENVELOPE_CAP_CONTEST_NEIGHBOUR_FRACTION = 0.15
 
 # A buried envelope's major peak is trimmed to its residual (see the gated
-# residual pass in `_apportion_group_areas`) only when the neighbour dominating
-# that shared peak is itself a MINOR isotope of its own pattern -- its weight is
-# below this fraction of its apex. Below the gate the neighbour takes only a
-# small bite of the shared peak, so the residual leaves the buried species its
-# real share; above it (a light species' +1 sitting under a heavier mono) the
-# residual would crush a real labelled peak, so the shape split is kept instead.
-# Sits between the measured minor-tail cases (dominant weight ~0.20-0.37, trimmed)
-# and the major-peak case that must stay visible (test_small_envelope_under_large
-# _neighbour_keeps_fair_share, dominant weight ~0.475, left alone).
-ENVELOPE_RESIDUAL_MINOR_GATE = 0.40
+# residual pass in `_apportion_group_areas`) only when the neighbour claiming
+# that shared peak claims it with the TAIL of its own pattern -- an isotope at
+# least this many steps from the neighbour's apex. There the neighbour's claim
+# is a bite of its own shape, so the residual leaves the buried species its real
+# share; on the neighbour's apex or the isotope next to it (a light species' +1
+# sitting under a heavier mono) the residual would crush a real labelled peak,
+# so the shape split is kept instead. The distance is measured in isotopes, not
+# in weight: with real isotope patterns a +2 at 1.8 kDa is as abundant as a +1
+# at 1 kDa (both ~0.5 of their apex), so no weight separates the two cases.
+ENVELOPE_RESIDUAL_MINOR_STEPS = 2
 
 
 def _envelope_amp_cap(
-    areaColumn, x, capSignal, shaped, fwhm, otherFrac=None, neighbourStakes=None
+    areaColumn, x, capSignal, shaped, fwhm, otherFrac=None, neighbourStakes=None,
+    anchorWeights=None,
 ):
     """Largest amplitude whose modelled envelope stays under ``capSignal``.
 
@@ -1660,6 +1796,13 @@ def _envelope_amp_cap(
     the per-point fraction of the structural signal contributed by the *other*
     envelopes in the group; ``None`` (an isolated envelope, no competitors) means
     nothing is contested and only the abundant anchor binds.
+
+    Which isotopes are abundant is a property of the SPECIES. ``anchorWeights``
+    (aligned with ``shaped``) gives its theoretical pattern when ``shaped`` was
+    bent toward the data (an isolated envelope's soft model): a contaminant on
+    the +1 bends that isotope up, and judged on the bent shape the true apex can
+    drop out of the anchors -- leaving the cap anchored on the contaminant
+    itself.
     """
 
     if not shaped or areaColumn.size == 0:
@@ -1669,24 +1812,31 @@ def _envelope_amp_cap(
     wMax = max(weights) if weights else 0.0
     if wMax <= 0.0:
         return None
+    # which isotopes are the species' abundant ones (see the note above)
+    species = weights
+    if anchorWeights is not None and len(anchorWeights) == len(weights):
+        species = [max(0.0, float(w)) for w in anchorWeights]
+    speciesMax = max(species) if species else 0.0
+    if speciesMax <= 0.0:
+        species, speciesMax = weights, wMax
 
     # window half-width: wide enough to catch the real apex (which may sit a
     # fraction of the peak width off the model grid) yet far inside the isotope
     # spacing so it never samples a neighbouring isotope
     halfWin = max(0.6 * float(fwhm), 1e-3)
-    anchorWeight = ENVELOPE_CAP_ANCHOR_FRACTION * wMax
+    anchorWeight = ENVELOPE_CAP_ANCHOR_FRACTION * speciesMax
 
     cap = None
     for idx, (mz, w) in enumerate(shaped):
         # skip the near-zero tail entirely: unreliable and never a real ceiling
-        if float(w) < 0.1 * wMax:
+        if species[idx] < 0.1 * speciesMax:
             continue
         i1 = int(numpy.searchsorted(x, mz - halfWin, side="left"))
         i2 = int(numpy.searchsorted(x, mz + halfWin, side="right"))
         if i2 <= i1:
             continue
 
-        isAnchor = float(w) >= anchorWeight
+        isAnchor = species[idx] >= anchorWeight
         contested = False
         if otherFrac is not None:
             # a contested isotope may bind only if it is itself a *significant*
@@ -1740,9 +1890,8 @@ def _neighbour_stakes(k, capInfo):
     envelope's own weight at the point is small, even against a negligible
     neighbour.
 
-    This is the shared measurement behind both the cap's contested test
-    (``ENVELOPE_CAP_CONTEST_NEIGHBOUR_FRACTION``) and the residual pass's
-    discriminator (`_dominant_shared_weight`).
+    This is the measurement behind the cap's contested test
+    (``ENVELOPE_CAP_CONTEST_NEIGHBOUR_FRACTION``).
     """
 
     shaped, fwhm = capInfo[k]
@@ -1765,32 +1914,46 @@ def _neighbour_stakes(k, capInfo):
     return stakes
 
 
-def _dominant_shared_weight(k, capInfo, x):
-    """Largest apex-relative weight any OTHER envelope has at one of envelope k's
-    own MAJOR isotopes -- the "signal 1" residual discriminator.
+def _dominant_shared_steps(k, capInfo):
+    """How close to its own apex a neighbour claims one of envelope k's MAJOR
+    isotopes -- the "signal 1" residual discriminator.
 
     For each of k's significant peaks (weight >= ``ENVELOPE_CAP_CONTEST_MIN_FRACTION``
-    of its apex) we take that neighbour's own apex-relative weight at the same m/z
-    (`_neighbour_stakes`). A small result means k's major peak sits on a
-    neighbour's MINOR tail (the neighbour takes only a small bite, so trimming k to
-    the residual leaves it its fair share); a large result means it sits on a
-    neighbour's MAJOR peak (a light species' +1 under a heavier mono), where the
-    residual would crush a real labelled peak. Returns 0.0 when nothing competes at
-    k's major peaks.
+    of its apex) and each other envelope that genuinely claims it (its own
+    apex-relative weight there at least ``ENVELOPE_CAP_CONTEST_NEIGHBOUR_FRACTION``,
+    as in `_neighbour_stakes`), the distance in isotopes from that neighbour's
+    apex. Returns the smallest such distance, or None when nothing competes at
+    k's major peaks. A large distance means k's major peak sits on a neighbour's
+    TAIL (trimming k to the residual leaves it its fair share); 0 or 1 means it
+    sits on the neighbour's apex region (a light species' +1 under a heavier
+    mono), where the residual would crush a real labelled peak.
     """
 
-    shaped, _fwhm = capInfo[k]
+    shaped, fwhm = capInfo[k]
     if not shaped:
-        return 0.0
+        return None
     wMax = max((float(w) for _mz, w in shaped), default=0.0) or 1.0
-    stakes = _neighbour_stakes(k, capInfo)
-    worst = 0.0
-    for (_mz, w), stake in zip(shaped, stakes, strict=True):
+    halfWin = max(0.6 * float(fwhm), 1e-3)
+    nearest = None
+    for mz, w in shaped:
         if float(w) < ENVELOPE_CAP_CONTEST_MIN_FRACTION * wMax:
             continue
-        if stake > worst:
-            worst = stake
-    return worst
+        for j, (shpJ, _fwhmJ) in enumerate(capInfo):
+            if j == k or not shpJ:
+                continue
+            ordered = sorted((float(m), float(wj)) for m, wj in shpJ)
+            weightsJ = [wj for _m, wj in ordered]
+            wMaxJ = max(weightsJ) or 1.0
+            apexJ = weightsJ.index(max(weightsJ))
+            for index, (mzj, wj) in enumerate(ordered):
+                if abs(mzj - float(mz)) > halfWin:
+                    continue
+                if wj / wMaxJ < ENVELOPE_CAP_CONTEST_NEIGHBOUR_FRACTION:
+                    continue
+                steps = abs(index - apexJ)
+                if nearest is None or steps < nearest:
+                    nearest = steps
+    return nearest
 
 
 def _has_unshared_major(k, capInfo, otherFrac, x):
@@ -1825,7 +1988,7 @@ def _has_unshared_major(k, capInfo, otherFrac, x):
 
 # How far the per-envelope Poisson lambda may be re-fit away from the averagine
 # prediction, as a fraction of it (see `_refit_poisson_lambda`). Averagine gives
-# lambda = mass * lambdaFactor from a single generic carbon density, so it is a
+# lambda from a single generic building-block composition, so it is a
 # class average, not this analyte: the three shipped models already disagree by
 # -17%/+41% about the same 1030 Da species, and a real molecule can sit outside
 # all three. The band is wide enough that the data may pull the shape across that
@@ -1857,14 +2020,16 @@ ENVELOPE_LAMBDA_REFIT_MIN_WEIGHT = 0.05
 ENVELOPE_LAMBDA_REFIT_MIN_OWNERSHIP = 0.5
 
 
-def _poisson_weights(indices, lam):
-    """Averagine isotope weights at an arbitrary Poisson ``lam``.
+def _poisson_weights(indices, lam, ratio=0.0):
+    """Averagine isotope weights at an arbitrary ``lam`` (+1 steps expected).
 
-    Mirrors `_cluster_weights` exactly -- the same 30-term pattern, the same
-    normalisation by the *full* pattern sum rather than by the selected slice --
-    so swapping ``lam`` is the only difference between the two. Keeping the
-    normalisation identical is what makes areas fitted at a re-fit lambda directly
-    comparable to averagine ones.
+    ``ratio`` is the averagine type's +2 to +1 step ratio, so the +2 steps scale
+    with ``lam`` -- a re-fit lambda stands for a lighter or heavier species of the
+    same composition. Mirrors `_cluster_weights` exactly -- the same 30-term
+    pattern, the same normalisation by the *full* pattern sum rather than by the
+    selected slice -- so swapping ``lam`` is the only difference between the two.
+    Keeping the normalisation identical is what makes areas fitted at a re-fit
+    lambda directly comparable to averagine ones.
     """
 
     lam = max(0.0, float(lam))
@@ -1872,14 +2037,7 @@ def _poisson_weights(indices, lam):
     for idx in indices:
         maxIso = max(maxIso, int(idx) + 1)
 
-    pattern = []
-    value = math.exp(-lam) if lam < 700 else 0.0
-    for i in range(maxIso):
-        if i == 0:
-            pattern.append(value)
-        else:
-            value = value * (lam / i)
-            pattern.append(value)
+    pattern = _compound_poisson(lam, lam * max(0.0, float(ratio)), maxIso)
 
     total = sum(pattern)
     if total <= 0.0:
@@ -1891,13 +2049,13 @@ def _poisson_weights(indices, lam):
 
 
 def _refit_poisson_lambda(
-    positions, indices, lamAveragine, x, observed, residual, fwhm
+    positions, indices, lamAveragine, x, observed, residual, fwhm, ratio=0.0
 ):
     """Re-fit an envelope's Poisson lambda to its own (de-blended) signal.
 
-    Averagine sets ``lam = mass * lambdaFactor`` from a generic carbon density, and
-    the whole isotope pattern follows from that one number: ``w_i = e^-lam lam^i /
-    i!``. So an error in lam does not just tilt the pattern, it *compounds along
+    Averagine sets ``lam`` (the expected +1 steps, with the +2 steps in a fixed
+    ratio to them) from a generic composition, and the whole isotope pattern
+    follows from that one number (see `_averagine_pattern`). So an error in lam does not just tilt the pattern, it *compounds along
     it* -- the relative error in ``w_i`` grows like ``i``. The monoisotopic and +1
     peaks are therefore the trustworthy part of a modelled envelope, the +2/+3 tail
     the speculative part. That matters most where an envelope's tail lands on a
@@ -1913,7 +2071,7 @@ def _refit_poisson_lambda(
 
     Two things make this safe where free per-isotope soft-modelling (`nonIdeality`,
     deliberately inert in a crowd) is not. The family is a strict one-parameter
-    Poisson, so the shape cannot bend a single tail weight up onto a neighbour's
+    one (the averagine composition, scaled), so the shape cannot bend a single tail weight up onto a neighbour's
     peak -- it can only slide along the physical carbon-count axis, and any move
     that inflates the tail must lower the mono in the same breath. And the search
     is confined to ``ENVELOPE_LAMBDA_REFIT_BAND`` around averagine, so the result
@@ -1950,7 +2108,7 @@ def _refit_poisson_lambda(
     if lamAveragine <= 0.0 or len(indices) < 2 or len(x) == 0:
         return None
 
-    baseWeights = _poisson_weights(indices, lamAveragine)
+    baseWeights = _poisson_weights(indices, lamAveragine, ratio)
     if not baseWeights:
         return None
     wMax = max(baseWeights)
@@ -1992,7 +2150,7 @@ def _refit_poisson_lambda(
     lo = lamAveragine * (1.0 - ENVELOPE_LAMBDA_REFIT_BAND)
     hi = lamAveragine
     for lam in numpy.linspace(lo, hi, ENVELOPE_LAMBDA_REFIT_STEPS):
-        trial = _poisson_weights(isoIdx, lam)
+        trial = _poisson_weights(isoIdx, lam, ratio)
         if not trial:
             continue
         model = numpy.array(trial, dtype=float)
@@ -2014,7 +2172,7 @@ def _refit_poisson_lambda(
     return best
 
 
-def _apportion_group_areas(areaColumns, apexColumns, x, y, capInfo=None):
+def _apportion_group_areas(areaColumns, apexColumns, x, y, capInfo=None, anchorInfo=None):
     """Split the observed signal among overlapping envelopes, then fit each area.
 
     Two column sets are supplied per envelope:
@@ -2079,7 +2237,7 @@ def _apportion_group_areas(areaColumns, apexColumns, x, y, capInfo=None):
     the neighbours' own fitted contribution) can support, so the summed model pokes
     above the curve at that peak even though the group integral is bounded. Each
     such envelope is re-fit to that residual and trimmed to it (never raised).
-    ``_dominant_shared_weight`` and ``_has_unshared_major`` gate it so it fires only
+    ``_dominant_shared_steps`` and ``_has_unshared_major`` gate it so it fires only
     where the residual equals the fair share -- a neighbour that takes only a small
     minor-tail bite, or an envelope with its own unshared major peak to pin it --
     and never on a light species' +1 buried under a heavier mono, which the shape
@@ -2106,7 +2264,11 @@ def _apportion_group_areas(areaColumns, apexColumns, x, y, capInfo=None):
     if K == 0 or len(x) == 0:
         return [0.0] * K
 
-    yy = numpy.clip(y, 0.0, None)
+    # The signal above the local pedestal, NOT clipped at zero: the amplitudes are
+    # least-squares fits and the group budget an integral, both linear in the
+    # data, so noise below zero must count against noise above it. Clipping it
+    # would read the noise as signal and inflate every weak envelope.
+    yy = numpy.asarray(y, dtype=float)
 
     # structural competition per envelope: at each point, the fraction of the
     # (abundance-normalised) signal contributed by the OTHER envelopes in the
@@ -2163,6 +2325,7 @@ def _apportion_group_areas(areaColumns, apexColumns, x, y, capInfo=None):
                     fwhm,
                     otherFrac=otherFracs[k],
                     neighbourStakes=neighbourStakes[k],
+                    anchorWeights=anchorInfo[k] if anchorInfo is not None else None,
                 )
                 if cap is not None:
                     amp = min(amp, cap)
@@ -2190,7 +2353,7 @@ def _apportion_group_areas(areaColumns, apexColumns, x, y, capInfo=None):
     # an envelope to its residual. Guarded so it fires only where residual == fair
     # share:
     #   * the neighbour dominating this envelope's major peak must itself be a
-    #     MINOR isotope there (`_dominant_shared_weight` below the gate) -- a small
+    #     TAIL isotope there (`_dominant_shared_steps` at least the gate) -- a small
     #     bite that leaves the buried species its real share; OR
     #   * the envelope must own an unshared major peak (`_has_unshared_major`) that
     #     independently pins its size, so the residual is trustworthy even against
@@ -2211,7 +2374,8 @@ def _apportion_group_areas(areaColumns, apexColumns, x, y, capInfo=None):
             shaped, _fwhm = capInfo[k]
             if not shaped:
                 continue
-            gentle = _dominant_shared_weight(k, capInfo, x) < ENVELOPE_RESIDUAL_MINOR_GATE
+            steps = _dominant_shared_steps(k, capInfo)
+            gentle = steps is None or steps >= ENVELOPE_RESIDUAL_MINOR_STEPS
             if not (gentle or _has_unshared_major(k, capInfo, otherFracs[k], x)):
                 continue
             # residual = observed minus every OTHER envelope's fitted contribution
@@ -2421,6 +2585,9 @@ def _fit_group_areas(metas, x, y, nonIdeality, refinePattern=True):
     areaColumns = []
     apexColumns = []
     capInfo = []
+    # the theoretical pattern of an envelope whose shape was bent toward the data,
+    # so its amplitude cap judges the species' abundant isotopes, not the bent ones
+    anchorInfo: list[list[float] | None] = [None] * K
     for k, (fwhm, sigma, isotopes, storedShape, _poisson) in enumerate(metas):
         if not norm_ok[k]:
             areaColumns.append(numpy.zeros(len(x), dtype=float))
@@ -2463,6 +2630,8 @@ def _fit_group_areas(metas, x, y, nonIdeality, refinePattern=True):
         if K == 1 and (storedShape is None or _is_regular_isotope_grid(storedShape)):
             shaped = _soft_isotope_model(isotopes, x, y, fwhm, nonIdeality=nonIdeality)
             shapes[k] = shaped
+            # _soft_isotope_model returns the isotopes in m/z order
+            anchorInfo[k] = [float(w) for _mz, w in sorted(isotopes)]
         elif storedShape is not None and not _is_regular_isotope_grid(storedShape):
             shaped = storedShape
             shapes[k] = shaped
@@ -2487,7 +2656,9 @@ def _fit_group_areas(metas, x, y, nonIdeality, refinePattern=True):
         # against this envelope's own apportioned share at its isotope apexes
         capInfo.append((shaped, fwhm))
 
-    areas = _apportion_group_areas(areaColumns, apexColumns, x, y, capInfo=capInfo)
+    areas = _apportion_group_areas(
+        areaColumns, apexColumns, x, y, capInfo=capInfo, anchorInfo=anchorInfo
+    )
 
     # Data-pinned isotope pattern (one damped refinement step).
     #
@@ -2515,7 +2686,7 @@ def _fit_group_areas(metas, x, y, nonIdeality, refinePattern=True):
         for k, (fwhm, sigma, isotopes, _storedShape, poisson) in enumerate(metas):
             if not (norm_ok[k] and onAveragine[k]) or not poisson:
                 continue
-            lamAveragine, indices = poisson
+            lamAveragine, indices, ratio = poisson
             # this envelope alone: observed minus every OTHER envelope's model
             residual = numpy.clip(
                 yy - (frozen - max(0.0, float(areas[k])) * areaColumns[k]), 0.0, None
@@ -2528,10 +2699,11 @@ def _fit_group_areas(metas, x, y, nonIdeality, refinePattern=True):
                 yy,
                 residual,
                 fwhm,
+                ratio=ratio,
             )
             if lam is None:
                 continue
-            weights = _poisson_weights(indices, lam)
+            weights = _poisson_weights(indices, lam, ratio)
             if not weights or max(weights) <= 0.0:
                 continue
             shaped = [
@@ -2545,10 +2717,542 @@ def _fit_group_areas(metas, x, y, nonIdeality, refinePattern=True):
 
         if refit:
             areas = _apportion_group_areas(
-                areaColumns, apexColumns, x, y, capInfo=capInfo
+                areaColumns, apexColumns, x, y, capInfo=capInfo, anchorInfo=anchorInfo
             )
 
     return areas, shapes
+
+
+# ----
+
+
+# LOCAL PEDESTAL AND AREA UNCERTAINTY
+#
+# Envelope areas are fitted to the signal above a smooth local PEDESTAL, which is
+# estimated per overlap group together with the envelopes themselves:
+#
+#     y = sum_k a_k * envelope_k + pedestal(x) + noise (+ unlabelled peaks)
+#
+# The pedestal is whatever the envelopes cannot explain and varies slowly: a
+# leftover spectrum baseline, chemical noise, the deliberate offset the baseline
+# correction leaves behind. Fitting it locally makes the area independent of how
+# (or whether) the user corrected the baseline, and -- because the envelopes are
+# in the same fit -- it still works where peaks leave no clean gap to read the
+# baseline from (a crowded low-resolution region, where the spectrum-wide median
+# baseline rides up into the peaks). Once subtracted, the existing apportionment
+# runs unchanged on what is left.
+
+# m/z between the knots of a piecewise-linear pedestal; a group window up to this
+# wide gets a single straight line
+ENVELOPE_PEDESTAL_KNOT_SPACING = 20.0
+
+# a point more than this many noise sigmas ABOVE the fitted model is an
+# unlabelled peak and does not inform the pedestal (nor does one this far BELOW
+# the model inside a modelled peak -- an isotope pattern that is not quite
+# averagine); below the model off the peaks it is kept: it is the baseline
+ENVELOPE_PEDESTAL_OUTLIER_SIGMAS = 2.5
+ENVELOPE_PEDESTAL_MAX_ITERATIONS = 10
+
+# a window with at least this share of its points on one lowest value has a
+# floor (clipped, zero-filled or counting data) and the floor is the pedestal
+ENVELOPE_PEDESTAL_FLOOR_FRACTION = 0.2
+
+# The area uncertainty is read from the noise of the group fit's residual at the
+# points no envelope reaches -- those where the fitted envelopes stay below this
+# fraction of their maximum (with fewer than ENVELOPE_NOISE_MIN_POINTS of them,
+# every point counts)
+ENVELOPE_NOISE_OFFPEAK_FRACTION = 0.01
+ENVELOPE_NOISE_MIN_POINTS = 20
+
+# the noise correlation between neighbouring points (an oversampled or smoothed
+# profile) is followed out to the first lag where it drops below this
+ENVELOPE_NOISE_MIN_CORRELATION = 0.05
+ENVELOPE_NOISE_MAX_LAG = 64
+
+# The point noise misses what lands under a peak as surely as beside it: chemical
+# noise -- a bump or a sharp peak at every mass unit -- or a smoothed wiggle. On
+# real MALDI spectra that left the uncertainty two to three times too small. So
+# each envelope's area estimator is also slid along the spectrum in whole steps of
+# PITCH (m/z), up to REACH beyond its own span either way, to every place where no
+# known species is; an area read where there is none is the error it makes.
+# Chemical noise repeats every 1.000 m/z (not every isotope spacing), so each
+# reading lands where the envelope itself sits in it: on a bump's flank, between
+# sharp peaks. Needs at least MIN_READINGS such places, or the point noise stands.
+ENVELOPE_NOISE_NULL_PITCH = 1.0
+ENVELOPE_NOISE_NULL_REACH = 20.0
+ENVELOPE_NOISE_NULL_MIN_READINGS = 8
+
+
+class _GroupPedestal:
+    """The pedestal fitted under one overlap group, and how it depends on the
+    data (which the area uncertainty needs: the pedestal is read from the same
+    noisy points as the envelopes)."""
+
+    def __init__(self, level, basis, projection, floored):
+        self.level = level  # pedestal at every window point
+        self.floored = floored  # points that sat on a floor (see _fit_group_pedestal)
+        self.basis = basis  # n x nb: pedestal = basis @ coefficients
+        self._projection = projection  # nb x n: coefficients = projection @ y
+
+    def propagate(self, weights):
+        """Turn a linear estimator `amp = weights . y` of the signal ABOVE the
+        pedestal into the equivalent estimator of the raw signal, so its variance
+        also carries the pedestal's own uncertainty."""
+
+        return weights - self._projection.T @ (self.basis.T @ weights)
+
+
+def _pedestal_basis(x):
+    """Smooth pedestal basis over a group window (columns, n x nb).
+
+    A straight line for a window up to ENVELOPE_PEDESTAL_KNOT_SPACING wide --
+    almost every group -- and beyond that a piecewise-linear curve (hat functions
+    on evenly spaced knots), so a wide crowd can follow a curved baseline without
+    one far end dictating the other.
+    """
+
+    n = len(x)
+    lo = float(x[0])
+    hi = float(x[-1])
+    span = hi - lo
+    if n < 2 or span <= 0.0:
+        return numpy.ones((n, 1), dtype=float)
+    segments = max(1, int(math.ceil(span / ENVELOPE_PEDESTAL_KNOT_SPACING)))
+    if segments == 1:
+        t = (x - 0.5 * (lo + hi)) / (0.5 * span)
+        return numpy.column_stack((numpy.ones(n, dtype=float), t))
+    knots = numpy.linspace(lo, hi, segments + 1)
+    step = knots[1] - knots[0]
+    return numpy.column_stack(
+        [numpy.clip(1.0 - numpy.abs(x - knot) / step, 0.0, None) for knot in knots]
+    )
+
+
+def _local_gaussian_column(x, isotopes, sigma, reach=8.0):
+    """`_envelope_gaussian_column`, evaluated only within `reach` sigmas of each
+    isotope (beyond that a Gaussian is below 1e-14 of its apex). The pedestal fit
+    builds many columns over wide windows; this keeps it cheap."""
+
+    column = numpy.zeros(len(x), dtype=float)
+    norm = sigma * math.sqrt(2.0 * math.pi)
+    if norm <= 0.0:
+        return column
+    for mz, weight in isotopes:
+        mz = float(mz)
+        i1 = int(numpy.searchsorted(x, mz - reach * sigma, side="left"))
+        i2 = int(numpy.searchsorted(x, mz + reach * sigma, side="right"))
+        if i1 < i2:
+            column[i1:i2] += (float(weight) / norm) * numpy.exp(
+                -0.5 * ((x[i1:i2] - mz) / sigma) ** 2
+            )
+    return column
+
+
+def _pedestal_columns(x, members):
+    """Envelope columns the pedestal is fitted against.
+
+    `members` holds (isotopes, sigma) per envelope of the group. An isolated
+    envelope gets one free column per isotope, so a pattern that is not quite
+    averagine is still matched exactly and none of the mismatch leaks into the
+    pedestal. Overlapping envelopes keep one rigid column each: free isotopes of
+    several interleaved envelopes form a comb dense enough to imitate a flat
+    pedestal, and the fixed patterns are what keeps the two apart.
+    """
+
+    if len(members) == 1:
+        isotopes, sigma = members[0]
+        positions = []
+        for mz, _weight in sorted(isotopes):
+            # positions closer than a quarter of the FWHM (0.6 sigma) cannot be
+            # told apart
+            if positions and float(mz) - positions[-1] < 0.6 * sigma:
+                continue
+            positions.append(float(mz))
+        columns = [_local_gaussian_column(x, [(mz, 1.0)], sigma) for mz in positions]
+    else:
+        columns = [
+            _local_gaussian_column(x, isotopes, sigma) for isotopes, sigma in members
+        ]
+    return [column for column in columns if numpy.any(column > 0.0)]
+
+
+def _robust_sigma(values, floored=None):
+    """Noise sigma of fit residuals, read from their LOWER side.
+
+    The residuals are taken about zero -- the fitted pedestal plus envelopes.
+    Whatever the model misses (an unlabelled peak, a shoulder, chemical noise)
+    only ever ADDS signal, so it sits on the upper side, and in a busy window it
+    can be most of the points there. Below zero there is noise alone. So the
+    spread is read from the residuals below zero together with the same number
+    of the SMALLEST residuals above it -- the noise's own upper half -- and the
+    large positive ones, the structure, never enter.
+
+    `floored` marks points that sat on a floor (noise clipped at zero, a
+    zero-filled profile): they are known only to lie below it, so they count
+    towards the lower half without a magnitude. Too few points below zero to
+    tell (noise-free or nearly empty data) falls back to the plain MAD.
+    """
+
+    values = numpy.asarray(values, dtype=float)
+    if len(values) == 0:
+        return 0.0
+    if floored is None or len(floored) != len(values):
+        floored = numpy.zeros(len(values), dtype=bool)
+    below = values[(values < 0.0) & ~floored]
+    lowerCount = len(below) + int(numpy.count_nonzero(floored))
+    if lowerCount < 5:
+        return 1.4826 * float(numpy.median(numpy.abs(values - numpy.median(values))))
+    above = numpy.sort(values[(values >= 0.0) & ~floored])[:lowerCount]
+    magnitudes = numpy.concatenate((-below, above))
+    if len(magnitudes) == 0:
+        return 0.0
+    return 1.4826 * float(numpy.median(magnitudes))
+
+
+def _fit_group_pedestal(x, y, columns):
+    """Fit the local pedestal under one overlap group (see above).
+
+    Least squares of the envelope `columns` plus a smooth pedestal basis, iterated
+    so the pedestal ignores what the envelopes cannot explain: a point well above
+    the model is an unlabelled peak, and a point well below it INSIDE a modelled
+    peak is a pattern that is not quite averagine -- neither says anything about
+    the baseline. Returns a `_GroupPedestal`, or None when the window holds too few
+    points to tell the pedestal from the envelopes.
+    """
+
+    n = len(x)
+    nColumns = len(columns)
+    if n < nColumns + 5:
+        return None
+
+    # points on a floor: their residual only bounds the noise from above, so they
+    # are ranked apart when the outlier threshold is read (see _robust_sigma)
+    floorValue = float(numpy.min(y))
+    floored = y <= floorValue + 1e-12 * max(1.0, float(numpy.max(numpy.abs(y))))
+    if numpy.count_nonzero(floored) <= 1:
+        floored = numpy.zeros(n, dtype=bool)
+
+    if numpy.count_nonzero(floored) >= ENVELOPE_PEDESTAL_FLOOR_FRACTION * n:
+        # The data has a floor: noise clipped at zero by a baseline correction,
+        # a profile the instrument zero-filled between peaks, ion counts. Whoever
+        # put the floor there put it at the baseline, so the floor IS the
+        # pedestal. Fitting one instead would read the mean of the noise left
+        # above the floor (its lower half is gone) as baseline and shave that
+        # much off every weak envelope.
+        level = numpy.full(n, floorValue, dtype=float)
+        basis = numpy.zeros((n, 0), dtype=float)
+        projection = numpy.zeros((0, n), dtype=float)
+    else:
+        basis = _pedestal_basis(x)
+        design = numpy.column_stack(list(columns) + [basis]) if columns else basis
+        parameters = design.shape[1]
+        if n < parameters + 3:
+            return None
+
+        # The fit is solved through its small (parameters x parameters) normal
+        # equations: formed once over the whole window, then only the rows an
+        # iteration drops are taken back out. A window can hold thousands of
+        # points against a few dozen parameters, and this keeps every iteration
+        # at the cost of the rows that change.
+        gram = design.T @ design
+        moment = design.T @ y
+
+        def _solve(gramKeep, momentKeep):
+            return numpy.linalg.lstsq(gramKeep, momentKeep, rcond=None)[0]
+
+        # noise-free data has no spread to measure; anything above round-off counts
+        floor = 1e-9 * float(numpy.max(numpy.abs(y))) if n else 0.0
+        keep = numpy.ones(n, dtype=bool)
+        gramKeep, momentKeep = gram, moment
+        for _iteration in range(ENVELOPE_PEDESTAL_MAX_ITERATIONS):
+            coefficients = _solve(gramKeep, momentKeep)
+            residual = y - design @ coefficients
+            envelopes = design[:, :nColumns] @ coefficients[:nColumns] if nColumns else 0.0
+            threshold = ENVELOPE_PEDESTAL_OUTLIER_SIGMAS * max(
+                _robust_sigma(residual[keep], floored[keep]), floor
+            )
+            if threshold <= 0.0:
+                break
+            unexplained = residual > threshold
+            overshot = (residual < -threshold) & (envelopes > threshold)
+            nextKeep = ~(unexplained | overshot)
+            if numpy.count_nonzero(nextKeep) < parameters + 3 or numpy.array_equal(nextKeep, keep):
+                break
+            keep = nextKeep
+            dropped = design[~keep]
+            gramKeep = gram - dropped.T @ dropped
+            momentKeep = moment - dropped.T @ y[~keep]
+
+        # how the pedestal coefficients depend on the data (zero at dropped
+        # points): the pedestal rows of (A^T A)^-1 A^T over the kept points
+        inverse = numpy.linalg.pinv(gramKeep)
+        projection = numpy.zeros((basis.shape[1], n), dtype=float)
+        projection[:, keep] = inverse[nColumns:, :] @ design[keep].T
+        level = basis @ (projection @ y)
+
+    return _GroupPedestal(level, basis, projection, floored)
+
+
+def _roughness_sigma(residual, mask):
+    """Noise sigma from point-to-point roughness: the MAD of second differences
+    over runs of `mask`ed points. Anything smooth on the scale of a few points --
+    a peak, a shoulder, a slow background -- barely registers, so this reads the
+    noise where its LEVEL cannot be read (see `_noise_sigma`); for a smoothed
+    profile it reads low."""
+
+    triple = mask[:-2] & mask[1:-1] & mask[2:]
+    if numpy.count_nonzero(triple) < 10:
+        return 0.0
+    second = (residual[:-2] - 2.0 * residual[1:-1] + residual[2:])[triple]
+    return 1.4826 * float(numpy.median(numpy.abs(second - numpy.median(second)))) / math.sqrt(6.0)
+
+
+def _noise_sigma(residual, mask, floored):
+    """Noise sigma of the group fit's residual at the `mask`ed (off-peak) points.
+
+    Read from the lower side of the residual (`_robust_sigma`), so an unlabelled
+    peak or a shoulder -- which only add signal -- does not pass for noise. On
+    data with a floor the floored points stand in for the lower half; but where
+    MORE points sit on the floor than above it, the floor was laid above the
+    noise (a baseline cut deeper than the noise, then smoothed): what rises above
+    it is structure, the noise level is gone, and only its point-to-point
+    roughness is left to read.
+    """
+
+    values = residual[mask]
+    flooredHere = floored[mask]
+    nFloored = int(numpy.count_nonzero(flooredHere))
+    nAbove = int(numpy.count_nonzero((values >= 0.0) & ~flooredHere))
+    if nFloored > nAbove and nFloored >= ENVELOPE_PEDESTAL_FLOOR_FRACTION * len(values):
+        return _roughness_sigma(residual, mask & ~floored)
+    return _robust_sigma(values, flooredHere)
+
+
+def _noise_correlation(residual, mask):
+    """Correlation of the noise between points 1, 2, ... apart, read from the
+    residual at the `mask`ed points, up to the first lag where it fades."""
+
+    if numpy.count_nonzero(mask) < 10:
+        return []
+    centred = residual - float(numpy.mean(residual[mask]))
+    power = float(numpy.mean(centred[mask] ** 2))
+    if power <= 0.0:
+        return []
+    correlation = []
+    for lag in range(1, min(ENVELOPE_NOISE_MAX_LAG, len(residual) // 4) + 1):
+        pairs = mask[:-lag] & mask[lag:]
+        if numpy.count_nonzero(pairs) < 10:
+            break
+        rho = float(numpy.mean(centred[:-lag][pairs] * centred[lag:][pairs])) / power
+        if rho < ENVELOPE_NOISE_MIN_CORRELATION:
+            break
+        correlation.append(min(rho, 1.0))
+    return correlation
+
+
+def _null_readings(estimator, profile, start, occupied, floor, offPeak, threshold):
+    """What a linear area estimator reads where there is nothing to measure.
+
+    estimator (n) - the estimator of the signal above the pedestal, over an
+        envelope's own span, which starts at index `start` of `profile` (an (m/z,
+        intensity) array sorted by m/z)
+    occupied ((lo, hi) arrays) - the m/z intervals of every known species
+    floor (float or None) - the pedestal, when it is a floor
+    offPeak (bool, n) - span points no envelope reaches
+    threshold (float) - how far above the pedestal a point is not baseline
+
+    The estimator is slid along the spectrum in whole steps (see
+    ENVELOPE_NOISE_NULL_PITCH) to every place whose span holds no species, and
+    reads the signal above a pedestal found there as the fit finds its own: a
+    line through the off-peak points, leaving out those standing above it (an
+    unlabelled or a chemical-noise peak). Returns the readings, or None when
+    there are too few.
+    """
+
+    n = len(estimator)
+    xs = profile[:, 0]
+    total = len(xs)
+    if n < 2 or start < 0 or start + n > total:
+        return None
+
+    first = float(xs[start])
+    width = float(xs[start + n - 1]) - first
+    steps = int(math.ceil((width + ENVELOPE_NOISE_NULL_REACH) / ENVELOPE_NOISE_NULL_PITCH))
+    shifts = numpy.arange(-steps, steps + 1, dtype=float) * ENVELOPE_NOISE_NULL_PITCH
+    shifts = shifts[numpy.abs(shifts) > width]
+    starts = numpy.searchsorted(xs, first + shifts)
+    starts = starts[(first + shifts >= xs[0]) & (starts + n <= total)]
+    if len(starts) < ENVELOPE_NOISE_NULL_MIN_READINGS:
+        return None
+
+    # drop every span that holds a point of a species (its own included)
+    lo = int(starts[0])
+    hi = int(starts[-1]) + n
+    taken = numpy.zeros(hi - lo, dtype=bool)
+    los, his = occupied
+    near = (los < xs[hi - 1]) & (his > xs[lo])
+    for a, b in zip(los[near], his[near], strict=True):
+        taken[max(0, int(numpy.searchsorted(xs, a)) - lo):max(0, int(numpy.searchsorted(xs, b, side="right")) - lo)] = True
+    counts = numpy.concatenate(([0], numpy.cumsum(taken)))
+    starts = starts[counts[starts - lo + n] == counts[starts - lo]]
+    if len(starts) < ENVELOPE_NOISE_NULL_MIN_READINGS:
+        return None
+
+    ys = numpy.asarray(profile[:, 1], dtype=float)
+    basis = numpy.column_stack((numpy.ones(n), numpy.linspace(-1.0, 1.0, n)))
+    if numpy.count_nonzero(offPeak) < 3:
+        offPeak = numpy.ones(n, dtype=bool)
+    readings = numpy.empty(len(starts), dtype=float)
+    for i, s in enumerate(starts):
+        window = ys[s:s + n]
+        level = floor
+        if level is None:
+            keep = offPeak
+            for _iteration in range(ENVELOPE_PEDESTAL_MAX_ITERATIONS):
+                level = basis @ numpy.linalg.lstsq(basis[keep], window[keep], rcond=None)[0]
+                nextKeep = offPeak & (window - level <= threshold)
+                if numpy.count_nonzero(nextKeep) < 3 or numpy.array_equal(nextKeep, keep):
+                    break
+                keep = nextKeep
+        readings[i] = float((window - level) @ estimator)
+    return readings
+
+
+def _group_area_errors(
+    x, columns, weights, pedestal, residual, profile=None, start=None, occupied=None, spans=None,
+):
+    """Noise uncertainty (one sigma) of each envelope amplitude in a group.
+
+    Each amplitude is, to first order, a linear estimator of the signal: the
+    least-squares fit of the envelope's unit-area column to its apportioned share,
+    ``amp = <column * share, y> / <column, column>``, with the shares of the fitted
+    decomposition (``weights[k] * column_k`` -- the fitted amplitudes, or whatever
+    the caller apportioned by). Its variance follows from the noise of the group
+    fit's `residual` -- level (`_noise_sigma`) and correlation between neighbouring
+    points, both read where no envelope reaches -- and includes the uncertainty of
+    the pedestal fitted from the same points. Read off the peaks, the residual is
+    noise and background wiggle the pedestal cannot follow, not the fit's own
+    misfit; the caps and overlap trims are not linear and are not modelled.
+
+    Given the `profile` the window `x` starts at index `start` of, and the m/z
+    intervals `occupied` by every known species, the same estimator is also read
+    where there is no species (`_null_readings`), and the uncertainty is the
+    larger of the two: the typical (median) size of those readings catches
+    background structure the point noise cannot see. Each envelope is read over
+    its own m/z span (`spans`, default the whole window), so the reading does not
+    depend on which neighbours happen to share its fit.
+    """
+
+    K = len(columns)
+    n = len(x)
+    if n < 2:
+        return [None] * K
+
+    parts = [max(0.0, float(weight)) * column for weight, column in zip(weights, columns, strict=True)]
+    total = numpy.zeros(n, dtype=float)
+    for part in parts:
+        total = total + part
+    if not numpy.any(total > 0.0):
+        # nothing fitted: split by pattern alone
+        parts = list(columns)
+        total = numpy.zeros(n, dtype=float)
+        for part in parts:
+            total = total + part
+
+    floored = pedestal.floored if pedestal is not None else numpy.zeros(n, dtype=bool)
+    peak = float(numpy.max(total)) if numpy.any(total > 0.0) else 0.0
+    offPeak = total <= ENVELOPE_NOISE_OFFPEAK_FRACTION * peak
+    if numpy.count_nonzero(offPeak) < ENVELOPE_NOISE_MIN_POINTS:
+        offPeak = numpy.ones(n, dtype=bool)
+    noise = _noise_sigma(residual, offPeak, floored)
+    if noise <= 0.0:
+        return [0.0] * K
+    # the correlation is read where the residual is noise, not structure
+    quiet = offPeak & ~floored & (numpy.abs(residual) <= ENVELOPE_PEDESTAL_OUTLIER_SIGMAS * noise)
+    correlation = _noise_correlation(residual, quiet)
+
+    errors = []
+    estimators = []
+    for column, part in zip(columns, parts, strict=True):
+        energy = float(column @ column)
+        if energy <= 0.0:
+            errors.append(None)
+            continue
+        if K == 1:
+            share = 1.0
+        else:
+            share = numpy.divide(part, total, out=numpy.zeros(n), where=total > 0.0)
+        estimator = column * share / energy
+        estimators.append((len(errors), estimator))
+        if pedestal is not None:
+            estimator = pedestal.propagate(estimator)
+        variance = float(estimator @ estimator)
+        for lag, rho in enumerate(correlation, start=1):
+            if lag >= n:
+                break
+            variance += 2.0 * rho * float(estimator[:-lag] @ estimator[lag:])
+        errors.append(noise * math.sqrt(max(variance, 0.0)))
+
+    # read from the spectrum around, above a pedestal found as the fit finds it
+    if profile is None or start is None or occupied is None or pedestal is None:
+        return errors
+    floor = float(pedestal.level[0]) if pedestal.basis.shape[1] == 0 else None
+    for k, estimator in estimators:
+        a, b = 0, n
+        if spans is not None:
+            a = int(numpy.searchsorted(x, spans[k][0]))
+            b = int(numpy.searchsorted(x, spans[k][1], side="right"))
+        readings = _null_readings(
+            estimator[a:b], profile, start + a, occupied, floor, offPeak[a:b],
+            ENVELOPE_PEDESTAL_OUTLIER_SIGMAS * noise,
+        )
+        if readings is not None:
+            errors[k] = max(errors[k], 1.4826 * float(numpy.median(numpy.abs(readings))))
+    return errors
+
+
+def pedestallevel(pedestal, mz):
+    """Level of a stored envelope pedestal ((mz, level) points) at m/z."""
+
+    if not pedestal:
+        return 0.0
+    mzs = [float(point[0]) for point in pedestal]
+    levels = [float(point[1]) for point in pedestal]
+    return float(numpy.interp(float(mz), mzs, levels))
+
+
+def _rebase_on_pedestal(peak, pedestal):
+    """Read a detected peak's intensity from the envelope pedestal, not from the
+    picking baseline.
+
+    A modelled placeholder isotope (intensity 0, it was never measured) is left
+    alone. The peak's S/N keeps the noise it was picked with: only the height it
+    is read from changes.
+    """
+
+    if peak.intensity <= 0.0:
+        return
+    base = pedestallevel(pedestal, peak.mz)
+    sn = peak.sn
+    if sn and peak.ai != peak.base:
+        noise = (peak.ai - peak.base) / sn
+        sn = (peak.ai - base) / noise if noise else sn
+    peak.setbase(base)
+    peak.setsn(sn)
+
+
+def _sample_pedestal(x, level, isotopes, fwhm):
+    """The fitted pedestal under one envelope, as (mz, level) points spanning the
+    range the envelope is drawn over (see `envelopeprofile`), so the display can
+    lay the envelope on exactly the pedestal its area was measured above."""
+
+    if not isotopes or len(x) == 0:
+        return []
+    mzs = sorted(float(mz) for mz, _weight in isotopes)
+    reach = 5.0 * float(fwhm) if fwhm and fwhm > 0.0 else 0.0
+    positions = [mzs[0] - reach] + mzs + [mzs[-1] + reach]
+    levels = numpy.interp(positions, x, level)
+    return [(float(mz), float(value)) for mz, value in zip(positions, levels, strict=True)]
 
 
 # ----
@@ -2560,13 +3264,60 @@ def _fit_envelope_areas_shaped(
 ):
     """Joint envelope area fit, also returning the isotope shape used per cluster.
 
+    Returns (areas, shapes); see `_fit_envelope_areas_detailed`, which also
+    reports the local pedestal and the area uncertainty.
+    """
+
+    areas, shapes, _details = _fit_envelope_areas_detailed(
+        clusters, signal, defaultFwhm, nonIdeality=nonIdeality,
+        averagineType=averagineType, refinePattern=refinePattern,
+    )
+    return areas, shapes
+
+
+def _species_intervals(peaks, defaultFwhm):
+    """m/z intervals of the species among `peaks` -- every envelope and every
+    charged peak -- padded as a fitted cluster's window is, for the area
+    uncertainty to keep off (see ENVELOPE_NOISE_NULL_PITCH)."""
+
+    intervals = []
+    for peak in peaks or []:
+        envelope = _peak_attributes(peak).get("envelope")
+        if isinstance(envelope, dict):
+            positions = [float(mz) for mz, _w in envelope.get("isotopes") or []] or [peak.mz]
+            fwhm = envelope.get("fwhm") or peak.fwhm or 0.0
+        elif peak.charge:
+            positions = [peak.mz]
+            fwhm = peak.fwhm or 0.0
+        else:
+            continue
+        pad = 6.0 * max(float(fwhm), float(defaultFwhm))
+        intervals.append((min(positions) - pad, max(positions) + pad))
+    return intervals
+
+
+def _fit_envelope_areas_detailed(
+    clusters, signal, defaultFwhm, nonIdeality=None,
+    averagineType=DEFAULT_AVERAGINE, refinePattern=True, avoid=None,
+):
+    """Joint envelope area fit, with the shape, pedestal and uncertainty per cluster.
+
     Overlapping envelopes are fit together (globally apportioning the shared
-    signal); non-overlapping ones are fit independently for speed. Without a
+    signal); non-overlapping ones are fit independently for speed. Each overlap
+    group is fitted above its own local pedestal (see `_fit_group_pedestal`), so
+    the area is what the envelope adds to the spectrum -- not the baseline under
+    it -- whether or not the profile was baseline-corrected first. Without a
     profile each area is estimated from the envelope's own peak heights.
 
-    Returns (areas, shapes) where shapes[k] is the per-isotope (mz, weight)
-    model the fit used for cluster k (weights summing to 1), so callers can
-    store and draw exactly the envelope the area was fitted to.
+    Returns (areas, shapes, details). shapes[k] is the per-isotope (mz, weight)
+    model the fit used for cluster k, so callers can store and draw exactly the
+    envelope the area was fitted to. details[k] holds, when a profile was fitted,
+    "areaError" -- the one-sigma uncertainty of the area, on the same scale as
+    areas[k] -- and "pedestal" -- (mz, level) points of the pedestal under the
+    envelope, to draw it on. It is empty without a profile.
+
+    avoid - (lo, hi) m/z intervals of species outside `clusters` (see
+    `_species_intervals`); the uncertainty is not read on them, nor on the clusters.
     """
 
     # fallback when profile is not available
@@ -2599,12 +3350,12 @@ def _fit_envelope_areas_shaped(
             areas.append(max(0.0, best_int / w) * scale)
             # no profile to reshape against: the shape is the theoretical pattern
             shapes.append([(p.mz, wt) for p, wt in zip(cluster, weights, strict=True)])
-        return areas, shapes
+        return areas, shapes, [{} for _cluster in clusters]
 
     xFull = signal[:, 0].astype(float)
     yFull = signal[:, 1].astype(float)
     if len(xFull) == 0:
-        return [0.0] * len(clusters), [[] for _ in clusters]
+        return [0.0] * len(clusters), [[] for _ in clusters], [{} for _ in clusters]
 
     # per-cluster geometry and m/z span (padded for the Gaussian wings)
     metas = []
@@ -2640,6 +3391,13 @@ def _fit_envelope_areas_shaped(
 
     areas = [0.0] * len(clusters)
     shapes = [list(meta[2]) for meta in metas]
+    details = [{} for _cluster in clusters]
+    # where every species sits: the uncertainty is read off the spectrum elsewhere
+    taken = list(intervals) + list(avoid or [])
+    occupied = (
+        numpy.array([interval[0] for interval in taken], dtype=float),
+        numpy.array([interval[1] for interval in taken], dtype=float),
+    )
 
     # fit each connected overlap group on its own local signal window
     for group in _overlap_groups(intervals):
@@ -2649,19 +3407,54 @@ def _fit_envelope_areas_shaped(
         x = xFull[mask]
         if len(x) == 0:
             continue
-        # copy so the zero-floor never mutates the caller's spectrum
+        # copy so the pedestal subtraction never touches the caller's spectrum
         y = yFull[mask].copy()
-        y[y < 0.0] = 0.0
 
         groupMetas = [metas[i] for i in group]
+
+        # The local pedestal, fitted against the envelopes' own patterns (a merged
+        # representative's stored shape -- its grid cannot be re-derived), then
+        # taken off. What is left is the signal the envelopes are made of. It is
+        # NOT clipped at zero: below the pedestal is noise, and dropping its
+        # negative half would add a positive bias to every weak envelope.
+        members = []
+        for fwhm, sigma, isotopes, storedShape, _poisson in groupMetas:
+            pattern = isotopes
+            if storedShape is not None and not _is_regular_isotope_grid(storedShape):
+                pattern = storedShape
+            members.append((pattern, sigma))
+        pedestal = _fit_group_pedestal(x, y, _pedestal_columns(x, members))
+        if pedestal is not None:
+            y = y - pedestal.level
+
         groupAreas, groupShapes = _fit_group_areas(
             groupMetas, x, y, nonIdeality, refinePattern=refinePattern
         )
-        for idx, area, shape in zip(group, groupAreas, groupShapes, strict=True):
+
+        # what the fitted envelopes leave unexplained, for the area uncertainty
+        columns = [
+            _local_gaussian_column(x, shape, meta[1])
+            for shape, meta in zip(groupShapes, groupMetas, strict=True)
+        ]
+        residual = y.copy()
+        for area, column in zip(groupAreas, columns, strict=True):
+            residual -= max(0.0, float(area)) * column
+        errors = _group_area_errors(
+            x, columns, groupAreas, pedestal, residual,
+            profile=signal, start=int(numpy.searchsorted(xFull, lo)), occupied=occupied,
+            spans=[intervals[i] for i in group],
+        )
+
+        for idx, area, shape, error, meta in zip(
+            group, groupAreas, groupShapes, errors, groupMetas, strict=True
+        ):
             areas[idx] = area
             shapes[idx] = shape
+            details[idx] = {"areaError": error}
+            if pedestal is not None:
+                details[idx]["pedestal"] = _sample_pedestal(x, pedestal.level, shape, meta[0])
 
-    return areas, shapes
+    return areas, shapes, details
 
 
 def _fit_envelope_areas(
@@ -2843,8 +3636,15 @@ def relabelenvelopes(
     averagineType=DEFAULT_AVERAGINE,
     preserveSeeds=False,
     refinePattern=True,
+    otherPeaks=None,
 ):
     """Convert deisotoped peak clusters to envelope labels.
+
+    otherPeaks (list of mspy.peak) - peaks of the spectrum that are not in
+        `peaklist`, when only part of it is relabelled. The area uncertainty is
+        read where no species is, so it keeps off their envelopes and charged
+        peaks just as off the ones being fitted -- and comes out the same whether
+        one envelope or the whole list is recalculated.
 
     refinePattern (bool) - when True, overlapping envelopes re-fit the single
         parameter of their averagine isotope pattern to their own de-blended
@@ -3254,13 +4054,14 @@ def relabelenvelopes(
     if not clusters:
         return copy.deepcopy(peaklist)
 
-    areas, shapes = _fit_envelope_areas_shaped(
+    areas, shapes, details = _fit_envelope_areas_detailed(
         clusters,
         signal,
         defaultFwhm,
         nonIdeality=nonIdeality,
         averagineType=averagineType,
         refinePattern=refinePattern,
+        avoid=_species_intervals(otherPeaks, defaultFwhm),
     )
 
     # Re-calculate NNLS areas as fallbacks if needed, but mainly prune zero ones.
@@ -3276,6 +4077,7 @@ def relabelenvelopes(
     pruned_clusters = []
     pruned_areas = []
     pruned_shapes = []
+    pruned_details = []
     for c, cluster in enumerate(clusters):
         a = float(max(0.0, areas[c])) if c < len(areas) else 0.0
         if (
@@ -3288,9 +4090,11 @@ def relabelenvelopes(
             pruned_clusters.append(cluster)
             pruned_areas.append(a)
             pruned_shapes.append(shapes[c] if c < len(shapes) else [])
+            pruned_details.append(details[c] if c < len(details) else {})
     clusters = pruned_clusters
     areas = pruned_areas
     shapes = pruned_shapes
+    details = pruned_details
 
     for c, cluster in enumerate(clusters):
         parent = cluster[0]
@@ -3343,10 +4147,13 @@ def relabelenvelopes(
         # rescale keeps area*weight (the drawn envelope) and sumint invariant, so
         # only the bare `area` number is put on a common scale.
         area_val = float(areas[c])
+        area_err = details[c].get("areaError")
         shapeSum = math.fsum(float(w) for _, w in isotopes_data)
         if shapeSum > 0.0:
             isotopes_data = [(mz, float(w) / shapeSum) for mz, w in isotopes_data]
             area_val *= shapeSum
+            if area_err is not None:
+                area_err *= shapeSum
 
         # summed envelope intensity: the sum of the intensities (heights) of the
         # isotope peaks that make up this envelope. It is derived from the same
@@ -3383,6 +4190,19 @@ def relabelenvelopes(
             # isotope pattern, and hence the apportioned area, genuinely changes).
             "averagineType": averagineType,
         }
+        # one-sigma uncertainty of the area, and the local pedestal it was
+        # measured above (drawn under the envelope so the display shows exactly
+        # what was summed) -- only when a profile was fitted
+        if area_err is not None:
+            envelope["areaError"] = float(area_err)
+        pedestal = details[c].get("pedestal")
+        if pedestal:
+            envelope["pedestal"] = pedestal
+            # the envelope's peaks are measured above the same pedestal as its
+            # area, so its intensity (and a "sum"/"average" label) agrees with
+            # the area and the drawn envelope
+            for peak in cluster:
+                _rebase_on_pedestal(peak, pedestal)
 
         peaks = labelenvelope(
             cluster,
@@ -3435,8 +4255,7 @@ def _isotope_pattern_at_mass(neutralMass, averagineType=DEFAULT_AVERAGINE, size=
     """Apex-normalized isotope pattern for a neutral mass and averagine type.
 
     Protein uses the precomputed real-averagine lookup table (unchanged); the
-    other types use the Poisson +1 approximation scaled by their carbon density
-    (see AVERAGINE_MODELS). Only ratios between adjacent isotopes are used by the
+    other types build the pattern from their composition (`_averagine_pattern`). Only ratios between adjacent isotopes are used by the
     caller, so the apex normalization here matches the lookup table convention.
     """
 
@@ -3444,15 +4263,7 @@ def _isotope_pattern_at_mass(neutralMass, averagineType=DEFAULT_AVERAGINE, size=
         idx = int(min(15000, int(max(0.0, neutralMass))) / 200)
         return patternLookupTable[idx]
 
-    lam = max(0.0, neutralMass * _averagine_lambda(averagineType))
-    pattern = []
-    p = math.exp(-lam) if lam < 700 else 0.0
-    for i in range(size):
-        if i == 0:
-            pattern.append(p)
-        else:
-            p = p * (lam / i)
-            pattern.append(p)
+    pattern = _averagine_pattern(neutralMass, averagineType, size)
 
     apex = max(pattern) if pattern else 0.0
     if apex <= 0.0:
@@ -3772,6 +4583,222 @@ def _sync_stored_envelope_fwhm(peak):
         stored["fwhm"] = peak.fwhm
 
 
+# ----
+
+
+# THE SPECTRUM'S RESOLUTION CURVE
+#
+# Every peak of a spectrum comes from the same analyser, whose width follows a
+# smooth curve in m/z: FWHM = a * (m/z)^b, with b ~1 for TOF (constant resolving
+# power), ~1.5 for an Orbitrap, 2 for FT-ICR, ~0 for traps and quadrupoles. A
+# single weak peak's own width is a poor measurement -- it scatters by about
+# 1.5 / (S/N) and reads NARROW at low S/N (noise lifts the apex the half height
+# is taken from: -16 to -20 % at S/N 5) -- and an envelope's area follows its
+# model width almost one to one. So every width is a precision-weighted blend of
+# the peak's own measurement and the curve fitted to the spectrum's strong,
+# isolated peaks: a strong peak keeps essentially its own width (a real
+# deviation survives), a weak one takes the instrument's. The curve is computed
+# from the profile alone, so picking, re-fitting after an edit and converting
+# all arrive at the same widths.
+
+# reference peaks for the curve: at least this S/N (their width is then good to
+# ~3 %), and no other signal above RESOLUTION_ISOLATION_FRACTION of their height
+# between 1 and 2 FWHM from their apex (a neighbour would distort the width)
+RESOLUTION_REFERENCE_SN = 50.0
+RESOLUTION_ISOLATION_FRACTION = 0.25
+RESOLUTION_MIN_REFERENCES = 3
+# with at least this many references spanning this m/z ratio the exponent is
+# fitted; otherwise constant resolving power (exponent 1) is assumed, with an
+# uncertainty of RESOLUTION_EXPONENT_PRIOR that covers traps (0) to Orbitraps (1.5)
+RESOLUTION_FIT_REFERENCES = 6
+RESOLUTION_FIT_SPAN = 1.5
+RESOLUTION_EXPONENT_PRIOR = 0.5
+# relative precision of one width measurement = this / (S/N), as measured for
+# Gaussian peaks at 10-40 points per FWHM (bias at low S/N included)
+RESOLUTION_WIDTH_PRECISION = 1.5
+# the curve is never trusted to better than this (relative)
+RESOLUTION_MIN_SCATTER = 0.01
+# baseline window the reference peaks are measured with (the app's default)
+RESOLUTION_BASELINE_WINDOW = 0.01
+
+_RESOLUTION_CACHE = []
+_RESOLUTION_CACHE_SIZE = 8
+
+
+def _profile_key(signal):
+    """A cheap fingerprint of a profile, for caching what is derived from it."""
+
+    n = len(signal)
+    return (
+        n,
+        float(signal[0, 0]),
+        float(signal[-1, 0]),
+        float(numpy.sum(signal[:, 1])),
+        float(signal[n // 2, 1]),
+        float(signal[n // 3, 1]),
+    )
+
+
+def _resolution_references(signal, baseline):
+    """(m/z, FWHM) of the profile's strong, isolated, unsaturated peaks."""
+
+    x = signal[:, 0]
+    y = signal[:, 1]
+    references = []
+    for peak in labelscan(
+        signal, pickingHeight=1.0, snThreshold=RESOLUTION_REFERENCE_SN, baseline=baseline
+    ):
+        width = peak.fwhm
+        height = peak.ai - peak.base
+        if not width or width <= 0.0 or height <= 0.0:
+            continue
+        i1 = int(numpy.searchsorted(x, peak.mz - 2.0 * width, side="left"))
+        i2 = int(numpy.searchsorted(x, peak.mz + 2.0 * width, side="right"))
+        offsets = numpy.abs(x[i1:i2] - peak.mz)
+        above = y[i1:i2] - peak.base
+        flank = offsets > width
+        if numpy.any(flank) and float(numpy.max(above[flank])) > RESOLUTION_ISOLATION_FRACTION * height:
+            continue
+        core = offsets <= 0.5 * width
+        if numpy.count_nonzero(core) < 4:
+            continue  # too few samples across the peak to measure it
+        if numpy.count_nonzero(above[core] >= 0.995 * height) > 3:
+            continue  # flat top: a saturated detector
+        references.append((float(peak.mz), float(width)))
+    return references
+
+
+def _fit_resolution(references):
+    """Robust fit of log FWHM against log m/z (see above), or None."""
+
+    if len(references) < RESOLUTION_MIN_REFERENCES:
+        return None
+    lx = numpy.log([mz for mz, _w in references])
+    ly = numpy.log([w for _mz, w in references])
+    keep = numpy.ones(len(lx), dtype=bool)
+    fitted = False
+    slope, intercept, scatter = 1.0, 0.0, RESOLUTION_MIN_SCATTER
+    for _iteration in range(5):
+        n = int(numpy.count_nonzero(keep))
+        span = float(numpy.exp(lx[keep].max() - lx[keep].min())) if n else 1.0
+        fitted = n >= RESOLUTION_FIT_REFERENCES and span >= RESOLUTION_FIT_SPAN
+        if fitted:
+            slope, intercept = numpy.polyfit(lx[keep], ly[keep], 1)
+        else:
+            slope = 1.0
+            intercept = float(numpy.median(ly[keep] - lx[keep]))
+        residual = ly - (intercept + slope * lx)
+        scatter = max(
+            1.4826 * float(numpy.median(numpy.abs(residual[keep]))), RESOLUTION_MIN_SCATTER
+        )
+        nextKeep = numpy.abs(residual) <= 3.0 * scatter
+        if numpy.count_nonzero(nextKeep) < RESOLUTION_MIN_REFERENCES or numpy.array_equal(nextKeep, keep):
+            break
+        keep = nextKeep
+
+    n = int(numpy.count_nonzero(keep))
+    centre = float(numpy.mean(lx[keep]))
+    if fitted:
+        spread = float(numpy.sum((lx[keep] - centre) ** 2))
+        slopeError = scatter / math.sqrt(spread) if spread > 0.0 else RESOLUTION_EXPONENT_PRIOR
+    else:
+        slopeError = RESOLUTION_EXPONENT_PRIOR
+    return {
+        "exponent": float(slope),
+        "intercept": float(intercept),
+        "centre": centre,
+        "scatter": scatter,
+        "exponentError": float(slopeError),
+        "references": n,
+    }
+
+
+def resolutioncurve(signal):
+    """The resolution curve of a profile spectrum (see above), or None.
+
+    Returns a dict with the fitted power law ("exponent", "intercept" in log
+    space), its uncertainty and the number of reference peaks, plus the baseline
+    the references were measured from ("baseline"). Cached per profile.
+    """
+
+    if signal is None or len(signal) < 10:
+        return None
+    signal = numpy.asarray(signal, dtype=numpy.float64)
+    key = _profile_key(signal)
+    for cachedKey, cachedCurve in _RESOLUTION_CACHE:
+        if cachedKey == key:
+            return cachedCurve
+    baseline = mod_signal.baseline(signal, window=RESOLUTION_BASELINE_WINDOW, offset=0.0)
+    curve = _fit_resolution(_resolution_references(signal, baseline))
+    if curve is not None:
+        curve["baseline"] = baseline
+    _RESOLUTION_CACHE.insert(0, (key, curve))
+    del _RESOLUTION_CACHE[_RESOLUTION_CACHE_SIZE:]
+    return curve
+
+
+def _curve_fwhm(curve, mz):
+    """FWHM the curve predicts at m/z, and its relative uncertainty there."""
+
+    lx = math.log(float(mz))
+    width = math.exp(curve["intercept"] + curve["exponent"] * lx)
+    distance = lx - curve["centre"]
+    variance = curve["scatter"] ** 2 * (1.0 + 1.0 / max(1, curve["references"]))
+    variance += (curve["exponentError"] * distance) ** 2
+    return width, math.sqrt(variance)
+
+
+def resolvedfwhm(measured, mz, sn, curve):
+    """A peak's best width: its own measurement and the spectrum's resolution
+    curve, each weighted by its precision (see above).
+
+    Without a curve the measurement stands; without a measurement the curve
+    gives the width; a measurement with no S/N to judge it by is kept as it is.
+    """
+
+    if curve is None or not mz or mz <= 0.0:
+        return measured
+    predicted, curveError = _curve_fwhm(curve, mz)
+    if not measured or measured <= 0.0:
+        return predicted
+    if sn is None:
+        return measured
+    if sn <= 0.0:
+        return predicted
+    measuredError = RESOLUTION_WIDTH_PRECISION / float(sn)
+    wMeasured = 1.0 / (measuredError * measuredError)
+    wCurve = 1.0 / (curveError * curveError)
+    blended = (wMeasured * math.log(measured) + wCurve * math.log(predicted)) / (wMeasured + wCurve)
+    return math.exp(blended)
+
+
+def applyresolution(peaklist, signal):
+    """Give every peak of a list picked from `signal` its resolved width
+    (`resolvedfwhm`); a width the user has locked is left alone."""
+
+    curve = resolutioncurve(signal)
+    if curve is None:
+        return
+    for peak in peaklist:
+        if _fwhm_is_locked(peak):
+            continue
+        width = resolvedfwhm(peak.fwhm, peak.mz, peak.sn, curve)
+        if width and width > 0.0:
+            peak.setfwhm(width)
+
+
+def _measured_fwhm(signal, mz):
+    """A peak's width measured at m/z in the profile, above its baseline, and
+    resolved against the spectrum's resolution curve."""
+
+    curve = resolutioncurve(signal)
+    baseline = curve["baseline"] if curve is not None else None
+    labeled = labelpoint(signal=signal, mz=mz, baseline=baseline)
+    measured = labeled.fwhm if labeled and labeled.fwhm and labeled.fwhm > 0.0 else None
+    sn = labeled.sn if labeled else None
+    return resolvedfwhm(measured, mz, sn, curve)
+
+
 def _refresh_missing_fwhm_from_profile(peaklist, profile, recompute=False, respectAll=False):
     """Refresh FWHM values from the profile signal at each peak m/z.
 
@@ -3810,13 +4837,15 @@ def _refresh_missing_fwhm_from_profile(peaklist, profile, recompute=False, respe
         if not recompute and peak.fwhm and peak.fwhm > 0.0:
             continue
 
-        labeled = labelpoint(signal=profile, mz=peak.mz)
-        if labeled and labeled.fwhm and labeled.fwhm > 0.0:
-            peak.setfwhm(labeled.fwhm)
+        # measured above the baseline and resolved against the spectrum's
+        # resolution curve, exactly as picking measures it
+        width = _measured_fwhm(profile, peak.mz)
+        if width and width > 0.0:
+            peak.setfwhm(width)
             if recompute and hasattr(peak, "attributes"):
                 stored = peak.attributes.get("envelope")
                 if isinstance(stored, dict) and stored.get("fwhm"):
-                    stored["fwhm"] = labeled.fwhm
+                    stored["fwhm"] = width
 
 
 # ----
@@ -4133,7 +5162,7 @@ def recalculate_neighborhood_envelopes(
 
     hasProfile = profile is not None and len(profile) > 0
 
-    def _label_local(group, preserveSeeds=False):
+    def _label_local(group, preserveSeeds=False, otherPeaks=None):
         """Deisotope + envelope-label one group of peaks, returning the result.
 
         With preserveSeeds every peak in the group becomes its own envelope seed
@@ -4203,6 +5232,7 @@ def recalculate_neighborhood_envelopes(
             averagineType=averagineType,
             preserveSeeds=preserveSeeds,
             refinePattern=refinePattern,
+            otherPeaks=otherPeaks,
         )
         return list(gpl)
 
@@ -4215,7 +5245,7 @@ def recalculate_neighborhood_envelopes(
         ghost.attributes[ENVELOPE_CONTEXT_ATTR] = True
         fitPeaks.append(ghost)
 
-    labeled = _label_local(fitPeaks, preserveSeeds=selectedOnly)
+    labeled = _label_local(fitPeaks, preserveSeeds=selectedOnly, otherPeaks=outsidePeaks)
 
     # drop the context stand-ins; their untouched originals go back into the list
     labeled = [p for p in labeled if not _is_context_peak(p)]

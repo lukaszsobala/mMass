@@ -611,6 +611,9 @@ class scan:
                     if p.sn and (old_ai - p.base) > 0:
                         p.sn = p.sn * (p.ai - p.base) / (old_ai - p.base)
 
+        # weak peaks take their width from the spectrum's resolution curve
+        mod_peakpicking.applyresolution(peaklist, self.profile)
+
         # update peaklist
         self.peaklist = peaklist
 
@@ -722,6 +725,7 @@ class scan:
         preserveSeeds=False,
         relaxed=False,
         refinePattern=True,
+        otherPeaks=None,
     ):
         """Convert deisotoped peak clusters to envelope labels.
 
@@ -733,6 +737,7 @@ class scan:
             seeds here exactly as before, so deisotoping is unaffected and they are
             removed downstream by remisotopes() -- preserveSeeds never turns an
             isotope peak into an envelope.
+        otherPeaks (list of mspy.peak) - see mspy.mod_peakpicking.relabelenvelopes
         """
 
         # Imported peak lists may miss per-peak FWHM; recover it from profile
@@ -741,9 +746,9 @@ class scan:
             for peak in self.peaklist:
                 if peak.fwhm and peak.fwhm > 0.0:
                     continue
-                labeled = mod_peakpicking.labelpoint(signal=self.profile, mz=peak.mz)
-                if labeled and labeled.fwhm and labeled.fwhm > 0.0:
-                    peak.setfwhm(labeled.fwhm)
+                width = mod_peakpicking._measured_fwhm(self.profile, peak.mz)
+                if width and width > 0.0:
+                    peak.setfwhm(width)
 
         defaultFwhm = 0.1
         if self.peaklist.basepeak and self.peaklist.basepeak.fwhm:
@@ -761,6 +766,7 @@ class scan:
             preserveSeeds=preserveSeeds,
             relaxed=relaxed,
             refinePattern=refinePattern,
+            otherPeaks=otherPeaks,
         )
 
     # ----
