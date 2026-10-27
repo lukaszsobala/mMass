@@ -4432,6 +4432,222 @@ def _sync_stored_envelope_fwhm(peak):
         stored["fwhm"] = peak.fwhm
 
 
+# ----
+
+
+# THE SPECTRUM'S RESOLUTION CURVE
+#
+# Every peak of a spectrum comes from the same analyser, whose width follows a
+# smooth curve in m/z: FWHM = a * (m/z)^b, with b ~1 for TOF (constant resolving
+# power), ~1.5 for an Orbitrap, 2 for FT-ICR, ~0 for traps and quadrupoles. A
+# single weak peak's own width is a poor measurement -- it scatters by about
+# 1.5 / (S/N) and reads NARROW at low S/N (noise lifts the apex the half height
+# is taken from: -16 to -20 % at S/N 5) -- and an envelope's area follows its
+# model width almost one to one. So every width is a precision-weighted blend of
+# the peak's own measurement and the curve fitted to the spectrum's strong,
+# isolated peaks: a strong peak keeps essentially its own width (a real
+# deviation survives), a weak one takes the instrument's. The curve is computed
+# from the profile alone, so picking, re-fitting after an edit and converting
+# all arrive at the same widths.
+
+# reference peaks for the curve: at least this S/N (their width is then good to
+# ~3 %), and no other signal above RESOLUTION_ISOLATION_FRACTION of their height
+# between 1 and 2 FWHM from their apex (a neighbour would distort the width)
+RESOLUTION_REFERENCE_SN = 50.0
+RESOLUTION_ISOLATION_FRACTION = 0.25
+RESOLUTION_MIN_REFERENCES = 3
+# with at least this many references spanning this m/z ratio the exponent is
+# fitted; otherwise constant resolving power (exponent 1) is assumed, with an
+# uncertainty of RESOLUTION_EXPONENT_PRIOR that covers traps (0) to Orbitraps (1.5)
+RESOLUTION_FIT_REFERENCES = 6
+RESOLUTION_FIT_SPAN = 1.5
+RESOLUTION_EXPONENT_PRIOR = 0.5
+# relative precision of one width measurement = this / (S/N), as measured for
+# Gaussian peaks at 10-40 points per FWHM (bias at low S/N included)
+RESOLUTION_WIDTH_PRECISION = 1.5
+# the curve is never trusted to better than this (relative)
+RESOLUTION_MIN_SCATTER = 0.01
+# baseline window the reference peaks are measured with (the app's default)
+RESOLUTION_BASELINE_WINDOW = 0.01
+
+_RESOLUTION_CACHE = []
+_RESOLUTION_CACHE_SIZE = 8
+
+
+def _profile_key(signal):
+    """A cheap fingerprint of a profile, for caching what is derived from it."""
+
+    n = len(signal)
+    return (
+        n,
+        float(signal[0, 0]),
+        float(signal[-1, 0]),
+        float(numpy.sum(signal[:, 1])),
+        float(signal[n // 2, 1]),
+        float(signal[n // 3, 1]),
+    )
+
+
+def _resolution_references(signal, baseline):
+    """(m/z, FWHM) of the profile's strong, isolated, unsaturated peaks."""
+
+    x = signal[:, 0]
+    y = signal[:, 1]
+    references = []
+    for peak in labelscan(
+        signal, pickingHeight=1.0, snThreshold=RESOLUTION_REFERENCE_SN, baseline=baseline
+    ):
+        width = peak.fwhm
+        height = peak.ai - peak.base
+        if not width or width <= 0.0 or height <= 0.0:
+            continue
+        i1 = int(numpy.searchsorted(x, peak.mz - 2.0 * width, side="left"))
+        i2 = int(numpy.searchsorted(x, peak.mz + 2.0 * width, side="right"))
+        offsets = numpy.abs(x[i1:i2] - peak.mz)
+        above = y[i1:i2] - peak.base
+        flank = offsets > width
+        if numpy.any(flank) and float(numpy.max(above[flank])) > RESOLUTION_ISOLATION_FRACTION * height:
+            continue
+        core = offsets <= 0.5 * width
+        if numpy.count_nonzero(core) < 4:
+            continue  # too few samples across the peak to measure it
+        if numpy.count_nonzero(above[core] >= 0.995 * height) > 3:
+            continue  # flat top: a saturated detector
+        references.append((float(peak.mz), float(width)))
+    return references
+
+
+def _fit_resolution(references):
+    """Robust fit of log FWHM against log m/z (see above), or None."""
+
+    if len(references) < RESOLUTION_MIN_REFERENCES:
+        return None
+    lx = numpy.log([mz for mz, _w in references])
+    ly = numpy.log([w for _mz, w in references])
+    keep = numpy.ones(len(lx), dtype=bool)
+    fitted = False
+    slope, intercept, scatter = 1.0, 0.0, RESOLUTION_MIN_SCATTER
+    for _iteration in range(5):
+        n = int(numpy.count_nonzero(keep))
+        span = float(numpy.exp(lx[keep].max() - lx[keep].min())) if n else 1.0
+        fitted = n >= RESOLUTION_FIT_REFERENCES and span >= RESOLUTION_FIT_SPAN
+        if fitted:
+            slope, intercept = numpy.polyfit(lx[keep], ly[keep], 1)
+        else:
+            slope = 1.0
+            intercept = float(numpy.median(ly[keep] - lx[keep]))
+        residual = ly - (intercept + slope * lx)
+        scatter = max(
+            1.4826 * float(numpy.median(numpy.abs(residual[keep]))), RESOLUTION_MIN_SCATTER
+        )
+        nextKeep = numpy.abs(residual) <= 3.0 * scatter
+        if numpy.count_nonzero(nextKeep) < RESOLUTION_MIN_REFERENCES or numpy.array_equal(nextKeep, keep):
+            break
+        keep = nextKeep
+
+    n = int(numpy.count_nonzero(keep))
+    centre = float(numpy.mean(lx[keep]))
+    if fitted:
+        spread = float(numpy.sum((lx[keep] - centre) ** 2))
+        slopeError = scatter / math.sqrt(spread) if spread > 0.0 else RESOLUTION_EXPONENT_PRIOR
+    else:
+        slopeError = RESOLUTION_EXPONENT_PRIOR
+    return {
+        "exponent": float(slope),
+        "intercept": float(intercept),
+        "centre": centre,
+        "scatter": scatter,
+        "exponentError": float(slopeError),
+        "references": n,
+    }
+
+
+def resolutioncurve(signal):
+    """The resolution curve of a profile spectrum (see above), or None.
+
+    Returns a dict with the fitted power law ("exponent", "intercept" in log
+    space), its uncertainty and the number of reference peaks, plus the baseline
+    the references were measured from ("baseline"). Cached per profile.
+    """
+
+    if signal is None or len(signal) < 10:
+        return None
+    signal = numpy.asarray(signal, dtype=numpy.float64)
+    key = _profile_key(signal)
+    for cachedKey, cachedCurve in _RESOLUTION_CACHE:
+        if cachedKey == key:
+            return cachedCurve
+    baseline = mod_signal.baseline(signal, window=RESOLUTION_BASELINE_WINDOW, offset=0.0)
+    curve = _fit_resolution(_resolution_references(signal, baseline))
+    if curve is not None:
+        curve["baseline"] = baseline
+    _RESOLUTION_CACHE.insert(0, (key, curve))
+    del _RESOLUTION_CACHE[_RESOLUTION_CACHE_SIZE:]
+    return curve
+
+
+def _curve_fwhm(curve, mz):
+    """FWHM the curve predicts at m/z, and its relative uncertainty there."""
+
+    lx = math.log(float(mz))
+    width = math.exp(curve["intercept"] + curve["exponent"] * lx)
+    distance = lx - curve["centre"]
+    variance = curve["scatter"] ** 2 * (1.0 + 1.0 / max(1, curve["references"]))
+    variance += (curve["exponentError"] * distance) ** 2
+    return width, math.sqrt(variance)
+
+
+def resolvedfwhm(measured, mz, sn, curve):
+    """A peak's best width: its own measurement and the spectrum's resolution
+    curve, each weighted by its precision (see above).
+
+    Without a curve the measurement stands; without a measurement the curve
+    gives the width; a measurement with no S/N to judge it by is kept as it is.
+    """
+
+    if curve is None or not mz or mz <= 0.0:
+        return measured
+    predicted, curveError = _curve_fwhm(curve, mz)
+    if not measured or measured <= 0.0:
+        return predicted
+    if sn is None:
+        return measured
+    if sn <= 0.0:
+        return predicted
+    measuredError = RESOLUTION_WIDTH_PRECISION / float(sn)
+    wMeasured = 1.0 / (measuredError * measuredError)
+    wCurve = 1.0 / (curveError * curveError)
+    blended = (wMeasured * math.log(measured) + wCurve * math.log(predicted)) / (wMeasured + wCurve)
+    return math.exp(blended)
+
+
+def applyresolution(peaklist, signal):
+    """Give every peak of a list picked from `signal` its resolved width
+    (`resolvedfwhm`); a width the user has locked is left alone."""
+
+    curve = resolutioncurve(signal)
+    if curve is None:
+        return
+    for peak in peaklist:
+        if _fwhm_is_locked(peak):
+            continue
+        width = resolvedfwhm(peak.fwhm, peak.mz, peak.sn, curve)
+        if width and width > 0.0:
+            peak.setfwhm(width)
+
+
+def _measured_fwhm(signal, mz):
+    """A peak's width measured at m/z in the profile, above its baseline, and
+    resolved against the spectrum's resolution curve."""
+
+    curve = resolutioncurve(signal)
+    baseline = curve["baseline"] if curve is not None else None
+    labeled = labelpoint(signal=signal, mz=mz, baseline=baseline)
+    measured = labeled.fwhm if labeled and labeled.fwhm and labeled.fwhm > 0.0 else None
+    sn = labeled.sn if labeled else None
+    return resolvedfwhm(measured, mz, sn, curve)
+
+
 def _refresh_missing_fwhm_from_profile(peaklist, profile, recompute=False, respectAll=False):
     """Refresh FWHM values from the profile signal at each peak m/z.
 
@@ -4470,13 +4686,15 @@ def _refresh_missing_fwhm_from_profile(peaklist, profile, recompute=False, respe
         if not recompute and peak.fwhm and peak.fwhm > 0.0:
             continue
 
-        labeled = labelpoint(signal=profile, mz=peak.mz)
-        if labeled and labeled.fwhm and labeled.fwhm > 0.0:
-            peak.setfwhm(labeled.fwhm)
+        # measured above the baseline and resolved against the spectrum's
+        # resolution curve, exactly as picking measures it
+        width = _measured_fwhm(profile, peak.mz)
+        if width and width > 0.0:
+            peak.setfwhm(width)
             if recompute and hasattr(peak, "attributes"):
                 stored = peak.attributes.get("envelope")
                 if isinstance(stored, dict) and stored.get("fwhm"):
-                    stored["fwhm"] = labeled.fwhm
+                    stored["fwhm"] = width
 
 
 # ----

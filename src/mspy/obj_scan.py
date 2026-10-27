@@ -611,6 +611,9 @@ class scan:
                     if p.sn and (old_ai - p.base) > 0:
                         p.sn = p.sn * (p.ai - p.base) / (old_ai - p.base)
 
+        # weak peaks take their width from the spectrum's resolution curve
+        mod_peakpicking.applyresolution(peaklist, self.profile)
+
         # update peaklist
         self.peaklist = peaklist
 
@@ -741,9 +744,9 @@ class scan:
             for peak in self.peaklist:
                 if peak.fwhm and peak.fwhm > 0.0:
                     continue
-                labeled = mod_peakpicking.labelpoint(signal=self.profile, mz=peak.mz)
-                if labeled and labeled.fwhm and labeled.fwhm > 0.0:
-                    peak.setfwhm(labeled.fwhm)
+                width = mod_peakpicking._measured_fwhm(self.profile, peak.mz)
+                if width and width > 0.0:
+                    peak.setfwhm(width)
 
         defaultFwhm = 0.1
         if self.peaklist.basepeak and self.peaklist.basepeak.fwhm:
