@@ -1073,6 +1073,32 @@ def _project_unimodal(weights):
     return best_fit
 
 
+def _isotope_heights(isotopes, x, y, fwhm):
+    """Observed height of each isotope: one least-squares fit of a Gaussian per
+    isotope (at its position, at the envelope's width) to the profile.
+
+    The fit uses every point of each peak, so noise averages out instead of
+    being picked up -- the maximum of a window is pushed up by the noise, most of
+    all on a faint isotope, which flattened the observed pattern and inflated
+    weak envelopes -- and isotopes that overlap at low resolution are separated
+    instead of each reading its neighbour's flank. Negative heights (an isotope
+    lost in the noise) read as zero.
+    """
+
+    heights = numpy.zeros(len(isotopes), dtype=float)
+    if not len(x) or not len(y) or fwhm <= 0.0 or not isotopes:
+        return heights
+    sigma = _fwhm_to_sigma(float(fwhm))
+    norm = sigma * math.sqrt(2.0 * math.pi)
+    columns = [_local_gaussian_column(x, [(mz, norm)], sigma) for mz, _w in isotopes]
+    design = numpy.column_stack(columns)
+    used = numpy.any(design > 1e-6, axis=1)
+    if numpy.count_nonzero(used) < len(isotopes):
+        return heights
+    fitted = numpy.linalg.lstsq(design[used], numpy.asarray(y, dtype=float)[used], rcond=None)[0]
+    return numpy.clip(fitted, 0.0, None)
+
+
 def _soft_isotope_model(isotopes, x, y, fwhm, nonIdeality=None):
     """Reshape averagine isotopes toward observed evidence within a bounded band.
 
@@ -1105,14 +1131,7 @@ def _soft_isotope_model(isotopes, x, y, fwhm, nonIdeality=None):
         return ordered
     theory /= total
 
-    obs = numpy.zeros(len(ordered), dtype=float)
-    if len(x) and len(y) and fwhm > 0.0:
-        half_window = max(0.35 * float(fwhm), 1e-4)
-        for i, (mz, _) in enumerate(ordered):
-            i1 = numpy.searchsorted(x, mz - half_window, side='left')
-            i2 = numpy.searchsorted(x, mz + half_window, side='right')
-            if i1 < i2:
-                obs[i] = max(0.0, float(numpy.max(y[i1:i2])))
+    obs = _isotope_heights(ordered, x, y, fwhm)
 
     obs_total = float(numpy.sum(obs))
     if obs_total > 0.0:
