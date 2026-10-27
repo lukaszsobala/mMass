@@ -210,3 +210,42 @@ def test_recalc_helper_reads_every_envelope_param_the_gui_builds():
     }
     unread = {key for key in built if '"%s"' % key not in source}
     assert not unread, "recalculate_neighborhood_envelopes ignores: %s" % sorted(unread)
+
+
+def _method_parameters(filename, className, methodName):
+    """Parameter names of a GUI method, read from its source with ``ast``."""
+
+    with open(os.path.join(_GUI_DIR, filename), encoding="utf-8") as handle:
+        tree = ast.parse(handle.read())
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.name == className:
+            for item in node.body:
+                if isinstance(item, ast.FunctionDef) and item.name == methodName:
+                    arguments = item.args
+                    return {a.arg for a in arguments.args + arguments.kwonlyargs} - {"self"}
+    raise AssertionError("%s.%s not found in %s" % (className, methodName, filename))
+
+
+def test_tmp_spectrum_wrapper_forwards_every_keyword_the_gui_passes():
+    """The main frame's ``updateTmpSpectrum`` is a thin wrapper over the
+    spectrum panel's, and the peak list calls the wrapper. A keyword added to the
+    panel but not the wrapper (``fillBase``, drawing an envelope on its pedestal)
+    raised TypeError on every click on an envelope peak."""
+
+    frame = _method_parameters("main_frame.py", "mainFrame", "updateTmpSpectrum")
+    panel = _method_parameters("panel_spectrum.py", "panelSpectrum", "updateTmpSpectrum")
+    assert frame == panel, "wrapper and panel differ: %s" % sorted(frame ^ panel)
+
+    for filename in sorted(os.listdir(_GUI_DIR)):
+        if not filename.endswith(".py") or filename == "panel_mass_calculator.py":
+            continue  # the mass calculator has an unrelated updateTmpSpectrum()
+        with open(os.path.join(_GUI_DIR, filename), encoding="utf-8") as handle:
+            tree = ast.parse(handle.read())
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "updateTmpSpectrum"
+            ):
+                passed = {k.arg for k in node.keywords if k.arg is not None}
+                assert passed <= panel, "%s:%d passes %s" % (filename, node.lineno, sorted(passed - panel))

@@ -6415,8 +6415,9 @@ class mainFrame(wx.Frame):
         fillUnder=False,
         fillUnderAlpha=70,
         showOutline=True,
+        fillBase=None,
     ):
-        """Update tmp spectrum in canvas."""
+        """Update tmp spectrum in canvas (see panelSpectrum.updateTmpSpectrum)."""
         self.spectrumPanel.updateTmpSpectrum(
             points,
             flipped=flipped,
@@ -6424,6 +6425,7 @@ class mainFrame(wx.Frame):
             fillUnder=fillUnder,
             fillUnderAlpha=fillUnderAlpha,
             showOutline=showOutline,
+            fillBase=fillBase,
         )
 
     # ----
