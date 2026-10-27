@@ -2587,7 +2587,7 @@ def _fit_group_areas(metas, x, y, nonIdeality, refinePattern=True):
     capInfo = []
     # the theoretical pattern of an envelope whose shape was bent toward the data,
     # so its amplitude cap judges the species' abundant isotopes, not the bent ones
-    anchorInfo = [None] * K
+    anchorInfo: list[list[float] | None] = [None] * K
     for k, (fwhm, sigma, isotopes, storedShape, _poisson) in enumerate(metas):
         if not norm_ok[k]:
             areaColumns.append(numpy.zeros(len(x), dtype=float))
