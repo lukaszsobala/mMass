@@ -503,7 +503,7 @@ processing = {
         "removeUnknown": 1,
         "labelEnvelope": "1st",
         "envelopeIntensity": "maximum",
-        "envelopeNonIdeality": 0.40,
+        "envelopeNonIdeality": 0.30,
         "envelopeRefinePattern": 1,
         "setAsMonoisotopic": 0,
         "convertToEnvelopes": 1,

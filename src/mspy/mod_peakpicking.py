@@ -41,7 +41,13 @@ from . import mod_signal
 ISOTOPE_DISTANCE = 1.00287
 AVERAGE_AMINO = {"C": 4.9384, "H": 7.7583, "N": 1.3577, "O": 1.4773, "S": 0.0417}
 AVERAGE_BASE = {"C": 9.75, "H": 12.25, "N": 3.75, "O": 6, "P": 1}
-ENVELOPE_NON_IDEALITY_DEFAULT = 0.20
+# How far (relative) an isolated envelope's isotope pattern may bend from the
+# averagine model toward the data. On 58 isolated, S/N > 30 envelopes of the
+# sample files the real patterns differ from the (full-composition) model by
+# 5% (median) / 12% (90th percentile) on isotopes of >= half the apex, and by
+# 10% / 23% on those of 20-50%: 0.30 lets ~95% of that through while still
+# clipping a contaminant on an isotope position back to a plausible height.
+ENVELOPE_NON_IDEALITY_DEFAULT = 0.30
 
 # Averagine models selectable for isotope-envelope modeling: each maps a short
 # key to the average building-block elemental composition of that compound

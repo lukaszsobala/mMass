@@ -44,7 +44,7 @@
           "removeUnknown": 1,
           "labelEnvelope": "1st",
           "envelopeIntensity": "maximum",
-          "envelopeNonIdeality": 0.4,
+          "envelopeNonIdeality": 0.3,
           "setAsMonoisotopic": 1,
           "convertToEnvelopes": 1
         },
@@ -114,7 +114,7 @@
           "removeUnknown": 1,
           "labelEnvelope": "1st",
           "envelopeIntensity": "maximum",
-          "envelopeNonIdeality": 0.4,
+          "envelopeNonIdeality": 0.3,
           "setAsMonoisotopic": 1,
           "convertToEnvelopes": 1
         },
@@ -184,7 +184,7 @@
           "removeUnknown": 1,
           "labelEnvelope": "1st",
           "envelopeIntensity": "maximum",
-          "envelopeNonIdeality": 0.4,
+          "envelopeNonIdeality": 0.3,
           "setAsMonoisotopic": 1,
           "convertToEnvelopes": 1
         },
@@ -254,7 +254,7 @@
           "removeUnknown": 0,
           "labelEnvelope": "1st",
           "envelopeIntensity": "maximum",
-          "envelopeNonIdeality": 0.4,
+          "envelopeNonIdeality": 0.3,
           "setAsMonoisotopic": 1,
           "convertToEnvelopes": 1
         },
@@ -324,7 +324,7 @@
           "removeUnknown": 1,
           "labelEnvelope": "1st",
           "envelopeIntensity": "maximum",
-          "envelopeNonIdeality": 0.4,
+          "envelopeNonIdeality": 0.3,
           "setAsMonoisotopic": 1,
           "convertToEnvelopes": 1
         },
@@ -394,7 +394,7 @@
           "removeUnknown": 0,
           "labelEnvelope": "1st",
           "envelopeIntensity": "maximum",
-          "envelopeNonIdeality": 0.4,
+          "envelopeNonIdeality": 0.3,
           "setAsMonoisotopic": 0,
           "convertToEnvelopes": 1
         },
