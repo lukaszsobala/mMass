@@ -12,7 +12,8 @@ off, and only then apportions the signal. These tests pin the contract:
   keeps its areas: the floor is the pedestal;
 * noise below the pedestal is not clipped away, so weak envelopes are not
   inflated;
-* the reported one-sigma uncertainty matches the scatter of the area over noise;
+* the reported one-sigma uncertainty matches the scatter of the area over noise,
+  chemical noise included;
 * the envelope stores the pedestal it was measured above, so it can be drawn on
   it, and its peaks' intensities are measured above the same pedestal.
 """
@@ -231,6 +232,99 @@ def test_area_uncertainty_matches_the_scatter_over_noise():
     # the linear estimate does not model; the rest must match
     for k in range(1, len(SPECIES)):
         assert 0.7 < reported[k] / scatter[k] < 1.3
+
+
+def _chemical_noise(rng, fwhm=0.3, mean=3.0, phase=None):
+    """MALDI chemical noise: a peak at every mass unit, of random height, at a
+    random place relative to the species unless `phase` puts it."""
+
+    sigma = _sigma(fwhm)
+    y = numpy.zeros_like(X)
+    centres = numpy.arange(799.0, 1301.0) + (rng.uniform(0.0, 1.0) if phase is None else phase)
+    for centre, height in zip(centres, rng.exponential(mean, len(centres)), strict=True):
+        near = numpy.abs(X - centre) < 6.0 * sigma
+        y[near] += height * numpy.exp(-0.5 * ((X[near] - centre) / sigma) ** 2)
+    return y
+
+
+def _uncertainty_against_error(noise, seeds):
+    """Reported uncertainty over the actual (RMS) error of each species' area."""
+
+    areas, errors = [], []
+    for seed in seeds:
+        rng = numpy.random.default_rng(seed)
+        y = CLEAN + BASELINE + noise(rng) + rng.normal(0.0, 0.5, len(X))
+        a, e, _d = _fit(SPECIES, X, y, FWHM, nonIdeality=0.0)
+        areas.append(a)
+        errors.append(e)
+    actual = numpy.sqrt(numpy.mean((numpy.array(areas) - TRUTH) ** 2, axis=0))
+    return numpy.mean(errors, axis=0) / actual
+
+
+def test_area_uncertainty_covers_chemical_noise():
+    """Chemical noise lands under a peak as surely as beside it, and its bumps sit
+    above the pedestal, where the point noise is not read. The uncertainty is
+    therefore also read by sliding the area estimate along the spectrum, in whole
+    mass units, where no species is. Point noise alone reported a quarter of the
+    actual error here."""
+
+    ratio = _uncertainty_against_error(_chemical_noise, range(700, 740))
+
+    assert numpy.all((ratio > 0.75) & (ratio < 1.5))
+
+
+def test_sharp_chemical_noise_between_the_isotopes_is_not_an_error():
+    """Sharp chemical-noise peaks at every mass unit, many times taller than the
+    weak envelopes, halfway between their isotopes: the fit leaves them out of the
+    pedestal and they cost the areas almost nothing. Each reading finds its
+    pedestal the same way, so they do not inflate the uncertainty (read with a
+    fixed linear pedestal it was several times the error; slid to every position
+    instead of whole mass units, twenty times)."""
+
+    def noise(rng):
+        return _chemical_noise(rng, fwhm=FWHM, mean=15.0, phase=0.0)
+
+    ratio = _uncertainty_against_error(noise, range(900, 940))
+
+    assert numpy.all((ratio > 0.6) & (ratio < 1.6))
+
+
+def test_area_uncertainty_is_the_same_for_one_envelope_or_all():
+    """Recalculating one envelope (a convert, an edit nearby) must give it the
+    uncertainty recalculating the whole list does: the readings keep off the
+    species outside the recalculated neighbourhood too -- here a strong one a
+    whole 16 m/z away, where every reading in its range lands squarely on it."""
+
+    fwhm = 0.1
+    x = numpy.arange(950.0, 1080.0, fwhm / 15)
+    species = [(1000.42, _area_for_height(1000.42, 40.0, fwhm)), (1016.42, _area_for_height(1016.42, 400.0, fwhm))]
+    y = _render(x, species, fwhm) + 5.0 + numpy.random.default_rng(4).normal(0.0, 1.0, len(x))
+    profile = numpy.column_stack((x, y)).astype(numpy.float64)
+    peaks = []
+    for mono, _area in species:
+        for i, (mz, _w) in enumerate(_pattern(mono)):
+            ai = float(numpy.interp(mz, x, y))
+            peaks.append(mspy.peak(mz=mz, ai=ai, base=5.0, sn=ai - 5.0, charge=1, isotope=i, fwhm=fwhm))
+    peaklist = mspy.peaklist(peaks)
+    peaklist.labelenvelopes(label="1st", signal=profile, defaultFwhm=fwhm, nonIdeality=0.3, preserveSeeds=True)
+    params = {
+        "massTolerance": 0.02, "isotopeShift": 0.0, "maxCharge": 1, "intTolerance": 0.5,
+        "labelEnvelope": "1st", "envelopeIntensity": "maximum", "envelopeNonIdeality": 0.3,
+    }
+
+    def error(result):
+        return next(
+            p.attributes["envelope"]["areaError"]
+            for p in result
+            if p.attributes.get("envelope") and abs(p.mz - 1000.42) < 0.05
+        )
+
+    everything = mpp.recalculate_neighborhood_envelopes(
+        peaklist, profile, [p.mz for p in peaklist], params, selectedOnly=True
+    )
+    alone = mpp.recalculate_neighborhood_envelopes(peaklist, profile, [1000.42], params, selectedOnly=True)
+
+    assert error(alone) == pytest.approx(error(everything), rel=0.01)
 
 
 def test_area_uncertainty_grows_as_the_signal_weakens():

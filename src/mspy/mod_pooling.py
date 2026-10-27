@@ -2115,6 +2115,10 @@ def _labelguided(signal, peaks, baseline, guide, snThreshold, label, intensity):
 
     areas = [0.0] * len(components)
     shares = [1.0] * len(components)
+    occupied = (
+        numpy.array([interval[0] for interval in intervals], dtype=float),
+        numpy.array([interval[1] for interval in intervals], dtype=float),
+    )
     errors: list[float | None] = [None] * len(components)
     pedestals: list[list[tuple[float, float]] | None] = [None] * len(components)
     for group in mod_peakpicking._overlap_groups(intervals):
@@ -2174,7 +2178,9 @@ def _labelguided(signal, peaks, baseline, guide, snThreshold, label, intensity):
         for k, column in zip(group, columns, strict=True):
             residual -= areas[k] * column
         groupErrors = mod_peakpicking._group_area_errors(
-            xs, columns, [c["prior"] for c in members], pedestal, residual
+            xs, columns, [c["prior"] for c in members], pedestal, residual,
+            profile=signal, start=int(numpy.searchsorted(x, lo)), occupied=occupied,
+            spans=[intervals[k] for k in group],
         )
         for k, component, error in zip(group, members, groupErrors, strict=True):
             errors[k] = error

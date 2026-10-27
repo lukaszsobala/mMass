@@ -2769,6 +2769,19 @@ ENVELOPE_NOISE_MIN_POINTS = 20
 ENVELOPE_NOISE_MIN_CORRELATION = 0.05
 ENVELOPE_NOISE_MAX_LAG = 64
 
+# The point noise misses what lands under a peak as surely as beside it: chemical
+# noise -- a bump or a sharp peak at every mass unit -- or a smoothed wiggle. On
+# real MALDI spectra that left the uncertainty two to three times too small. So
+# each envelope's area estimator is also slid along the spectrum in whole steps of
+# PITCH (m/z), up to REACH beyond its own span either way, to every place where no
+# known species is; an area read where there is none is the error it makes.
+# Chemical noise repeats every 1.000 m/z (not every isotope spacing), so each
+# reading lands where the envelope itself sits in it: on a bump's flank, between
+# sharp peaks. Needs at least MIN_READINGS such places, or the point noise stands.
+ENVELOPE_NOISE_NULL_PITCH = 1.0
+ENVELOPE_NOISE_NULL_REACH = 20.0
+ENVELOPE_NOISE_NULL_MIN_READINGS = 8
+
 
 class _GroupPedestal:
     """The pedestal fitted under one overlap group, and how it depends on the
@@ -3037,7 +3050,77 @@ def _noise_correlation(residual, mask):
     return correlation
 
 
-def _group_area_errors(x, columns, weights, pedestal, residual):
+def _null_readings(estimator, profile, start, occupied, floor, offPeak, threshold):
+    """What a linear area estimator reads where there is nothing to measure.
+
+    estimator (n) - the estimator of the signal above the pedestal, over an
+        envelope's own span, which starts at index `start` of `profile` (an (m/z,
+        intensity) array sorted by m/z)
+    occupied ((lo, hi) arrays) - the m/z intervals of every known species
+    floor (float or None) - the pedestal, when it is a floor
+    offPeak (bool, n) - span points no envelope reaches
+    threshold (float) - how far above the pedestal a point is not baseline
+
+    The estimator is slid along the spectrum in whole steps (see
+    ENVELOPE_NOISE_NULL_PITCH) to every place whose span holds no species, and
+    reads the signal above a pedestal found there as the fit finds its own: a
+    line through the off-peak points, leaving out those standing above it (an
+    unlabelled or a chemical-noise peak). Returns the readings, or None when
+    there are too few.
+    """
+
+    n = len(estimator)
+    xs = profile[:, 0]
+    total = len(xs)
+    if n < 2 or start < 0 or start + n > total:
+        return None
+
+    first = float(xs[start])
+    width = float(xs[start + n - 1]) - first
+    steps = int(math.ceil((width + ENVELOPE_NOISE_NULL_REACH) / ENVELOPE_NOISE_NULL_PITCH))
+    shifts = numpy.arange(-steps, steps + 1, dtype=float) * ENVELOPE_NOISE_NULL_PITCH
+    shifts = shifts[numpy.abs(shifts) > width]
+    starts = numpy.searchsorted(xs, first + shifts)
+    starts = starts[(first + shifts >= xs[0]) & (starts + n <= total)]
+    if len(starts) < ENVELOPE_NOISE_NULL_MIN_READINGS:
+        return None
+
+    # drop every span that holds a point of a species (its own included)
+    lo = int(starts[0])
+    hi = int(starts[-1]) + n
+    taken = numpy.zeros(hi - lo, dtype=bool)
+    los, his = occupied
+    near = (los < xs[hi - 1]) & (his > xs[lo])
+    for a, b in zip(los[near], his[near], strict=True):
+        taken[max(0, int(numpy.searchsorted(xs, a)) - lo):max(0, int(numpy.searchsorted(xs, b, side="right")) - lo)] = True
+    counts = numpy.concatenate(([0], numpy.cumsum(taken)))
+    starts = starts[counts[starts - lo + n] == counts[starts - lo]]
+    if len(starts) < ENVELOPE_NOISE_NULL_MIN_READINGS:
+        return None
+
+    ys = numpy.asarray(profile[:, 1], dtype=float)
+    basis = numpy.column_stack((numpy.ones(n), numpy.linspace(-1.0, 1.0, n)))
+    if numpy.count_nonzero(offPeak) < 3:
+        offPeak = numpy.ones(n, dtype=bool)
+    readings = numpy.empty(len(starts), dtype=float)
+    for i, s in enumerate(starts):
+        window = ys[s:s + n]
+        level = floor
+        if level is None:
+            keep = offPeak
+            for _iteration in range(ENVELOPE_PEDESTAL_MAX_ITERATIONS):
+                level = basis @ numpy.linalg.lstsq(basis[keep], window[keep], rcond=None)[0]
+                nextKeep = offPeak & (window - level <= threshold)
+                if numpy.count_nonzero(nextKeep) < 3 or numpy.array_equal(nextKeep, keep):
+                    break
+                keep = nextKeep
+        readings[i] = float((window - level) @ estimator)
+    return readings
+
+
+def _group_area_errors(
+    x, columns, weights, pedestal, residual, profile=None, start=None, occupied=None, spans=None,
+):
     """Noise uncertainty (one sigma) of each envelope amplitude in a group.
 
     Each amplitude is, to first order, a linear estimator of the signal: the
@@ -3050,6 +3133,14 @@ def _group_area_errors(x, columns, weights, pedestal, residual):
     the pedestal fitted from the same points. Read off the peaks, the residual is
     noise and background wiggle the pedestal cannot follow, not the fit's own
     misfit; the caps and overlap trims are not linear and are not modelled.
+
+    Given the `profile` the window `x` starts at index `start` of, and the m/z
+    intervals `occupied` by every known species, the same estimator is also read
+    where there is no species (`_null_readings`), and the uncertainty is the
+    larger of the two: the typical (median) size of those readings catches
+    background structure the point noise cannot see. Each envelope is read over
+    its own m/z span (`spans`, default the whole window), so the reading does not
+    depend on which neighbours happen to share its fit.
     """
 
     K = len(columns)
@@ -3081,6 +3172,7 @@ def _group_area_errors(x, columns, weights, pedestal, residual):
     correlation = _noise_correlation(residual, quiet)
 
     errors = []
+    estimators = []
     for column, part in zip(columns, parts, strict=True):
         energy = float(column @ column)
         if energy <= 0.0:
@@ -3091,6 +3183,7 @@ def _group_area_errors(x, columns, weights, pedestal, residual):
         else:
             share = numpy.divide(part, total, out=numpy.zeros(n), where=total > 0.0)
         estimator = column * share / energy
+        estimators.append((len(errors), estimator))
         if pedestal is not None:
             estimator = pedestal.propagate(estimator)
         variance = float(estimator @ estimator)
@@ -3099,6 +3192,22 @@ def _group_area_errors(x, columns, weights, pedestal, residual):
                 break
             variance += 2.0 * rho * float(estimator[:-lag] @ estimator[lag:])
         errors.append(noise * math.sqrt(max(variance, 0.0)))
+
+    # read from the spectrum around, above a pedestal found as the fit finds it
+    if profile is None or start is None or occupied is None or pedestal is None:
+        return errors
+    floor = float(pedestal.level[0]) if pedestal.basis.shape[1] == 0 else None
+    for k, estimator in estimators:
+        a, b = 0, n
+        if spans is not None:
+            a = int(numpy.searchsorted(x, spans[k][0]))
+            b = int(numpy.searchsorted(x, spans[k][1], side="right"))
+        readings = _null_readings(
+            estimator[a:b], profile, start + a, occupied, floor, offPeak[a:b],
+            ENVELOPE_PEDESTAL_OUTLIER_SIGMAS * noise,
+        )
+        if readings is not None:
+            errors[k] = max(errors[k], 1.4826 * float(numpy.median(numpy.abs(readings))))
     return errors
 
 
@@ -3166,9 +3275,30 @@ def _fit_envelope_areas_shaped(
     return areas, shapes
 
 
+def _species_intervals(peaks, defaultFwhm):
+    """m/z intervals of the species among `peaks` -- every envelope and every
+    charged peak -- padded as a fitted cluster's window is, for the area
+    uncertainty to keep off (see ENVELOPE_NOISE_NULL_PITCH)."""
+
+    intervals = []
+    for peak in peaks or []:
+        envelope = _peak_attributes(peak).get("envelope")
+        if isinstance(envelope, dict):
+            positions = [float(mz) for mz, _w in envelope.get("isotopes") or []] or [peak.mz]
+            fwhm = envelope.get("fwhm") or peak.fwhm or 0.0
+        elif peak.charge:
+            positions = [peak.mz]
+            fwhm = peak.fwhm or 0.0
+        else:
+            continue
+        pad = 6.0 * max(float(fwhm), float(defaultFwhm))
+        intervals.append((min(positions) - pad, max(positions) + pad))
+    return intervals
+
+
 def _fit_envelope_areas_detailed(
     clusters, signal, defaultFwhm, nonIdeality=None,
-    averagineType=DEFAULT_AVERAGINE, refinePattern=True,
+    averagineType=DEFAULT_AVERAGINE, refinePattern=True, avoid=None,
 ):
     """Joint envelope area fit, with the shape, pedestal and uncertainty per cluster.
 
@@ -3185,6 +3315,9 @@ def _fit_envelope_areas_detailed(
     "areaError" -- the one-sigma uncertainty of the area, on the same scale as
     areas[k] -- and "pedestal" -- (mz, level) points of the pedestal under the
     envelope, to draw it on. It is empty without a profile.
+
+    avoid - (lo, hi) m/z intervals of species outside `clusters` (see
+    `_species_intervals`); the uncertainty is not read on them, nor on the clusters.
     """
 
     # fallback when profile is not available
@@ -3259,6 +3392,12 @@ def _fit_envelope_areas_detailed(
     areas = [0.0] * len(clusters)
     shapes = [list(meta[2]) for meta in metas]
     details = [{} for _cluster in clusters]
+    # where every species sits: the uncertainty is read off the spectrum elsewhere
+    taken = list(intervals) + list(avoid or [])
+    occupied = (
+        numpy.array([interval[0] for interval in taken], dtype=float),
+        numpy.array([interval[1] for interval in taken], dtype=float),
+    )
 
     # fit each connected overlap group on its own local signal window
     for group in _overlap_groups(intervals):
@@ -3300,7 +3439,11 @@ def _fit_envelope_areas_detailed(
         residual = y.copy()
         for area, column in zip(groupAreas, columns, strict=True):
             residual -= max(0.0, float(area)) * column
-        errors = _group_area_errors(x, columns, groupAreas, pedestal, residual)
+        errors = _group_area_errors(
+            x, columns, groupAreas, pedestal, residual,
+            profile=signal, start=int(numpy.searchsorted(xFull, lo)), occupied=occupied,
+            spans=[intervals[i] for i in group],
+        )
 
         for idx, area, shape, error, meta in zip(
             group, groupAreas, groupShapes, errors, groupMetas, strict=True
@@ -3493,8 +3636,15 @@ def relabelenvelopes(
     averagineType=DEFAULT_AVERAGINE,
     preserveSeeds=False,
     refinePattern=True,
+    otherPeaks=None,
 ):
     """Convert deisotoped peak clusters to envelope labels.
+
+    otherPeaks (list of mspy.peak) - peaks of the spectrum that are not in
+        `peaklist`, when only part of it is relabelled. The area uncertainty is
+        read where no species is, so it keeps off their envelopes and charged
+        peaks just as off the ones being fitted -- and comes out the same whether
+        one envelope or the whole list is recalculated.
 
     refinePattern (bool) - when True, overlapping envelopes re-fit the single
         parameter of their averagine isotope pattern to their own de-blended
@@ -3911,6 +4061,7 @@ def relabelenvelopes(
         nonIdeality=nonIdeality,
         averagineType=averagineType,
         refinePattern=refinePattern,
+        avoid=_species_intervals(otherPeaks, defaultFwhm),
     )
 
     # Re-calculate NNLS areas as fallbacks if needed, but mainly prune zero ones.
@@ -5011,7 +5162,7 @@ def recalculate_neighborhood_envelopes(
 
     hasProfile = profile is not None and len(profile) > 0
 
-    def _label_local(group, preserveSeeds=False):
+    def _label_local(group, preserveSeeds=False, otherPeaks=None):
         """Deisotope + envelope-label one group of peaks, returning the result.
 
         With preserveSeeds every peak in the group becomes its own envelope seed
@@ -5081,6 +5232,7 @@ def recalculate_neighborhood_envelopes(
             averagineType=averagineType,
             preserveSeeds=preserveSeeds,
             refinePattern=refinePattern,
+            otherPeaks=otherPeaks,
         )
         return list(gpl)
 
@@ -5093,7 +5245,7 @@ def recalculate_neighborhood_envelopes(
         ghost.attributes[ENVELOPE_CONTEXT_ATTR] = True
         fitPeaks.append(ghost)
 
-    labeled = _label_local(fitPeaks, preserveSeeds=selectedOnly)
+    labeled = _label_local(fitPeaks, preserveSeeds=selectedOnly, otherPeaks=outsidePeaks)
 
     # drop the context stand-ins; their untouched originals go back into the list
     labeled = [p for p in labeled if not _is_context_peak(p)]

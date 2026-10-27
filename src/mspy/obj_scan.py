@@ -725,6 +725,7 @@ class scan:
         preserveSeeds=False,
         relaxed=False,
         refinePattern=True,
+        otherPeaks=None,
     ):
         """Convert deisotoped peak clusters to envelope labels.
 
@@ -736,6 +737,7 @@ class scan:
             seeds here exactly as before, so deisotoping is unaffected and they are
             removed downstream by remisotopes() -- preserveSeeds never turns an
             isotope peak into an envelope.
+        otherPeaks (list of mspy.peak) - see mspy.mod_peakpicking.relabelenvelopes
         """
 
         # Imported peak lists may miss per-peak FWHM; recover it from profile
@@ -764,6 +766,7 @@ class scan:
             preserveSeeds=preserveSeeds,
             relaxed=relaxed,
             refinePattern=refinePattern,
+            otherPeaks=otherPeaks,
         )
 
     # ----

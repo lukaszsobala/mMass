@@ -1813,6 +1813,7 @@ class panelSpectrum(wx.Panel):
             defaultFwhm,
             nonIdeality=config.processing["deisotoping"]["envelopeNonIdeality"],
             averagineType=averagineType,
+            avoid=mspy.mod_peakpicking._species_intervals(spectrum.peaklist, defaultFwhm),
         )
         area_val = max(0.0, float(areas[0])) if areas else 0.0
 
