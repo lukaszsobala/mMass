@@ -48,6 +48,7 @@ from . import libs
 from . import doc
 from . import session
 from . import differences
+from . import processing as processingSteps
 
 from .panel_about import panelAbout
 from .panel_calibration import panelCalibration
@@ -5639,8 +5640,8 @@ class mainFrame(wx.Frame):
             spectrum_data = getattr(document, "spectrum", None)
             if spectrum_data and spectrum_data.hasprofile():
                 spectrum_data.baseline(
-                    window=(1.0 / config.processing["baseline"]["precision"]),
-                    offset=config.processing["baseline"]["offset"],
+                    window=processingSteps.baselineWindow(config.processing),
+                    offset=processingSteps.MEASUREMENT_BASELINE_OFFSET,
                 )
 
     # ----
@@ -5689,8 +5690,8 @@ class mainFrame(wx.Frame):
 
         # precalculate baseline
         document.spectrum.baseline(
-            window=(1.0 / config.processing["baseline"]["precision"]),
-            offset=config.processing["baseline"]["offset"],
+            window=processingSteps.baselineWindow(config.processing),
+            offset=processingSteps.MEASUREMENT_BASELINE_OFFSET,
         )
 
     # ----
@@ -5879,8 +5880,8 @@ class mainFrame(wx.Frame):
         # precalculate baseline for the initial scan
         if document.spectrum.hasprofile():
             document.spectrum.baseline(
-                window=(1.0 / config.processing["baseline"]["precision"]),
-                offset=config.processing["baseline"]["offset"],
+                window=processingSteps.baselineWindow(config.processing),
+                offset=processingSteps.MEASUREMENT_BASELINE_OFFSET,
             )
 
     # ----
@@ -6004,8 +6005,8 @@ class mainFrame(wx.Frame):
 
         if scan.hasprofile():
             scan.baseline(
-                window=(1.0 / config.processing["baseline"]["precision"]),
-                offset=config.processing["baseline"]["offset"],
+                window=processingSteps.baselineWindow(config.processing),
+                offset=processingSteps.MEASUREMENT_BASELINE_OFFSET,
             )
         document.scanCache[scanID] = scan
 
@@ -6106,8 +6107,8 @@ class mainFrame(wx.Frame):
                 )
                 if combined is not None and combined.hasprofile():
                     combined.baseline(
-                        window=(1.0 / config.processing["baseline"]["precision"]),
-                        offset=config.processing["baseline"]["offset"],
+                        window=processingSteps.baselineWindow(config.processing),
+                        offset=processingSteps.MEASUREMENT_BASELINE_OFFSET,
                     )
                 if combined is not None:
                     self._combinedScan = (combined, [found[i] for i in used])

@@ -10,6 +10,33 @@ import numpy
 import mspy
 
 
+# THE BASELINE PEAKS ARE MEASURED FROM
+#
+# Every measurement -- picked peak heights and S/N, the labelling tools, the
+# ruler area, envelope fitting -- reads the baseline at its TRUE local level,
+# smoothed as the baseline panel's precision says. The panel's relative offset
+# is not a property of the data but a choice about the PROFILE: how far below
+# the baseline "Subtract Baseline" cuts, so some noise stays visible above zero.
+# Keeping it out of the measurements means a spectrum subtracted at any offset,
+# or not at all, gives the same heights, and the offset never has to be changed
+# back just to pick peaks.
+MEASUREMENT_BASELINE_OFFSET = 0.0
+
+
+def baselineWindow(settings):
+    """Noise window of the baseline (relative), from the baseline panel's precision."""
+
+    return 1.0 / settings["baseline"]["precision"]
+
+
+def measurementBaseline(scan, settings):
+    """The baseline peaks in `scan` are measured from (see above)."""
+
+    return scan.baseline(
+        window=baselineWindow(settings), offset=MEASUREMENT_BASELINE_OFFSET
+    )
+
+
 def clearNotations(document):
     """Remove annotations and sequence matches, which processing invalidates."""
 
@@ -111,7 +138,7 @@ def subtractBaseline(scan, settings):
     """Subtract the baseline from a scan's profile."""
 
     scan.subbase(
-        window=(1.0 / settings["baseline"]["precision"]),
+        window=baselineWindow(settings),
         offset=settings["baseline"]["offset"],
         allowNegative=settings["baseline"]["allowNegative"],
         preservePeaks=bool(settings["baseline"]["preservePeaks"]),
@@ -183,27 +210,17 @@ def pickPeaks(scan, settings):
 
     peakpicking = settings["peakpicking"]
 
-    # get baseline window
-    baselineWindow = 1.0
-    if peakpicking["baseline"]:
-        baselineWindow = 1.0 / settings["baseline"]["precision"]
-
-    # get smoothing method
-    smoothMethod = None
-    if peakpicking["smoothing"]:
-        smoothMethod = settings["smoothing"]["method"]
-
-    # label spectrum
+    # Peaks are picked on the profile as it is. Smoothing a copy just for picking
+    # measured the widths -- and so the envelope areas fitted with them -- on a
+    # different signal than the areas themselves (+13 to +24 % area); to pick on
+    # smoothed data, smooth the profile (Smoothing panel) and every step sees it.
     scan.labelscan(
         pickingHeight=peakpicking["pickingHeight"],
         absThreshold=peakpicking["absIntThreshold"],
         relThreshold=peakpicking["relIntThreshold"],
         snThreshold=peakpicking["snThreshold"],
-        baselineWindow=baselineWindow,
-        baselineOffset=settings["baseline"]["offset"],
-        smoothMethod=smoothMethod,
-        smoothWindow=settings["smoothing"]["windowSize"],
-        smoothCycles=int(settings["smoothing"]["cycles"]),
+        baselineWindow=baselineWindow(settings),
+        baselineOffset=MEASUREMENT_BASELINE_OFFSET,
     )
 
     # remove shoulder peaks
@@ -223,16 +240,12 @@ def labelPooled(scan, features, settings, alignment=0.0, guide=None):
         return
 
     # same baseline as picking uses
-    baselineWindow = 1.0
-    if settings["peakpicking"]["baseline"]:
-        baselineWindow = 1.0 / settings["baseline"]["precision"]
-
     deisotoping = settings["deisotoping"]
     scan.labelpooled(
         features,
         snThreshold=settings["peakpicking"]["poolSnThreshold"],
-        baselineWindow=baselineWindow,
-        baselineOffset=settings["baseline"]["offset"],
+        baselineWindow=baselineWindow(settings),
+        baselineOffset=MEASUREMENT_BASELINE_OFFSET,
         label=deisotoping["labelEnvelope"],
         intensity=deisotoping["envelopeIntensity"],
         nonIdeality=deisotoping.get("envelopeNonIdeality"),

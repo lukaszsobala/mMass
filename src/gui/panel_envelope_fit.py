@@ -25,6 +25,7 @@ from .ids import *
 from . import mwx
 from . import images
 from . import config
+from . import processing
 from .mixins import MakeModalMixin
 import mspy
 from mspy.plot_canvas import canvas as plotCanvas
@@ -835,14 +836,12 @@ class panelEnvelopeFit(wx.Frame, MakeModalMixin):
             else:
 
                 # get baseline window
-                baselineWindow = 1.0
-                if config.processing["peakpicking"]["baseline"]:
-                    baselineWindow = 1.0 / config.processing["baseline"]["precision"]
+                baselineWindow = processing.baselineWindow(config.processing)
 
                 # get baseline
                 baseline = self.currentDocument.spectrum.baseline(
                     window=baselineWindow,
-                    offset=config.processing["baseline"]["offset"],
+                    offset=processing.MEASUREMENT_BASELINE_OFFSET,
                 )
 
                 # fit data to spectrum

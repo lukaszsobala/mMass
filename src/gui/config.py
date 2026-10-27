@@ -483,8 +483,6 @@ processing = {
         "absIntThreshold": 0,
         "relIntThreshold": 0.0,
         "pickingHeight": 1.00,
-        "baseline": 1,
-        "smoothing": 0,
         "deisotoping": 1,
         "monoisotopic": 0,
         "removeShoulders": 0,

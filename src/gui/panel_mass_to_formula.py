@@ -37,6 +37,7 @@ from .ids import (
 from . import mwx
 from . import images
 from . import config
+from . import processing
 from .mixins import MakeModalMixin
 import mspy
 
@@ -1001,13 +1002,11 @@ class panelMassToFormula(wx.Frame, MakeModalMixin):
             return None
 
         # get baseline window
-        baselineWindow = 1.0
-        if config.processing["peakpicking"]["baseline"]:
-            baselineWindow = 1.0 / config.processing["baseline"]["precision"]
+        baselineWindow = processing.baselineWindow(config.processing)
 
         # get baseline
         baseline = self.currentDocument.spectrum.baseline(
-            window=baselineWindow, offset=config.processing["baseline"]["offset"]
+            window=baselineWindow, offset=processing.MEASUREMENT_BASELINE_OFFSET
         )
 
         # approximate fwhm

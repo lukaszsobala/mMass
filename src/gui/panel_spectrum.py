@@ -29,6 +29,7 @@ from . import images
 from . import config
 from . import doc
 from . import differences
+from . import processing
 import mspy
 import mspy.plot
 
@@ -1130,9 +1131,7 @@ class panelSpectrum(wx.Panel):
             return
 
         # get baseline window (for area calculation)
-        baselineWindow = 1.0
-        if config.processing["peakpicking"]["baseline"]:
-            baselineWindow = 1.0 / config.processing["baseline"]["precision"]
+        baselineWindow = processing.baselineWindow(config.processing)
 
         # get basic values
         position = self.spectrumCanvas.getCursorPosition()
@@ -1279,7 +1278,7 @@ class panelSpectrum(wx.Panel):
                     minX=position[0] - distance[0],
                     maxX=position[0],
                     baselineWindow=baselineWindow,
-                    baselineOffset=config.processing["baseline"]["offset"],
+                    baselineOffset=processing.MEASUREMENT_BASELINE_OFFSET,
                 )
                 format = "area: %s   " % areaFormat
                 label += format % area
@@ -1625,13 +1624,11 @@ class panelSpectrum(wx.Panel):
             return
 
         # get baseline window
-        baselineWindow = 1.0
-        if config.processing["peakpicking"]["baseline"]:
-            baselineWindow = 1.0 / config.processing["baseline"]["precision"]
+        baselineWindow = processing.baselineWindow(config.processing)
 
         # get baseline
         baseline = self.documents[self.currentDocument].spectrum.baseline(
-            window=baselineWindow, offset=config.processing["baseline"]["offset"]
+            window=baselineWindow, offset=processing.MEASUREMENT_BASELINE_OFFSET
         )
 
         # label peak
@@ -1666,9 +1663,7 @@ class panelSpectrum(wx.Panel):
         """
 
         # baseline window is the same for every document
-        baselineWindow = 1.0
-        if config.processing["peakpicking"]["baseline"]:
-            baselineWindow = 1.0 / config.processing["baseline"]["precision"]
+        baselineWindow = processing.baselineWindow(config.processing)
 
         # label the apex peak in each visible spectrum that has profile data
         changed = []
@@ -1685,7 +1680,7 @@ class panelSpectrum(wx.Panel):
                 maxX = rawSelection[2] - docData.offset[0]
 
             baseline = docData.spectrum.baseline(
-                window=baselineWindow, offset=config.processing["baseline"]["offset"]
+                window=baselineWindow, offset=processing.MEASUREMENT_BASELINE_OFFSET
             )
 
             peak = mspy.labelpeak(
@@ -1727,13 +1722,11 @@ class panelSpectrum(wx.Panel):
             return
 
         # get baseline window
-        baselineWindow = 1.0
-        if config.processing["peakpicking"]["baseline"]:
-            baselineWindow = 1.0 / config.processing["baseline"]["precision"]
+        baselineWindow = processing.baselineWindow(config.processing)
 
         # get baseline
         baseline = self.documents[self.currentDocument].spectrum.baseline(
-            window=baselineWindow, offset=config.processing["baseline"]["offset"]
+            window=baselineWindow, offset=processing.MEASUREMENT_BASELINE_OFFSET
         )
 
         # label point
@@ -1768,13 +1761,11 @@ class panelSpectrum(wx.Panel):
             return
 
         # get baseline window
-        baselineWindow = 1.0
-        if config.processing["peakpicking"]["baseline"]:
-            baselineWindow = 1.0 / config.processing["baseline"]["precision"]
+        baselineWindow = processing.baselineWindow(config.processing)
 
         # get baseline
         baseline = self.documents[self.currentDocument].spectrum.baseline(
-            window=baselineWindow, offset=config.processing["baseline"]["offset"]
+            window=baselineWindow, offset=processing.MEASUREMENT_BASELINE_OFFSET
         )
 
         # label isotopes

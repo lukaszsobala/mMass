@@ -345,3 +345,48 @@ def test_envelope_intensity_is_measured_above_the_pedestal():
         level = mpp.pedestallevel(envelope["pedestal"], peak.mz)
         assert peak.base == pytest.approx(level)
         assert peak.intensity == pytest.approx(peak.ai - level)
+
+
+# ---------------------------------------------------------------------------
+# Find Peaks does not depend on how the baseline was subtracted
+# ---------------------------------------------------------------------------
+
+
+def test_find_peaks_measures_the_same_on_raw_and_subtracted_spectra():
+    """Peaks are measured from the baseline at its true level; the relative
+    offset only decides how much of the baseline "Subtract Baseline" removes.
+    So a raw spectrum and the same spectrum subtracted at 25 % or 50 % offset
+    give the same peaks, heights and envelope areas."""
+
+    import copy
+
+    config = pytest.importorskip("gui.config")
+    from gui import processing
+
+    settings = copy.deepcopy(config.processing)
+    settings["peakpicking"]["snThreshold"] = 5.0
+    rng = numpy.random.default_rng(21)
+    profile = numpy.column_stack((X, CLEAN + BASELINE + rng.normal(0.0, 0.5, len(X))))
+
+    def picked(offset):
+        scan = mspy.scan(profile=profile.copy())
+        if offset is not None:
+            settings["baseline"]["offset"] = offset
+            processing.subtractBaseline(scan, settings)
+        processing.pickPeaks(scan, settings)
+        return {
+            round(peak.mz, 2): (peak.intensity, peak.sn, peak.attributes["envelope"]["area"])
+            for peak in scan.peaklist
+            if peak.attributes.get("envelope")
+        }
+
+    raw = picked(None)
+    # the three clearly above the S/N threshold (the fourth sits right on it)
+    assert set(round(m, 2) for m in MONOS[:3]) <= set(raw)
+    for offset in (0.25, 0.5):
+        subtracted = picked(offset)
+        assert set(subtracted) == set(raw)
+        for mz, (intensity, sn, area) in raw.items():
+            assert subtracted[mz][0] == pytest.approx(intensity, rel=0.03, abs=0.5)
+            assert subtracted[mz][1] == pytest.approx(sn, rel=0.1)
+            assert subtracted[mz][2] == pytest.approx(area, rel=0.02)

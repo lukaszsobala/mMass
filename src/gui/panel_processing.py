@@ -531,6 +531,12 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         self.baselinePrecision_slider.SetTick(1)
         self.baselineOffset_slider.SetTickFreq(10)
         self.baselineOffset_slider.Bind(wx.EVT_SCROLL, self.onBaselineSliderChanged)
+        offsetTip = (
+            "How far below the baseline Subtract cuts, keeping some noise above zero.\n"
+            "Peaks, S/N and areas are always measured from the baseline itself."
+        )
+        baselineOffset_label.SetToolTip(wx.ToolTip(offsetTip))
+        self.baselineOffset_slider.SetToolTip(wx.ToolTip(offsetTip))
 
         self.baselineAllowNegative_check = wx.CheckBox(
             panel, -1, "Allow negative values"
@@ -725,22 +731,6 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         self.peakpickingHeight_slider.SetTickFreq(10)
         self.peakpickingHeight_slider.Bind(wx.EVT_SCROLL, self.onPeakpickingChanged)
 
-        peakpickingBaseline_label = wx.StaticText(panel, -1, "Apply baseline:")
-        self.peakpickingBaseline_check = wx.CheckBox(panel, -1, " See baseline panel")
-        self.peakpickingBaseline_check.SetFont(wx.SMALL_FONT)
-        self.peakpickingBaseline_check.SetValue(
-            bool(config.processing["peakpicking"]["baseline"])
-        )
-        self.peakpickingBaseline_check.Bind(wx.EVT_CHECKBOX, self.onPeakpickingChanged)
-
-        peakpickingSmoothing_label = wx.StaticText(panel, -1, "Apply smoothing:")
-        self.peakpickingSmoothing_check = wx.CheckBox(panel, -1, " See smoothing panel")
-        self.peakpickingSmoothing_check.SetFont(wx.SMALL_FONT)
-        self.peakpickingSmoothing_check.SetValue(
-            bool(config.processing["peakpicking"]["smoothing"])
-        )
-        self.peakpickingSmoothing_check.Bind(wx.EVT_CHECKBOX, self.onPeakpickingChanged)
-
         peakpickingDeisotoping_label = wx.StaticText(panel, -1, "Apply deisotoping:")
         self.peakpickingDeisotoping_check = wx.CheckBox(
             panel, -1, " See deisotoping panel"
@@ -903,68 +893,56 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         )
         grid.Add(self.peakpickingHeight_slider, (3, 1), (1, 2), flag=wx.EXPAND)
         grid.Add(
-            peakpickingBaseline_label,
+            peakpickingDeisotoping_label,
             (4, 0),
             flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL,
         )
-        grid.Add(self.peakpickingBaseline_check, (4, 1), (1, 2))
+        grid.Add(self.peakpickingDeisotoping_check, (4, 1), (1, 2))
         grid.Add(
-            peakpickingSmoothing_label,
+            peakpickingRemoveShoulders_label,
             (5, 0),
             flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL,
         )
-        grid.Add(self.peakpickingSmoothing_check, (5, 1), (1, 2))
+        grid.Add(self.peakpickingRemoveShoulders_check, (5, 1))
         grid.Add(
-            peakpickingDeisotoping_label,
+            peakpickingAveragineType_label,
             (6, 0),
             flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL,
         )
-        grid.Add(self.peakpickingDeisotoping_check, (6, 1), (1, 2))
+        grid.Add(self.peakpickingAveragineType_choice, (6, 1), (1, 2))
         grid.Add(
-            peakpickingRemoveShoulders_label,
+            peakpickingAllScans_label,
             (7, 0),
             flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL,
         )
-        grid.Add(self.peakpickingRemoveShoulders_check, (7, 1))
+        grid.Add(self.peakpickingAllScans_check, (7, 1), (1, 2))
         grid.Add(
-            peakpickingAveragineType_label,
+            peakpickingPool_label,
             (8, 0),
             flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL,
         )
-        grid.Add(self.peakpickingAveragineType_choice, (8, 1), (1, 2))
+        grid.Add(self.peakpickingPool_choice, (8, 1), (1, 2))
         grid.Add(
-            peakpickingAllScans_label,
+            peakpickingPoolWindow_label,
             (9, 0),
             flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL,
         )
-        grid.Add(self.peakpickingAllScans_check, (9, 1), (1, 2))
+        grid.Add(self.peakpickingPoolWindow_value, (9, 1))
         grid.Add(
-            peakpickingPool_label,
-            (10, 0),
-            flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL,
-        )
-        grid.Add(self.peakpickingPool_choice, (10, 1), (1, 2))
-        grid.Add(
-            peakpickingPoolWindow_label,
-            (11, 0),
-            flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL,
-        )
-        grid.Add(self.peakpickingPoolWindow_value, (11, 1))
-        grid.Add(
-            peakpickingPoolWindowUnits_label, (11, 2), flag=wx.ALIGN_CENTER_VERTICAL
+            peakpickingPoolWindowUnits_label, (9, 2), flag=wx.ALIGN_CENTER_VERTICAL
         )
         grid.Add(
             peakpickingPoolSN_label,
-            (12, 0),
+            (10, 0),
             flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL,
         )
-        grid.Add(self.peakpickingPoolSN_value, (12, 1))
+        grid.Add(self.peakpickingPoolSN_value, (10, 1))
         grid.Add(
             peakpickingPoolAlign_label,
-            (13, 0),
+            (11, 0),
             flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL,
         )
-        grid.Add(self.peakpickingPoolAlign_check, (13, 1), (1, 2))
+        grid.Add(self.peakpickingPoolAlign_check, (11, 1), (1, 2))
         grid.AddGrowableCol(2)
 
         mainSizer = wx.BoxSizer(wx.VERTICAL)
@@ -1684,12 +1662,6 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         self.peakpickingHeight_slider.SetValue(
             int(presets["peakpicking"]["pickingHeight"] * 100)
         )
-        self.peakpickingBaseline_check.SetValue(
-            bool(presets["peakpicking"]["baseline"])
-        )
-        self.peakpickingSmoothing_check.SetValue(
-            bool(presets["peakpicking"]["smoothing"])
-        )
         self.peakpickingDeisotoping_check.SetValue(
             bool(presets["peakpicking"]["deisotoping"])
         )
@@ -2375,12 +2347,6 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             )
             config.processing["peakpicking"]["pickingHeight"] = (
                 float(self.peakpickingHeight_slider.GetValue()) / 100.0
-            )
-            config.processing["peakpicking"]["baseline"] = bool(
-                self.peakpickingBaseline_check.GetValue()
-            )
-            config.processing["peakpicking"]["smoothing"] = bool(
-                self.peakpickingSmoothing_check.GetValue()
             )
             config.processing["peakpicking"]["deisotoping"] = bool(
                 self.peakpickingDeisotoping_check.GetValue()
@@ -3319,14 +3285,9 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         if not self.currentDocument or not self.currentDocument.spectrum.hasprofile():
             return []
 
-        # get baseline window
-        window = 1.0
-        if config.processing["peakpicking"]["baseline"]:
-            window = 1.0 / config.processing["baseline"]["precision"]
-
-        # get curent baseline
-        baseline = self.currentDocument.spectrum.baseline(
-            window=window, offset=config.processing["baseline"]["offset"]
+        # the baseline peaks are measured from (not the subtraction offset)
+        baseline = processing.measurementBaseline(
+            self.currentDocument.spectrum, config.processing
         )
 
         # get basepeak (approx. only)
