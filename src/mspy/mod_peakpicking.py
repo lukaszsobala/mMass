@@ -3597,7 +3597,7 @@ def _fit_envelope_areas_detailed(
         # NOT clipped at zero: below the pedestal is noise, and dropping its
         # negative half would add a positive bias to every weak envelope.
         members = []
-        for fwhm, sigma, isotopes, storedShape, _poisson in groupMetas:
+        for _fwhm, sigma, isotopes, storedShape, _poisson in groupMetas:
             pattern = isotopes
             if storedShape is not None and not _is_regular_isotope_grid(storedShape):
                 pattern = storedShape
