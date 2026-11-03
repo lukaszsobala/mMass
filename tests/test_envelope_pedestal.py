@@ -218,6 +218,39 @@ def test_comb_on_a_floor_is_not_area():
     assert areas == pytest.approx(TRUTH, rel=0.07)
 
 
+def test_comb_on_a_floor_reads_its_uncertainty_above_the_floor(monkeypatch):
+    """The window opens on a comb bump: the pedestal's first point is the floor
+    plus that bump, but the null readings stand the comb on the floor itself."""
+
+    floors = []
+    original = mpp._null_readings
+
+    def spy(*args, **kwargs):
+        floors.append(args[4])
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(mpp, "_null_readings", spy)
+    # bumps 0.6 m/z below each species, where its window starts; the baseline
+    # cut deep enough that the troughs lie on the floor
+    noise = numpy.random.default_rng(8).normal(0.0, 0.3, len(X))
+    y = numpy.clip(CLEAN + _comb(0.82, fwhm=0.15) + noise - 1.0, 0.0, None)
+
+    _areas, errors, _details = _fit(SPECIES, X, y, FWHM)
+
+    assert floors and all(floor == 0.0 for floor in floors)
+    assert numpy.all(numpy.isfinite(errors) & (errors > 0.0))
+
+
+def test_null_spread_of_mostly_empty_readings():
+    """More than half the readings exactly zero (empty floor) must not zero the
+    spread of the rest."""
+
+    readings = numpy.array([0.0] * 10 + [1.0, -1.0, 1.0, -1.0])
+
+    assert mpp._null_spread(readings) == pytest.approx(math.sqrt(4.0 / 14.0))
+    assert mpp._null_spread(numpy.zeros(8)) == 0.0
+
+
 def test_no_comb_leaves_the_pedestal_smooth(monkeypatch):
     """Noise read at whole-m/z shifts is no comb: its two halves disagree, so the
     pedestal is the smooth one, exactly as without the template."""

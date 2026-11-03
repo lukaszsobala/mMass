@@ -2881,10 +2881,11 @@ class _GroupPedestal:
     data (which the area uncertainty needs: the pedestal is read from the same
     noisy points as the envelopes)."""
 
-    def __init__(self, level, basis, projection, floored, comb=None):
+    def __init__(self, level, basis, projection, floored, comb=None, floor=None):
         self.level = level  # pedestal at every window point
         self.floored = floored  # points that sat on a floor (see _fit_group_pedestal)
         self.comb = comb  # the comb template it holds, if any (see _comb_template)
+        self.floor = floor  # the floor it stands on (None: a fitted pedestal)
         self.basis = basis  # n x nb: pedestal = basis @ coefficients
         self._projection = projection  # nb x n: coefficients = projection @ y
 
@@ -3102,7 +3103,8 @@ def _fit_group_pedestal(x, y, columns, comb=None):
         projection[:, keep] = inverse[nColumns:, :] @ design[keep].T
         level = basis @ (projection @ y)
 
-    return _GroupPedestal(level, basis, projection, floored, comb)
+    floor = floorValue if basis.shape[1] == 0 else None
+    return _GroupPedestal(level, basis, projection, floored, comb, floor)
 
 
 def _roughness_sigma(residual, mask):
@@ -3243,10 +3245,16 @@ def _null_spread(readings):
     """One-sigma error of an area from its null readings: their RMS, so a
     heavy-tailed background (chemical-noise bumps of random height) counts in
     full, but each reading capped at NULL_TRIM robust sigmas (an unlabelled real
-    peak among them is not background)."""
+    peak among them is not background). Where most readings are exactly zero
+    (empty stretches of a floor) the cap is set by the others."""
 
     magnitudes = numpy.abs(readings)
     robust = 1.4826 * float(numpy.median(magnitudes))
+    if robust <= 0.0:
+        nonzero = magnitudes[magnitudes > 0.0]
+        if len(nonzero) == 0:
+            return 0.0
+        robust = 1.4826 * float(numpy.median(nonzero))
     return float(numpy.sqrt(numpy.mean(numpy.clip(magnitudes, 0.0, ENVELOPE_NOISE_NULL_TRIM * robust) ** 2)))
 
 
@@ -3328,7 +3336,9 @@ def _group_area_errors(
     # read from the spectrum around, above a pedestal found as the fit finds it
     if profile is None or start is None or occupied is None or pedestal is None:
         return errors
-    floor = float(pedestal.level[0]) if pedestal.basis.shape[1] == 0 else None
+    # the floor itself, not the pedestal's first point: a comb bump there is
+    # the template's, which the readings scale above the floor again
+    floor = pedestal.floor
     for k, estimator in estimators:
         a, b = 0, n
         if spans is not None:
