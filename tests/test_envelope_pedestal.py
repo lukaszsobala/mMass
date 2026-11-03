@@ -6,6 +6,9 @@ off, and only then apportions the signal. These tests pin the contract:
 
 * a baseline left under the peaks is not counted as area, and the area does not
   depend on how -- or whether -- the profile was baseline-corrected first;
+* nor is the chemical-noise comb under an envelope (the bump at its own nominal
+  mass), whose shape the pedestal reads off the spectrum at whole-m/z shifts --
+  but only where there is a comb;
 * it holds where peaks leave no gap to read the baseline from (a crowded
   low-resolution region), and an unlabelled peak in the window does not lift it;
 * a profile whose baseline was cut to zero (smoothed, zeros between the peaks)
@@ -163,6 +166,80 @@ def test_unlabelled_peak_does_not_lift_the_pedestal():
 
 
 # ---------------------------------------------------------------------------
+# The chemical-noise comb is not area
+# ---------------------------------------------------------------------------
+
+
+def _comb(phase, fwhm=0.25, jitter=0.1, seed=21):
+    """A MALDI chemical-noise comb: a broad bump at every mass unit (`phase` past
+    the whole number), slowly fading, each a little different."""
+
+    rng = numpy.random.default_rng(seed)
+    sigma = _sigma(fwhm)
+    y = numpy.zeros_like(X)
+    for centre in numpy.arange(799.0, 1301.0) + phase:
+        height = (25.0 * math.exp(-(centre - 800.0) / 300.0) + 5.0) * (1.0 + jitter * rng.normal())
+        near = numpy.abs(X - centre) < 6.0 * sigma
+        y[near] += height * numpy.exp(-0.5 * ((X[near] - centre) / sigma) ** 2)
+    return y
+
+
+def _without_comb(monkeypatch):
+    monkeypatch.setattr(mpp, "_comb_template", lambda *_args: None)
+
+
+@pytest.mark.parametrize("phase", [0.42, 0.32, 0.92])
+def test_chemical_noise_under_an_envelope_is_not_area(phase, monkeypatch):
+    """Each species sits on the comb's bump at its own nominal mass, on that
+    bump's shoulder, or halfway between two bumps. A smooth pedestal either
+    credits the bump to the envelope or is lifted by the bumps around it: the
+    weakest area comes out 0.3 to 1.7 times the truth. The pedestal holding the
+    comb, read off the spectrum at whole m/z either way, gives back the areas."""
+
+    rng = numpy.random.default_rng(8)
+    y = CLEAN + BASELINE + _comb(phase) + rng.normal(0.0, 0.3, len(X))
+
+    areas, _errors, _details = _fit(SPECIES, X, y, FWHM)
+    assert areas == pytest.approx(TRUTH, rel=0.07)
+
+    _without_comb(monkeypatch)
+    smooth, _errors, _details = _fit(SPECIES, X, y, FWHM)
+    assert numpy.max(numpy.abs(smooth / TRUTH - 1.0)) > 0.3
+
+
+def test_comb_on_a_floor_is_not_area():
+    """Baseline cut to zero: the comb stands on the floor, and the pedestal is the
+    floor plus the comb."""
+
+    y = numpy.clip(CLEAN + _comb(0.32) + numpy.random.default_rng(8).normal(0.0, 0.3, len(X)), 0.0, None)
+
+    areas, _errors, _details = _fit(SPECIES, X, y, FWHM)
+
+    assert areas == pytest.approx(TRUTH, rel=0.07)
+
+
+def test_no_comb_leaves_the_pedestal_smooth(monkeypatch):
+    """Noise read at whole-m/z shifts is no comb: its two halves disagree, so the
+    pedestal is the smooth one, exactly as without the template."""
+
+    y = CLEAN + BASELINE + numpy.random.default_rng(8).normal(0.0, 1.0, len(X))
+    signal = numpy.column_stack((X, y))
+    window = X[(X > 849.0) & (X < 855.0)]
+    occupied = (numpy.array([849.5]), numpy.array([854.5]))
+
+    noise = mpp._comb_template(signal, window, occupied)
+    comb = mpp._comb_template(numpy.column_stack((X, y + _comb(0.32))), window, occupied)
+    assert noise is not None and not noise.significant()
+    assert comb is not None and comb.significant()
+
+    areas, errors, _details = _fit(SPECIES, X, y, FWHM)
+    _without_comb(monkeypatch)
+    smooth, smoothErrors, _details = _fit(SPECIES, X, y, FWHM)
+    assert areas == pytest.approx(smooth, rel=1e-9)
+    assert errors == pytest.approx(smoothErrors, rel=1e-9)
+
+
+# ---------------------------------------------------------------------------
 # Profiles with a floor
 # ---------------------------------------------------------------------------
 
@@ -262,11 +339,13 @@ def _uncertainty_against_error(noise, seeds):
 
 
 def test_area_uncertainty_covers_chemical_noise():
-    """Chemical noise lands under a peak as surely as beside it, and its bumps sit
-    above the pedestal, where the point noise is not read. The uncertainty is
-    therefore also read by sliding the area estimate along the spectrum, in whole
-    mass units, where no species is. Point noise alone reported a quarter of the
-    actual error here."""
+    """Chemical noise lands under a peak as surely as beside it. The pedestal
+    holds the comb's typical bump, but this one's height is random (exponential),
+    and how far the bump under a peak strays from the typical one is the error.
+    The uncertainty is therefore also read by sliding the area estimate along the
+    spectrum, in whole mass units, where no species is -- as their RMS, as the
+    heights are heavy-tailed. Point noise alone reported a quarter of the actual
+    error here."""
 
     ratio = _uncertainty_against_error(_chemical_noise, range(700, 740))
 
@@ -279,14 +358,16 @@ def test_sharp_chemical_noise_between_the_isotopes_is_not_an_error():
     pedestal and they cost the areas almost nothing. Each reading finds its
     pedestal the same way, so they do not inflate the uncertainty (read with a
     fixed linear pedestal it was several times the error; slid to every position
-    instead of whole mass units, twenty times)."""
+    instead of whole mass units, twenty times). The strongest envelope's error
+    is partly the fit's own (half of it, without any chemical noise), which no
+    noise reading can see."""
 
     def noise(rng):
         return _chemical_noise(rng, fwhm=FWHM, mean=15.0, phase=0.0)
 
     ratio = _uncertainty_against_error(noise, range(900, 940))
 
-    assert numpy.all((ratio > 0.6) & (ratio < 1.6))
+    assert numpy.all((ratio > 0.55) & (ratio < 1.6))
 
 
 def test_area_uncertainty_is_the_same_for_one_envelope_or_all():
@@ -398,6 +479,29 @@ def test_envelope_stores_its_pedestal_and_uncertainty():
         assert mpp.pedestallevel(envelope["pedestal"], mono) == pytest.approx(
             float(numpy.interp(mono, X, BASELINE)), rel=0.02
         )
+
+
+def test_stored_pedestal_follows_the_comb():
+    """A pedestal holding the comb is stored densely enough to draw it -- and to
+    measure the envelope's height above it -- as it was fitted; a smooth one
+    keeps just its ends and the isotopes."""
+
+    comb = _comb(0.32)
+    peaklist = _labelled(CLEAN + BASELINE + comb)
+    smooth = _labelled(CLEAN + BASELINE)
+    for envelope, plain, (mono, _area) in zip(
+        [p.attributes["envelope"] for p in peaklist if p.attributes.get("envelope")],
+        [p.attributes["envelope"] for p in smooth if p.attributes.get("envelope")],
+        SPECIES, strict=True,
+    ):
+        points = envelope["pedestal"]
+        assert len(plain["pedestal"]) == len(plain["isotopes"]) + 2
+        assert len(plain["isotopes"]) + 2 < len(points) <= mpp.PEDESTAL_SAMPLE_MAX_POINTS
+        # the bump under the monoisotopic peak is in the pedestal, the trough
+        # half a mass unit on is not
+        bump = mpp.pedestallevel(points, mono - 0.1) - mpp.pedestallevel(points, mono + 0.4)
+        truth = float(numpy.interp(mono - 0.1, X, comb) - numpy.interp(mono + 0.4, X, comb))
+        assert bump == pytest.approx(truth, rel=0.25)
 
 
 def test_envelope_is_drawn_on_its_pedestal():
