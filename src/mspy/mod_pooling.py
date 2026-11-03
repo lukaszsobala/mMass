@@ -2151,6 +2151,7 @@ def _labelguided(signal, peaks, baseline, guide, snThreshold, label, intensity):
         pedestal = mod_peakpicking._fit_group_pedestal(
             xs, ys,
             mod_peakpicking._pedestal_columns(xs, [(c["isotopes"], c["sigma"]) for c in members]),
+            comb=mod_peakpicking._comb_template(signal, xs, occupied),
         )
         if pedestal is not None:
             ys = ys - pedestal.level

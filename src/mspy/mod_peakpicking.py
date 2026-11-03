@@ -2778,9 +2778,102 @@ ENVELOPE_NOISE_MAX_LAG = 64
 # Chemical noise repeats every 1.000 m/z (not every isotope spacing), so each
 # reading lands where the envelope itself sits in it: on a bump's flank, between
 # sharp peaks. Needs at least MIN_READINGS such places, or the point noise stands.
+# The error is the readings' RMS -- bumps of random height are heavy-tailed, and a
+# robust spread of them was a third too small -- with each reading capped at TRIM
+# robust sigmas, so an unlabelled real peak among them does not count as noise.
 ENVELOPE_NOISE_NULL_PITCH = 1.0
 ENVELOPE_NOISE_NULL_REACH = 20.0
 ENVELOPE_NOISE_NULL_MIN_READINGS = 8
+ENVELOPE_NOISE_NULL_TRIM = 5.0
+
+# The same comb also sits UNDER every envelope: a glycan, say, on the shoulder of
+# the chemical-noise bump at its own nominal mass. A smooth pedestal runs through
+# the troughs between the bumps and counts the bump's share as area (on 2-AA
+# glycan MALDI spectra +5 to +20 %, and as much too little between bumps). So the
+# pedestal also holds a COMB TEMPLATE: the profile itself read at whole PITCH
+# shifts, up to REACH either way, wherever no known species is -- per point, the
+# median of those readings -- which is the comb's own shape at the envelope's
+# place in it. The fit scales it with the smooth part. It is only used where it
+# is really there: the templates read from every other shift and from the shifts
+# between must agree -- their shapes, the trend taken off, correlate by at least
+# MIN_CONSISTENCY. A comb repeats in both; noise does not, whatever its
+# distribution (clipped at a floor, say, where a template of it would read the
+# noise left above the floor as baseline), and without a comb the template would
+# only add noise to the pedestal. Needs MIN_SHIFTS readings at a point.
+ENVELOPE_COMB_MIN_SHIFTS = 4
+ENVELOPE_COMB_MIN_CONSISTENCY = 0.5
+
+
+class _CombTemplate:
+    """The chemical-noise comb under a window (see above): its level at every
+    point, and how well two independent halves of the readings agree on it."""
+
+    def __init__(self, level, consistency):
+        self.level = level
+        self.consistency = consistency
+
+    def significant(self):
+        return self.consistency >= ENVELOPE_COMB_MIN_CONSISTENCY
+
+
+def _detrended(x, values):
+    """`values` with their least-squares line in `x` taken off."""
+
+    design = numpy.column_stack((numpy.ones(len(x)), x - float(numpy.mean(x))))
+    return values - design @ numpy.linalg.lstsq(design, values, rcond=None)[0]
+
+
+def _comb_template(profile, x, occupied):
+    """The comb template over window `x` (see above), or None.
+
+    profile - the (m/z, intensity) spectrum, sorted by m/z
+    occupied ((lo, hi) arrays) - the m/z intervals of every known species
+    """
+
+    if profile is None or occupied is None or len(x) < 4:
+        return None
+    xs = profile[:, 0]
+    ys = numpy.asarray(profile[:, 1], dtype=float)
+    los, his = occupied
+    reach = int(round(ENVELOPE_NOISE_NULL_REACH / ENVELOPE_NOISE_NULL_PITCH))
+    rows = []
+    for step in range(-reach, reach + 1):
+        if step == 0:
+            continue
+        shifted = x + step * ENVELOPE_NOISE_NULL_PITCH
+        if shifted[0] < xs[0] or shifted[-1] > xs[-1]:
+            continue
+        values = numpy.interp(shifted, xs, ys)
+        near = (los < shifted[-1]) & (his > shifted[0])
+        for lo, hi in zip(los[near], his[near], strict=True):
+            values[(shifted >= lo) & (shifted <= hi)] = numpy.nan
+        rows.append(values)
+    if len(rows) < ENVELOPE_COMB_MIN_SHIFTS:
+        return None
+    readings = numpy.array(rows)
+    valid = ~numpy.isnan(readings)
+    good = numpy.count_nonzero(valid, axis=0) >= ENVELOPE_COMB_MIN_SHIFTS
+    if numpy.count_nonzero(good) < 0.9 * len(x):
+        return None
+    level = numpy.zeros(len(x), dtype=float)
+    level[good] = numpy.nanmedian(readings[:, good], axis=0)
+    if not numpy.all(good):
+        level[~good] = numpy.interp(x[~good], x[good], level[good])
+
+    # the two halves: every other shift, and the shifts between
+    halves = []
+    for half in (readings[0::2], readings[1::2]):
+        both = good & numpy.any(~numpy.isnan(half), axis=0)
+        halves.append((both, half))
+    shared = halves[0][0] & halves[1][0]
+    consistency = 0.0
+    if numpy.count_nonzero(shared) >= 4:
+        first = _detrended(x[shared], numpy.nanmedian(halves[0][1][:, shared], axis=0))
+        second = _detrended(x[shared], numpy.nanmedian(halves[1][1][:, shared], axis=0))
+        norm = math.sqrt(float(first @ first) * float(second @ second))
+        if norm > 0.0:
+            consistency = float(first @ second) / norm
+    return _CombTemplate(level, consistency)
 
 
 class _GroupPedestal:
@@ -2788,9 +2881,11 @@ class _GroupPedestal:
     data (which the area uncertainty needs: the pedestal is read from the same
     noisy points as the envelopes)."""
 
-    def __init__(self, level, basis, projection, floored):
+    def __init__(self, level, basis, projection, floored, comb=None, floor=None):
         self.level = level  # pedestal at every window point
         self.floored = floored  # points that sat on a floor (see _fit_group_pedestal)
+        self.comb = comb  # the comb template it holds, if any (see _comb_template)
+        self.floor = floor  # the floor it stands on (None: a fitted pedestal)
         self.basis = basis  # n x nb: pedestal = basis @ coefficients
         self._projection = projection  # nb x n: coefficients = projection @ y
 
@@ -2909,7 +3004,7 @@ def _robust_sigma(values, floored=None):
     return 1.4826 * float(numpy.median(magnitudes))
 
 
-def _fit_group_pedestal(x, y, columns):
+def _fit_group_pedestal(x, y, columns, comb=None):
     """Fit the local pedestal under one overlap group (see above).
 
     Least squares of the envelope `columns` plus a smooth pedestal basis, iterated
@@ -2918,6 +3013,9 @@ def _fit_group_pedestal(x, y, columns):
     peak is a pattern that is not quite averagine -- neither says anything about
     the baseline. Returns a `_GroupPedestal`, or None when the window holds too few
     points to tell the pedestal from the envelopes.
+
+    comb (`_CombTemplate` or None) - the chemical-noise comb under the window; the
+        pedestal holds it, scaled, wherever it is significant (see above)
     """
 
     n = len(x)
@@ -2939,11 +3037,35 @@ def _fit_group_pedestal(x, y, columns):
         # pedestal. Fitting one instead would read the mean of the noise left
         # above the floor (its lower half is gone) as baseline and shave that
         # much off every weak envelope.
+        floorLevel = floorValue
         level = numpy.full(n, floorValue, dtype=float)
         basis = numpy.zeros((n, 0), dtype=float)
         projection = numpy.zeros((0, n), dtype=float)
+        if comb is not None and comb.significant():
+            # the comb standing on the floor, scaled with the envelopes
+            bumps = numpy.clip(comb.level - floorValue, 0.0, None)
+            design = numpy.column_stack(list(columns) + [bumps])
+            keep = ~floored | (bumps > 0.0)
+            solver = numpy.linalg.pinv(design[keep])
+            scale = float(solver[-1] @ (y - floorValue)[keep])
+            if scale > 0.0:
+                level = level + scale * bumps
+                # the scale is read from the same noisy points as the envelopes
+                # (see _GroupPedestal.propagate); clamped at zero it is not
+                basis = bumps[:, None]
+                projection = numpy.zeros((1, n), dtype=float)
+                projection[0, keep] = solver[-1]
+        else:
+            comb = None
     else:
+        floorLevel = None
         basis = _pedestal_basis(x)
+        if comb is not None and comb.significant():
+            # only what the smooth part cannot follow is the comb's own
+            smooth = basis @ numpy.linalg.lstsq(basis, comb.level, rcond=None)[0]
+            basis = numpy.column_stack((basis, comb.level - smooth))
+        else:
+            comb = None
         design = numpy.column_stack(list(columns) + [basis]) if columns else basis
         parameters = design.shape[1]
         if n < parameters + 3:
@@ -2990,7 +3112,7 @@ def _fit_group_pedestal(x, y, columns):
         projection[:, keep] = inverse[nColumns:, :] @ design[keep].T
         level = basis @ (projection @ y)
 
-    return _GroupPedestal(level, basis, projection, floored)
+    return _GroupPedestal(level, basis, projection, floored, comb, floorLevel)
 
 
 def _roughness_sigma(residual, mask):
@@ -3050,7 +3172,7 @@ def _noise_correlation(residual, mask):
     return correlation
 
 
-def _null_readings(estimator, profile, start, occupied, floor, offPeak, threshold):
+def _null_readings(estimator, profile, start, occupied, floor, offPeak, threshold, template=None):
     """What a linear area estimator reads where there is nothing to measure.
 
     estimator (n) - the estimator of the signal above the pedestal, over an
@@ -3060,13 +3182,15 @@ def _null_readings(estimator, profile, start, occupied, floor, offPeak, threshol
     floor (float or None) - the pedestal, when it is a floor
     offPeak (bool, n) - span points no envelope reaches
     threshold (float) - how far above the pedestal a point is not baseline
+    template (n or None) - the comb template the envelope's pedestal holds
 
     The estimator is slid along the spectrum in whole steps (see
     ENVELOPE_NOISE_NULL_PITCH) to every place whose span holds no species, and
     reads the signal above a pedestal found there as the fit finds its own: a
-    line through the off-peak points, leaving out those standing above it (an
-    unlabelled or a chemical-noise peak). Returns the readings, or None when
-    there are too few.
+    line (plus the scaled comb template, if the fit used one) through the
+    off-peak points, leaving out those standing above it (an unlabelled or a
+    chemical-noise peak). The comb repeats every PITCH, so the template is the
+    same at every reading. Returns the readings, or None when there are too few.
     """
 
     n = len(estimator)
@@ -3100,13 +3224,20 @@ def _null_readings(estimator, profile, start, occupied, floor, offPeak, threshol
 
     ys = numpy.asarray(profile[:, 1], dtype=float)
     basis = numpy.column_stack((numpy.ones(n), numpy.linspace(-1.0, 1.0, n)))
+    if template is not None:
+        basis = numpy.column_stack((basis, template))
     if numpy.count_nonzero(offPeak) < 3:
         offPeak = numpy.ones(n, dtype=bool)
     readings = numpy.empty(len(starts), dtype=float)
     for i, s in enumerate(starts):
         window = ys[s:s + n]
         level = floor
-        if level is None:
+        if level is not None and template is not None:
+            bumps = numpy.clip(template - floor, 0.0, None)
+            energy = float(bumps @ bumps)
+            scale = float(bumps @ (window - floor)) / energy if energy > 0.0 else 0.0
+            level = floor + max(0.0, scale) * bumps
+        elif level is None:
             keep = offPeak
             for _iteration in range(ENVELOPE_PEDESTAL_MAX_ITERATIONS):
                 level = basis @ numpy.linalg.lstsq(basis[keep], window[keep], rcond=None)[0]
@@ -3116,6 +3247,23 @@ def _null_readings(estimator, profile, start, occupied, floor, offPeak, threshol
                 keep = nextKeep
         readings[i] = float((window - level) @ estimator)
     return readings
+
+
+def _null_spread(readings):
+    """One-sigma error of an area from its null readings: their RMS, so a
+    heavy-tailed background (chemical-noise bumps of random height) counts in
+    full, but each reading capped at NULL_TRIM robust sigmas (an unlabelled real
+    peak among them is not background). Where most readings are exactly zero
+    (empty stretches of a floor) the cap is set by the others."""
+
+    magnitudes = numpy.abs(readings)
+    robust = 1.4826 * float(numpy.median(magnitudes))
+    if robust <= 0.0:
+        nonzero = magnitudes[magnitudes > 0.0]
+        if len(nonzero) == 0:
+            return 0.0
+        robust = 1.4826 * float(numpy.median(nonzero))
+    return float(numpy.sqrt(numpy.mean(numpy.clip(magnitudes, 0.0, ENVELOPE_NOISE_NULL_TRIM * robust) ** 2)))
 
 
 def _group_area_errors(
@@ -3137,7 +3285,7 @@ def _group_area_errors(
     Given the `profile` the window `x` starts at index `start` of, and the m/z
     intervals `occupied` by every known species, the same estimator is also read
     where there is no species (`_null_readings`), and the uncertainty is the
-    larger of the two: the typical (median) size of those readings catches
+    larger of the two: the size of those readings (`_null_spread`) catches
     background structure the point noise cannot see. Each envelope is read over
     its own m/z span (`spans`, default the whole window), so the reading does not
     depend on which neighbours happen to share its fit.
@@ -3196,7 +3344,9 @@ def _group_area_errors(
     # read from the spectrum around, above a pedestal found as the fit finds it
     if profile is None or start is None or occupied is None or pedestal is None:
         return errors
-    floor = float(pedestal.level[0]) if pedestal.basis.shape[1] == 0 else None
+    # the floor itself, not the pedestal's first point: a comb bump there is
+    # the template's, which the readings scale above the floor again
+    floor = pedestal.floor
     for k, estimator in estimators:
         a, b = 0, n
         if spans is not None:
@@ -3205,9 +3355,10 @@ def _group_area_errors(
         readings = _null_readings(
             estimator[a:b], profile, start + a, occupied, floor, offPeak[a:b],
             ENVELOPE_PEDESTAL_OUTLIER_SIGMAS * noise,
+            template=None if pedestal.comb is None else pedestal.comb.level[a:b],
         )
         if readings is not None:
-            errors[k] = max(errors[k], 1.4826 * float(numpy.median(numpy.abs(readings))))
+            errors[k] = max(errors[k], _null_spread(readings))
     return errors
 
 
@@ -3241,6 +3392,12 @@ def _rebase_on_pedestal(peak, pedestal):
     peak.setsn(sn)
 
 
+# a stored pedestal follows the fitted one to this share of its range, with at
+# most this many points per envelope
+PEDESTAL_SAMPLE_TOLERANCE = 0.05
+PEDESTAL_SAMPLE_MAX_POINTS = 200
+
+
 def _sample_pedestal(x, level, isotopes, fwhm):
     """The fitted pedestal under one envelope, as (mz, level) points spanning the
     range the envelope is drawn over (see `envelopeprofile`), so the display can
@@ -3252,7 +3409,29 @@ def _sample_pedestal(x, level, isotopes, fwhm):
     reach = 5.0 * float(fwhm) if fwhm and fwhm > 0.0 else 0.0
     positions = [mzs[0] - reach] + mzs + [mzs[-1] + reach]
     levels = numpy.interp(positions, x, level)
+
+    # A pedestal holding the chemical-noise comb is not a straight line between
+    # the isotopes: points are added where it bends away from the line drawn
+    # through those already kept (by more than PEDESTAL_SAMPLE_TOLERANCE of its
+    # own range), until the stored points follow it.
+    inside = (x > positions[0]) & (x < positions[-1])
+    xi = x[inside]
+    yi = level[inside]
+    if len(xi) > 2:
+        tolerance = PEDESTAL_SAMPLE_TOLERANCE * float(numpy.ptp(yi))
+        keptX = list(positions)
+        keptY = [float(value) for value in levels]
+        for _iteration in range(PEDESTAL_SAMPLE_MAX_POINTS):
+            deviation = numpy.abs(yi - numpy.interp(xi, keptX, keptY))
+            worst = int(numpy.argmax(deviation))
+            if deviation[worst] <= tolerance or len(keptX) >= PEDESTAL_SAMPLE_MAX_POINTS:
+                break
+            where = int(numpy.searchsorted(keptX, xi[worst]))
+            keptX.insert(where, float(xi[worst]))
+            keptY.insert(where, float(yi[worst]))
+        positions, levels = keptX, keptY
     return [(float(mz), float(value)) for mz, value in zip(positions, levels, strict=True)]
+
 
 
 # ----
@@ -3418,12 +3597,14 @@ def _fit_envelope_areas_detailed(
         # NOT clipped at zero: below the pedestal is noise, and dropping its
         # negative half would add a positive bias to every weak envelope.
         members = []
-        for fwhm, sigma, isotopes, storedShape, _poisson in groupMetas:
+        for _fwhm, sigma, isotopes, storedShape, _poisson in groupMetas:
             pattern = isotopes
             if storedShape is not None and not _is_regular_isotope_grid(storedShape):
                 pattern = storedShape
             members.append((pattern, sigma))
-        pedestal = _fit_group_pedestal(x, y, _pedestal_columns(x, members))
+        pedestal = _fit_group_pedestal(
+            x, y, _pedestal_columns(x, members), comb=_comb_template(signal, x, occupied)
+        )
         if pedestal is not None:
             y = y - pedestal.level
 
