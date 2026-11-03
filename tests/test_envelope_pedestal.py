@@ -241,6 +241,32 @@ def test_comb_on_a_floor_reads_its_uncertainty_above_the_floor(monkeypatch):
     assert numpy.all(numpy.isfinite(errors) & (errors > 0.0))
 
 
+def test_comb_on_a_floor_carries_its_scale_uncertainty():
+    """The comb's scale on a floor is fitted from the same noisy points as the
+    envelopes, so the area uncertainty propagates it; with no comb the floor
+    pedestal has nothing fitted to propagate."""
+
+    window = (X > 849.0) & (X < 855.0)
+    x = X[window]
+    occupied = (numpy.array([849.5]), numpy.array([854.5]))
+    noise = numpy.random.default_rng(8).normal(0.0, 0.3, len(X))
+    columns = mpp._pedestal_columns(x, [(_pattern(SPECIES[0][0]), _sigma(FWHM))])
+
+    def pedestal(y):
+        comb = mpp._comb_template(numpy.column_stack((X, y)), x, occupied)
+        return mpp._fit_group_pedestal(x, y[window], columns, comb=comb)
+
+    # a bump under the species, where the area estimator reads it
+    withComb = pedestal(numpy.clip(CLEAN + _comb(0.32, fwhm=0.15) + noise - 1.0, 0.0, None))
+    plain = pedestal(numpy.clip(CLEAN + noise - 1.0, 0.0, None))
+
+    weights = columns[0] / float(columns[0] @ columns[0])
+    assert withComb.floor == 0.0 and withComb.basis.shape[1] == 1
+    assert not numpy.allclose(withComb.propagate(weights), weights)
+    assert plain.floor == 0.0 and plain.basis.shape[1] == 0
+    assert plain.propagate(weights) == pytest.approx(weights)
+
+
 def test_null_spread_of_mostly_empty_readings():
     """More than half the readings exactly zero (empty floor) must not zero the
     spread of the rest."""

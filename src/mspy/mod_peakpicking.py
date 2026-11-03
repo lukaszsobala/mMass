@@ -3037,6 +3037,7 @@ def _fit_group_pedestal(x, y, columns, comb=None):
         # pedestal. Fitting one instead would read the mean of the noise left
         # above the floor (its lower half is gone) as baseline and shave that
         # much off every weak envelope.
+        floorLevel = floorValue
         level = numpy.full(n, floorValue, dtype=float)
         basis = numpy.zeros((n, 0), dtype=float)
         projection = numpy.zeros((0, n), dtype=float)
@@ -3045,11 +3046,19 @@ def _fit_group_pedestal(x, y, columns, comb=None):
             bumps = numpy.clip(comb.level - floorValue, 0.0, None)
             design = numpy.column_stack(list(columns) + [bumps])
             keep = ~floored | (bumps > 0.0)
-            coefficients = numpy.linalg.lstsq(design[keep], (y - floorValue)[keep], rcond=None)[0]
-            level = level + max(0.0, float(coefficients[-1])) * bumps
+            solver = numpy.linalg.pinv(design[keep])
+            scale = float(solver[-1] @ (y - floorValue)[keep])
+            if scale > 0.0:
+                level = level + scale * bumps
+                # the scale is read from the same noisy points as the envelopes
+                # (see _GroupPedestal.propagate); clamped at zero it is not
+                basis = bumps[:, None]
+                projection = numpy.zeros((1, n), dtype=float)
+                projection[0, keep] = solver[-1]
         else:
             comb = None
     else:
+        floorLevel = None
         basis = _pedestal_basis(x)
         if comb is not None and comb.significant():
             # only what the smooth part cannot follow is the comb's own
@@ -3103,8 +3112,7 @@ def _fit_group_pedestal(x, y, columns, comb=None):
         projection[:, keep] = inverse[nColumns:, :] @ design[keep].T
         level = basis @ (projection @ y)
 
-    floor = floorValue if basis.shape[1] == 0 else None
-    return _GroupPedestal(level, basis, projection, floored, comb, floor)
+    return _GroupPedestal(level, basis, projection, floored, comb, floorLevel)
 
 
 def _roughness_sigma(residual, mask):
