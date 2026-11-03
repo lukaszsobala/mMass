@@ -7,15 +7,31 @@ on:
   workflow_dispatch:
   release:
     types: [published]
-  # the packages carry src/ frozen with the dependencies in pyproject.toml, so
-  # changes there can break them as much as changes to the packaging can
+  # A pull request builds the packages when it changes how they are made: the
+  # packaging, these workflows, or the dependencies frozen into them.
   pull_request:
+    paths:
+      - "packaging/linux/**"
+      - "packaging/wxpython-wheel.env"
+      - ".github/workflows/linux-*.yml"
+      - "pyproject.toml"
+  # The packages also carry src/ frozen, and a code change can break only the
+  # installed app (a config directory a new user lacks, say). Building on every
+  # push to a code PR caught nothing that way, so that is checked once per
+  # merge instead, still well before a release.
+  push:
+    branches: [main]
     paths:
       - "packaging/linux/**"
       - "packaging/wxpython-wheel.env"
       - ".github/workflows/linux-*.yml"
       - "src/**"
       - "pyproject.toml"
+
+# a newer push to the same pull request supersedes a build still running
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: write
