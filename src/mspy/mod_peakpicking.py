@@ -2799,9 +2799,28 @@ ENVELOPE_NOISE_NULL_TRIM = 5.0
 # MIN_CONSISTENCY. A comb repeats in both; noise does not, whatever its
 # distribution (clipped at a floor, say, where a template of it would read the
 # noise left above the floor as baseline), and without a comb the template would
-# only add noise to the pedestal. Needs MIN_SHIFTS readings at a point.
+# only add noise to the pedestal. Needs MIN_SHIFTS readings at a point. Near a
+# spectrum edge the shifts cut off on one side are taken further out on the
+# other (see _whole_shifts), as they are for the null readings above.
 ENVELOPE_COMB_MIN_SHIFTS = 4
 ENVELOPE_COMB_MIN_CONSISTENCY = 0.5
+
+
+def _whole_shifts(first, last, low, high, nearest, farthest):
+    """Whole steps k, nearest first, that slide the span [first, last] by
+    k * ENVELOPE_NOISE_NULL_PITCH and keep it inside [low, high] -- as many as
+    nearest <= |k| <= farthest gives. Where a spectrum edge cuts one side short
+    (a spectrum cropped just below its first species, say), the missing steps are
+    taken further out on the other side, so a window there gets as many readings
+    as anywhere else; away from the edges this is exactly +-nearest..farthest."""
+
+    pitch = ENVELOPE_NOISE_NULL_PITCH
+    count = 2 * max(0, farthest - nearest + 1)
+    left = int(math.floor((first - low) / pitch + 1e-9))
+    right = int(math.floor((high - last) / pitch + 1e-9))
+    steps = [k for k in range(-left, right + 1) if abs(k) >= nearest]
+    steps.sort(key=lambda k: (abs(k), k))
+    return sorted(steps[:count])
 
 
 class _CombTemplate:
@@ -2837,12 +2856,8 @@ def _comb_template(profile, x, occupied):
     los, his = occupied
     reach = int(round(ENVELOPE_NOISE_NULL_REACH / ENVELOPE_NOISE_NULL_PITCH))
     rows = []
-    for step in range(-reach, reach + 1):
-        if step == 0:
-            continue
+    for step in _whole_shifts(float(x[0]), float(x[-1]), float(xs[0]), float(xs[-1]), 1, reach):
         shifted = x + step * ENVELOPE_NOISE_NULL_PITCH
-        if shifted[0] < xs[0] or shifted[-1] > xs[-1]:
-            continue
         values = numpy.interp(shifted, xs, ys)
         near = (los < shifted[-1]) & (his > shifted[0])
         for lo, hi in zip(los[near], his[near], strict=True):
@@ -3202,8 +3217,10 @@ def _null_readings(estimator, profile, start, occupied, floor, offPeak, threshol
     first = float(xs[start])
     width = float(xs[start + n - 1]) - first
     steps = int(math.ceil((width + ENVELOPE_NOISE_NULL_REACH) / ENVELOPE_NOISE_NULL_PITCH))
-    shifts = numpy.arange(-steps, steps + 1, dtype=float) * ENVELOPE_NOISE_NULL_PITCH
-    shifts = shifts[numpy.abs(shifts) > width]
+    nearest = int(math.floor(width / ENVELOPE_NOISE_NULL_PITCH)) + 1
+    shifts = numpy.array(
+        _whole_shifts(first, first + width, float(xs[0]), float(xs[-1]), nearest, steps), dtype=float
+    ) * ENVELOPE_NOISE_NULL_PITCH
     starts = numpy.searchsorted(xs, first + shifts)
     starts = starts[(first + shifts >= xs[0]) & (starts + n <= total)]
     if len(starts) < ENVELOPE_NOISE_NULL_MIN_READINGS:
