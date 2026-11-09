@@ -16,12 +16,15 @@
 # -------------------------------------------------------------------------
 
 # load libs
+import threading
+
 import wx
 
 # load modules
 from .ids import (
     ID_peaklistAnnotate,
     ID_peaklistConvertAllToEnvelopes,
+    ID_peaklistConvertAllToEnvelopesAllDocuments,
     ID_peaklistConvertToEnvelopes,
     ID_peaklistSendToMassToFormula,
     ID_viewPeaklistColumnAi,
@@ -672,6 +675,11 @@ class panelPeaklist(wx.Panel):
             "Convert All to Envelopes\tCtrl+Shift+A",
             "",
         )
+        menu.Append(
+            ID_peaklistConvertAllToEnvelopesAllDocuments,
+            "Convert All to Envelopes in All Documents",
+            "",
+        )
 
         # bind events
         self.Bind(wx.EVT_MENU, self.onAnnotate, id=ID_peaklistAnnotate)
@@ -687,6 +695,11 @@ class panelPeaklist(wx.Panel):
             wx.EVT_MENU,
             self.convertAllPeaksToEnvelopes,
             id=ID_peaklistConvertAllToEnvelopes,
+        )
+        self.Bind(
+            wx.EVT_MENU,
+            self.convertAllPeaksToEnvelopesInAllDocuments,
+            id=ID_peaklistConvertAllToEnvelopesAllDocuments,
         )
 
         # show menu
@@ -1913,6 +1926,61 @@ class panelPeaklist(wx.Panel):
         self.currentDocument.backup(("spectrum"))
         spectrum.peaklist = result
         self.parent.onDocumentChanged(items=("spectrum"))
+
+    # ----
+
+    def convertAllPeaksToEnvelopesInAllDocuments(self, evt=None):
+        """"Convert All to Envelopes" in every open document, each one undoable
+        on its own."""
+
+        documents = self.parent.documents
+        jobs = []
+        for docIndex, document in enumerate(documents):
+            peaks = list(document.spectrum.peaklist)
+            if peaks:
+                params = self._envelopeParams(seedCharge=self._getConvertEnvelopeCharge(peaks))
+                jobs.append((docIndex, document, [peak.mz for peak in peaks], params))
+        if not jobs:
+            wx.Bell()
+            return
+
+        # fit in a worker thread while the gauge pulses; the documents are only
+        # changed afterwards, here
+        results = {}
+        progress = {"done": 0}
+
+        def run():
+            for docIndex, document, mzs, params in jobs:
+                spectrum = document.spectrum
+                result = mspy.recalculate_neighborhood_envelopes(
+                    spectrum.peaklist, spectrum.profile, mzs, params, selectedOnly=True
+                )
+                if result is not spectrum.peaklist:
+                    results[docIndex] = result
+                progress["done"] += 1
+
+        gauge = mwx.gaugePanel(self.parent, "Converting to envelopes...")
+        gauge.show()
+        worker = threading.Thread(target=run)
+        worker.start()
+        while worker.is_alive():
+            gauge.setLabel(
+                "Converting to envelopes... (%d of %d documents)"
+                % (min(progress["done"] + 1, len(jobs)), len(jobs))
+            )
+            gauge.pulse()
+        gauge.close()
+
+        changed = []
+        for docIndex, document, _mzs, _params in jobs:
+            if docIndex in results and docIndex < len(documents) and documents[docIndex] is document:
+                document.backup(("spectrum"))
+                document.spectrum.peaklist = results[docIndex]
+                changed.append(docIndex)
+        if not changed:
+            wx.Bell()
+            return
+        self.parent.onDocumentChangedMulti(indexes=changed, items=("spectrum",))
 
     # ----
 

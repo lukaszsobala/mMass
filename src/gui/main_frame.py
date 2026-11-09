@@ -3893,6 +3893,16 @@ class mainFrame(wx.Frame):
 
     # ----
 
+    def onConvertAllToEnvelopesInAllDocuments(self, evt=None):
+        """"Convert All to Envelopes" in every open document."""
+
+        if not self.documents:
+            wx.Bell()
+            return
+        self.peaklistPanel.convertAllPeaksToEnvelopesInAllDocuments()
+
+    # ----
+
     def onToolsProcessing(self, evt=None):
         """Show processing tools panel."""
 

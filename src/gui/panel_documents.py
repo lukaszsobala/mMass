@@ -307,6 +307,14 @@ class panelDocuments(wx.Panel):
             menu.Append(ID_documentRulersDelete, "Delete Difference Labels")
             menu.Enable(ID_documentRulersDelete, bool(itemData.rulers))
             menu.AppendSeparator()
+            menu.Append(
+                ID_documentConvertAllToEnvelopes, "Convert All to Envelopes in All Documents"
+            )
+            menu.Enable(
+                ID_documentConvertAllToEnvelopes,
+                any(document.spectrum.haspeaks() for document in self.documents),
+            )
+            menu.AppendSeparator()
             menu.Append(ID_documentColour, "Change Colour...")
             style = wx.Menu()
             style.Append(ID_documentStyleSolid, "Solid", "", wx.ITEM_RADIO)
@@ -461,6 +469,11 @@ class panelDocuments(wx.Panel):
         self.Bind(wx.EVT_MENU, self.onDocumentMoveDown, id=ID_documentMoveDown)
         self.Bind(wx.EVT_MENU, self.parent.onDocumentClose, id=ID_documentClose)
         self.Bind(wx.EVT_MENU, self.parent.onDocumentCloseAll, id=ID_documentCloseAll)
+        self.Bind(
+            wx.EVT_MENU,
+            self.parent.onConvertAllToEnvelopesInAllDocuments,
+            id=ID_documentConvertAllToEnvelopes,
+        )
 
         self.Bind(wx.EVT_MENU, self.onNotationEdit, id=ID_documentAnnotationEdit)
         self.Bind(
