@@ -30,6 +30,7 @@ from . import config
 from . import doc
 from . import differences
 from . import processing
+from . import undo
 import mspy
 import mspy.plot
 
@@ -1647,7 +1648,7 @@ class panelSpectrum(wx.Panel):
                 peak.setisotope(0)
 
             # update document
-            self.documents[self.currentDocument].backup(("spectrum"))
+            self.documents[self.currentDocument].backup(("spectrum"), label="Label Peak")
             self.documents[self.currentDocument].spectrum.peaklist.append(peak)
 
             self.parent.onDocumentChanged(items=("spectrum"))
@@ -1698,7 +1699,7 @@ class panelSpectrum(wx.Panel):
                 peak.setisotope(0)
 
             # update document
-            docData.backup(("spectrum"))
+            docData.backup(("spectrum"), label="Label Peaks")
             docData.spectrum.peaklist.append(peak)
             changed.append(docIndex)
 
@@ -1743,7 +1744,7 @@ class panelSpectrum(wx.Panel):
                 peak.setisotope(0)
 
             # update document
-            self.documents[self.currentDocument].backup(("spectrum"))
+            self.documents[self.currentDocument].backup(("spectrum"), label="Label Point")
             self.documents[self.currentDocument].spectrum.peaklist.append(peak)
 
             self.parent.onDocumentChanged(items=("spectrum"))
@@ -1787,7 +1788,7 @@ class panelSpectrum(wx.Panel):
             return
 
         # backup document
-        self.documents[self.currentDocument].backup(("spectrum"))
+        self.documents[self.currentDocument].backup(("spectrum"), label="Label Envelope")
 
         # get polarity
         polarity = 1
@@ -1904,7 +1905,7 @@ class panelSpectrum(wx.Panel):
         if not items:
             return
 
-        docData.backup(items)
+        docData.backup(items, label="Delete Labels")
         if indexes:
             docData.spectrum.peaklist.delete(indexes)
             self.parent.peaklistPanel._recalculateNeighborhoodEnvelopes(deleted_mzs)
@@ -2016,7 +2017,7 @@ class panelSpectrum(wx.Panel):
         if height is not None:
             ruler.height = float(height)
 
-        docData.backup(("rulers",))
+        docData.backup(("rulers",), label="Add Difference Label")
         docData.rulers.append(ruler)
         self.parent.onDocumentChanged(items=("rulers",))
 
@@ -2169,7 +2170,7 @@ class panelSpectrum(wx.Panel):
         else:
             return False
 
-        docData.backup(("rulers",))
+        docData.backup(("rulers",), label="Add Difference Label Series")
         if replace is not None and 0 <= replace < len(docData.rulers):
             docData.rulers[replace : replace + 1] = rulers
         else:
@@ -2287,7 +2288,7 @@ class panelSpectrum(wx.Panel):
         if not 0 <= index < len(docData.rulers):
             return
 
-        docData.backup(("rulers",))
+        docData.backup(("rulers",), label="Move Difference Label")
         docData.rulers[index].height = None if height is None else float(height)
         self.parent.onDocumentChanged(items=("rulers",))
 
@@ -2314,7 +2315,7 @@ class panelSpectrum(wx.Panel):
         ruler = self._makeRuler(start, end, scanID=old.scanID)
         ruler.height = old.height if height is None else float(height)
         ruler.note = old.note
-        docData.backup(("rulers",))
+        docData.backup(("rulers",), label="Move Difference Label")
         docData.rulers[index] = ruler
         self.parent.onDocumentChanged(items=("rulers",))
 
@@ -2343,7 +2344,7 @@ class panelSpectrum(wx.Panel):
         if not 0 <= index < len(docData.rulers):
             return
 
-        docData.backup(("rulers",))
+        docData.backup(("rulers",), label="Delete Difference Label")
         del docData.rulers[index]
         self.parent.onDocumentChanged(items=("rulers",))
 
@@ -2381,7 +2382,7 @@ class panelSpectrum(wx.Panel):
         if not 0 <= index < len(docData.rulers):
             return
 
-        docData.backup(("rulers",))
+        docData.backup(("rulers",), label="Edit Difference Label")
         for name, value in values.items():
             setattr(docData.rulers[index], name, value)
         self.parent.onDocumentChanged(items=("rulers",))
@@ -2463,7 +2464,7 @@ class panelSpectrum(wx.Panel):
         mzs = (ruler.mz1, ruler.mz2)
 
         def rematch():
-            docData.backup(("rulers",))
+            docData.backup(("rulers",), label="Match Difference Label")
             ruler.picked = False
             self.rematchRuler(ruler)
             self.parent.onDocumentChanged(items=("rulers",))
@@ -2603,7 +2604,7 @@ class panelSpectrum(wx.Panel):
             return
         dlg.Destroy()
 
-        docData.backup(("rulers",))
+        docData.backup(("rulers",), label="Reset Difference Label Notes")
         for ruler in docData.rulers:
             ruler.note = None
         self.parent.onDocumentChanged(items=("rulers",))
@@ -2633,7 +2634,7 @@ class panelSpectrum(wx.Panel):
             return
 
         docData = self.documents[self.currentDocument]
-        docData.backup(("rulers",))
+        docData.backup(("rulers",), label="Match Difference Labels")
         for ruler in docData.rulers:
             self.rematchRuler(ruler)
 
@@ -3071,6 +3072,37 @@ class dlgCanvasProperties(wx.Dialog):
         self.quality_slider.SetTickFreq(10)
         self.quality_slider.Bind(wx.EVT_SCROLL, self.onChange)
 
+        # how far back undo goes, for every document
+        undoSteps_label = wx.StaticText(self, -1, "Undo steps:")
+        undoSteps_label.SetToolTip("Steps kept per spectrum.")
+        self.undoSteps_slider = wx.Slider(
+            self,
+            -1,
+            config.main["undoSteps"],
+            *undo.STEPS_RANGE,
+            size=(150, -1),
+            style=mwx.SLIDER_STYLE,
+        )
+        self.undoSteps_slider.SetTickFreq(20)
+        self.undoSteps_slider.Bind(wx.EVT_SCROLL, self.onUndoChange)
+
+        undoMemory_label = wx.StaticText(self, -1, "Undo memory (MB):")
+        undoMemory_label.SetToolTip(
+            "Memory the undo steps of all documents may take;\nthe oldest go first."
+        )
+        self.undoMemory_slider = wx.Slider(
+            self,
+            -1,
+            config.main["undoMemory"],
+            *undo.MEMORY_RANGE,
+            size=(150, -1),
+            style=mwx.SLIDER_STYLE,
+        )
+        self.undoMemory_slider.SetTickFreq(undo.MEMORY_STEP)
+        self.undoMemory_slider.SetLineSize(undo.MEMORY_STEP)
+        self.undoMemory_slider.SetPageSize(undo.MEMORY_STEP)
+        self.undoMemory_slider.Bind(wx.EVT_SCROLL, self.onUndoChange)
+
         # pack elements
         grid = wx.GridBagSizer(mwx.GRIDBAG_VSPACE, mwx.GRIDBAG_HSPACE)
         grid.Add(mzDigits_label, (0, 0), flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL)
@@ -3105,6 +3137,15 @@ class dlgCanvasProperties(wx.Dialog):
             quality_label, (7, 0), flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL
         )
         grid.Add(self.quality_slider, (7, 1), flag=wx.EXPAND)
+        grid.Add(wx.StaticLine(self), (8, 0), (1, 2), flag=wx.EXPAND)
+        grid.Add(
+            undoSteps_label, (9, 0), flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL
+        )
+        grid.Add(self.undoSteps_slider, (9, 1), flag=wx.EXPAND)
+        grid.Add(
+            undoMemory_label, (10, 0), flag=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL
+        )
+        grid.Add(self.undoMemory_slider, (10, 1), flag=wx.EXPAND)
         grid.AddGrowableCol(1)
 
         mainSizer = wx.BoxSizer(wx.VERTICAL)
@@ -3150,6 +3191,21 @@ class dlgCanvasProperties(wx.Dialog):
             self.updateThrottle.flush()
         else:
             self.updateThrottle.request()
+
+    # ----
+
+    def onUndoChange(self, evt):
+        """Set how far back undo goes; histories over it lose their oldest steps."""
+
+        # memory in whole steps, as the slider's ticks show it
+        step = undo.MEMORY_STEP
+        memory = int(round(self.undoMemory_slider.GetValue() / step)) * step
+        if memory != self.undoMemory_slider.GetValue():
+            self.undoMemory_slider.SetValue(memory)
+
+        config.main["undoSteps"] = self.undoSteps_slider.GetValue()
+        config.main["undoMemory"] = memory
+        undo.trim(None, *doc.undoLimits())
 
     # ----
 

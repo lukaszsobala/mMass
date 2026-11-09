@@ -977,9 +977,9 @@ class panelDocuments(wx.Panel):
 
         # backup editable data before mutation
         if itemType == "annotation":
-            self.documents[docIndex].backup(("annotations"))
+            self.documents[docIndex].backup(("annotations"), label="Edit Annotation")
         elif itemType == "match":
-            self.documents[docIndex].backup(("sequences"))
+            self.documents[docIndex].backup(("sequences"), label="Edit Sequence Match")
 
         # show dialog
         dlg = dlgNotation(self.parent, itemData, button="Update")
@@ -994,7 +994,7 @@ class panelDocuments(wx.Panel):
         else:
             dlg.Destroy()
             if itemType in ("annotation", "match"):
-                self.documents[docIndex].backup(None)
+                self.documents[docIndex].discardBackup()
 
     # ----
 
@@ -1313,11 +1313,11 @@ class panelDocuments(wx.Panel):
             return [data for data in items if id(data) not in ids]
 
         if isinstance(marked[0], doc.ruler):
-            docData.backup(("rulers",))
+            docData.backup(("rulers",), label="Delete Difference Labels")
             docData.rulers[:] = kept(docData.rulers)
             changed = ("rulers",)
         elif isinstance(marked[0], doc.annotation):
-            docData.backup(("annotations",))
+            docData.backup(("annotations",), label="Delete Annotations")
             docData.annotations[:] = kept(docData.annotations)
             changed = ("annotations",)
         else:
@@ -1326,7 +1326,7 @@ class panelDocuments(wx.Panel):
                 wx.Bell()
                 return
             self.parent.onSequenceSelected(seqIndex)
-            docData.backup(("sequences",))
+            docData.backup(("sequences",), label="Delete Sequence Matches")
             sequence = docData.sequences[seqIndex]
             sequence.matches[:] = kept(sequence.matches)
             changed = ("matches",)

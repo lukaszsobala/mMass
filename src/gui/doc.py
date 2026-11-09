@@ -33,6 +33,7 @@ from typing import Any
 from . import config
 from . import differences
 from . import session
+from . import undo
 import mspy
 
 # DOCUMENT STRUCTURE
@@ -284,6 +285,17 @@ def combinationText(combination, source=""):
 # drawn on it are filed under
 COMBINED_SCAN_ID = "combined"
 
+# undo steps of documents other than LC-MS runs hold all their difference labels
+_ALL_RULERS = object()
+
+
+def undoLimits():
+    """(steps, bytes) the undo history of every document is kept within."""
+
+    steps = config.main.get("undoSteps", undo.DEFAULT_STEPS)
+    memory = config.main.get("undoMemory", undo.DEFAULT_MEMORY)
+    return steps, memory * 1024**2
+
 
 class document:
     """Document object definition."""
@@ -333,21 +345,9 @@ class document:
         self.flipped = False
         self.offset = [0, 0]
 
-        # undo buffers
-        self.undo = None
-        self.redo = None
-        self._spectrumBuff: Any = None
-        self._annotationsBuff: Any = None
-        self._sequencesBuff: Any = None
-        self._rulersBuff: Any = None
-        self._infoBuff: dict[str, Any] | None = None
-
-        # redo buffers
-        self._redoSpectrumBuff: Any = None
-        self._redoAnnotationsBuff: Any = None
-        self._redoSequencesBuff: Any = None
-        self._redoRulersBuff: Any = None
-        self._redoInfoBuff: dict[str, Any] | None = None
+        # undo history of the spectrum shown, by shownScanKey(): every scan of
+        # an LC-MS run keeps its own
+        self._histories: dict[Any, undo.History] = {}
 
     # ----
 
@@ -391,10 +391,10 @@ class document:
         """Show a scan of the run, dropping a combined spectrum.
 
         The scan shown until now stays cached with its edits, so returning to it
-        restores them. Undo history belongs to the spectrum it was made on, so it
-        is cleared.
+        restores them, and so does its undo history (see _leaveShown).
         """
 
+        self._leaveShown()
         if self.combined:
             self._dropCombined()
         elif self.currentScanID is not None:
@@ -402,7 +402,6 @@ class document:
 
         self.spectrum = scan
         self.currentScanID = scanID
-        self.backup(None)
 
     # ----
 
@@ -420,6 +419,7 @@ class document:
         """
 
         anchor = self.lastScanID()
+        self._leaveShown()
         if self.combined:
             self._dropCombined()
         elif self.currentScanID is not None:
@@ -429,7 +429,28 @@ class document:
         self.combined = dict(combination, anchor=anchor, key=key)
         self.spectrum = spectrum
         self.currentScanID = None
-        self.backup(None)
+
+    # ----
+
+    def _leaveShown(self):
+        """Keep the undo history of the spectrum shown for when it is shown
+        again, as far as it concerns that spectrum alone.
+
+        Steps on the whole document (annotations, sequences, information) are
+        forgotten: undone later, they would throw away what was done to it on
+        other scans meanwhile. A combined spectrum is not kept, nor its history.
+        """
+
+        key = self.shownScanKey()
+        history = self._histories.get(key)
+        if history is None:
+            return
+        if key == COMBINED_SCAN_ID or not self.islcms():
+            self._histories.pop(key).clear()
+        else:
+            history.strip(undo.DOCUMENT_ITEMS)
+            if not history:
+                del self._histories[key]
 
     # ----
 
@@ -441,185 +462,186 @@ class document:
 
     # ----
 
-    def backup(self, items=None):
-        """Backup current state for undo."""
+    def history(self):
+        """The undo history of the spectrum shown."""
 
-        self.undo = items
-        self.redo = None
+        key = self.shownScanKey()
+        history = self._histories.get(key)
+        if history is None:
+            history = self._histories[key] = undo.History()
+        return history
 
-        # delete old
-        self._spectrumBuff = None
-        self._annotationsBuff = None
-        self._sequencesBuff = None
-        self._rulersBuff = None
-        self._infoBuff = None
-        self._redoSpectrumBuff = None
-        self._redoAnnotationsBuff = None
-        self._redoSequencesBuff = None
-        self._redoRulersBuff = None
-        self._redoInfoBuff = None
+    # ----
 
+    @property
+    def undo(self):
+        """The parts the next undo changes, or None."""
+
+        history = self._histories.get(self.shownScanKey())
+        return history.undoSteps[-1].items if history and history.undoSteps else None
+
+    @property
+    def redo(self):
+        """The parts the next redo changes, or None."""
+
+        history = self._histories.get(self.shownScanKey())
+        return history.redoSteps[-1].items if history and history.redoSteps else None
+
+    def undoLabel(self):
+        """What the next undo undoes, or None."""
+
+        history = self._histories.get(self.shownScanKey())
+        return history.undoSteps[-1].label if history and history.undoSteps else None
+
+    def redoLabel(self):
+        """What the next redo redoes, or None."""
+
+        history = self._histories.get(self.shownScanKey())
+        return history.redoSteps[-1].label if history and history.redoSteps else None
+
+    # ----
+
+    def backup(self, items=None, label=None):
+        """Record the current state of some parts as an undo step.
+
+        items names the parts an edit is about to change: "spectrum",
+        "annotations", "sequences", "notations" (annotations and sequence
+        matches), "rulers", "doctitle" or "info". None clears the history of
+        the spectrum shown, for edits that cannot be undone. label is what
+        Undo and Redo say, e.g. "Peak Picking".
+        """
+
+        items = undo.normalizeItems(items)
         if not items:
+            self.clearHistory()
             return
 
-        # store data
-        if "spectrum" in items:
-            self._spectrumBuff = copy.deepcopy(self.spectrum)
-        if "annotations" in items:
-            self._annotationsBuff = copy.deepcopy(self.annotations)
-        if "sequences" in items:
-            self._sequencesBuff = copy.deepcopy(self.sequences)
-        if "rulers" in items:
-            self._rulersBuff = copy.deepcopy(self.rulers)
-        if "notations" in items:
-            self._annotationsBuff = copy.deepcopy(self.annotations)
-            self._sequencesBuff = copy.deepcopy(self.sequences)
-        if "doctitle" in items:
-            self._infoBuff = {"title": self.title}
-        if "info" in items:
-            self._infoBuff = {
-                "title": self.title,
-                "date": self.date,
-                "operator": self.operator,
-                "contact": self.contact,
-                "institution": self.institution,
-                "instrument": self.instrument,
-                "notes": self.notes,
-                "scanNumber": self.spectrum.scanNumber,
-                "retentionTime": self.spectrum.retentionTime,
-                "msLevel": self.spectrum.msLevel,
-                "precursorMZ": self.spectrum.precursorMZ,
-                "precursorCharge": self.spectrum.precursorCharge,
-                "polarity": self.spectrum.polarity,
-            }
+        history = self.history()
+        step = undo.Step(label or undo.defaultLabel(items), items, self._takeState(items, history))
+        history.record(step)
+        undo.trim(history, *undoLimits())
+
+    # ----
+
+    def discardBackup(self):
+        """Forget the last undo step, recorded for an edit that was cancelled."""
+
+        history = self._histories.get(self.shownScanKey())
+        if history and history.undoSteps:
+            history.undoSteps.pop()
+
+    # ----
+
+    def clearHistory(self, allScans=False):
+        """Forget the undo history of the spectrum shown, or of every scan."""
+
+        if allScans:
+            for history in self._histories.values():
+                history.clear()
+            self._histories.clear()
+        else:
+            history = self._histories.pop(self.shownScanKey(), None)
+            if history is not None:
+                history.clear()
+
+    # ----
+
+    def forgetSteps(self, items):
+        """Forget the parts named in every undo step of the spectrum shown.
+
+        For an edit that is not undoable itself: undoing an older step holding
+        the same parts would quietly throw it away.
+        """
+
+        history = self._histories.get(self.shownScanKey())
+        if history is not None:
+            history.strip(undo.normalizeItems(items))
+
+    # ----
+
+    def forgetOtherScans(self):
+        """Forget the undo history of every scan but the one shown.
+
+        For edits made to scans that are not shown: undoing an older step of
+        theirs would quietly throw such an edit away.
+        """
+
+        key = self.shownScanKey()
+        for other in [other for other in self._histories if other != key]:
+            self._histories.pop(other).clear()
 
     # ----
 
     def restore(self):
-        """Revert to last stored state."""
+        """Undo the last step; returns the parts it changed, or False."""
 
-        # check undo
-        if not self.undo:
+        history = self._histories.get(self.shownScanKey())
+        if not history or not history.undoSteps:
             return False
 
-        # backup current state for redo
-        items = self.undo
-        self.redo = items
-        self._redoSpectrumBuff = None
-        self._redoAnnotationsBuff = None
-        self._redoSequencesBuff = None
-        self._redoRulersBuff = None
-        self._redoInfoBuff = None
-        if "spectrum" in items:
-            self._redoSpectrumBuff = copy.deepcopy(self.spectrum)
-        if "annotations" in items:
-            self._redoAnnotationsBuff = copy.deepcopy(self.annotations)
-        if "sequences" in items:
-            self._redoSequencesBuff = copy.deepcopy(self.sequences)
-        if "rulers" in items:
-            self._redoRulersBuff = copy.deepcopy(self.rulers)
-        if "notations" in items:
-            self._redoAnnotationsBuff = copy.deepcopy(self.annotations)
-            self._redoSequencesBuff = copy.deepcopy(self.sequences)
-        if "doctitle" in items:
-            self._redoInfoBuff = {"title": self.title}
-        if "info" in items:
-            self._redoInfoBuff = {
-                "title": self.title,
-                "date": self.date,
-                "operator": self.operator,
-                "contact": self.contact,
-                "institution": self.institution,
-                "instrument": self.instrument,
-                "notes": self.notes,
-                "scanNumber": self.spectrum.scanNumber,
-                "retentionTime": self.spectrum.retentionTime,
-                "msLevel": self.spectrum.msLevel,
-                "precursorMZ": self.spectrum.precursorMZ,
-                "precursorCharge": self.spectrum.precursorCharge,
-                "polarity": self.spectrum.polarity,
-            }
-
-        # revert data
-        if "spectrum" in items:
-            if self._spectrumBuff is not None:
-                self.spectrum = self._spectrumBuff
-        if "annotations" in items:
-            if self._annotationsBuff is not None:
-                self.annotations[:] = self._annotationsBuff[:]
-        if "sequences" in items:
-            if self._sequencesBuff is not None:
-                self.sequences[:] = self._sequencesBuff[:]
-        if "rulers" in items:
-            if self._rulersBuff is not None:
-                self.rulers[:] = self._rulersBuff[:]
-        if "notations" in items:
-            if self._annotationsBuff is not None and self._sequencesBuff is not None:
-                self.annotations[:] = self._annotationsBuff[:]
-                for x in range(len(self.sequences)):
-                    self.sequences[x].matches[:] = self._sequencesBuff[x].matches[:]
-        if "doctitle" in items:
-            if self._infoBuff is not None:
-                self.title = self._infoBuff["title"]
-        if "info" in items:
-            if self._infoBuff is not None:
-                info = self._infoBuff
-                self.title = info["title"]
-                self.date = info["date"]
-                self.operator = info["operator"]
-                self.contact = info["contact"]
-                self.institution = info["institution"]
-                self.instrument = info["instrument"]
-                self.notes = info["notes"]
-                self.spectrum.scanNumber = info["scanNumber"]
-                self.spectrum.retentionTime = info["retentionTime"]
-                self.spectrum.msLevel = info["msLevel"]
-                self.spectrum.precursorMZ = info["precursorMZ"]
-                self.spectrum.precursorCharge = info["precursorCharge"]
-                self.spectrum.polarity = info["polarity"]
-
-        # clear buffers
-        self.undo = None
-        self._spectrumBuff = None
-        self._annotationsBuff = None
-        self._sequencesBuff = None
-        self._rulersBuff = None
-        self._infoBuff = None
-
-        return items
+        step = history.undoSteps.pop()
+        redo = undo.Step(step.label, step.items, self._takeState(step.items, history))
+        redo.serial = step.serial
+        self._putState(step.state)
+        history.redoSteps.append(redo)
+        return step.items
 
     # ----
 
     def forward(self):
-        """Re-apply last undone state."""
+        """Redo the last undone step; returns the parts it changed, or False."""
 
-        # check redo
-        if not self.redo:
+        history = self._histories.get(self.shownScanKey())
+        if not history or not history.redoSteps:
             return False
 
-        # backup current state for undo
-        items = self.redo
-        self.undo = items
-        self._spectrumBuff = None
-        self._annotationsBuff = None
-        self._sequencesBuff = None
-        self._rulersBuff = None
-        self._infoBuff = None
+        step = history.redoSteps.pop()
+        back = undo.Step(step.label, step.items, self._takeState(step.items, history))
+        back.serial = step.serial
+        self._putState(step.state)
+        history.undoSteps.append(back)
+        return step.items
+
+    # ----
+
+    def _rulerKey(self):
+        """Which difference labels a step holds: those of the scan shown in an
+        LC-MS run, all of them otherwise (_ALL_RULERS)."""
+
+        return self.shownScanKey() if self.islcms() else _ALL_RULERS
+
+    def _takeState(self, items, history):
+        """A copy of the current state of the parts named."""
+
+        state: dict[str, Any] = {}
         if "spectrum" in items:
-            self._spectrumBuff = copy.deepcopy(self.spectrum)
-        if "annotations" in items:
-            self._annotationsBuff = copy.deepcopy(self.annotations)
+            memo = {}
+            profile = getattr(self.spectrum, "profile", None)
+            shared = history.sharedProfile(profile)
+            if shared is not None:
+                # stored once; the history never changes its arrays
+                memo[id(profile)] = shared
+            state["spectrum"] = copy.deepcopy(self.spectrum, memo)
+        if "annotations" in items or "notations" in items:
+            state["annotations"] = copy.deepcopy(self.annotations)
         if "sequences" in items:
-            self._sequencesBuff = copy.deepcopy(self.sequences)
+            state["sequences"] = copy.deepcopy(self.sequences)
+        elif "notations" in items:
+            state["matches"] = [copy.deepcopy(sequence.matches) for sequence in self.sequences]
         if "rulers" in items:
-            self._rulersBuff = copy.deepcopy(self.rulers)
-        if "notations" in items:
-            self._annotationsBuff = copy.deepcopy(self.annotations)
-            self._sequencesBuff = copy.deepcopy(self.sequences)
+            key = self._rulerKey()
+            state["rulers"] = (
+                key,
+                [
+                    copy.deepcopy(ruler)
+                    for ruler in self.rulers
+                    if key is _ALL_RULERS or ruler.scanID == key
+                ],
+            )
         if "doctitle" in items:
-            self._infoBuff = {"title": self.title}
+            state["info"] = {"title": self.title}
         if "info" in items:
-            self._infoBuff = {
+            state["info"] = {
                 "title": self.title,
                 "date": self.date,
                 "operator": self.operator,
@@ -634,32 +656,38 @@ class document:
                 "precursorCharge": self.spectrum.precursorCharge,
                 "polarity": self.spectrum.polarity,
             }
+        return state
 
-        # restore redone data
-        if "spectrum" in items:
-            if self._redoSpectrumBuff is not None:
-                self.spectrum = self._redoSpectrumBuff
-        if "annotations" in items:
-            if self._redoAnnotationsBuff is not None:
-                self.annotations[:] = self._redoAnnotationsBuff[:]
-        if "sequences" in items:
-            if self._redoSequencesBuff is not None:
-                self.sequences[:] = self._redoSequencesBuff[:]
-        if "rulers" in items:
-            if self._redoRulersBuff is not None:
-                self.rulers[:] = self._redoRulersBuff[:]
-        if "notations" in items:
-            if self._redoAnnotationsBuff is not None and self._redoSequencesBuff is not None:
-                self.annotations[:] = self._redoAnnotationsBuff[:]
-                for x in range(len(self.sequences)):
-                    self.sequences[x].matches[:] = self._redoSequencesBuff[x].matches[:]
-        if "doctitle" in items:
-            if self._redoInfoBuff is not None:
-                self.title = self._redoInfoBuff["title"]
-        if "info" in items:
-            if self._redoInfoBuff is not None:
-                info = self._redoInfoBuff
-                self.title = info["title"]
+    def _putState(self, state):
+        """Put back a state taken by _takeState; the state is used up."""
+
+        if "spectrum" in state:
+            spectrum = state["spectrum"]
+            # the profile may be shared with other steps, which must not see
+            # the edits made to it from now on
+            profile = getattr(spectrum, "profile", None)
+            if isinstance(profile, numpy.ndarray):
+                spectrum.profile = profile.copy()
+            self.spectrum = spectrum
+            if self.showsRunScan() and self.currentScanID is not None:
+                self.scanCache[self.currentScanID] = spectrum
+        if "annotations" in state:
+            self.annotations[:] = state["annotations"]
+        if "sequences" in state:
+            self.sequences[:] = state["sequences"]
+        if "matches" in state:
+            for sequence, matches in zip(self.sequences, state["matches"], strict=False):
+                sequence.matches[:] = matches
+        if "rulers" in state:
+            key, rulers = state["rulers"]
+            if key is _ALL_RULERS:
+                self.rulers[:] = rulers
+            else:
+                self.rulers[:] = [ruler for ruler in self.rulers if ruler.scanID != key] + rulers
+        if "info" in state:
+            info = state["info"]
+            self.title = info["title"]
+            if "date" in info:
                 self.date = info["date"]
                 self.operator = info["operator"]
                 self.contact = info["contact"]
@@ -673,15 +701,18 @@ class document:
                 self.spectrum.precursorCharge = info["precursorCharge"]
                 self.spectrum.polarity = info["polarity"]
 
-        # clear redo buffers
-        self.redo = None
-        self._redoSpectrumBuff = None
-        self._redoAnnotationsBuff = None
-        self._redoSequencesBuff = None
-        self._redoRulersBuff = None
-        self._redoInfoBuff = None
+    # ----
 
-        return items
+    def __deepcopy__(self, memo):
+        """A copy of the document without its undo history."""
+
+        result = self.__class__.__new__(self.__class__)
+        memo[id(self)] = result
+        for name, value in self.__dict__.items():
+            if name != "_histories":
+                setattr(result, name, copy.deepcopy(value, memo))
+        result._histories = {}
+        return result
 
     # ----
 

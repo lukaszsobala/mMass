@@ -2901,7 +2901,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
                 # backup document
                 if not batch:
-                    docA.backup(("spectrum", "notations"))
+                    docA.backup(("spectrum", "notations"), label="Math Operation")
 
                 # process spectrum
                 preserve_peaks = bool(config.processing["math"]["preservePeaks"])
@@ -2945,7 +2945,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
             # backup document
             if not batch:
-                self.currentDocument.backup(("spectrum", "notations"))
+                self.currentDocument.backup(("spectrum", "notations"), label="Crop")
 
             processing.cropDocument(
                 self.currentDocument,
@@ -2974,7 +2974,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
             # backup document
             if not batch:
-                self.currentDocument.backup(("spectrum", "notations"))
+                self.currentDocument.backup(("spectrum", "notations"), label="Baseline Correction")
 
             processing.subtractBaseline(self.currentDocument.spectrum, config.processing)
             processing.clearNotations(self.currentDocument)
@@ -3000,7 +3000,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
             # backup document
             if not batch:
-                self.currentDocument.backup(("spectrum", "notations"))
+                self.currentDocument.backup(("spectrum", "notations"), label="Smoothing")
 
             processing.smoothScan(self.currentDocument.spectrum, config.processing)
             processing.clearNotations(self.currentDocument)
@@ -3034,7 +3034,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
             # backup document
             if not batch:
-                document.backup(("spectrum", "notations"))
+                document.backup(("spectrum", "notations"), label="Peak Picking")
 
             # the shown scan may have been edited since it was cached
             if isLCMS and document.currentScanID is not None:
@@ -3061,6 +3061,10 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             if isLCMS and document.currentScanID in document.scanCache:
                 document.spectrum = document.scanCache[document.currentScanID]
 
+            # the other scans changed without undo steps of their own
+            if allScans:
+                document.forgetOtherScans()
+
             processing.clearNotations(document)
 
         # task canceled
@@ -3084,7 +3088,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
             # backup document
             if not batch:
-                self.currentDocument.backup(("spectrum", "notations"))
+                self.currentDocument.backup(("spectrum", "notations"), label="Deisotoping")
 
             processing.deisotopeScan(self.currentDocument.spectrum, config.processing)
             processing.clearNotations(self.currentDocument)
@@ -3197,7 +3201,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
                 # one backup per document covers all steps — single undo entry
                 if apply_in_place:
-                    self.currentDocument.backup(("spectrum", "notations"))
+                    self.currentDocument.backup(("spectrum", "notations"), label="Batch Processing")
                     self.batchChanged.append(docIndex)
 
                 # execute checked steps in the user-defined order

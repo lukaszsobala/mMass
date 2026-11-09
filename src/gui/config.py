@@ -25,6 +25,9 @@ import tempfile
 import xml.dom.minidom
 from importlib import resources
 from typing import SupportsIndex
+
+from . import undo
+
 try:
     from xdgenvpy import XDGPackage  # type: ignore[import-untyped]
 except ImportError:
@@ -350,6 +353,9 @@ main = {
     # how the scans under a range selected in the chromatogram are combined:
     # "average" or "sum"
     "chromatogramCombine": "average",
+    # undo steps kept per spectrum, and the memory all of them may take (MB)
+    "undoSteps": 50,
+    "undoMemory": 1024,
     "updatesEnabled": 1,
     "updatesChecked": "",
     "updatesCurrent": version,
@@ -1503,6 +1509,12 @@ def _validateConfig():
         "lipid",
     ):
         processing["peakpicking"]["averagineType"] = "protein"
+
+    # undo limits, within what the Preferences sliders offer
+    low, high = undo.STEPS_RANGE
+    main["undoSteps"] = min(max(int(main["undoSteps"]), low), high)
+    low, high = undo.MEMORY_RANGE
+    main["undoMemory"] = min(max(int(main["undoMemory"]), low), high)
 
     if differenceRuler["units"] not in ("Da", "ppm"):
         differenceRuler["units"] = "Da"

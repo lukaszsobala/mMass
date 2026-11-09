@@ -482,7 +482,7 @@ class panelDocumentInfo(wx.Frame):
             return
 
         # backup metadata for undo
-        self.currentDocument.backup(("info"))
+        self.currentDocument.backup(("info"), label="Document Information")
 
         # update title
         if self.currentDocument.title != self.title_value.GetValue():

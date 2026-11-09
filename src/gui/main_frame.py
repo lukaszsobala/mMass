@@ -2008,9 +2008,9 @@ class mainFrame(wx.Frame):
             if self.comparePeaklistsPanel:
                 self.comparePeaklistsPanel.setData(self.documents)
 
-        # disable undo
+        # an edited sequence must not come back by undoing an older step
         if "sequence" in items:
-            self.documents[self.currentDocument].backup(None)
+            self.documents[self.currentDocument].forgetSteps(("sequences", "notations"))
 
         # set document status
         self.documents[self.currentDocument].dirty = True
@@ -2401,6 +2401,8 @@ class mainFrame(wx.Frame):
         self.documentsPanel.selectDocument(None)
         self.documentsPanel.deleteDocument(docIndex)
         self.spectrumPanel.deleteSpectrum(docIndex)
+        # its undo history counts against the memory every document shares
+        self.documents[docIndex].clearHistory(allScans=True)
         del self.documents[docIndex]
 
         # select previous visible document
@@ -3429,7 +3431,7 @@ class mainFrame(wx.Frame):
             return
 
         # backup annotations and matches
-        self.documents[self.currentDocument].backup(("notations"))
+        self.documents[self.currentDocument].backup(("notations"), label="Delete All Notations")
 
         # delete annotations
         del self.documents[self.currentDocument].annotations[:]
@@ -3452,7 +3454,7 @@ class mainFrame(wx.Frame):
             return
 
         # delete rulers
-        self.documents[self.currentDocument].backup(("rulers",))
+        self.documents[self.currentDocument].backup(("rulers",), label="Delete Difference Labels")
         del self.documents[self.currentDocument].rulers[:]
 
         # update GUI
@@ -3468,7 +3470,7 @@ class mainFrame(wx.Frame):
             return
 
         # delete annotations
-        self.documents[self.currentDocument].backup(("annotations"))
+        self.documents[self.currentDocument].backup(("annotations"), label="Delete Annotations")
         if annotIndex is not None:
             del self.documents[self.currentDocument].annotations[annotIndex]
         else:
@@ -4682,7 +4684,7 @@ class mainFrame(wx.Frame):
         self.documentsPanel.deleteSequence(self.currentDocument, self.currentSequence)
 
         # delete sequence from document
-        self.documents[docIndex].backup(("sequences"))
+        self.documents[docIndex].backup(("sequences"), label="Delete Sequence")
         del self.documents[docIndex].sequences[seqIndex]
         self.currentSequence = None
 
@@ -4699,7 +4701,7 @@ class mainFrame(wx.Frame):
             return
 
         # delete matches
-        self.documents[self.currentDocument].backup(("sequences"))
+        self.documents[self.currentDocument].backup(("sequences"), label="Delete Sequence Matches")
         if matchIndex is not None:
             del (
                 self.documents[self.currentDocument]
@@ -4748,7 +4750,7 @@ class mainFrame(wx.Frame):
             return
 
         # update document
-        self.documents[self.currentDocument].backup(("sequences"))
+        self.documents[self.currentDocument].backup(("sequences"), label="Sort Sequences")
         self.documents[self.currentDocument].sortSequences()
 
         # update sequence panel
@@ -6536,8 +6538,18 @@ class mainFrame(wx.Frame):
             ID_documentMoveDown,
             bool(enable and self.currentDocument < len(self.documents) - 1),
         )
-        self.menubar.Enable(ID_processingUndo, bool(document and document.undo))
-        self.menubar.Enable(ID_processingRedo, bool(document and document.redo))
+        undoLabel = document.undoLabel() if document else None
+        redoLabel = document.redoLabel() if document else None
+        self.menubar.SetLabel(
+            ID_processingUndo,
+            ("Undo %s" % undoLabel if undoLabel else "Undo") + HK_processingUndo,
+        )
+        self.menubar.SetLabel(
+            ID_processingRedo,
+            ("Redo %s" % redoLabel if redoLabel else "Redo") + HK_processingRedo,
+        )
+        self.menubar.Enable(ID_processingUndo, bool(undoLabel))
+        self.menubar.Enable(ID_processingRedo, bool(redoLabel))
         self.menubar.Enable(ID_processingPeakpicking, enable)
         self.menubar.Enable(ID_processingDeisotoping, enable)
         self.menubar.Enable(ID_processingDeconvolution, enable)

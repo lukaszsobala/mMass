@@ -433,7 +433,7 @@ class panelSpectrumGenerator(wx.Frame, MakeModalMixin):
                 dlg.Destroy()
 
         # backup document
-        self.currentDocument.backup(("spectrum"))
+        self.currentDocument.backup(("spectrum"), label="Generated Profile")
 
         # set profile to document
         points = self.currentProfile.copy()

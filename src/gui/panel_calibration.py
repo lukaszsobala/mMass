@@ -1006,7 +1006,7 @@ class panelCalibration(wx.Frame, MakeModalMixin):
         """Calibrate document."""
 
         # backup data
-        self.currentDocument.backup(("spectrum", "notations"))
+        self.currentDocument.backup(("spectrum", "notations"), label="Calibration")
 
         # recalibrate spectrum
         self.currentDocument.spectrum.recalibrate(fn, params)
