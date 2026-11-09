@@ -2945,7 +2945,8 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
             # backup document
             if not batch:
-                self.currentDocument.backup(("spectrum", "notations"), label="Crop")
+                # cropping also removes the difference labels outside the range
+                self.currentDocument.backup(("spectrum", "notations", "rulers"), label="Crop")
 
             processing.cropDocument(
                 self.currentDocument,
@@ -3061,10 +3062,6 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             if isLCMS and document.currentScanID in document.scanCache:
                 document.spectrum = document.scanCache[document.currentScanID]
 
-            # the other scans changed without undo steps of their own
-            if allScans:
-                document.forgetOtherScans()
-
             processing.clearNotations(document)
 
         # task canceled
@@ -3072,6 +3069,12 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             if batch:
                 mspy.stop()
             return
+
+        # the other scans changed without undo steps of their own, also when
+        # cancelled half way
+        finally:
+            if allScans:
+                document.forgetOtherScans()
 
     # ----
 

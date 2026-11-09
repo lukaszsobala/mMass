@@ -285,9 +285,6 @@ def combinationText(combination, source=""):
 # drawn on it are filed under
 COMBINED_SCAN_ID = "combined"
 
-# undo steps of documents other than LC-MS runs hold all their difference labels
-_ALL_RULERS = object()
-
 
 def undoLimits():
     """(steps, bytes) the undo history of every document is kept within."""
@@ -375,6 +372,15 @@ class document:
         if self.combined:
             return COMBINED_SCAN_ID
         return self.currentScanID
+
+    # ----
+
+    def shownRulers(self):
+        """The difference labels drawn on the spectrum shown: in an LC-MS run
+        those of the scan shown, and any filed under no scan."""
+
+        scanID = self.shownScanKey()
+        return [ruler for ruler in self.rulers if ruler.scanID is None or ruler.scanID == scanID]
 
     # ----
 
@@ -519,6 +525,13 @@ class document:
         history = self.history()
         step = undo.Step(label or undo.defaultLabel(items), items, self._takeState(items, history))
         history.record(step)
+
+        # the difference labels of every scan are stored together, so the
+        # other scans' copies are out of date now
+        if "rulers" in items:
+            for other in self._histories.values():
+                if other is not history:
+                    other.strip(("rulers",))
         undo.trim(history, *undoLimits())
 
     # ----
@@ -527,8 +540,8 @@ class document:
         """Forget the last undo step, recorded for an edit that was cancelled."""
 
         history = self._histories.get(self.shownScanKey())
-        if history and history.undoSteps:
-            history.undoSteps.pop()
+        if history is not None:
+            history.discardLast()
 
     # ----
 
@@ -579,7 +592,7 @@ class document:
         if not history or not history.undoSteps:
             return False
 
-        step = history.undoSteps.pop()
+        step = history.popUndo()
         redo = undo.Step(step.label, step.items, self._takeState(step.items, history))
         redo.serial = step.serial
         self._putState(step.state)
@@ -595,7 +608,7 @@ class document:
         if not history or not history.redoSteps:
             return False
 
-        step = history.redoSteps.pop()
+        step = history.popRedo()
         back = undo.Step(step.label, step.items, self._takeState(step.items, history))
         back.serial = step.serial
         self._putState(step.state)
@@ -603,12 +616,6 @@ class document:
         return step.items
 
     # ----
-
-    def _rulerKey(self):
-        """Which difference labels a step holds: those of the scan shown in an
-        LC-MS run, all of them otherwise (_ALL_RULERS)."""
-
-        return self.shownScanKey() if self.islcms() else _ALL_RULERS
 
     def _takeState(self, items, history):
         """A copy of the current state of the parts named."""
@@ -629,15 +636,7 @@ class document:
         elif "notations" in items:
             state["matches"] = [copy.deepcopy(sequence.matches) for sequence in self.sequences]
         if "rulers" in items:
-            key = self._rulerKey()
-            state["rulers"] = (
-                key,
-                [
-                    copy.deepcopy(ruler)
-                    for ruler in self.rulers
-                    if key is _ALL_RULERS or ruler.scanID == key
-                ],
-            )
+            state["rulers"] = copy.deepcopy(self.rulers)
         if "doctitle" in items:
             state["info"] = {"title": self.title}
         if "info" in items:
@@ -679,11 +678,7 @@ class document:
             for sequence, matches in zip(self.sequences, state["matches"], strict=False):
                 sequence.matches[:] = matches
         if "rulers" in state:
-            key, rulers = state["rulers"]
-            if key is _ALL_RULERS:
-                self.rulers[:] = rulers
-            else:
-                self.rulers[:] = [ruler for ruler in self.rulers if ruler.scanID != key] + rulers
+            self.rulers[:] = state["rulers"]
         if "info" in state:
             info = state["info"]
             self.title = info["title"]

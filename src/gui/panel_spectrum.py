@@ -191,10 +191,10 @@ def applySpectrumConfig(spectrum, docData, current=True):
     spectrum.setProperties(labelFont=labelFont)
 
     # difference rulers (for an LC-MS run, those drawn on the scan shown)
-    scanID = docData.shownScanKey()
+    shown = {id(ruler) for ruler in docData.shownRulers()}
     rulers = []
     for index, ruler in enumerate(getattr(docData, "rulers", [])):
-        if ruler.scanID is not None and ruler.scanID != scanID:
+        if id(ruler) not in shown:
             continue
         text = labelText(ruler)
         rulers.append(
@@ -1887,7 +1887,7 @@ class panelSpectrum(wx.Panel):
         # peaks) the selection reaches
         rulers = [
             ruler
-            for ruler in docData.rulers
+            for ruler in docData.shownRulers()
             if selection[0] < (ruler.mz1 + ruler.mz2) / 2 < selection[2]
             and (
                 selection[1] <= ruler.height <= selection[3]
@@ -3206,6 +3206,11 @@ class dlgCanvasProperties(wx.Dialog):
         config.main["undoSteps"] = self.undoSteps_slider.GetValue()
         config.main["undoMemory"] = memory
         undo.trim(None, *doc.undoLimits())
+
+        # Undo and Redo may have lost their last step
+        updateControls = getattr(self.GetParent(), "updateControls", None)
+        if updateControls is not None:
+            updateControls()
 
     # ----
 

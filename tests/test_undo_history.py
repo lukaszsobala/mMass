@@ -99,6 +99,14 @@ def test_undo_and_redo_say_what_they_change():
     assert document.redoLabel() == "Difference Label Edit"
 
 
+def test_stripping_parts_a_step_lacks_leaves_it_alone(monkeypatch):
+    step = undo.Step("Add Peak", ("spectrum",), {"spectrum": mspy.scan()})
+    monkeypatch.setattr(undo, "approximateSize", lambda value: pytest.fail("measured again"))
+
+    assert step.strip(undo.DOCUMENT_ITEMS)
+    assert step.items == ("spectrum",)
+
+
 def test_a_single_name_is_one_part_not_its_letters():
     assert undo.normalizeItems("annotations") == ("annotations",)
     assert undo.normalizeItems(("spectrum", "notations")) == ("spectrum", "notations")
@@ -106,7 +114,8 @@ def test_a_single_name_is_one_part_not_its_letters():
 
 
 def test_old_steps_go_past_the_step_limit(monkeypatch):
-    monkeypatch.setitem(config.main, "undoSteps", 3)
+    # a copy: the real section would save itself to the config file
+    monkeypatch.setattr(config, "main", dict(config.main, undoSteps=3))
     document = _document()
     for mz in (401.0, 402.0, 403.0, 404.0, 405.0):
         _addPeak(document, mz)
@@ -188,14 +197,19 @@ def test_notations_bring_back_annotations_and_sequence_matches():
     assert [item.label for item in document.sequences[0].matches] == ["b2"]
 
 
-def test_a_cancelled_edit_leaves_no_step():
+def test_a_cancelled_edit_leaves_no_step_and_keeps_what_can_be_redone():
     document = _document()
     _addPeak(document, 401.0, label="Add Peak")
+    _addPeak(document, 402.0, label="Label Peak")
+    document.restore()
     document.backup(("annotations"), label="Edit Annotation")
 
     document.discardBackup()
 
     assert document.undoLabel() == "Add Peak"
+    assert document.redoLabel() == "Label Peak"
+    document.forward()
+    assert _mzs(document) == [401.0, 402.0]
 
 
 def test_an_edited_sequence_does_not_come_back_by_undo():
@@ -252,15 +266,43 @@ def test_whole_document_steps_are_forgotten_on_leaving_a_scan():
     assert [(step.label, step.items) for step in steps] == [("Peak Picking", ("spectrum",))]
 
 
-def test_undoing_labels_of_one_scan_keeps_those_of_the_others():
-    document = _run()
-    document.rulers.append(doc.ruler(401.0, 10.0, 402.0, 10.0, scanID=2))
+def _addRuler(document, mz, scanID):
     document.backup(("rulers",), label="Add Difference Label")
-    document.rulers.append(doc.ruler(403.0, 10.0, 404.0, 10.0, scanID=1))
+    document.rulers.append(doc.ruler(mz, 10.0, mz + 1.0, 10.0, scanID=scanID))
+
+
+def test_label_steps_survive_switching_scans():
+    document = _run()
+    _addRuler(document, 401.0, 1)
+    document.showScan(2, document.scanCache[2])
+    document.showScan(1, document.scanCache[1])
 
     document.restore()
 
-    assert [(ruler.mz1, ruler.scanID) for ruler in document.rulers] == [(401.0, 2)]
+    assert document.rulers == []
+
+
+def test_labels_edited_on_another_scan_never_come_back_by_undo():
+    document = _run()
+    _addRuler(document, 401.0, 1)
+    document.showScan(2, document.scanCache[2])
+    _addRuler(document, 405.0, 2)
+
+    document.showScan(1, document.scanCache[1])
+
+    assert document.undo is None
+    assert [(ruler.mz1, ruler.scanID) for ruler in document.rulers] == [(401.0, 1), (405.0, 2)]
+
+
+def test_only_the_labels_of_the_scan_shown_are_drawn():
+    document = _run()
+    document.rulers[:] = [
+        doc.ruler(401.0, 10.0, 402.0, 10.0, scanID=1),
+        doc.ruler(403.0, 10.0, 404.0, 10.0, scanID=2),
+        doc.ruler(405.0, 10.0, 406.0, 10.0),
+    ]
+
+    assert [ruler.mz1 for ruler in document.shownRulers()] == [401.0, 405.0]
 
 
 def test_a_combined_spectrum_takes_its_history_with_it():

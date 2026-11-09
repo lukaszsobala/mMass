@@ -145,6 +145,8 @@ class Step:
     def strip(self, names):
         """Forget the parts named; returns False when nothing is left."""
 
+        if not any(name in names for name in self.items):
+            return True
         self.items = tuple(name for name in self.items if name not in names)
         kept = {key for name in self.items for key in STATE_KEYS[name]}
         self.state = {key: value for key, value in self.state.items() if key in kept}
@@ -161,6 +163,9 @@ class History:
     def __init__(self):
         self.undoSteps = []
         self.redoSteps = []
+        # the last step recorded and the redo steps it replaced, until anything
+        # else happens to the history (see discardLast)
+        self._replaced = None
         _histories.add(self)
 
     def __bool__(self):
@@ -169,16 +174,38 @@ class History:
     def clear(self):
         del self.undoSteps[:]
         del self.redoSteps[:]
+        self._replaced = None
 
     def record(self, step):
         """Add a new step; it makes the steps undone before it unreachable."""
 
+        self._replaced = (step, self.redoSteps[:])
         self.undoSteps.append(step)
         del self.redoSteps[:]
+
+    def discardLast(self):
+        """Forget the step just recorded, for an edit that was cancelled, and
+        bring back the redo steps it replaced."""
+
+        if not self.undoSteps:
+            return
+        step = self.undoSteps.pop()
+        if self._replaced is not None and self._replaced[0] is step:
+            self.redoSteps[:] = self._replaced[1]
+        self._replaced = None
+
+    def popUndo(self):
+        self._replaced = None
+        return self.undoSteps.pop()
+
+    def popRedo(self):
+        self._replaced = None
+        return self.redoSteps.pop()
 
     def strip(self, names):
         """Forget the parts named in every step, and the steps left empty."""
 
+        self._replaced = None
         self.undoSteps[:] = [step for step in self.undoSteps if step.strip(names)]
         self.redoSteps[:] = [step for step in self.redoSteps if step.strip(names)]
 
