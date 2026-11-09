@@ -16,12 +16,15 @@
 # -------------------------------------------------------------------------
 
 # load libs
+import threading
+
 import wx
 
 # load modules
 from .ids import (
     ID_peaklistAnnotate,
     ID_peaklistConvertAllToEnvelopes,
+    ID_peaklistConvertAllToEnvelopesAllDocuments,
     ID_peaklistConvertToEnvelopes,
     ID_peaklistSendToMassToFormula,
     ID_viewPeaklistColumnAi,
@@ -45,6 +48,7 @@ from . import config
 from . import display_scale
 import mspy
 from . import doc
+from . import processing
 
 from .dlg_notation import dlgNotation
 
@@ -672,6 +676,11 @@ class panelPeaklist(wx.Panel):
             "Convert All to Envelopes\tCtrl+Shift+A",
             "",
         )
+        menu.Append(
+            ID_peaklistConvertAllToEnvelopesAllDocuments,
+            "Convert All to Envelopes in All Documents\tCtrl+Alt+Shift+A",
+            "",
+        )
 
         # bind events
         self.Bind(wx.EVT_MENU, self.onAnnotate, id=ID_peaklistAnnotate)
@@ -687,6 +696,11 @@ class panelPeaklist(wx.Panel):
             wx.EVT_MENU,
             self.convertAllPeaksToEnvelopes,
             id=ID_peaklistConvertAllToEnvelopes,
+        )
+        self.Bind(
+            wx.EVT_MENU,
+            self.convertAllPeaksToEnvelopesInAllDocuments,
+            id=ID_peaklistConvertAllToEnvelopesAllDocuments,
         )
 
         # show menu
@@ -990,21 +1004,7 @@ class panelPeaklist(wx.Panel):
     def _envelopeParams(self, seedCharge=1):
         """Build the plain parameter dict for the pure envelope recalc helper."""
 
-        d = config.processing["deisotoping"]
-        return {
-            "massTolerance": d["massTolerance"],
-            "isotopeShift": d["isotopeShift"],
-            "maxCharge": d["maxCharge"],
-            "intTolerance": d["intTolerance"],
-            "labelEnvelope": d["labelEnvelope"],
-            "envelopeIntensity": d["envelopeIntensity"],
-            "envelopeNonIdeality": d["envelopeNonIdeality"],
-            "envelopeRefinePattern": d.get("envelopeRefinePattern", 1),
-            "averagineType": config.processing["peakpicking"].get(
-                "averagineType", "protein"
-            ),
-            "seedCharge": seedCharge,
-        }
+        return processing.envelopeParams(config.processing, seedCharge=seedCharge)
 
     def _recalculateNeighborhoodEnvelopes(
         self, mzs, document=None, selectedOnly=False, respectFwhm=False,
@@ -1894,15 +1894,11 @@ class panelPeaklist(wx.Panel):
             wx.Bell()
             return
 
-        seedCharge = self._getConvertEnvelopeCharge(peaks)
-        mzs = [peak.mz for peak in peaks]
-
-        result = mspy.recalculate_neighborhood_envelopes(
+        result = processing.convertToEnvelopes(
             spectrum.peaklist,
             spectrum.profile,
-            mzs,
-            self._envelopeParams(seedCharge=seedCharge),
-            selectedOnly=True,
+            config.processing,
+            self._getConvertEnvelopeCharge(peaks),
         )
 
         # identity means the helper found nothing to do -> no-op
@@ -1916,24 +1912,69 @@ class panelPeaklist(wx.Panel):
 
     # ----
 
+    def convertAllPeaksToEnvelopesInAllDocuments(self, evt=None):
+        """"Convert All to Envelopes" in every open document, each one undoable
+        on its own."""
+
+        documents = self.parent.documents
+        jobs = processing.envelopeJobs(
+            documents, self.currentDocument, self.peakCharge_value.GetValue()
+        )
+        if not jobs:
+            wx.Bell()
+            return
+
+        # fit in a worker thread while the gauge pulses (it disables every other
+        # window meanwhile); the documents are only changed afterwards, here
+        settings = config.processing
+        progress = {"done": 0}
+        outcome = {}
+
+        def run():
+            outcome["results"], outcome["failures"] = processing.fitEnvelopeJobs(
+                jobs, settings, progress
+            )
+
+        gauge = mwx.gaugePanel(self.parent, "Converting to envelopes...")
+        gauge.show()
+        worker = threading.Thread(target=run)
+        worker.start()
+        while worker.is_alive():
+            gauge.setLabel(
+                "Converting to envelopes... (%d of %d documents)"
+                % (min(progress["done"] + 1, len(jobs)), len(jobs))
+            )
+            gauge.pulse()
+        gauge.close()
+
+        results = outcome.get("results", {})
+        failures = outcome.get("failures", [])
+        changed = []
+        try:
+            processing.applyEnvelopeResults(documents, jobs, results, changed)
+        finally:
+            # documents already changed are marked and redrawn whatever happens
+            if changed:
+                self.parent.onDocumentChangedMulti(indexes=changed, items=("spectrum",))
+
+        if failures:
+            wx.Bell()
+            dlg = mwx.dlgMessage(
+                self.parent,
+                title="Some documents could not be converted.",
+                message="\n".join("%s: %s" % (title, error) for title, error in failures),
+            )
+            dlg.ShowModal()
+            dlg.Destroy()
+        elif not changed:
+            wx.Bell()
+
+    # ----
+
     def _getConvertEnvelopeCharge(self, peaks):
         """Get user-specified charge for envelope conversion, defaulting to 1."""
 
-        # Prefer the selected peak charge so conversion respects user-edited values.
-        for peak in peaks:
-            if peak.charge:
-                return int(peak.charge)
-
-        charge = self.peakCharge_value.GetValue().strip()
-        if charge:
-            try:
-                value = int(charge)
-                if value:
-                    return value
-            except Exception:
-                pass
-
-        return 1
+        return processing.seedCharge(peaks, self.peakCharge_value.GetValue())
 
     # ----
 

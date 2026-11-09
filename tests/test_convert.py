@@ -437,6 +437,38 @@ def test_steps_run_in_the_order_given(profiles, tmp_path):
     assert 403.9 < picked.profile[:, 0].min() and picked.profile[:, 0].max() < 406.1
 
 
+def test_envelopes_are_what_convert_all_to_envelopes_gives(profiles, tmp_path):
+    from gui import processing
+
+    peaks = tmp_path / "peaks.msd"
+    defaults = ("--preset", "Default")
+    assert _process(
+        str(profiles["msd"]), "--find-peaks", "-o", str(peaks), *defaults,
+        "--set", "convertToEnvelopes=0",
+    ) == 0
+    picked = _read(peaks, "mSD").spectrum
+    assert picked.haspeaks()
+    assert not any(peak.attributes.get("envelope") for peak in picked.peaklist)
+
+    assert _process(str(peaks), "--envelopes", "--in-place", *defaults) == 0
+
+    expected = processing.convertToEnvelopes(picked.peaklist, picked.profile, _settings(*defaults))
+    processed = _read(peaks, "mSD").spectrum.peaklist
+    envelopes = [peak for peak in processed if peak.attributes.get("envelope")]
+    assert envelopes and len(processed) == len(expected)
+    assert [peak.mz for peak in processed] == pytest.approx([peak.mz for peak in expected])
+    assert [peak.attributes["envelope"]["area"] for peak in envelopes] == pytest.approx(
+        [peak.attributes["envelope"]["area"] for peak in expected if peak.attributes.get("envelope")],
+        rel=1e-6,
+    )
+
+
+def test_envelopes_need_peaks(profiles, tmp_path, capsys):
+    assert _process(str(profiles["msd"]), "--envelopes", "-o", str(tmp_path / "a.msd")) == 1
+
+    assert "--envelopes needs peaks" in capsys.readouterr().err
+
+
 def test_settings_change_the_result_but_never_the_configuration(profiles, tmp_path):
     from gui import config
 

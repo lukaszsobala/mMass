@@ -201,6 +201,132 @@ def deisotopeScan(scan, settings):
         scan.remuncharged()
 
 
+def envelopeParams(settings, seedCharge=1):
+    """The parameters mspy.recalculate_neighborhood_envelopes takes."""
+
+    deisotoping = settings["deisotoping"]
+    return {
+        "massTolerance": deisotoping["massTolerance"],
+        "isotopeShift": deisotoping["isotopeShift"],
+        "maxCharge": deisotoping["maxCharge"],
+        "intTolerance": deisotoping["intTolerance"],
+        "labelEnvelope": deisotoping["labelEnvelope"],
+        "envelopeIntensity": deisotoping["envelopeIntensity"],
+        "envelopeNonIdeality": deisotoping["envelopeNonIdeality"],
+        "envelopeRefinePattern": deisotoping.get("envelopeRefinePattern", 1),
+        "averagineType": settings["peakpicking"].get("averagineType", "protein"),
+        "seedCharge": seedCharge,
+    }
+
+
+def seedCharge(peaks, typed=None):
+    """The charge "Convert to Envelopes" gives peaks that have none.
+
+    The first charged peak's charge, else a charge typed in the peak editor
+    (typed, as text), else 1.
+    """
+
+    for peak in peaks:
+        if peak.charge:
+            return int(peak.charge)
+    try:
+        value = int(typed.strip()) if typed else 0
+    except ValueError:
+        value = 0
+    return value or 1
+
+
+def convertToEnvelopes(peaklist, profile, settings, charge=None):
+    """Every peak of a peak list as an envelope, as "Convert All to Envelopes"
+    gives them; envelopes already there are refitted.
+
+    Returns a new peak list, or the same object when there is nothing to do.
+    charge is the seed charge, by default seedCharge(peaklist).
+    """
+
+    peaks = list(peaklist)
+    if not peaks:
+        return peaklist
+    if charge is None:
+        charge = seedCharge(peaks)
+    return mspy.recalculate_neighborhood_envelopes(
+        peaklist,
+        profile,
+        [peak.mz for peak in peaks],
+        envelopeParams(settings, seedCharge=charge),
+        selectedOnly=True,
+    )
+
+
+def convertScanToEnvelopes(scan, settings):
+    """convertToEnvelopes on a scan, in place."""
+
+    scan.peaklist = convertToEnvelopes(scan.peaklist, scan.profile, settings)
+
+
+def envelopeJobs(documents, current=None, typed=None):
+    """What "Convert All to Envelopes in All Documents" fits.
+
+    [(index, document, peaklist, charge)] for every document with peaks. The
+    charge typed in the peak editor (typed) belongs to the current document
+    only.
+    """
+
+    jobs = []
+    for index, document in enumerate(documents):
+        peaklist = document.spectrum.peaklist
+        if len(peaklist):
+            charge = seedCharge(peaklist, typed if document is current else None)
+            jobs.append((index, document, peaklist, charge))
+    return jobs
+
+
+def fitEnvelopeJobs(jobs, settings, progress=None):
+    """Run convertToEnvelopes for each of envelopeJobs(), changing nothing.
+
+    Returns ({index: new peak list}, [(title, error)]): documents with nothing
+    to do are left out, and one that fails is reported while the others go on.
+    progress, a dict, counts the finished jobs under "done".
+    """
+
+    import traceback
+
+    results = {}
+    failures = []
+    for index, document, peaklist, charge in jobs:
+        try:
+            result = convertToEnvelopes(peaklist, document.spectrum.profile, settings, charge)
+            if result is not peaklist:
+                results[index] = result
+        except Exception as error:
+            traceback.print_exc()
+            failures.append((document.title, error))
+        finally:
+            if progress is not None:
+                progress["done"] = progress.get("done", 0) + 1
+    return results, failures
+
+
+def applyEnvelopeResults(documents, jobs, results, changed):
+    """Give each document its new peak list, each change undoable on its own.
+
+    A result goes only to the peak list it was fitted from, in a document
+    still at its place. The indexes of changed documents are appended to
+    changed as they change.
+    """
+
+    for index, document, peaklist, _charge in jobs:
+        if (
+            index in results
+            and index < len(documents)
+            and documents[index] is document
+            and document.spectrum.peaklist is peaklist
+        ):
+            document.backup(("spectrum"))
+            document.spectrum.peaklist = results[index]
+            changed.append(index)
+
+
 def pickPeaks(scan, settings):
     """Run the configured peak-picking pipeline on one scan, in place."""
 

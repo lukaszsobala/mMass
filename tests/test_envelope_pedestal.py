@@ -254,7 +254,9 @@ def test_comb_on_a_floor_carries_its_scale_uncertainty():
 
     def pedestal(y):
         comb = mpp._comb_template(numpy.column_stack((X, y)), x, occupied)
-        return mpp._fit_group_pedestal(x, y[window], columns, comb=comb)
+        fitted = mpp._fit_group_pedestal(x, y[window], columns, comb=comb)
+        assert fitted is not None
+        return fitted
 
     # a bump under the species, where the area estimator reads it
     withComb = pedestal(numpy.clip(CLEAN + _comb(0.32, fwhm=0.15) + noise - 1.0, 0.0, None))
@@ -265,6 +267,44 @@ def test_comb_on_a_floor_carries_its_scale_uncertainty():
     assert not numpy.allclose(withComb.propagate(weights), weights)
     assert plain.floor == 0.0 and plain.basis.shape[1] == 0
     assert plain.propagate(weights) == pytest.approx(weights)
+
+
+def test_whole_shifts_away_from_the_edges_reach_as_far_either_way():
+    assert mpp._whole_shifts(900.0, 905.0, 800.0, 1300.0, 1, 20) == [
+        k for k in range(-20, 21) if k
+    ]
+    assert mpp._whole_shifts(900.0, 905.0, 800.0, 1300.0, 6, 25) == [
+        k for k in range(-25, 26) if abs(k) >= 6
+    ]
+
+
+def test_whole_shifts_at_an_edge_reach_further_the_other_way():
+    """A window 2.5 m/z from the start of the spectrum has two whole shifts left;
+    the 18 it misses there are taken on the right."""
+
+    steps = mpp._whole_shifts(802.5, 806.0, 800.0, 1300.0, 1, 20)
+    assert len(steps) == 40
+    assert steps == [-2, -1] + list(range(1, 39))
+    # however far the spectrum reaches, only the nearest steps are considered
+    assert mpp._whole_shifts(802.5, 806.0, 800.0, 1e9, 1, 20) == steps
+    assert mpp._whole_shifts(1e9 - 6.0, 1e9 - 2.5, 0.0, 1e9, 1, 20) == [-k for k in reversed(steps)]
+
+
+def test_comb_template_at_the_start_of_a_cropped_spectrum():
+    """A spectrum cropped just below its first species, with a crowd right after
+    it (lipids every 2 m/z, say): the shifts to the left fall off the spectrum,
+    those up to 20 to the right all land on the crowd. The comb is read further
+    out on the right instead, so the envelope still stands on it."""
+
+    keep = X >= 848.5
+    y = (CLEAN + BASELINE + _comb(0.32) + numpy.random.default_rng(8).normal(0.0, 0.3, len(X)))[keep]
+    signal = numpy.column_stack((X[keep], y))
+    window = X[(X > 849.0) & (X < 855.0)]
+    crowd = 849.5 + 2.0 * numpy.arange(11)
+    occupied = (crowd, crowd + 5.0)
+
+    comb = mpp._comb_template(signal, window, occupied)
+    assert comb is not None and comb.significant()
 
 
 def test_null_spread_of_mostly_empty_readings():

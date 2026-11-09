@@ -181,13 +181,17 @@ it under `xvfb-run`.
 mmass process sample.mzML --baseline --smooth --find-peaks sample.msd
 mmass process *.mzML --find-peaks -f csv --peak-list --columns mz,intensity,charge,envarea -d peaks
 mmass process spectra/*.msd --crop 500-3000 --find-peaks --in-place --dry-run
+mmass process spectra/*.msd --envelopes --in-place   # refit the envelopes saved in them
 mmass process run.mzML --find-peaks --preset Default --set snThreshold=10 -f mzml -d picked
 mmass process --show-settings
 ```
 
-The steps are `--crop LOW-HIGH`, `--baseline`, `--smooth`, `--find-peaks`, `--deisotope` and
-`--math OPERATION`, where the operation is `normalize`, `multiply` (by the `math.multiplier`
-setting) or `squareroot` (`sqrt`); math between spectra is left to the GUI. The steps use your own
+The steps are `--crop LOW-HIGH`, `--baseline`, `--smooth`, `--find-peaks`, `--deisotope`,
+`--envelopes` and `--math OPERATION`, where the operation is `normalize`, `multiply` (by the
+`math.multiplier` setting) or `squareroot` (`sqrt`); math between spectra is left to the GUI.
+`--envelopes` does what Convert All to Envelopes does: every peak becomes an envelope, and the
+envelopes already there are fitted again, so documents saved by an older version get the current
+areas and uncertainties. The steps use your own
 settings from the Processing panel; `--preset NAME` starts from saved presets instead (`Default` is
 the built-in settings, the same on every computer), and `--set` changes single settings for this run
 only, e.g. `--set snThreshold=10` (a key that two sections share needs its section, as in
