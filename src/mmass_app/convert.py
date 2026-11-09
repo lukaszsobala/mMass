@@ -664,6 +664,16 @@ def apply_steps(document, scanID, options, settings):
             for scan in usable:
                 processing.deisotopeScan(scan, settings)
 
+        elif step == "envelopes":
+            usable = [scan for scan in scans if scan.haspeaks()]
+            if not usable:
+                raise ConversionError(
+                    f"--envelopes needs peaks, and the {what} "
+                    f"{'have' if len(scans) > 1 else 'has'} none; find them first with --find-peaks"
+                )
+            for scan in usable:
+                processing.convertScanToEnvelopes(scan, settings)
+
         elif step == "math":
             for scan in scans:
                 processing.mathScan(scan, argument, settings)

@@ -100,6 +100,11 @@ STEPS = {
         "peaks",
     ),
     "deisotope": ("find isotopes and charges of the peaks", "peaks"),
+    "envelopes": (
+        "turn every peak into an envelope and refit the envelopes already "
+        "there, as Convert All to Envelopes does in the GUI",
+        "peaks",
+    ),
     "math": (
         "apply a math operation to the profile and the peaks: normalize "
         "(scale to a maximum of 100 %%), multiply (by the math.multiplier "
