@@ -354,7 +354,7 @@ main = {
     # "average" or "sum"
     "chromatogramCombine": "average",
     # undo steps kept per spectrum, and the memory all of them may take (MB)
-    "undoSteps": 50,
+    "undoSteps": 100,
     "undoMemory": 1024,
     "updatesEnabled": 1,
     "updatesChecked": "",

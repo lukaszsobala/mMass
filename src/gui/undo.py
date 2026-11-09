@@ -39,7 +39,7 @@ STATE_KEYS = {
 
 # limits of config.main["undoSteps"] and ["undoMemory"] (MB), and defaults;
 # the memory is set in whole MEMORY_STEPs
-DEFAULT_STEPS = 50
+DEFAULT_STEPS = 100
 DEFAULT_MEMORY = 1024
 STEPS_RANGE = (1, 200)
 MEMORY_RANGE = (256, 4096)
