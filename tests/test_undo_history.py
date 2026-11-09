@@ -113,6 +113,32 @@ def test_a_single_name_is_one_part_not_its_letters():
     assert undo.normalizeItems(None) == ()
 
 
+def test_a_run_of_typing_is_one_step():
+    document = _document()
+    _addPeak(document, 401.0, label="Add Peak")
+    for text in ("n", "no", "not", "note"):
+        document.backup(("info",), label="Document Information", coalesce=True)
+        document.notes = text
+
+    assert [step.label for step in document.history().undoSteps] == ["Add Peak", "Document Information"]
+    document.restore()
+    assert document.notes == ""
+
+
+def test_typing_after_undo_or_another_edit_is_a_new_step():
+    document = _document()
+    document.backup(("info",), label="Document Information", coalesce=True)
+    document.notes = "a"
+    _addPeak(document, 401.0, label="Add Peak")
+    document.backup(("info",), label="Document Information", coalesce=True)
+    document.notes = "ab"
+    document.restore()
+    document.backup(("info",), label="Document Information", coalesce=True)
+
+    labels = [step.label for step in document.history().undoSteps]
+    assert labels == ["Document Information", "Add Peak", "Document Information"]
+
+
 def test_old_steps_go_past_the_step_limit(monkeypatch):
     # a copy: the real section would save itself to the config file
     monkeypatch.setattr(config, "main", dict(config.main, undoSteps=3))

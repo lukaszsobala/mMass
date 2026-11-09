@@ -3827,11 +3827,23 @@ class mainFrame(wx.Frame):
             return
 
         # update gui
-        self.onDocumentChanged(items=items)
+        self._showRestored(items)
 
         # bring back the peak selection (and its envelope) the undo restored
         if "spectrum" in items:
             self.peaklistPanel.restoreEnvelopeSelection()
+
+    # ----
+
+    def _showRestored(self, items):
+        """Show the parts of the current document an undo or redo changed."""
+
+        if "info" in items:
+            # the title is a part of the information
+            items = tuple(items) + ("doctitle",)
+        self.onDocumentChanged(items=items)
+        if "info" in items and self.documentInfoPanel:
+            self.documentInfoPanel.setData(self.documents[self.currentDocument])
 
     # ----
 
@@ -3850,7 +3862,7 @@ class mainFrame(wx.Frame):
             return
 
         # update gui
-        self.onDocumentChanged(items=items)
+        self._showRestored(items)
 
         # bring back the peak selection (and its envelope) the redo restored
         if "spectrum" in items:

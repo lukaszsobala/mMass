@@ -3204,7 +3204,11 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
                 # one backup per document covers all steps — single undo entry
                 if apply_in_place:
-                    self.currentDocument.backup(("spectrum", "notations"), label="Batch Processing")
+                    items = ("spectrum", "notations")
+                    if step_enabled.get("crop", False):
+                        # cropping also removes the difference labels outside the range
+                        items += ("rulers",)
+                    self.currentDocument.backup(items, label="Batch Processing")
                     self.batchChanged.append(docIndex)
 
                 # execute checked steps in the user-defined order

@@ -507,14 +507,16 @@ class document:
 
     # ----
 
-    def backup(self, items=None, label=None):
+    def backup(self, items=None, label=None, coalesce=False):
         """Record the current state of some parts as an undo step.
 
         items names the parts an edit is about to change: "spectrum",
         "annotations", "sequences", "notations" (annotations and sequence
         matches), "rulers", "doctitle" or "info". None clears the history of
         the spectrum shown, for edits that cannot be undone. label is what
-        Undo and Redo say, e.g. "Peak Picking".
+        Undo and Redo say, e.g. "Peak Picking". With coalesce, a run of the
+        same edit (typing in a field) makes one step: none is recorded while
+        the last one is the same edit and nothing was undone since.
         """
 
         items = undo.normalizeItems(items)
@@ -523,7 +525,12 @@ class document:
             return
 
         history = self.history()
-        step = undo.Step(label or undo.defaultLabel(items), items, self._takeState(items, history))
+        label = label or undo.defaultLabel(items)
+        if coalesce and history.undoSteps and not history.redoSteps:
+            last = history.undoSteps[-1]
+            if last.items == items and last.label == label:
+                return
+        step = undo.Step(label, items, self._takeState(items, history))
         history.record(step)
 
         # the difference labels of every scan are stored together, so the
