@@ -1940,7 +1940,13 @@ class panelPeaklist(wx.Panel):
             peaklist = document.spectrum.peaklist
             peaks = list(peaklist)
             if peaks:
-                params = self._envelopeParams(seedCharge=self._getConvertEnvelopeCharge(peaks))
+                # the charge typed in the peak editor belongs to the current
+                # document; any other goes by its own charged peaks, or 1
+                if document is self.currentDocument:
+                    seedCharge = self._getConvertEnvelopeCharge(peaks)
+                else:
+                    seedCharge = next((int(peak.charge) for peak in peaks if peak.charge), 1)
+                params = self._envelopeParams(seedCharge=seedCharge)
                 jobs.append((docIndex, document, peaklist, [peak.mz for peak in peaks], params))
         if not jobs:
             wx.Bell()
@@ -1981,18 +1987,21 @@ class panelPeaklist(wx.Panel):
 
         # apply a result only to the peak list it was fitted from
         changed = []
-        for docIndex, document, peaklist, _mzs, _params in jobs:
-            if (
-                docIndex in results
-                and docIndex < len(documents)
-                and documents[docIndex] is document
-                and document.spectrum.peaklist is peaklist
-            ):
-                document.backup(("spectrum"))
-                document.spectrum.peaklist = results[docIndex]
-                changed.append(docIndex)
-        if changed:
-            self.parent.onDocumentChangedMulti(indexes=changed, items=("spectrum",))
+        try:
+            for docIndex, document, peaklist, _mzs, _params in jobs:
+                if (
+                    docIndex in results
+                    and docIndex < len(documents)
+                    and documents[docIndex] is document
+                    and document.spectrum.peaklist is peaklist
+                ):
+                    document.backup(("spectrum"))
+                    document.spectrum.peaklist = results[docIndex]
+                    changed.append(docIndex)
+        finally:
+            # documents already changed are marked and redrawn whatever happens
+            if changed:
+                self.parent.onDocumentChangedMulti(indexes=changed, items=("spectrum",))
 
         if failures:
             wx.Bell()
