@@ -308,7 +308,8 @@ class panelDocuments(wx.Panel):
             menu.Enable(ID_documentRulersDelete, bool(itemData.rulers))
             menu.AppendSeparator()
             menu.Append(
-                ID_documentConvertAllToEnvelopes, "Convert All to Envelopes in All Documents"
+                ID_documentConvertAllToEnvelopes,
+                "Convert All to Envelopes in All Documents\tCtrl+Alt+Shift+A",
             )
             menu.Enable(
                 ID_documentConvertAllToEnvelopes,

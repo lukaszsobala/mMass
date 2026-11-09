@@ -152,6 +152,7 @@ ID_peaklistConvertToEnvelopes = wx.NewId()
 ID_peaklistConvertAllToEnvelopes = wx.NewId()
 ID_peaklistConvertAllToEnvelopesAllDocuments = wx.NewId()
 ID_processingConvertAllToEnvelopes = wx.NewId()
+ID_processingConvertAllToEnvelopesAllDocuments = wx.NewId()
 
 HK_viewPosBars = "\tAlt+Ctrl+P"
 HK_viewGel = "\tAlt+Ctrl+G"

@@ -240,10 +240,16 @@ class mainFrame(wx.Frame):
         # been removed, so register it as a frame accelerator instead -- this
         # keeps it firing regardless of which panel has focus (the peak-list
         # popup handler only covers the case where the list itself is focused).
+        # Ctrl+Alt+Shift+A does the same in every open document.
         self.Bind(
             wx.EVT_MENU,
             self.onConvertAllToEnvelopes,
             id=ID_processingConvertAllToEnvelopes,
+        )
+        self.Bind(
+            wx.EVT_MENU,
+            self.onConvertAllToEnvelopesInAllDocuments,
+            id=ID_processingConvertAllToEnvelopesAllDocuments,
         )
         self.SetAcceleratorTable(
             wx.AcceleratorTable(
@@ -252,6 +258,11 @@ class mainFrame(wx.Frame):
                         wx.ACCEL_CTRL | wx.ACCEL_SHIFT,
                         ord("A"),
                         ID_processingConvertAllToEnvelopes,
+                    ),
+                    wx.AcceleratorEntry(
+                        wx.ACCEL_CTRL | wx.ACCEL_ALT | wx.ACCEL_SHIFT,
+                        ord("A"),
+                        ID_processingConvertAllToEnvelopesAllDocuments,
                     ),
                 ]
             )
@@ -3894,7 +3905,10 @@ class mainFrame(wx.Frame):
     # ----
 
     def onConvertAllToEnvelopesInAllDocuments(self, evt=None):
-        """"Convert All to Envelopes" in every open document."""
+        """"Convert All to Envelopes" in every open document.
+
+        Wired to a frame accelerator (Shift+Alt+Ctrl+A) as well.
+        """
 
         if not self.documents:
             wx.Bell()
