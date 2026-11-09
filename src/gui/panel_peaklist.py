@@ -17,7 +17,6 @@
 
 # load libs
 import threading
-import traceback
 
 import wx
 
@@ -49,6 +48,7 @@ from . import config
 from . import display_scale
 import mspy
 from . import doc
+from . import processing
 
 from .dlg_notation import dlgNotation
 
@@ -678,7 +678,7 @@ class panelPeaklist(wx.Panel):
         )
         menu.Append(
             ID_peaklistConvertAllToEnvelopesAllDocuments,
-            "Convert All to Envelopes in All Documents",
+            "Convert All to Envelopes in All Documents\tCtrl+Alt+Shift+A",
             "",
         )
 
@@ -1004,21 +1004,7 @@ class panelPeaklist(wx.Panel):
     def _envelopeParams(self, seedCharge=1):
         """Build the plain parameter dict for the pure envelope recalc helper."""
 
-        d = config.processing["deisotoping"]
-        return {
-            "massTolerance": d["massTolerance"],
-            "isotopeShift": d["isotopeShift"],
-            "maxCharge": d["maxCharge"],
-            "intTolerance": d["intTolerance"],
-            "labelEnvelope": d["labelEnvelope"],
-            "envelopeIntensity": d["envelopeIntensity"],
-            "envelopeNonIdeality": d["envelopeNonIdeality"],
-            "envelopeRefinePattern": d.get("envelopeRefinePattern", 1),
-            "averagineType": config.processing["peakpicking"].get(
-                "averagineType", "protein"
-            ),
-            "seedCharge": seedCharge,
-        }
+        return processing.envelopeParams(config.processing, seedCharge=seedCharge)
 
     def _recalculateNeighborhoodEnvelopes(
         self, mzs, document=None, selectedOnly=False, respectFwhm=False,
@@ -1908,15 +1894,11 @@ class panelPeaklist(wx.Panel):
             wx.Bell()
             return
 
-        seedCharge = self._getConvertEnvelopeCharge(peaks)
-        mzs = [peak.mz for peak in peaks]
-
-        result = mspy.recalculate_neighborhood_envelopes(
+        result = processing.convertToEnvelopes(
             spectrum.peaklist,
             spectrum.profile,
-            mzs,
-            self._envelopeParams(seedCharge=seedCharge),
-            selectedOnly=True,
+            config.processing,
+            self._getConvertEnvelopeCharge(peaks),
         )
 
         # identity means the helper found nothing to do -> no-op
@@ -1935,43 +1917,23 @@ class panelPeaklist(wx.Panel):
         on its own."""
 
         documents = self.parent.documents
-        jobs = []
-        for docIndex, document in enumerate(documents):
-            peaklist = document.spectrum.peaklist
-            peaks = list(peaklist)
-            if peaks:
-                # the charge typed in the peak editor belongs to the current
-                # document; any other goes by its own charged peaks, or 1
-                if document is self.currentDocument:
-                    seedCharge = self._getConvertEnvelopeCharge(peaks)
-                else:
-                    seedCharge = next((int(peak.charge) for peak in peaks if peak.charge), 1)
-                params = self._envelopeParams(seedCharge=seedCharge)
-                jobs.append((docIndex, document, peaklist, [peak.mz for peak in peaks], params))
+        jobs = processing.envelopeJobs(
+            documents, self.currentDocument, self.peakCharge_value.GetValue()
+        )
         if not jobs:
             wx.Bell()
             return
 
         # fit in a worker thread while the gauge pulses (it disables every other
-        # window meanwhile); the documents are only changed afterwards, here. A
-        # document that fails is reported, and the others still go on.
-        results = {}
-        failures = []
+        # window meanwhile); the documents are only changed afterwards, here
+        settings = config.processing
         progress = {"done": 0}
+        outcome = {}
 
         def run():
-            for docIndex, document, peaklist, mzs, params in jobs:
-                try:
-                    result = mspy.recalculate_neighborhood_envelopes(
-                        peaklist, document.spectrum.profile, mzs, params, selectedOnly=True
-                    )
-                    if result is not peaklist:
-                        results[docIndex] = result
-                except Exception as error:
-                    traceback.print_exc()
-                    failures.append((document.title, error))
-                finally:
-                    progress["done"] += 1
+            outcome["results"], outcome["failures"] = processing.fitEnvelopeJobs(
+                jobs, settings, progress
+            )
 
         gauge = mwx.gaugePanel(self.parent, "Converting to envelopes...")
         gauge.show()
@@ -1985,19 +1947,11 @@ class panelPeaklist(wx.Panel):
             gauge.pulse()
         gauge.close()
 
-        # apply a result only to the peak list it was fitted from
+        results = outcome.get("results", {})
+        failures = outcome.get("failures", [])
         changed = []
         try:
-            for docIndex, document, peaklist, _mzs, _params in jobs:
-                if (
-                    docIndex in results
-                    and docIndex < len(documents)
-                    and documents[docIndex] is document
-                    and document.spectrum.peaklist is peaklist
-                ):
-                    document.backup(("spectrum"))
-                    document.spectrum.peaklist = results[docIndex]
-                    changed.append(docIndex)
+            processing.applyEnvelopeResults(documents, jobs, results, changed)
         finally:
             # documents already changed are marked and redrawn whatever happens
             if changed:
@@ -2020,21 +1974,7 @@ class panelPeaklist(wx.Panel):
     def _getConvertEnvelopeCharge(self, peaks):
         """Get user-specified charge for envelope conversion, defaulting to 1."""
 
-        # Prefer the selected peak charge so conversion respects user-edited values.
-        for peak in peaks:
-            if peak.charge:
-                return int(peak.charge)
-
-        charge = self.peakCharge_value.GetValue().strip()
-        if charge:
-            try:
-                value = int(charge)
-                if value:
-                    return value
-            except Exception:
-                pass
-
-        return 1
+        return processing.seedCharge(peaks, self.peakCharge_value.GetValue())
 
     # ----
 
