@@ -2816,8 +2816,10 @@ def _whole_shifts(first, last, low, high, nearest, farthest):
 
     pitch = ENVELOPE_NOISE_NULL_PITCH
     count = 2 * max(0, farthest - nearest + 1)
-    left = int(math.floor((first - low) / pitch + 1e-9))
-    right = int(math.floor((high - last) / pitch + 1e-9))
+    # no step past nearest + count can be among the `count` nearest
+    limit = nearest + count
+    left = min(limit, int(math.floor((first - low) / pitch + 1e-9)))
+    right = min(limit, int(math.floor((high - last) / pitch + 1e-9)))
     steps = [k for k in range(-left, right + 1) if abs(k) >= nearest]
     steps.sort(key=lambda k: (abs(k), k))
     return sorted(steps[:count])

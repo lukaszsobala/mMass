@@ -285,6 +285,9 @@ def test_whole_shifts_at_an_edge_reach_further_the_other_way():
     steps = mpp._whole_shifts(802.5, 806.0, 800.0, 1300.0, 1, 20)
     assert len(steps) == 40
     assert steps == [-2, -1] + list(range(1, 39))
+    # however far the spectrum reaches, only the nearest steps are considered
+    assert mpp._whole_shifts(802.5, 806.0, 800.0, 1e9, 1, 20) == steps
+    assert mpp._whole_shifts(1e9 - 6.0, 1e9 - 2.5, 0.0, 1e9, 1, 20) == [-k for k in reversed(steps)]
 
 
 def test_comb_template_at_the_start_of_a_cropped_spectrum():

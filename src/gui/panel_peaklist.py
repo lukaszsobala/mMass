@@ -17,6 +17,7 @@
 
 # load libs
 import threading
+import traceback
 
 import wx
 
@@ -1936,28 +1937,35 @@ class panelPeaklist(wx.Panel):
         documents = self.parent.documents
         jobs = []
         for docIndex, document in enumerate(documents):
-            peaks = list(document.spectrum.peaklist)
+            peaklist = document.spectrum.peaklist
+            peaks = list(peaklist)
             if peaks:
                 params = self._envelopeParams(seedCharge=self._getConvertEnvelopeCharge(peaks))
-                jobs.append((docIndex, document, [peak.mz for peak in peaks], params))
+                jobs.append((docIndex, document, peaklist, [peak.mz for peak in peaks], params))
         if not jobs:
             wx.Bell()
             return
 
-        # fit in a worker thread while the gauge pulses; the documents are only
-        # changed afterwards, here
+        # fit in a worker thread while the gauge pulses (it disables every other
+        # window meanwhile); the documents are only changed afterwards, here. A
+        # document that fails is reported, and the others still go on.
         results = {}
+        failures = []
         progress = {"done": 0}
 
         def run():
-            for docIndex, document, mzs, params in jobs:
-                spectrum = document.spectrum
-                result = mspy.recalculate_neighborhood_envelopes(
-                    spectrum.peaklist, spectrum.profile, mzs, params, selectedOnly=True
-                )
-                if result is not spectrum.peaklist:
-                    results[docIndex] = result
-                progress["done"] += 1
+            for docIndex, document, peaklist, mzs, params in jobs:
+                try:
+                    result = mspy.recalculate_neighborhood_envelopes(
+                        peaklist, document.spectrum.profile, mzs, params, selectedOnly=True
+                    )
+                    if result is not peaklist:
+                        results[docIndex] = result
+                except Exception as error:
+                    traceback.print_exc()
+                    failures.append((document.title, error))
+                finally:
+                    progress["done"] += 1
 
         gauge = mwx.gaugePanel(self.parent, "Converting to envelopes...")
         gauge.show()
@@ -1971,16 +1979,32 @@ class panelPeaklist(wx.Panel):
             gauge.pulse()
         gauge.close()
 
+        # apply a result only to the peak list it was fitted from
         changed = []
-        for docIndex, document, _mzs, _params in jobs:
-            if docIndex in results and docIndex < len(documents) and documents[docIndex] is document:
+        for docIndex, document, peaklist, _mzs, _params in jobs:
+            if (
+                docIndex in results
+                and docIndex < len(documents)
+                and documents[docIndex] is document
+                and document.spectrum.peaklist is peaklist
+            ):
                 document.backup(("spectrum"))
                 document.spectrum.peaklist = results[docIndex]
                 changed.append(docIndex)
-        if not changed:
+        if changed:
+            self.parent.onDocumentChangedMulti(indexes=changed, items=("spectrum",))
+
+        if failures:
             wx.Bell()
-            return
-        self.parent.onDocumentChangedMulti(indexes=changed, items=("spectrum",))
+            dlg = mwx.dlgMessage(
+                self.parent,
+                title="Some documents could not be converted.",
+                message="\n".join("%s: %s" % (title, error) for title, error in failures),
+            )
+            dlg.ShowModal()
+            dlg.Destroy()
+        elif not changed:
+            wx.Bell()
 
     # ----
 
