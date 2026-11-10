@@ -1005,8 +1005,11 @@ class panelCalibration(wx.Frame, MakeModalMixin):
     def applyCalibration(self, fn, params):
         """Calibrate document."""
 
-        # backup data
-        self.currentDocument.backup(("spectrum", "notations"), label="Calibration")
+        # backup data; undoing only the spectrum would leave the annotations
+        # and matches calibrated
+        self.currentDocument.backup(
+            ("spectrum", "notations"), label="Calibration", whole=True
+        )
 
         # recalibrate spectrum
         self.currentDocument.spectrum.recalibrate(fn, params)

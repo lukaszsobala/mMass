@@ -304,6 +304,53 @@ def test_an_edited_sequence_does_not_come_back_by_undo():
     assert steps[-1].items == ("spectrum",) and set(steps[-1].state) == {"spectrum"}
 
 
+def _calibrate(document, shift=0.5):
+    """What the calibration tool does: spectrum and notations move together."""
+
+    document.backup(("spectrum", "notations"), label="Calibration", whole=True)
+    for peak in document.spectrum.peaklist:
+        peak.mz += shift
+    for annotation in document.annotations:
+        annotation.mz += shift
+
+
+def test_a_calibration_is_never_undone_in_part():
+    document = _document()
+    document.annotations.append(doc.annotation("a", 401.0, 10.0))
+    _addPeak(document, 401.0, label="Add Peak")
+    _calibrate(document)
+
+    # editing a sequence forgets the stored notations
+    document.forgetSteps(("sequences", "notations"))
+
+    # undoing the spectrum alone would leave the annotation calibrated
+    assert document.undoLabel() == "Add Peak"
+    document.restore()
+    assert _mzs(document) == [] and document.annotations[0].mz == 401.5
+
+
+def test_an_undone_calibration_stays_whole_for_redo():
+    document = _document()
+    document.annotations.append(doc.annotation("a", 401.0, 10.0))
+    _calibrate(document)
+    document.restore()
+
+    document.forgetSteps(("notations",))
+
+    assert document.redo is None
+
+
+def test_a_calibration_goes_on_leaving_its_scan():
+    document = _run()
+    _addPeak(document, 401.0, label="Add Peak")
+    _calibrate(document)
+
+    document.showScan(2, document.scanCache[2])
+    document.showScan(1, document.scanCache[1])
+
+    assert document.undoLabel() == "Add Peak"
+
+
 def test_a_copied_document_has_no_history():
     document = _document()
     _addPeak(document, 401.0)

@@ -507,7 +507,7 @@ class document:
 
     # ----
 
-    def backup(self, items=None, label=None, coalesce=False):
+    def backup(self, items=None, label=None, coalesce=False, whole=False):
         """Record the current state of some parts as an undo step.
 
         items names the parts an edit is about to change: "spectrum",
@@ -516,7 +516,9 @@ class document:
         the spectrum shown, for edits that cannot be undone. label is what
         Undo and Redo say, e.g. "Peak Picking". With coalesce, a run of the
         same edit (typing in a field) makes one step: none is recorded while
-        the last one is the same edit and nothing was undone since.
+        the last one is the same edit and nothing was undone since. A whole
+        step is undone with all its parts or not at all: it is dropped rather
+        than losing a part (see forgetSteps).
         """
 
         items = undo.normalizeItems(items)
@@ -530,7 +532,7 @@ class document:
             last = history.undoSteps[-1]
             if last.items == items and last.label == label:
                 return
-        step = undo.Step(label, items, self._takeState(items, history))
+        step = undo.Step(label, items, self._takeState(items, history), whole)
         history.record(step)
 
         # the difference labels of every scan are stored together, so the
@@ -600,7 +602,9 @@ class document:
             return False
 
         step = history.popUndo()
-        redo = undo.Step(step.label, step.items, self._takeState(step.items, history))
+        redo = undo.Step(
+            step.label, step.items, self._takeState(step.items, history), step.whole
+        )
         redo.serial = step.serial
         self._putState(step.state)
         history.redoSteps.append(redo)
@@ -616,7 +620,9 @@ class document:
             return False
 
         step = history.popRedo()
-        back = undo.Step(step.label, step.items, self._takeState(step.items, history))
+        back = undo.Step(
+            step.label, step.items, self._takeState(step.items, history), step.whole
+        )
         back.serial = step.serial
         self._putState(step.state)
         history.undoSteps.append(back)

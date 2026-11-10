@@ -133,20 +133,26 @@ def approximateSize(value):
 class Step:
     """One undoable edit: the state of some parts of a document before it."""
 
-    __slots__ = ("label", "items", "state", "serial", "size")
+    __slots__ = ("label", "items", "state", "serial", "size", "whole")
 
-    def __init__(self, label, items, state):
+    def __init__(self, label, items, state, whole=False):
         self.label = label
         self.items = tuple(items)
         self.state = state
+        # a step whose parts only make sense together (calibration moves the
+        # spectrum and the annotations at once) is never undone in part
+        self.whole = whole
         self.serial = next(_serials)
         self.size = sum(approximateSize(value) for value in state.values())
 
     def strip(self, names):
-        """Forget the parts named; returns False when nothing is left."""
+        """Forget the parts named; returns False when nothing is left, or when
+        the step is whole and loses any part."""
 
         if not any(name in names for name in self.items):
             return True
+        if self.whole:
+            return False
         self.items = tuple(name for name in self.items if name not in names)
         kept = {key for name in self.items for key in STATE_KEYS[name]}
         self.state = {key: value for key, value in self.state.items() if key in kept}

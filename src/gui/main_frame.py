@@ -3851,6 +3851,12 @@ class mainFrame(wx.Frame):
         if "info" in items:
             # the title is a part of the information
             items = tuple(items) + ("doctitle",)
+        if "sequences" in items:
+            # the sequences are stored copies now: the editor must not go on
+            # editing one that is no longer in the document (as after sorting)
+            self.currentSequence = None
+            if self.sequencePanel:
+                self.sequencePanel.setData(None)
         self.onDocumentChanged(items=items)
         if "info" in items and self.documentInfoPanel:
             self.documentInfoPanel.setData(self.documents[self.currentDocument])
@@ -4596,13 +4602,21 @@ class mainFrame(wx.Frame):
 
     # ----
 
-    def onSequenceNew(self, evt=None, seqData=None):
-        """Append new sequence to current document."""
+    def onSequenceNew(self, evt=None, seqData=None, label="Add Sequence"):
+        """Append new sequence to current document.
+
+        label names the undo step; None records none (the caller did).
+        """
 
         # check selection
         if self.currentDocument is None:
             wx.Bell()
             return
+
+        # an undoable step, so that undoing an older sequence step (a sort)
+        # cannot take the new sequence away unnoticed
+        if label:
+            self.documents[self.currentDocument].backup(("sequences",), label=label)
 
         # create new sequence
         if not seqData:
@@ -4682,10 +4696,14 @@ class mainFrame(wx.Frame):
         if not sequences:
             return
 
-        # append sequences
+        # append sequences, as one undo step
+        self.documents[self.currentDocument].backup(
+            ("sequences",),
+            label="Import Sequence" if len(sequences) == 1 else "Import Sequences",
+        )
         for sequence in sequences:
             sequence.matches = []
-            self.onSequenceNew(seqData=sequence)
+            self.onSequenceNew(seqData=sequence, label=None)
 
     # ----
 
