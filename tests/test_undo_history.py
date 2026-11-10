@@ -238,6 +238,56 @@ def test_a_cancelled_edit_leaves_no_step_and_keeps_what_can_be_redone():
     assert _mzs(document) == [401.0, 402.0]
 
 
+def _smooth(document):
+    document.backup(("spectrum"), label="Smoothing")
+    document.spectrum.profile = document.spectrum.profile * 0.9
+
+
+def test_steps_kept_for_a_cancel_count_against_the_budget():
+    document = _document(points=50000)
+    _smooth(document)
+    document.restore()
+    alone = undo.memoryUsed()
+
+    document.backup(("annotations"), label="Edit Annotation")
+
+    assert undo.memoryUsed() >= alone
+
+
+def test_over_the_budget_steps_kept_for_a_cancel_go_first(monkeypatch):
+    document = _document(points=50000)
+    profileBytes = document.spectrum.profile.nbytes
+    _smooth(document)
+    _smooth(document)
+    document.restore()
+    monkeypatch.setattr(doc, "undoLimits", lambda: (50, int(1.5 * profileBytes)))
+
+    document.backup(("annotations"), label="Edit Annotation")
+    document.discardBackup()
+
+    # the smoothing undone could not be kept; the one before it still is
+    assert document.redo is None
+    assert document.undoLabel() == "Smoothing"
+    assert undo.memoryUsed() <= 1.5 * profileBytes
+
+
+def test_a_trimmed_step_takes_the_steps_kept_for_its_cancel_along():
+    first, second = _document(points=50000), _document(points=50000)
+    _smooth(first)
+    _smooth(first)
+    first.restore()
+    first.backup(("spectrum"), label="Smoothing")
+    history = first.history()
+    profileBytes = first.spectrum.profile.nbytes
+
+    for _ in range(3):
+        _smooth(second)
+    undo.trim(second.history(), 50, int(2.5 * profileBytes))
+
+    # nothing of the first document is held any more
+    assert history.undoSteps == [] and history._replaced is None
+
+
 def test_an_edited_sequence_does_not_come_back_by_undo():
     document = _document()
     sequence = mspy.sequence("ACDEFGHIK")

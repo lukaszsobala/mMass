@@ -212,6 +212,25 @@ class History:
     def steps(self):
         return self.undoSteps + self.redoSteps
 
+    def retained(self):
+        """Redo steps kept only to bring back if the last edit is cancelled."""
+
+        return self._replaced[1] if self._replaced is not None else []
+
+    def release(self):
+        """Let go of the steps kept for a cancel; cancelling then leaves
+        nothing to redo."""
+
+        if self._replaced is not None and self._replaced[1]:
+            self._replaced = (self._replaced[0], [])
+
+    def dropOldest(self, steps):
+        """Drop the oldest step of undoSteps or redoSteps."""
+
+        step = steps.pop(0)
+        if self._replaced is not None and self._replaced[0] is step:
+            self._replaced = None
+
     def sharedProfile(self, profile):
         """A stored profile equal to the one given, to share instead of copying."""
 
@@ -243,7 +262,7 @@ def memoryUsed(histories=None):
     total = 0
     arrays = {}
     for history in histories:
-        for step in history.steps():
+        for step in history.steps() + history.retained():
             total += step.size
             profile = profileOf(step.state)
             if profile is not None:
@@ -254,9 +273,10 @@ def memoryUsed(histories=None):
 def trim(current, maxSteps, maxBytes):
     """Drop the oldest steps over the limits.
 
-    No history keeps more than maxSteps undo steps; then the oldest steps of
-    all histories are dropped until they fit in maxBytes, except the step just
-    recorded in the current history.
+    No history keeps more than maxSteps undo steps; then the steps kept only
+    for cancelling an edit go, and the oldest steps of all histories after
+    them, until they fit in maxBytes -- except the step just recorded in the
+    current history.
     """
 
     maxSteps = max(1, int(maxSteps))
@@ -267,14 +287,17 @@ def trim(current, maxSteps, maxBytes):
             del history.redoSteps[: len(history.redoSteps) - maxSteps]
 
     keep = current.undoSteps[-1] if current is not None and current.undoSteps else None
+    if memoryUsed() > maxBytes:
+        for history in list(_histories):
+            history.release()
     while memoryUsed() > maxBytes:
         # the oldest step at the far end of any history
         candidates = []
         for history in list(_histories):
             for steps in (history.undoSteps, history.redoSteps):
                 if steps and steps[0] is not keep:
-                    candidates.append((steps[0].serial, steps))
+                    candidates.append((steps[0].serial, history, steps))
         if not candidates:
             break
-        _serial, steps = min(candidates, key=lambda candidate: candidate[0])
-        del steps[0]
+        _serial, history, steps = min(candidates, key=lambda candidate: candidate[0])
+        history.dropOldest(steps)

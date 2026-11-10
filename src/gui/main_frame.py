@@ -6514,6 +6514,17 @@ class mainFrame(wx.Frame):
 
     # ----
 
+    def _setMenuLabel(self, itemID, label):
+        """Rename a menu item, only when its label changes.
+
+        On GTK a new label also takes the item's accelerator off and puts it
+        back, and the menu is measured again; updateControls runs often.
+        """
+
+        if self.menubar.GetLabel(itemID) != label:
+            self.menubar.SetLabel(itemID, label)
+
+    # ----
     def updateControls(self):
         """Update menubar and toolbar items state."""
 
@@ -6552,11 +6563,11 @@ class mainFrame(wx.Frame):
         )
         undoLabel = document.undoLabel() if document else None
         redoLabel = document.redoLabel() if document else None
-        self.menubar.SetLabel(
+        self._setMenuLabel(
             ID_processingUndo,
             ("Undo %s" % undoLabel if undoLabel else "Undo") + HK_processingUndo,
         )
-        self.menubar.SetLabel(
+        self._setMenuLabel(
             ID_processingRedo,
             ("Redo %s" % redoLabel if redoLabel else "Redo") + HK_processingRedo,
         )
