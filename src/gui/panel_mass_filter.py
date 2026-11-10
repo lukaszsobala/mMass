@@ -334,7 +334,7 @@ class panelMassFilter(wx.Frame):
 
         # store annotation
         if annotations:
-            self.currentDocument.backup(("annotations"))
+            self.currentDocument.backup(("annotations"), label="Annotate Filtered Peaks")
             self.currentDocument.annotations += annotations
             self.currentDocument.sortAnnotations()
             self.parent.onDocumentChanged(items=("annotations"))
@@ -364,7 +364,7 @@ class panelMassFilter(wx.Frame):
 
         # delete peaks
         if indexes:
-            self.currentDocument.backup(("spectrum"))
+            self.currentDocument.backup(("spectrum"), label="Remove Filtered Peaks")
 
             peaklist = self.currentDocument.spectrum.peaklist
             deleted_mzs = [peaklist[i].mz for i in indexes]

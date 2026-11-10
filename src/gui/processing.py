@@ -322,7 +322,7 @@ def applyEnvelopeResults(documents, jobs, results, changed):
             and documents[index] is document
             and document.spectrum.peaklist is peaklist
         ):
-            document.backup(("spectrum"))
+            document.backup(("spectrum"), label="Convert All to Envelopes")
             document.spectrum.peaklist = results[index]
             changed.append(index)
 

@@ -481,8 +481,9 @@ class panelDocumentInfo(wx.Frame):
             wx.Bell()
             return
 
-        # backup metadata for undo
-        self.currentDocument.backup(("info"))
+        # backup metadata for undo; this runs on every keystroke, and one run
+        # of typing is one step
+        self.currentDocument.backup(("info",), label="Document Information", coalesce=True)
 
         # update title
         if self.currentDocument.title != self.title_value.GetValue():

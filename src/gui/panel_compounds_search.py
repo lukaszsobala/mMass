@@ -723,7 +723,7 @@ class panelCompoundsSearch(wx.Frame, MakeModalMixin):
                 annotations.append(annotation)
 
         # store annotation
-        self.currentDocument.backup(("annotations"))
+        self.currentDocument.backup(("annotations"), label="Annotate Compounds")
         self.currentDocument.annotations += annotations
         self.currentDocument.sortAnnotations()
         self.parent.onDocumentChanged(items=("annotations"))

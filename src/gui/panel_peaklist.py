@@ -933,7 +933,7 @@ class panelPeaklist(wx.Panel):
             return
 
         # add annotation
-        self.currentDocument.backup(("annotations"))
+        self.currentDocument.backup(("annotations"), label="Annotate Peak")
         self.currentDocument.annotations.append(annot)
         self.currentDocument.sortAnnotations()
         self.parent.onDocumentChanged(items=("annotations"))
@@ -989,7 +989,7 @@ class panelPeaklist(wx.Panel):
             indexes.append(self.peakList.GetItemData(item))
 
         # update data
-        self.currentDocument.backup(("spectrum"))
+        self.currentDocument.backup(("spectrum"), label="Delete Peaks")
 
         peaklist = self.currentDocument.spectrum.peaklist
         deleted_mzs = [peaklist[i].mz for i in indexes]
@@ -1099,7 +1099,7 @@ class panelPeaklist(wx.Panel):
 
             # delete peaks
             if indexes:
-                self.currentDocument.backup(("spectrum"))
+                self.currentDocument.backup(("spectrum"), label="Delete Peaks by Threshold")
 
                 peaklist = self.currentDocument.spectrum.peaklist
                 deleted_mzs = [peaklist[i].mz for i in indexes]
@@ -1125,7 +1125,7 @@ class panelPeaklist(wx.Panel):
             return
 
         # empty peaklist
-        self.currentDocument.backup(("spectrum"))
+        self.currentDocument.backup(("spectrum"), label="Delete All Peaks")
         self.currentDocument.spectrum.peaklist.empty()
         self.parent.onDocumentChanged(items=("spectrum"))
 
@@ -1143,7 +1143,7 @@ class panelPeaklist(wx.Panel):
         # add new peak
         peak = self.getPeakEditorData()
         if peak:
-            document.backup(("spectrum"))
+            document.backup(("spectrum"), label="Add Peak")
             document.spectrum.peaklist.append(peak)
 
             self.parent.onDocumentChanged(items=("spectrum"))
@@ -1170,7 +1170,7 @@ class panelPeaklist(wx.Panel):
         original_peak = document.spectrum.peaklist[self.selectedPeak]
         peak = self.getPeakEditorData(original_peak=original_peak)
         if peak:
-            document.backup(("spectrum"))
+            document.backup(("spectrum"), label="Edit Peak")
 
             # apply the FWHM lock state from the editor before storing the peak
             lock = self.peakFwhmLock_check.GetValue()
@@ -1868,7 +1868,7 @@ class panelPeaklist(wx.Panel):
             wx.Bell()
             return
 
-        self.currentDocument.backup(("spectrum"))
+        self.currentDocument.backup(("spectrum"), label="Convert to Envelopes")
         spectrum.peaklist = result
         self.parent.onDocumentChanged(items=("spectrum"))
 
@@ -1906,7 +1906,7 @@ class panelPeaklist(wx.Panel):
             wx.Bell()
             return
 
-        self.currentDocument.backup(("spectrum"))
+        self.currentDocument.backup(("spectrum"), label="Convert All to Envelopes")
         spectrum.peaklist = result
         self.parent.onDocumentChanged(items=("spectrum"))
 

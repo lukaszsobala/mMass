@@ -600,7 +600,7 @@ class panelPeakDifferences(wx.Frame, MakeModalMixin):
         if not config.differenceRuler["show"]:
             mainFrame.onView(wx.CommandEvent(wx.wxEVT_MENU, ID_viewDiffLabels))
 
-        docData.backup(("rulers",))
+        docData.backup(("rulers",), label="Label Differences")
         docData.rulers.extend(rulers)
         mainFrame.onDocumentChanged(items=("rulers",))
 

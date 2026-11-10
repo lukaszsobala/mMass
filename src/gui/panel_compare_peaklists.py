@@ -973,7 +973,7 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
                 if not indexes:
                     continue
 
-                document.backup(("spectrum"))
+                document.backup(("spectrum"), label="Delete Peaks")
                 peaklist = document.spectrum.peaklist
                 deletedMzs = [peaklist[i].mz for i in indexes]
                 peaklist.delete(indexes)
@@ -1009,7 +1009,7 @@ class panelComparePeaklists(wx.Frame, MakeModalMixin):
                 if not indexes:
                     continue
 
-                document.backup(("annotations"))
+                document.backup(("annotations"), label="Delete Annotations")
                 for idx in indexes:
                     del document.annotations[idx]
 
