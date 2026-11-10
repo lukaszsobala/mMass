@@ -1895,6 +1895,11 @@ class mainFrame(wx.Frame):
         if self.currentDocument is None:
             return
 
+        # callers often pass one name as ("spectrum"), which is a string; "in"
+        # would then match substrings ("sequence" in "sequences")
+        if isinstance(items, str):
+            items = (items,)
+
         # update spectrum panel
         if "spectrum" in items:
             self.spectrumPanel.updateSpectrum(self.currentDocument)
@@ -2037,6 +2042,8 @@ class mainFrame(wx.Frame):
         indexes = [i for i in indexes if 0 <= i < len(self.documents)]
         if not indexes:
             return
+        if isinstance(items, str):
+            items = (items,)
 
         # set documents dirty
         for docIndex in indexes:
