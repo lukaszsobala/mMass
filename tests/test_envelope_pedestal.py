@@ -499,8 +499,11 @@ def test_area_uncertainty_is_the_same_for_one_envelope_or_all():
             if p.attributes.get("envelope") and abs(p.mz - 1000.42) < 0.05
         )
 
+    # every envelope recalculated (selecting the isotope peaks left in the list
+    # too would convert each of them into an envelope of its own)
+    envelopes = [p.mz for p in peaklist if p.attributes.get("envelope")]
     everything = mpp.recalculate_neighborhood_envelopes(
-        peaklist, profile, [p.mz for p in peaklist], params, selectedOnly=True
+        peaklist, profile, envelopes, params, selectedOnly=True
     )
     alone = mpp.recalculate_neighborhood_envelopes(peaklist, profile, [1000.42], params, selectedOnly=True)
 

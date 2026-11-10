@@ -17,6 +17,7 @@
 
 # load libs
 import copy
+import functools
 import math
 import numpy
 
@@ -195,6 +196,17 @@ ENVELOPE_TAIL_SIGNIFICANCE = 0.01
 # labelled, absorbed or merged into an envelope -- it comes back out of the fit
 # exactly as it went in. A peak stays a peak until the user converts it.
 ENVELOPE_CONTEXT_ATTR = "_envFitContext"
+
+# The joint area fit reads each cluster's signal this many FWHMs either side of
+# its isotopes, and clusters whose windows touch are fitted together. Recalculating
+# part of a peak list has to take in every envelope fitted together with it, so it
+# uses the same window (see `_cluster_window`).
+CLUSTER_WINDOW_FWHMS = 6.0
+
+# The m/z matching window of an isotope, as a fraction of the (charge-scaled) mass
+# tolerance: from the first on clean signal to the second on noisy signal (see
+# `_adaptive_mz_tolerance`).
+ADAPTIVE_TOLERANCE_RANGE = (0.9, 1.35)
 
 # Monoisotopic plausibility, applied when deisotoping (see deisotope). NOTHING
 # exists below a species' monoisotopic peak, so a comparably intense peak one
@@ -1348,7 +1360,8 @@ def _adaptive_mz_tolerance(baseTolerance, cluster):
     """Relax m/z matching in noisy regions, tighten in clean regions."""
 
     q = _sn_quality(cluster)
-    factor = 0.9 + (1.35 - 0.9) * (1.0 - q)
+    clean, noisy = ADAPTIVE_TOLERANCE_RANGE
+    factor = clean + (noisy - clean) * (1.0 - q)
     return baseTolerance * factor
 
 
@@ -2451,6 +2464,23 @@ def _overlap_groups(intervals):
 # ----
 
 
+def _on_isotope_grid(positions, charge, isotopeShift, mzTolerance):
+    """True when every position lies where an isotope of the species whose
+    monoisotopic peak is the first one would be built: k isotope spacings up,
+    give or take the shift and snap a fresh cluster's placeholders may get (see
+    relabelenvelopes)."""
+
+    if not positions or not charge:
+        return False
+    z = abs(int(charge))
+    spacing = (ISOTOPE_DISTANCE + isotopeShift) / z
+    bound = mzTolerance / z * (1.0 + ADAPTIVE_TOLERANCE_RANGE[1])
+    mono = float(positions[0])
+    return all(
+        abs(float(mz) - (mono + k * spacing)) <= bound for k, mz in enumerate(positions)
+    )
+
+
 def _is_regular_isotope_grid(shaped):
     """True if `shaped` is a clean single-species isotope grid.
 
@@ -3483,15 +3513,40 @@ def _species_intervals(peaks, defaultFwhm):
         envelope = _peak_attributes(peak).get("envelope")
         if isinstance(envelope, dict):
             positions = [float(mz) for mz, _w in envelope.get("isotopes") or []] or [peak.mz]
-            fwhm = envelope.get("fwhm") or peak.fwhm or 0.0
+            # with no width of its own it is fitted with the default
+            fwhm = (envelope.get("fwhm") or peak.fwhm) if peak.fwhm else 0.0
         elif peak.charge:
             positions = [peak.mz]
             fwhm = peak.fwhm or 0.0
         else:
             continue
-        pad = 6.0 * max(float(fwhm), float(defaultFwhm))
-        intervals.append((min(positions) - pad, max(positions) + pad))
+        intervals.append(_cluster_window(positions, fwhm, defaultFwhm))
     return intervals
+
+
+def _noise_reading_reach(width):
+    """How far beyond its window of the given width an envelope's noise readings
+    -- the comb template of its pedestal and the null readings of its area
+    uncertainty -- may land: whole PITCH steps out to REACH beyond its span, the
+    steps a spectrum edge cuts off taken further out on the other side (see
+    `_whole_shifts`, `_comb_template`, `_null_readings`)."""
+
+    return width + 2.0 * ENVELOPE_NOISE_NULL_REACH + 4.0 * ENVELOPE_NOISE_NULL_PITCH
+
+
+def _cluster_window(mzs, fwhm, defaultFwhm):
+    """(lo, hi) m/z window the joint fit reads for a cluster with isotopes at
+    `mzs` and the given width (see CLUSTER_WINDOW_FWHMS).
+
+    The cluster's own width sets it; the list's default only stands in for a
+    missing one. The default is the base peak's width, so as a floor it tied
+    every narrower envelope's window -- its pedestal, its area -- to whichever
+    peak was tallest: converting a taller peak 500 Da away moved a weak
+    envelope's area by 7%.
+    """
+
+    pad = CLUSTER_WINDOW_FWHMS * float(fwhm or defaultFwhm)
+    return (min(mzs) - pad, max(mzs) + pad)
 
 
 def _fit_envelope_areas_detailed(
@@ -3583,9 +3638,7 @@ def _fit_envelope_areas_detailed(
                 ]
         metas.append((fwhm, sigma, isotopes, storedShape, poisson))
 
-        mzs = [p.mz for p in cluster]
-        pad = 6.0 * max(fwhm, defaultFwhm)
-        intervals.append((min(mzs) - pad, max(mzs) + pad))
+        intervals.append(_cluster_window([p.mz for p in cluster], fwhm, defaultFwhm))
 
     areas = [0.0] * len(clusters)
     shapes = [list(meta[2]) for meta in metas]
@@ -3696,7 +3749,9 @@ def _reconstruct_cluster_from_envelope(parent, envelope, averagineType=DEFAULT_A
     """
 
     isotopes = envelope.get("isotopes") or []
-    fwhm = envelope.get("fwhm") or parent.fwhm
+    # a peak with no width of its own is fitted with the list's default width
+    # as it is now, not the one the envelope was last fitted with
+    fwhm = (envelope.get("fwhm") or parent.fwhm) if parent.fwhm else None
     storedAveragine = envelope.get("averagineType", DEFAULT_AVERAGINE)
     reuseWeights = storedAveragine == averagineType
 
@@ -3976,11 +4031,19 @@ def relabelenvelopes(
             reuseStored = True
             gridMzs = [float(m) for m, _w in storedIsos]
             gridLo, gridHi = min(gridMzs), max(gridMzs)
+            # A grid on this species' own isotope positions -- what this version
+            # builds -- has not absorbed anything, whatever sits under it: in a
+            # forest every overlapping envelope holds its neighbours' monos. Such
+            # a grid is kept. Rebuilt, its tail isotopes would be snapped again
+            # with a window set by the peak's S/N, which every fit re-reads from
+            # its own pedestal, so re-converting moved them -- and converting one
+            # peak gave its neighbours other envelopes than converting all of them.
+            onGrid = _on_isotope_grid(gridMzs, parent.charge, isotopeShift, mzTolerance)
             # index by position -- do NOT iterate `peaklist` here: obj_peaklist's
             # iterator keeps a single shared cursor, so a nested `for ... in
             # peaklist` would reset the outer seed loop's cursor and drop every
             # seed after this one.
-            for j in range(len(peaklist)):
+            for j in range(len(peaklist) if not onGrid else 0):
                 if j == x:
                     continue
                 other = peaklist[j]
@@ -4307,18 +4370,6 @@ def relabelenvelopes(
             result.append(copy.deepcopy(parent))
             continue
 
-        # The area is fit; give the isotopes emitted below the heights the
-        # consumed member peaks actually carried, so re-labelling an "All
-        # Isotopes" envelope does not blank out its isotope rows. Placeholder
-        # positions only -- a real measured peak in the cluster keeps its own.
-        for original in memberPeaks.get(id(cluster), (None, ()))[1]:
-            for peak in cluster:
-                if peak.intensity <= 0.0 and abs(peak.mz - original.mz) <= mzTolerance:
-                    peak.setbase(original.base)
-                    peak.setai(original.ai)
-                    peak.setsn(original.sn)
-                    break
-
         # Use the exact isotope shape the area fit used, so the stored/drawn
         # envelope matches the fitted area (in crowded regions the overlap-aware
         # fit deliberately keeps the shape tighter than a raw re-derivation would
@@ -4335,6 +4386,11 @@ def relabelenvelopes(
             )
         )
         fwhm_val = float(_cluster_fwhm(cluster, defaultFwhm))
+        # Where no width could be measured the fit used the list's default (the
+        # base peak's). The peak does not take it as its own: kept, it would
+        # stay this envelope's width after the base peak changed -- converting a
+        # taller peak later left it fitted with the old one.
+        ownFwhm = fwhm_val if any(p.fwhm and p.fwhm > 0.0 for p in cluster) else None
 
         # Normalise the isotope shape to a single-envelope distribution (weights
         # sum to 1) and rescale the area by that same sum. This is the ONE place
@@ -4404,6 +4460,21 @@ def relabelenvelopes(
             for peak in cluster:
                 _rebase_on_pedestal(peak, pedestal)
 
+        # The area is fit; give the isotopes emitted below the heights the
+        # consumed member peaks actually carried, so re-labelling an "All
+        # Isotopes" envelope does not blank out its isotope rows. Placeholder
+        # positions only -- a real measured peak in the cluster keeps its own.
+        # Only after the rebase above: these are the rows as the first
+        # conversion left them, and read from the pedestal a second time they
+        # changed on every re-conversion.
+        for original in memberPeaks.get(id(cluster), (None, ()))[1]:
+            for peak in cluster:
+                if peak.intensity <= 0.0 and abs(peak.mz - original.mz) <= mzTolerance:
+                    peak.setbase(original.base)
+                    peak.setai(original.ai)
+                    peak.setsn(original.sn)
+                    break
+
         peaks = labelenvelope(
             cluster,
             charge=parent.charge,
@@ -4419,9 +4490,12 @@ def relabelenvelopes(
         groupname = result.groupname()
         if label == "isotopes":
             for isotope, peak in enumerate(peaks):
+                # the rows are copies of the cluster's peaks: drop the fit's own
+                # working weight a rebuilt cluster carries
+                peak.attributes.pop("_envweight", None)
                 peak.setcharge(parent.charge)
                 peak.setisotope(isotope)
-                peak.setfwhm(fwhm_val)
+                peak.setfwhm(ownFwhm)
                 peak.setgroup(groupname)
                 peak.attributes["envelope"] = envelope
                 if fwhmLocked:
@@ -4431,7 +4505,7 @@ def relabelenvelopes(
             for peak in peaks:
                 peak.setcharge(parent.charge)
                 peak.setisotope(0)
-                peak.setfwhm(fwhm_val)
+                peak.setfwhm(ownFwhm)
                 peak.setgroup(groupname)
                 peak.attributes["envelope"] = envelope
                 if fwhmLocked:
@@ -4776,11 +4850,26 @@ def _sync_stored_envelope_fwhm(peak):
     editing) its stored envelope width is synced to the live FWHM first.
     """
 
-    if not hasattr(peak, "attributes"):
-        return
-    stored = peak.attributes.get("envelope")
-    if isinstance(stored, dict) and stored.get("fwhm") and peak.fwhm and peak.fwhm > 0.0:
+    stored = _envelope_width_owner(peak)
+    if stored is not None and peak.fwhm and peak.fwhm > 0.0:
         stored["fwhm"] = peak.fwhm
+
+
+def _envelope_width_owner(peak):
+    """The envelope whose stored width this peak sets, or None.
+
+    Only the monoisotopic row does. Under "All Isotopes" every isotope row shares
+    one envelope; each writing its own width into it left the envelope with the
+    width of whichever row came last -- on a noisy tail a fraction of the real
+    one -- so re-converting an envelope changed it.
+    """
+
+    stored = _peak_attributes(peak).get("envelope")
+    if not isinstance(stored, dict) or not stored.get("fwhm"):
+        return None
+    if getattr(peak, "isotope", None) not in (None, 0):
+        return None
+    return stored
 
 
 # ----
@@ -4991,7 +5080,12 @@ def _measured_fwhm(signal, mz):
     """A peak's width measured at m/z in the profile, above its baseline, and
     resolved against the spectrum's resolution curve."""
 
-    curve = resolutioncurve(signal)
+    return _measured_fwhm_on(signal, mz, resolutioncurve(signal))
+
+
+def _measured_fwhm_on(signal, mz, curve):
+    """`_measured_fwhm` with the profile's resolution curve (or None) at hand."""
+
     baseline = curve["baseline"] if curve is not None else None
     labeled = labelpoint(signal=signal, mz=mz, baseline=baseline)
     measured = labeled.fwhm if labeled and labeled.fwhm and labeled.fwhm > 0.0 else None
@@ -5042,104 +5136,180 @@ def _refresh_missing_fwhm_from_profile(peaklist, profile, recompute=False, respe
         width = _measured_fwhm(profile, peak.mz)
         if width and width > 0.0:
             peak.setfwhm(width)
-            if recompute and hasattr(peak, "attributes"):
-                stored = peak.attributes.get("envelope")
-                if isinstance(stored, dict) and stored.get("fwhm"):
-                    stored["fwhm"] = width
+            stored = _envelope_width_owner(peak) if recompute else None
+            if stored is not None:
+                stored["fwhm"] = width
 
 
 # ----
 
 
-def _envelope_overlap_span(peak, isotopeShift, averagineType, pad):
-    """(lo, hi) m/z span an envelope seeded at `peak` occupies, padded by `pad`.
+def _default_envelope_fwhm(peaklist, profile, respectAll=False):
+    """The width the envelopes of this peak list are fitted with when a cluster
+    has none of its own: the base peak's, measured as the recalculation measures
+    every width.
 
-    Uses the stored isotope positions when the peak already carries an envelope;
-    otherwise estimates the reach of the averagine envelope a monoisotopic seed
-    would grow (isotopes extend upward in m/z), so overlap with a neighbour can be
-    judged before the envelope is actually built.
+    It is taken over the WHOLE list, never over the peaks being recalculated. It
+    sets the window every cluster is fitted in (see CLUSTER_WINDOW_FWHMS), so a
+    width that followed the selection gave converting one peak different areas
+    from converting all of them. Picking takes the same base peak.
     """
 
-    env = peak.attributes.get("envelope") if hasattr(peak, "attributes") else None
-    isos = env.get("isotopes") if isinstance(env, dict) else None
-    if isos:
-        mzs = [float(mz) for mz, _w in isos]
-        lo, hi = min(mzs), max(mzs)
+    base = peaklist.basepeak
+    if base is None:
+        return 0.1
+    probe = copy.deepcopy(base)
+    _refresh_missing_fwhm_from_profile([probe], profile, recompute=True, respectAll=respectAll)
+    if probe.fwhm and probe.fwhm > 0.0:
+        return float(probe.fwhm)
+    return 0.1
+
+
+@functools.lru_cache(maxsize=4096)
+def _theory_length_at(mz, charge, averagineType):
+    """`_theory_envelope_length` of a species at m/z and charge (cached: it
+    builds the whole isotope pattern, and the neighbourhood of a recalculation
+    asks for it for every species of the list)."""
+
+    probe = obj_peak.peak(mz=mz, charge=charge)
+    return _theory_envelope_length(probe, averagineType=averagineType)
+
+
+def _species_fit_reach(peak, profile, curve, defaultFwhm, params, respectAll=False):
+    """(lo, hi) m/z window holding every window the joint fit may read for the
+    cluster this peak seeds or rebuilds.
+
+    The cluster is either the stored isotope grid or the one a fresh seed is
+    modelled with: the theoretical extent (`_theory_envelope_length`), each
+    isotope snapped by at most the matching window. A peak with no charge yet may
+    get any charge up to maxCharge. Its width is the larger of the stored ones and
+    the one the recalculation would measure. All of these only ever widen the
+    window, so it can take in a neighbour the fit leaves alone -- which costs a
+    re-fit giving the same result -- but never miss one the fit includes.
+    `curve` is the profile's resolution curve, or None.
+    """
+
+    isotopeShift = params["isotopeShift"]
+    tolerance = params["massTolerance"]
+    averagineType = params.get("averagineType", DEFAULT_AVERAGINE)
+
+    mzs = [peak.mz]
+    widths = [peak.fwhm or 0.0]
+    envelope = _peak_attributes(peak).get("envelope")
+    if isinstance(envelope, dict):
+        mzs += [float(mz) for mz, _w in envelope.get("isotopes") or []]
+        widths.append(envelope.get("fwhm") or 0.0)
+    respect = _fwhm_is_locked(peak) or (respectAll and bool(peak.fwhm) and peak.fwhm > 0.0)
+    if not respect and profile is not None and len(profile):
+        widths.append(_measured_fwhm_on(profile, peak.mz, curve) or 0.0)
+
+    if peak.charge:
+        charges = [abs(int(peak.charge))]
     else:
-        z = abs(int(peak.charge)) if peak.charge else 1
-        spacing = (ISOTOPE_DISTANCE + isotopeShift) / z
-        neutralMass = _mass_scalar(mod_basics.mz(peak.mz, 0, z))
-        pattern = _isotope_pattern_at_mass(neutralMass, averagineType)
-        # count isotopes carrying non-negligible signal, so the reach covers the
-        # whole envelope tail that could overlap a neighbour
-        n = sum(1 for p in pattern if p >= 0.02) or 1
-        lo = peak.mz
-        hi = peak.mz + (n - 1) * spacing
-    return (lo - pad, hi + pad)
+        maxCharge = max(1, abs(int(params["maxCharge"])))
+        charges = set(range(1, maxCharge + 1))
+        charges.add(max(1, abs(int(params.get("seedCharge", 1)))))
+    for charge in charges:
+        length = _theory_length_at(float(peak.mz), charge, averagineType)
+        spacing = (ISOTOPE_DISTANCE + isotopeShift) / charge
+        # the grid may be shifted by up to the charge-scaled tolerance and each
+        # isotope snapped by up to the widest matching window on top of that
+        shift = tolerance / charge * (1.0 + ADAPTIVE_TOLERANCE_RANGE[1])
+        mzs.append(peak.mz + (length - 1) * spacing + shift)
+
+    return _cluster_window(mzs, max(widths), defaultFwhm)
 
 
-def _selection_overlap_indices(peaklist, seedIdx, isotopeShift, averagineType, pad):
-    """Expand selected peak indices to their connected envelope-overlap component.
+def _fit_neighbourhood(
+    peaklist, startIdx, profile, defaultFwhm, params, respectAll=False, startMzs=(),
+):
+    """Indices of every species the joint fit puts together with the peaks at
+    `startIdx`, transitively, the starting peaks included.
 
-    Spec: overlapping envelopes are always refined together. When the user
-    converts (or reconverts) a selection, any overlapping neighbour that is a real
-    species -- transitively -- must take part in the joint fit, so the shared
-    signal is re-apportioned (otherwise the neighbour keeps a stale isolated area,
-    or the selected peak is fit alone and over-claims the neighbour's signal).
+    A species is an envelope or a charged monoisotopic peak; the starting peaks
+    count as species whatever they are. `startMzs` start the search from m/z
+    values where a species may have been -- a deleted peak, or one whose charge
+    changed -- with whatever charge it had.
 
-    A neighbour counts as a real species -- and is pulled in -- when it is either:
-    * an EXISTING envelope (already carries the ``envelope`` attribute), which is
-      re-fit and re-labelled with the selection, or
-    * a DEISOTOPED SEED: a charged, monoisotopic peak. Such a peak occupies real
-      signal, so it joins the fit as CONTEXT -- it is apportioned against, but it
-      stays a plain peak (only the user converts a peak into an envelope). Without
-      it in the fit, converting a peak added next to a "Find peaks" neighbour fit
-      the selection alone and reported too large an area.
-
-    A truly bare peak (no charge assigned) is NOT a committed species and is left
-    out entirely, so the fit is not widened into unassigned/noise peaks.
-
-    Returns the expanded index set (always a superset of `seedIdx`); the caller
-    decides which of the pulled-in peaks are labelled and which are only context.
+    Recalculating part of a list has to give what recalculating all of it gives,
+    so it takes in every envelope whose result the starting peaks change:
+    * the fit groups clusters whose windows touch -- every envelope whose window
+      touches a recalculated one, and everything touching those;
+    * an envelope's pedestal and uncertainty are read around it wherever no
+      species is -- every envelope whose readings can land on a starting peak;
+    * an envelope with no width of its own is fitted with the list's default.
+    With one left out it keeps what it was fitted with before, and the areas
+    depend on what the user selected.
     """
 
-    seedIdx = set(seedIdx)
-    # candidate nodes: the selected peaks plus every overlapping real species
-    # (existing envelope or charged monoisotopic seed)
-    nodes = list(seedIdx)
-    for i, peak in enumerate(peaklist):
-        if i in seedIdx:
+    startIdx = set(startIdx)
+    curve = resolutioncurve(profile) if profile is not None and len(profile) else None
+    nodes = []  # (window, peak index or None, starts the search)
+    for i in range(len(peaklist)):
+        peak = peaklist[i]
+        if i in startIdx or _peak_carries_envelope(peak) or _peak_is_charged_seed(peak):
+            window = _species_fit_reach(peak, profile, curve, defaultFwhm, params, respectAll)
+            nodes.append((window, i, i in startIdx))
+    for mz in startMzs:
+        window = _species_fit_reach(obj_peak.peak(mz=mz), profile, curve, defaultFwhm, params)
+        nodes.append((window, None, True))
+
+    # An envelope's pedestal and uncertainty are read off the spectrum around it,
+    # wherever no known species is. Converting a peak makes its span known (and
+    # deleting one frees it), so every envelope whose readings reach a starting
+    # window is recalculated too -- with everything fitted together with it.
+    #
+    # An envelope with no width of its own is fitted with the list's default,
+    # the base peak's, which changes with the list: it always joins.
+    sources = [window for window, _i, start in nodes if start]
+    nodes = [
+        (
+            window,
+            i,
+            start
+            or _reads_noise_over(peaklist[i], window, sources)
+            or _fitted_with_default_width(peaklist[i]),
+        )
+        for window, i, start in nodes
+    ]
+
+    # sweep the windows into connected components; keep those holding a start
+    result = set(startIdx)
+    component = []
+    componentHi = float("-inf")
+
+    def _keep(component):
+        if any(start for _w, _i, start in component):
+            result.update(i for _w, i, _s in component if i is not None)
+
+    for node in sorted(nodes, key=lambda node: node[0][0]):
+        (lo, hi), _i, _start = node
+        if component and lo <= componentHi:
+            component.append(node)
+            componentHi = max(componentHi, hi)
             continue
-        if _peak_carries_envelope(peak) or _peak_is_charged_seed(peak):
-            nodes.append(i)
-
-    if len(nodes) == len(seedIdx):
-        return seedIdx  # no other real species anywhere -- nothing to pull in
-
-    spans = {
-        i: _envelope_overlap_span(peaklist[i], isotopeShift, averagineType, pad)
-        for i in nodes
-    }
-    order = sorted(nodes, key=lambda i: spans[i][0])
-
-    # sweep the node spans into connected overlap components (transitive), then
-    # keep every component that contains at least one selected peak
-    result = set(seedIdx)
-    current = []
-    currentHi = None
-    for i in order:
-        lo, hi = spans[i]
-        if current and currentHi is not None and lo <= currentHi:
-            current.append(i)
-            currentHi = max(currentHi, hi)
-        else:
-            if current and any(j in seedIdx for j in current):
-                result.update(current)
-            current = [i]
-            currentHi = hi
-    if current and any(j in seedIdx for j in current):
-        result.update(current)
+        _keep(component)
+        component = [node]
+        componentHi = hi
+    _keep(component)
     return result
+
+
+def _fitted_with_default_width(peak):
+    """True when `peak` is an envelope with no width of its own."""
+
+    return _peak_carries_envelope(peak) and not (peak.fwhm and peak.fwhm > 0.0)
+
+
+def _reads_noise_over(peak, window, sources):
+    """True when `peak` is an envelope whose noise readings, taken around its
+    fit window, may land on any of the `sources` windows."""
+
+    if not _peak_carries_envelope(peak):
+        return False
+    lo, hi = window
+    reach = _noise_reading_reach(hi - lo)
+    return any(lo - reach <= sHi and hi + reach >= sLo for sLo, sHi in sources)
 
 
 def _dedupe_local_group_names(labeled, reserved):
@@ -5241,15 +5411,16 @@ def recalculate_neighborhood_envelopes(
 
     tolerance = params["massTolerance"]
     isotopeShift = params["isotopeShift"]
-    maxCharge = max(1, abs(int(params["maxCharge"])))
     refinePattern = bool(params.get("envelopeRefinePattern", True))
-    difference = (ISOTOPE_DISTANCE + isotopeShift) / float(maxCharge)
     averagineType = params.get("averagineType", DEFAULT_AVERAGINE)
 
     # localIdx  - peaks that are (re)labelled as envelopes by this call
     # contextIdx - species that join the joint fit but stay exactly as they are
     localIdx = set()
     contextIdx = set()
+
+    # the same for the whole list whichever peaks are recalculated
+    defaultFwhm = _default_envelope_fwhm(peaklist, profile, respectAll=respectFwhm)
 
     if selectedOnly:
         # Convert-to-envelopes: match each selected m/z to its own peak (nearest
@@ -5267,15 +5438,15 @@ def recalculate_neighborhood_envelopes(
                     bestErr = err
             if best is not None:
                 localIdx.add(best)
-        # ...but overlapping neighbours are pulled into the joint fit (spec:
+        # ...but every species the fit puts together with them joins it (spec:
         # overlapping envelopes are always refined together). An EXISTING envelope
-        # is re-labelled with the selection, so it is re-apportioned and switches
-        # to the rigid overlap treatment instead of keeping the isolated
-        # area/shape it was fit with when alone; a plain charged neighbour is
-        # context only -- it is apportioned against but stays a plain peak.
-        for i in _selection_overlap_indices(
-            peaklist, localIdx, isotopeShift, averagineType,
-            pad=max(2.0 * tolerance, 0.5 * difference),
+        # is re-labelled with the selection, so it is re-apportioned exactly as
+        # converting it too would; a plain charged neighbour is context only --
+        # it is apportioned against but stays a plain peak.
+        if not localIdx:
+            return peaklist
+        for i in _fit_neighbourhood(
+            peaklist, localIdx, profile, defaultFwhm, params, respectAll=respectFwhm
         ):
             if i in localIdx:
                 continue
@@ -5284,64 +5455,27 @@ def recalculate_neighborhood_envelopes(
             else:
                 contextIdx.add(i)
     else:
-        # Auto-recalc after a delete / edit. Isotope spacing shrinks as 1/charge,
-        # so the neighborhood must be wide enough to capture a full envelope at
-        # the lowest charge (largest spacing). Inside that window only EXISTING
-        # envelopes are recalculated; a plain peak keeps its identity and merely
-        # holds its share of the signal in the fit.
-        margin = max(6.0 * difference, 8.0 * tolerance)
-        minMz = min(mzs) - margin
-        maxMz = max(mzs) + margin
-
-        # An envelope REACHES INTO the neighbourhood if any of its isotopes does,
-        # and it has to be recalculated whole. Testing only each peak's own m/z
-        # against the window is wrong in both directions:
+        # Auto-recalc after a delete / edit. Whatever sat at the edited m/z -- a
+        # peak now deleted, or one whose charge changed -- was fitted together
+        # with every species its window touched, at any charge it may have had,
+        # out to its whole theoretical extent. All of those, and everything the
+        # fit puts together with them, are recalculated: the envelopes re-fit,
+        # the plain charged peaks as context only.
         #
-        #  * the margin is a fixed multiple of the isotope *spacing*, which shrinks
-        #    as 1/maxCharge -- at maxCharge 4 it is +/-1.5 Da, narrower than a
-        #    charge-1 envelope. An envelope whose MONO sits just outside is then
-        #    never re-fit even though the edit landed squarely on one of its
-        #    isotopes: deleting 902.51 in a measured spectrum left 900.49 -- whose +2
-        #    IS 902.51 -- untouched, still reporting the area it had while sharing
-        #    that peak. To the user, nothing recalculated.
-        #
-        #  * conversely an envelope whose mono is inside can have isotope ROWS
-        #    outside. A row left outside is never consumed by the rebuild, which
-        #    emits a fresh row at the same position while the stale one survives --
-        #    under labelEnvelope="isotopes" the peak list grows by one on every
-        #    recalc.
-        #
-        # So take every envelope whose stored span *intersects* the window, widen
-        # the window to its full span, and repeat until it stops growing (each pass
-        # only ever widens and the peak list is finite, so this terminates).
-        while True:
-            before = (minMz, maxMz)
-            for peak in peaklist:
-                envelope = (
-                    peak.attributes.get("envelope")
-                    if hasattr(peak, "attributes")
-                    else None
-                )
-                if isinstance(envelope, dict) and envelope.get("isotopes"):
-                    positions = [float(mz) for mz, _w in envelope["isotopes"]]
-                    spanLo = min(min(positions), peak.mz) - tolerance
-                    spanHi = max(max(positions), peak.mz) + tolerance
-                else:
-                    spanLo = spanHi = peak.mz
-                # any overlap with the current window pulls the whole span in
-                if spanLo > maxMz or spanHi < minMz:
-                    continue
-                minMz = min(minMz, spanLo)
-                maxMz = max(maxMz, spanHi)
-            if (minMz, maxMz) == before:
-                break
-
-        for i, peak in enumerate(peaklist):
-            if not (minMz <= peak.mz <= maxMz):
-                continue
-            if _peak_carries_envelope(peak):
+        # A margin around the edit is not enough in either direction. It used to
+        # be a multiple of the isotope spacing, which shrinks as 1/maxCharge -- at
+        # maxCharge 4 only +/-1.5 Da, narrower than a charge-1 envelope -- so
+        # deleting 902.51 in a measured spectrum left 900.49, whose +2 IS 902.51,
+        # untouched, still reporting the area it had while sharing that peak. And
+        # an envelope fitted together with one inside the margin, but itself
+        # outside, kept the area it had been fitted with next to the deleted peak.
+        for i in _fit_neighbourhood(
+            peaklist, (), profile, defaultFwhm, params,
+            respectAll=respectFwhm, startMzs=mzs,
+        ):
+            if _peak_carries_envelope(peaklist[i]):
                 localIdx.add(i)
-            elif _peak_is_charged_seed(peak):
+            else:
                 contextIdx.add(i)
 
     # nothing to recalculate: no envelope is involved, so the list is left alone
@@ -5362,7 +5496,7 @@ def recalculate_neighborhood_envelopes(
 
     hasProfile = profile is not None and len(profile) > 0
 
-    def _label_local(group, preserveSeeds=False, otherPeaks=None):
+    def _label_local(group, defaultFwhm, preserveSeeds=False, otherPeaks=None):
         """Deisotope + envelope-label one group of peaks, returning the result.
 
         With preserveSeeds every peak in the group becomes its own envelope seed
@@ -5416,10 +5550,6 @@ def recalculate_neighborhood_envelopes(
             for p in gpl:
                 p.setisotope(0)
 
-        defaultFwhm = 0.1
-        if gpl.basepeak and gpl.basepeak.fwhm:
-            defaultFwhm = gpl.basepeak.fwhm
-
         gpl.labelenvelopes(
             label=params["labelEnvelope"],
             intensity=params["envelopeIntensity"],
@@ -5436,16 +5566,22 @@ def recalculate_neighborhood_envelopes(
         )
         return list(gpl)
 
-    # Context species enter the fit as marked COPIES, so the joint apportionment
-    # sees them (a neighbouring envelope cannot claim their signal) while the real
-    # peaks are never touched: no re-measured width, no re-deisotoping, no label.
-    fitPeaks = list(localPeaks)
+    # The fit runs on copies: it re-measures widths, deisotopes and resets isotope
+    # numbers, and none of that may reach the list it was given (the undo step of
+    # a conversion is taken from that list after the conversion has run).
+    # Context species enter the fit as marked COPIES too, so the joint
+    # apportionment sees them (a neighbouring envelope cannot claim their signal)
+    # while the real peaks are never touched: no re-measured width, no
+    # re-deisotoping, no label.
+    fitPeaks = copy.deepcopy(localPeaks)
     for peak in contextPeaks:
         ghost = copy.deepcopy(peak)
         ghost.attributes[ENVELOPE_CONTEXT_ATTR] = True
         fitPeaks.append(ghost)
 
-    labeled = _label_local(fitPeaks, preserveSeeds=selectedOnly, otherPeaks=outsidePeaks)
+    labeled = _label_local(
+        fitPeaks, defaultFwhm, preserveSeeds=selectedOnly, otherPeaks=outsidePeaks
+    )
 
     # drop the context stand-ins; their untouched originals go back into the list
     labeled = [p for p in labeled if not _is_context_peak(p)]
