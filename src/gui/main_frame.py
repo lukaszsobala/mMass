@@ -1893,13 +1893,11 @@ class mainFrame(wx.Frame):
         After a document is opened nothing does, and the frame's accelerators
         (Ctrl+Shift+A, Convert All to Envelopes) are only looked up for a key
         that reaches a focused window -- so the shortcut did nothing until the
-        user first clicked somewhere. A control the user is in keeps the focus.
+        user first clicked somewhere. A control the user is in keeps the focus,
+        in a tool window too (the Mass Calculator opens a document and stays).
         """
 
-        if not self:
-            return
-        focused = wx.Window.FindFocus()
-        if focused is not None and wx.GetTopLevelParent(focused) is self:
+        if not self or wx.Window.FindFocus() is not None:
             return
         self.spectrumPanel.spectrumCanvas.SetFocus()
 
