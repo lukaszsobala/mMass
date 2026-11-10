@@ -2013,9 +2013,12 @@ class mainFrame(wx.Frame):
             if self.comparePeaklistsPanel:
                 self.comparePeaklistsPanel.setData(self.documents)
 
-        # an edited sequence must not come back by undoing an older step
+        # an edited sequence must not come back by undoing an older step; steps
+        # storing sequences also hold their titles and accessions
         if "sequence" in items:
             self.documents[self.currentDocument].forgetSteps(("sequences", "notations"))
+        elif "seqtitle" in items or "seqaccession" in items:
+            self.documents[self.currentDocument].forgetSteps(("sequences",))
 
         # set document status
         self.documents[self.currentDocument].dirty = True
