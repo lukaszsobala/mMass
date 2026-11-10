@@ -1879,6 +1879,30 @@ class mainFrame(wx.Frame):
             # update menubar and toolbar
             self.updateControls()
 
+        # keyboard shortcuts work right away (after the events of the opening
+        # have settled, e.g. a file dialog closing)
+        if docData is not None:
+            wx.CallAfter(self._focusCanvasIfUnfocused)
+
+    # ----
+
+    def _focusCanvasIfUnfocused(self):
+        """Give the spectrum canvas the keyboard focus when nothing in the
+        window has it.
+
+        After a document is opened nothing does, and the frame's accelerators
+        (Ctrl+Shift+A, Convert All to Envelopes) are only looked up for a key
+        that reaches a focused window -- so the shortcut did nothing until the
+        user first clicked somewhere. A control the user is in keeps the focus.
+        """
+
+        if not self:
+            return
+        focused = wx.Window.FindFocus()
+        if focused is not None and wx.GetTopLevelParent(focused) is self:
+            return
+        self.spectrumPanel.spectrumCanvas.SetFocus()
+
     # ----
 
     def updateAveragineInfo(self):
