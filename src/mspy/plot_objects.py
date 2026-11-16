@@ -18,7 +18,6 @@
 # load libs
 import wx
 import numpy
-import copy
 
 # load modules
 from . import mod_signal
@@ -1329,7 +1328,11 @@ class spectrum:
             )
 
         # convert peaklist points to array
-        self.peaklist = copy.deepcopy(scan.peaklist)
+        # a snapshot of the list is enough: the peaks are only read here, and
+        # the plot object is rebuilt after every edit. Copying the peaks deeply
+        # cost as much as the undo step on every edit of a peak list full of
+        # envelopes (their fitted shapes are copied along).
+        self.peaklist = scan.peaklist[:]
         self.peaklistPoints = numpy.array(
             [[peak.mz, peak.ai, peak.base] for peak in scan.peaklist]
         )
