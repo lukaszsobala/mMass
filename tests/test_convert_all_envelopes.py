@@ -116,10 +116,10 @@ def test_a_failing_document_is_reported_and_the_others_still_convert(settings, m
     documents = [_document("bad"), _document("good")]
     convert = processing.convertToEnvelopes
 
-    def failing(peaklist, profile, settings, charge=None):
+    def failing(peaklist, profile, settings, charge=None, polarity=None):
         if peaklist is documents[0].spectrum.peaklist:
             raise ValueError("broken")
-        return convert(peaklist, profile, settings, charge)
+        return convert(peaklist, profile, settings, charge, polarity)
 
     monkeypatch.setattr(processing, "convertToEnvelopes", failing)
     jobs = processing.envelopeJobs(documents)
