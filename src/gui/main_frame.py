@@ -399,19 +399,19 @@ class mainFrame(wx.Frame):
         document.Append(ID_documentOpen, "Open..." + HK_documentOpen, "")
         document.Append(
             ID_documentOpenBruker,
-            "Open Bruker Folder...",
-            "Open a Bruker flex-series (XMASS) dataset directory, or a folder of them",
+            "Open Folder...",
+            "Open a Bruker flex-series dataset folder, or a folder of them",
         )
+        document.Append(ID_sessionOpen, "Open Session...", "")
         document.Append(ID_documentRecent, "Open Recent", self.menuRecent)
         document.AppendSeparator()
-        document.Append(ID_documentClose, "Close" + HK_documentClose, "")
-        document.Append(ID_documentCloseAll, "Close All" + HK_documentCloseAll, "")
         document.Append(ID_documentSave, "Save" + HK_documentSave, "")
         document.Append(ID_documentSaveAs, "Save As..." + HK_documentSaveAs, "")
         document.Append(ID_documentSaveAll, "Save All" + HK_documentSaveAll, "")
-        document.AppendSeparator()
-        document.Append(ID_sessionOpen, "Open Session...", "")
         document.Append(ID_sessionSave, "Save Session...", "")
+        document.AppendSeparator()
+        document.Append(ID_documentClose, "Close" + HK_documentClose, "")
+        document.Append(ID_documentCloseAll, "Close All" + HK_documentCloseAll, "")
         document.AppendSeparator()
         document.Append(ID_documentExport, "Export..." + HK_documentExport, "")
         document.AppendSeparator()
@@ -2243,7 +2243,15 @@ class mainFrame(wx.Frame):
             lastDir = ""
             if os.path.exists(config.main["lastDir"]):
                 lastDir = config.main["lastDir"]
-            wildcard = "All supported formats|fid;*.msd;*.mzData;*.mzdata*;*.mzXML;*.mzxml;*.mzML;*.mzml;*.xml;*.XML;*.mgf;*.MGF;*.txt;*.xy;*.asc|All files|*.*"
+            # a session opens like a document (see openPaths)
+            wildcard = (
+                "All supported formats|fid;*.msd;*.mzData;*.mzdata*;*.mzXML;*.mzxml;"
+                "*.mzML;*.mzml;*.xml;*.XML;*.mgf;*.MGF;*.txt;*.xy;*.asc;*"
+                + session.SESSION_EXTENSION
+                + "|"
+                + session.SESSION_WILDCARD
+                + "|All files|*.*"
+            )
             dlg = wx.FileDialog(
                 self,
                 "Open Document",
@@ -2259,7 +2267,7 @@ class mainFrame(wx.Frame):
                 dlg.Destroy()
                 return
 
-        # import documents (a session picked from "All files" opens as one)
+        # import documents (a session among them opens as one)
         self.openPaths(paths)
 
     # ----
@@ -2277,7 +2285,7 @@ class mainFrame(wx.Frame):
             lastDir = config.main["lastDir"]
         dlg = wx.DirDialog(
             self,
-            "Open Bruker Folder (a dataset, or a folder of datasets)",
+            "Open Folder (a Bruker dataset, or a folder of datasets)",
             lastDir,
             style=wx.DD_DEFAULT_STYLE | wx.DD_DIR_MUST_EXIST,
         )
@@ -2295,7 +2303,7 @@ class mainFrame(wx.Frame):
             errDlg = mwx.dlgMessage(
                 self,
                 title="Unable to open the document.",
-                message="No Bruker data was found in the selected folder.\nSelect the dataset folder containing the fid files.",
+                message="No supported data was found in the selected folder.\nSelect a Bruker dataset folder containing fid files.",
             )
             errDlg.ShowModal()
             errDlg.Destroy()
@@ -2893,6 +2901,9 @@ class mainFrame(wx.Frame):
             dlg.Destroy()
             return False
 
+        # reopen it from Open Recent
+        self.updateRecentFiles(path)
+
         return True
 
     # ----
@@ -3017,6 +3028,11 @@ class mainFrame(wx.Frame):
             )
 
         self.updateControls()
+
+        # reopen it from Open Recent (after its documents, which are added
+        # there as they load, so the session itself comes first)
+        if restored:
+            self.updateRecentFiles(path)
 
         # report whatever could not be opened, but keep the rest of the session
         if missing:
