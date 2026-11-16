@@ -2627,7 +2627,12 @@ class mainFrame(wx.Frame):
     # ----
 
     def onDocumentSave(self, evt=None, docIndex=None):
-        """Save current document."""
+        """Save current document.
+
+        Returns True when saved, False when it could not be saved and None when
+        the user cancelled the file dialog (falsy as well, so a caller that only
+        asks whether it was saved needn't tell the two apart).
+        """
 
         # check document
         if docIndex is None:
@@ -2671,7 +2676,7 @@ class mainFrame(wx.Frame):
                 dlg.Destroy()
             else:
                 dlg.Destroy()
-                return False
+                return None
 
         # init processing gauge
         gauge = mwx.gaugePanel(self, "Formatting data...")
@@ -2743,12 +2748,16 @@ class mainFrame(wx.Frame):
     # ----
 
     def onDocumentSaveAll(self, evt=None):
-        """Save all documents."""
+        """Save all documents.
+
+        Cancelling the file dialog for one document cancels the rest too; a
+        document that fails to save (the error is shown) doesn't stop the others.
+        """
 
         # save documents
         for docIndex, document in enumerate(self.documents):
-            if document.dirty:
-                self.onDocumentSave(docIndex=docIndex)
+            if document.dirty and self.onDocumentSave(docIndex=docIndex) is None:
+                return
 
     # ----
 
