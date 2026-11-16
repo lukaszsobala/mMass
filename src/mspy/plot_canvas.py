@@ -2515,7 +2515,11 @@ class canvas(wx.Window):
         # get gel coords
         if self.properties["showGel"]:
             minYGel = minYPlot - (9 * self.printerScale["drawings"])
-            maxYGel = minYGel - self.gelsCount * self.properties["gelHeight"]
+            maxYGel = minYGel - (
+                self.gelsCount
+                * self.properties["gelHeight"]
+                * self.printerScale["drawings"]
+            )
 
         if wx.Platform == "__WXMAC__":
             maxXPlot -= 1
@@ -2821,7 +2825,11 @@ class canvas(wx.Window):
         minYGel = maxYGel = 0
         if self.properties["showGel"]:
             minYGel = minYPlot - (9 * self.printerScale["drawings"])
-            maxYGel = minYGel - self.gelsCount * self.properties["gelHeight"]
+            maxYGel = minYGel - (
+                self.gelsCount
+                * self.properties["gelHeight"]
+                * self.printerScale["drawings"]
+            )
 
         if wx.Platform == "__WXMAC__":
             maxXPlot -= 1
@@ -2895,7 +2903,11 @@ class canvas(wx.Window):
         # get gel coords
         if self.properties["showGel"]:
             minYGel = minYPlot - (9 * self.printerScale["drawings"])
-            maxYGel = minYGel - self.gelsCount * self.properties["gelHeight"]
+            maxYGel = minYGel - (
+                self.gelsCount
+                * self.properties["gelHeight"]
+                * self.printerScale["drawings"]
+            )
 
         if wx.Platform == "__WXMAC__":
             maxXPlot -= 1
@@ -3003,7 +3015,11 @@ class canvas(wx.Window):
         minYGel = maxYGel = 0
         if self.properties["showGel"]:
             minYGel = minYPlot - (8 * self.printerScale["drawings"])
-            maxYGel = minYGel - self.gelsCount * self.properties["gelHeight"]
+            maxYGel = minYGel - (
+                self.gelsCount
+                * self.properties["gelHeight"]
+                * self.printerScale["drawings"]
+            )
 
         # use DC with transparency (only needed for MSW)
         # try:

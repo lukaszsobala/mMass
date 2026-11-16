@@ -29,7 +29,7 @@ dependencies = [
 test = [
     "pytest",
     "pytest-cov",
-    "pytest-xdist",
+    "pytest-xdist>=3.2.1",
     "psutil",
     "numpy>=2.0",
     "numba>=0.60",
