@@ -2634,12 +2634,13 @@ class mainFrame(wx.Frame):
 
     # ----
 
-    def onDocumentSave(self, evt=None, docIndex=None):
+    def onDocumentSave(self, evt=None, docIndex=None, recent=True):
         """Save current document.
 
         Returns True when saved, False when it could not be saved and None when
         the user cancelled the file dialog (falsy as well, so a caller that only
-        asks whether it was saved needn't tell the two apart).
+        asks whether it was saved needn't tell the two apart). recent=False
+        keeps the document out of Open Recent (saved as part of a session).
         """
 
         # check document
@@ -2748,7 +2749,8 @@ class mainFrame(wx.Frame):
             self.updateControls()
 
         # update recent files
-        self.updateRecentFiles(path)
+        if recent:
+            self.updateRecentFiles(path)
 
         # document saved
         return True
@@ -2788,7 +2790,9 @@ class mainFrame(wx.Frame):
         # disk before it is written. Saving an unsaved document may ask for a
         # location; cancelling that cancels the whole session save.
         for docIndex, document in enumerate(self.documents):
-            if document.dirty and not self.onDocumentSave(docIndex=docIndex):
+            if document.dirty and not self.onDocumentSave(
+                docIndex=docIndex, recent=False
+            ):
                 return False
 
         # collect documents that can be referenced
@@ -2988,7 +2992,9 @@ class mainFrame(wx.Frame):
             for index, entry in enumerate(found):
                 before = len(self.documents)
                 progress = (index + 1, total) if batch else None
-                self.importDocument(path=entry["path"], progress=progress)
+                self.importDocument(
+                    path=entry["path"], progress=progress, recent=False
+                )
                 for docIndex in range(before, len(self.documents)):
                     restored.append((docIndex, entry))
 
@@ -3029,8 +3035,8 @@ class mainFrame(wx.Frame):
 
         self.updateControls()
 
-        # reopen it from Open Recent (after its documents, which are added
-        # there as they load, so the session itself comes first)
+        # reopen it from Open Recent (only the session: its documents are
+        # left out unless opened on their own)
         if restored:
             self.updateRecentFiles(path)
 
@@ -5576,11 +5582,12 @@ class mainFrame(wx.Frame):
 
     # ----
 
-    def importDocument(self, path, progress=None):
+    def importDocument(self, path, progress=None, recent=True):
         """Open document.
 
         progress is an optional (index, total) pair used to show which file of
-        a multi-file batch is being read.
+        a multi-file batch is being read. recent=False keeps the document out
+        of Open Recent (one of a session's documents: the session goes there).
         """
 
         # remove path from queue
@@ -5640,7 +5647,8 @@ class mainFrame(wx.Frame):
                 if self.openChromatogramDocument(
                     path, docType, self.tmpScanlist, progress=progress
                 ):
-                    self.updateRecentFiles(path)
+                    if recent:
+                        self.updateRecentFiles(path)
                 return
 
             # single-scan file: fall through to the normal open path
@@ -5691,7 +5699,7 @@ class mainFrame(wx.Frame):
                 self.endBatchDocumentLoad()
 
         # update recent files
-        if status:
+        if status and recent:
             self.updateRecentFiles(path)
 
         # processing failed
