@@ -975,9 +975,9 @@ class panelSpectrum(wx.Panel):
 
         elif tool == "labelpoint":
             self.toolsLabelPoint_butt.SetBitmapLabel(images.lib["spectrumLabelPointOn"])
-            self.spectrumCanvas.setMFunction(cursorTracker)
+            self.spectrumCanvas.setMFunction("pointtracker")
             self.spectrumCanvas.setLMBFunction("point")
-            cursor = (images.lib["cursorsArrowPoint"], images.lib["cursorsCrossPoint"])
+            cursor = (images.lib["cursorsCrossPoint"], images.lib["cursorsCrossPoint"])
 
         elif tool == "labelenvelope":
             self.toolsLabelEnvelope_butt.SetBitmapLabel(

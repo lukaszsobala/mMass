@@ -243,6 +243,7 @@ class panelDocuments(wx.Panel):
             and (evt.ShiftDown() or evt.ControlDown())
             and flags & (wx.TREE_HITTEST_ONITEMLABEL | wx.TREE_HITTEST_ONITEMICON)
         ):
+            self._focusTree()
             self._markClick(item, evt.ShiftDown())
             return
 
@@ -255,6 +256,7 @@ class panelDocuments(wx.Panel):
             item
         ) == 1:
             docIndex = self._getDocumentIndex(item)
+            self._focusTree()
             self.parent.onDocumentSolo(docIndex)
 
         # enable / disable document
@@ -262,11 +264,27 @@ class panelDocuments(wx.Panel):
             item
         ) == 1:
             docIndex = self._getDocumentIndex(item)
+            self._focusTree()
             self.parent.onDocumentEnable(docIndex)
 
         # other
         else:
             evt.Skip()
+
+    # ----
+
+    def _focusTree(self):
+        """Give the tree the keyboard focus for a click handled here.
+
+        A click this panel handles itself (solo, show/hide, picking items
+        together) is not passed on to the tree, so the tree does not take the
+        focus as it does on a plain click. Without it the focus could stay
+        nowhere, and the frame's accelerators (Ctrl+Shift+A, Convert All to
+        Envelopes) only work for a key that reaches a focused window.
+        """
+
+        if wx.Window.FindFocus() is not self.documentTree:
+            self.documentTree.SetFocus()
 
     # ----
 

@@ -1001,10 +1001,15 @@ class panelPeaklist(wx.Panel):
 
         self.parent.onDocumentChanged(items=("spectrum"))
 
-    def _envelopeParams(self, seedCharge=1):
-        """Build the plain parameter dict for the pure envelope recalc helper."""
+    def _envelopeParams(self, seedCharge=1, document=None):
+        """Build the plain parameter dict for the pure envelope recalc helper,
+        the charges signed for the document's polarity (default the current)."""
 
-        return processing.envelopeParams(config.processing, seedCharge=seedCharge)
+        document = document or self.currentDocument
+        polarity = document.spectrum.polarity if document is not None else None
+        return processing.envelopeParams(
+            config.processing, seedCharge=seedCharge, polarity=polarity
+        )
 
     def _recalculateNeighborhoodEnvelopes(
         self, mzs, document=None, selectedOnly=False, respectFwhm=False,
@@ -1038,7 +1043,7 @@ class panelPeaklist(wx.Panel):
             spectrum.peaklist,
             spectrum.profile,
             mzs,
-            self._envelopeParams(seedCharge=1),
+            self._envelopeParams(seedCharge=1, document=targetDocument),
             selectedOnly=selectedOnly,
             respectFwhm=respectFwhm,
         )
@@ -1899,6 +1904,7 @@ class panelPeaklist(wx.Panel):
             spectrum.profile,
             config.processing,
             self._getConvertEnvelopeCharge(peaks),
+            polarity=spectrum.polarity,
         )
 
         # identity means the helper found nothing to do -> no-op
@@ -1972,9 +1978,13 @@ class panelPeaklist(wx.Panel):
     # ----
 
     def _getConvertEnvelopeCharge(self, peaks):
-        """Get user-specified charge for envelope conversion, defaulting to 1."""
+        """Get user-specified charge for envelope conversion, defaulting to 1
+        (signed for the current document's polarity)."""
 
-        return processing.seedCharge(peaks, self.peakCharge_value.GetValue())
+        polarity = None
+        if self.currentDocument is not None:
+            polarity = self.currentDocument.spectrum.polarity
+        return processing.seedCharge(peaks, self.peakCharge_value.GetValue(), polarity)
 
     # ----
 

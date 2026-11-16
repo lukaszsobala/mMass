@@ -399,19 +399,19 @@ class mainFrame(wx.Frame):
         document.Append(ID_documentOpen, "Open..." + HK_documentOpen, "")
         document.Append(
             ID_documentOpenBruker,
-            "Open Bruker Folder...",
-            "Open a Bruker flex-series (XMASS) dataset directory, or a folder of them",
+            "Open Folder...",
+            "Open a Bruker flex-series dataset folder, or a folder of them",
         )
+        document.Append(ID_sessionOpen, "Open Session...", "")
         document.Append(ID_documentRecent, "Open Recent", self.menuRecent)
         document.AppendSeparator()
-        document.Append(ID_documentClose, "Close" + HK_documentClose, "")
-        document.Append(ID_documentCloseAll, "Close All" + HK_documentCloseAll, "")
         document.Append(ID_documentSave, "Save" + HK_documentSave, "")
         document.Append(ID_documentSaveAs, "Save As..." + HK_documentSaveAs, "")
         document.Append(ID_documentSaveAll, "Save All" + HK_documentSaveAll, "")
-        document.AppendSeparator()
-        document.Append(ID_sessionOpen, "Open Session...", "")
         document.Append(ID_sessionSave, "Save Session...", "")
+        document.AppendSeparator()
+        document.Append(ID_documentClose, "Close" + HK_documentClose, "")
+        document.Append(ID_documentCloseAll, "Close All" + HK_documentCloseAll, "")
         document.AppendSeparator()
         document.Append(ID_documentExport, "Export..." + HK_documentExport, "")
         document.AppendSeparator()
@@ -2243,7 +2243,15 @@ class mainFrame(wx.Frame):
             lastDir = ""
             if os.path.exists(config.main["lastDir"]):
                 lastDir = config.main["lastDir"]
-            wildcard = "All supported formats|fid;*.msd;*.mzData;*.mzdata*;*.mzXML;*.mzxml;*.mzML;*.mzml;*.xml;*.XML;*.mgf;*.MGF;*.txt;*.xy;*.asc|All files|*.*"
+            # a session opens like a document (see openPaths)
+            wildcard = (
+                "All supported formats|fid;*.msd;*.mzData;*.mzdata*;*.mzXML;*.mzxml;"
+                "*.mzML;*.mzml;*.xml;*.XML;*.mgf;*.MGF;*.txt;*.xy;*.asc;*"
+                + session.SESSION_EXTENSION
+                + "|"
+                + session.SESSION_WILDCARD
+                + "|All files|*.*"
+            )
             dlg = wx.FileDialog(
                 self,
                 "Open Document",
@@ -2259,7 +2267,7 @@ class mainFrame(wx.Frame):
                 dlg.Destroy()
                 return
 
-        # import documents (a session picked from "All files" opens as one)
+        # import documents (a session among them opens as one)
         self.openPaths(paths)
 
     # ----
@@ -2277,7 +2285,7 @@ class mainFrame(wx.Frame):
             lastDir = config.main["lastDir"]
         dlg = wx.DirDialog(
             self,
-            "Open Bruker Folder (a dataset, or a folder of datasets)",
+            "Open Folder (a Bruker dataset, or a folder of datasets)",
             lastDir,
             style=wx.DD_DEFAULT_STYLE | wx.DD_DIR_MUST_EXIST,
         )
@@ -2295,7 +2303,7 @@ class mainFrame(wx.Frame):
             errDlg = mwx.dlgMessage(
                 self,
                 title="Unable to open the document.",
-                message="No Bruker data was found in the selected folder.\nSelect the dataset folder containing the fid files.",
+                message="No supported data was found in the selected folder.\nSelect a Bruker dataset folder containing fid files.",
             )
             errDlg.ShowModal()
             errDlg.Destroy()
@@ -2626,8 +2634,14 @@ class mainFrame(wx.Frame):
 
     # ----
 
-    def onDocumentSave(self, evt=None, docIndex=None):
-        """Save current document."""
+    def onDocumentSave(self, evt=None, docIndex=None, recent=True):
+        """Save current document.
+
+        Returns True when saved, False when it could not be saved and None when
+        the user cancelled the file dialog (falsy as well, so a caller that only
+        asks whether it was saved needn't tell the two apart). recent=False
+        keeps the document out of Open Recent (saved as part of a session).
+        """
 
         # check document
         if docIndex is None:
@@ -2671,7 +2685,7 @@ class mainFrame(wx.Frame):
                 dlg.Destroy()
             else:
                 dlg.Destroy()
-                return False
+                return None
 
         # init processing gauge
         gauge = mwx.gaugePanel(self, "Formatting data...")
@@ -2735,7 +2749,8 @@ class mainFrame(wx.Frame):
             self.updateControls()
 
         # update recent files
-        self.updateRecentFiles(path)
+        if recent:
+            self.updateRecentFiles(path)
 
         # document saved
         return True
@@ -2743,12 +2758,16 @@ class mainFrame(wx.Frame):
     # ----
 
     def onDocumentSaveAll(self, evt=None):
-        """Save all documents."""
+        """Save all documents.
+
+        Cancelling the file dialog for one document cancels the rest too; a
+        document that fails to save (the error is shown) doesn't stop the others.
+        """
 
         # save documents
         for docIndex, document in enumerate(self.documents):
-            if document.dirty:
-                self.onDocumentSave(docIndex=docIndex)
+            if document.dirty and self.onDocumentSave(docIndex=docIndex) is None:
+                return
 
     # ----
 
@@ -2771,7 +2790,9 @@ class mainFrame(wx.Frame):
         # disk before it is written. Saving an unsaved document may ask for a
         # location; cancelling that cancels the whole session save.
         for docIndex, document in enumerate(self.documents):
-            if document.dirty and not self.onDocumentSave(docIndex=docIndex):
+            if document.dirty and not self.onDocumentSave(
+                docIndex=docIndex, recent=False
+            ):
                 return False
 
         # collect documents that can be referenced
@@ -2884,6 +2905,9 @@ class mainFrame(wx.Frame):
             dlg.Destroy()
             return False
 
+        # reopen it from Open Recent
+        self.updateRecentFiles(path)
+
         return True
 
     # ----
@@ -2968,7 +2992,9 @@ class mainFrame(wx.Frame):
             for index, entry in enumerate(found):
                 before = len(self.documents)
                 progress = (index + 1, total) if batch else None
-                self.importDocument(path=entry["path"], progress=progress)
+                self.importDocument(
+                    path=entry["path"], progress=progress, recent=False
+                )
                 for docIndex in range(before, len(self.documents)):
                     restored.append((docIndex, entry))
 
@@ -3008,6 +3034,11 @@ class mainFrame(wx.Frame):
             )
 
         self.updateControls()
+
+        # reopen it from Open Recent (only the session: its documents are
+        # left out unless opened on their own)
+        if restored:
+            self.updateRecentFiles(path)
 
         # report whatever could not be opened, but keep the rest of the session
         if missing:
@@ -5551,11 +5582,12 @@ class mainFrame(wx.Frame):
 
     # ----
 
-    def importDocument(self, path, progress=None):
+    def importDocument(self, path, progress=None, recent=True):
         """Open document.
 
         progress is an optional (index, total) pair used to show which file of
-        a multi-file batch is being read.
+        a multi-file batch is being read. recent=False keeps the document out
+        of Open Recent (one of a session's documents: the session goes there).
         """
 
         # remove path from queue
@@ -5615,7 +5647,8 @@ class mainFrame(wx.Frame):
                 if self.openChromatogramDocument(
                     path, docType, self.tmpScanlist, progress=progress
                 ):
-                    self.updateRecentFiles(path)
+                    if recent:
+                        self.updateRecentFiles(path)
                 return
 
             # single-scan file: fall through to the normal open path
@@ -5666,7 +5699,7 @@ class mainFrame(wx.Frame):
                 self.endBatchDocumentLoad()
 
         # update recent files
-        if status:
+        if status and recent:
             self.updateRecentFiles(path)
 
         # processing failed

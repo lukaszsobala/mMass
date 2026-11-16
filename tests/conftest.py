@@ -18,10 +18,11 @@ import tempfile
 # Importing gui.config runs the startup path -- which, since 7.0, migrates a
 # legacy config.xml to config.json -- so without this a test run would read and
 # rewrite the developer's own settings. conftest is imported before the test
-# modules, so this lands in time.
-os.environ.setdefault(
-    "MMASS_CONFIG_DIR", tempfile.mkdtemp(prefix="mmass-test-config-")
-)
+# modules, so this lands in time. Each pytest-xdist worker inherits the
+# directory the controller made, so it gets one of its own: a config saved by a
+# test in one worker must not be read by another starting up.
+if "PYTEST_XDIST_WORKER" in os.environ or "MMASS_CONFIG_DIR" not in os.environ:
+    os.environ["MMASS_CONFIG_DIR"] = tempfile.mkdtemp(prefix="mmass-test-config-")
 
 import pytest
 

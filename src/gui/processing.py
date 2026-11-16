@@ -5,6 +5,8 @@ config.processing, so the command line can run with a changed copy of them
 without touching the user's configuration.
 """
 
+import copy
+
 import numpy
 
 import mspy
@@ -179,12 +181,54 @@ def _labelEnvelopes(scan, settings):
     )
 
 
+def signedCharge(charge, polarity):
+    """A charge with the sign of the scan's polarity.
+
+    Charges are signed: negative in negative mode, so that the neutral mass of
+    a peak comes out right ([M-H]- rather than [M+H]+). A known polarity
+    decides the sign; without one the charge is kept as given (a negative
+    max. charge typed by hand for a spectrum of unknown polarity).
+    """
+
+    if polarity in (1, -1) and charge:
+        return abs(charge) * polarity
+    return charge
+
+
+def polarityCorrected(peaklist, polarity):
+    """The peak list with every charge of the wrong sign for the polarity
+    corrected (e.g. envelopes labelled +1 in a negative-mode spectrum before
+    the charges were signed).
+
+    A new peak list whose corrected peaks are copies, so the document's peaks
+    stay as they are until the result is applied (and the undo step taken);
+    the same object when nothing needs correcting.
+    """
+
+    if polarity not in (1, -1):
+        return peaklist
+    wrong = [
+        i
+        for i, peak in enumerate(peaklist)
+        if peak.charge and signedCharge(peak.charge, polarity) != peak.charge
+    ]
+    if not wrong:
+        return peaklist
+
+    peaks = list(peaklist)
+    for i in wrong:
+        peak = copy.deepcopy(peaks[i])
+        peak.setcharge(signedCharge(peak.charge, polarity))
+        peaks[i] = peak
+    return mspy.peaklist(peaks)
+
+
 def deisotopeScan(scan, settings):
     """Find isotopes and charges of a scan's peaks."""
 
     deisotoping = settings["deisotoping"]
     scan.deisotope(
-        maxCharge=deisotoping["maxCharge"],
+        maxCharge=signedCharge(deisotoping["maxCharge"], scan.polarity),
         mzTolerance=deisotoping["massTolerance"],
         intTolerance=deisotoping["intTolerance"],
         isotopeShift=deisotoping["isotopeShift"],
@@ -201,29 +245,30 @@ def deisotopeScan(scan, settings):
         scan.remuncharged()
 
 
-def envelopeParams(settings, seedCharge=1):
-    """The parameters mspy.recalculate_neighborhood_envelopes takes."""
+def envelopeParams(settings, seedCharge=1, polarity=None):
+    """The parameters mspy.recalculate_neighborhood_envelopes takes, the
+    charges signed for the scan's polarity."""
 
     deisotoping = settings["deisotoping"]
     return {
         "massTolerance": deisotoping["massTolerance"],
         "isotopeShift": deisotoping["isotopeShift"],
-        "maxCharge": deisotoping["maxCharge"],
+        "maxCharge": signedCharge(deisotoping["maxCharge"], polarity),
         "intTolerance": deisotoping["intTolerance"],
         "labelEnvelope": deisotoping["labelEnvelope"],
         "envelopeIntensity": deisotoping["envelopeIntensity"],
         "envelopeNonIdeality": deisotoping["envelopeNonIdeality"],
         "envelopeRefinePattern": deisotoping.get("envelopeRefinePattern", 1),
         "averagineType": settings["peakpicking"].get("averagineType", "protein"),
-        "seedCharge": seedCharge,
+        "seedCharge": signedCharge(seedCharge, polarity),
     }
 
 
-def seedCharge(peaks, typed=None):
+def seedCharge(peaks, typed=None, polarity=None):
     """The charge "Convert to Envelopes" gives peaks that have none.
 
     The first charged peak's charge, else a charge typed in the peak editor
-    (typed, as text), else 1.
+    (typed, as text), else 1 -- the last two signed for the polarity.
     """
 
     for peak in peaks:
@@ -233,27 +278,30 @@ def seedCharge(peaks, typed=None):
         value = int(typed.strip()) if typed else 0
     except ValueError:
         value = 0
-    return value or 1
+    return signedCharge(value or 1, polarity)
 
 
-def convertToEnvelopes(peaklist, profile, settings, charge=None):
+def convertToEnvelopes(peaklist, profile, settings, charge=None, polarity=None):
     """Every peak of a peak list as an envelope, as "Convert All to Envelopes"
     gives them; envelopes already there are refitted.
 
     Returns a new peak list, or the same object when there is nothing to do.
-    charge is the seed charge, by default seedCharge(peaklist).
+    charge is the seed charge, by default seedCharge(peaklist); polarity is
+    the scan's, which signs the charges -- those of peaks and envelopes
+    labelled with the wrong sign are corrected (see polarityCorrected).
     """
 
-    peaks = list(peaklist)
-    if not peaks:
+    if not len(peaklist):
         return peaklist
+    corrected = polarityCorrected(peaklist, polarity)
+    peaks = list(corrected)
     if charge is None:
-        charge = seedCharge(peaks)
+        charge = seedCharge(peaks, polarity=polarity)
     return mspy.recalculate_neighborhood_envelopes(
-        peaklist,
+        corrected,
         profile,
         [peak.mz for peak in peaks],
-        envelopeParams(settings, seedCharge=charge),
+        envelopeParams(settings, seedCharge=charge, polarity=polarity),
         selectedOnly=True,
     )
 
@@ -261,7 +309,9 @@ def convertToEnvelopes(peaklist, profile, settings, charge=None):
 def convertScanToEnvelopes(scan, settings):
     """convertToEnvelopes on a scan, in place."""
 
-    scan.peaklist = convertToEnvelopes(scan.peaklist, scan.profile, settings)
+    scan.peaklist = convertToEnvelopes(
+        scan.peaklist, scan.profile, settings, polarity=scan.polarity
+    )
 
 
 def envelopeJobs(documents, current=None, typed=None):
@@ -276,7 +326,11 @@ def envelopeJobs(documents, current=None, typed=None):
     for index, document in enumerate(documents):
         peaklist = document.spectrum.peaklist
         if len(peaklist):
-            charge = seedCharge(peaklist, typed if document is current else None)
+            charge = seedCharge(
+                peaklist,
+                typed if document is current else None,
+                document.spectrum.polarity,
+            )
             jobs.append((index, document, peaklist, charge))
     return jobs
 
@@ -295,7 +349,13 @@ def fitEnvelopeJobs(jobs, settings, progress=None):
     failures = []
     for index, document, peaklist, charge in jobs:
         try:
-            result = convertToEnvelopes(peaklist, document.spectrum.profile, settings, charge)
+            result = convertToEnvelopes(
+                peaklist,
+                document.spectrum.profile,
+                settings,
+                charge,
+                polarity=document.spectrum.polarity,
+            )
             if result is not peaklist:
                 results[index] = result
         except Exception as error:

@@ -29,6 +29,8 @@ dependencies = [
 test = [
     "pytest",
     "pytest-cov",
+    "pytest-xdist>=3.2.1",
+    "psutil",
     "numpy>=2.0",
     "numba>=0.60",
     "numpy>=2.5.2; python_version >= '3.15'",
@@ -60,9 +62,17 @@ gui = ["configs/*.json"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+# The suite runs in parallel (pytest-xdist), one worker per physical core:
+# "auto" counts physical cores when psutil is installed, logical ones without
+# it, and hyperthreaded siblings only slow each other down. worksteal lets
+# idle workers take over the queue of a busy one, so a file of slow tests is
+# spread out rather than left to one worker. Every test builds the data it
+# reads, so the tests are independent. Pass -n0 to run in one process (e.g.
+# for a single test, or with pdb).
+addopts = "-n auto --dist worksteal"
 # wxPython is intentionally NOT a test dependency: every target tested here
 # imports without wx. The Numba @njit kernels in mspy/calculations.py compile
-# lazily on first call (~5-10s once per session); this is expected.
+# lazily on first call (a few seconds once per worker); this is expected.
 # pytest-cov works on Python 3.14 again (checked with coverage 7.16.2 +
 # NumPy 2.5.3); coverage 7.14 + NumPy 2.4 tripped numpy's "cannot load module
 # more than once" guard.

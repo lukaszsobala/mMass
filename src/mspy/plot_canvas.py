@@ -2482,6 +2482,10 @@ class canvas(wx.Window):
         elif self.mouseFn == "isotoperuler":
             self.drawIsotopeRuler(dc)
 
+        # one line with a pointer riding the spectrum
+        elif self.mouseFn == "pointtracker":
+            self.drawPointTracker(dc)
+
         # mark the peak a difference ruler would start at
         elif self.mouseFn == "peaksnap":
             self.drawSnapTracker(dc)
@@ -2511,7 +2515,11 @@ class canvas(wx.Window):
         # get gel coords
         if self.properties["showGel"]:
             minYGel = minYPlot - (9 * self.printerScale["drawings"])
-            maxYGel = minYGel - self.gelsCount * self.properties["gelHeight"]
+            maxYGel = minYGel - (
+                self.gelsCount
+                * self.properties["gelHeight"]
+                * self.printerScale["drawings"]
+            )
 
         if wx.Platform == "__WXMAC__":
             maxXPlot -= 1
@@ -2796,39 +2804,59 @@ class canvas(wx.Window):
     # ----
 
     def drawPointTracker(self, dc):
-        """Draw point tracker - follow the main plot"""
+        """Draw point tracker - one line with a pointer riding the main plot.
+
+        The single-line counterpart of the isotope ruler, shown by the label
+        point tool both while hovering and while the button is held.
+        """
 
         # check cursor position
         if self.getCursorLocation() != "plot":
             return
 
-        # check current object
-        if self.currentObject is None:
-            return
-
-        # hide cursor
-        self.SetCursor(wx.Cursor(wx.CURSOR_BLANK))
-
-        # get X coordinations
+        # get plot coords
         x = self.cursorPosition[2]
         y = self.cursorPosition[3]
-        minY = self.plotCoords[1]
-        maxY = self.plotCoords[3]
+        maxXPlot = self.plotCoords[2]
+        minYPlot = self.plotCoords[1]
+        maxYPlot = self.plotCoords[3]
 
-        # get Y value
-        currentY = self.getPoint(x, coord="screen")
+        # get gel coords
+        minYGel = maxYGel = 0
+        if self.properties["showGel"]:
+            minYGel = minYPlot - (9 * self.printerScale["drawings"])
+            maxYGel = minYGel - (
+                self.gelsCount
+                * self.properties["gelHeight"]
+                * self.printerScale["drawings"]
+            )
 
-        # draw tracker lines (axisColour follows the dark/light theme)
-        dc.SetPen(wx.Pen(self.properties["axisColour"]))
-        # dc.SetLogicalFunction(wx.INVERT)
         if wx.Platform == "__WXMAC__":
-            dc.DrawLine(int(x), int(minY), int(x), int(maxY - 1))
-            if currentY:
-                dc.DrawLine(int(x - 5), int(currentY[1]), int(x + 6), int(currentY[1]))
-        else:
-            if currentY:
-                dc.DrawLine(int(x), int(minY), int(x), int(maxY))
-                dc.DrawLine(int(x - 5), int(currentY[1]), int(x + 6), int(currentY[1]))
+            maxXPlot -= 1
+            maxYPlot -= 1
+            maxYGel += 1
+
+        # where the line meets the current spectrum
+        intensity = None
+        if self.currentObject:
+            point = self.getPoint(x, coord="screen")
+            if point is not None:
+                intensity = min(point[1], maxYPlot - 5)
+                intensity = max(intensity, minYPlot + 5)
+
+        # draw line (axisColour follows the dark/light theme)
+        dc.SetPen(wx.Pen(self.properties["axisColour"]))
+        dc.DrawLine(int(x), int(minYPlot), int(x), int(maxYPlot))
+        if self.properties["showGel"]:
+            dc.DrawLine(int(x), int(minYGel), int(x), int(maxYGel))
+
+        # draw pointer
+        if intensity is not None:
+            if wx.Platform != "__WXMAC__":
+                dc.SetPen(wx.TRANSPARENT_PEN)
+                dc.SetBrush(wx.Brush(self.properties["axisColour"]))
+            dc.DrawCircle(int(x), int(intensity), int(4))
+
         dc.SetLogicalFunction(wx.COPY)
 
         # draw x position text
@@ -2845,10 +2873,10 @@ class canvas(wx.Window):
             y = y - textSize[1] - 2
 
             # check limits for position
-            if x + textSize[0] > self.plotCoords[2]:
+            if x + textSize[0] > maxXPlot:
                 x = x - textSize[0] - 10
-            if y < self.plotCoords[1]:
-                y = self.plotCoords[1]
+            if y < minYPlot:
+                y = minYPlot
 
             # draw text
             self.drawInvertedText(dc, text, x, y, self.properties["axisFont"])
@@ -2875,7 +2903,11 @@ class canvas(wx.Window):
         # get gel coords
         if self.properties["showGel"]:
             minYGel = minYPlot - (9 * self.printerScale["drawings"])
-            maxYGel = minYGel - self.gelsCount * self.properties["gelHeight"]
+            maxYGel = minYGel - (
+                self.gelsCount
+                * self.properties["gelHeight"]
+                * self.printerScale["drawings"]
+            )
 
         if wx.Platform == "__WXMAC__":
             maxXPlot -= 1
@@ -2983,7 +3015,11 @@ class canvas(wx.Window):
         minYGel = maxYGel = 0
         if self.properties["showGel"]:
             minYGel = minYPlot - (8 * self.printerScale["drawings"])
-            maxYGel = minYGel - self.gelsCount * self.properties["gelHeight"]
+            maxYGel = minYGel - (
+                self.gelsCount
+                * self.properties["gelHeight"]
+                * self.printerScale["drawings"]
+            )
 
         # use DC with transparency (only needed for MSW)
         # try:
