@@ -52,11 +52,13 @@ def _envelopes(peaklist):
 def test_a_charge_takes_the_sign_of_the_polarity():
     assert processing.signedCharge(2, -1) == -2
     assert processing.signedCharge(2, 1) == 2
-    assert processing.signedCharge(2, None) == 2
-    # typed negative by hand: kept, whatever the polarity says
     assert processing.signedCharge(-2, -1) == -2
-    assert processing.signedCharge(-2, 1) == -2
+    assert processing.signedCharge(-2, 1) == 2
     assert processing.signedCharge(None, -1) is None
+    # unknown polarity: kept as given (a negative max. charge typed by hand)
+    assert processing.signedCharge(2, None) == 2
+    assert processing.signedCharge(-2, None) == -2
+    assert processing.signedCharge(-2, 0) == -2
 
 
 def test_the_fallback_seed_charge_is_negative_in_negative_mode():
@@ -184,3 +186,59 @@ def test_recalculating_a_neighbourhood_seeds_negative_charges(settings):
 
     envelopes = _envelopes(result)
     assert envelopes and all(peak.charge < 0 for peak in envelopes)
+
+
+def test_convert_all_corrects_envelopes_labelled_with_the_wrong_sign(settings):
+    # envelopes labelled +z in a negative-mode spectrum (before charges were
+    # signed): converting all again gives what a negative-mode conversion does
+    stale = _scan(1)
+    processing.deisotopeScan(stale, settings)
+    processing.convertScanToEnvelopes(stale, settings)
+    stale.polarity = -1
+    before = [(peak, peak.charge) for peak in stale.peaklist]
+    assert any(charge and charge > 0 for _peak, charge in before)
+
+    result = processing.convertToEnvelopes(
+        stale.peaklist, stale.profile, settings, polarity=stale.polarity
+    )
+
+    assert result is not stale.peaklist
+    assert all(peak.charge < 0 for peak in result if peak.charge)
+    # the document's own peaks are untouched until the result is applied (so
+    # the undo step taken then holds the old charges)
+    assert [(peak, peak.charge) for peak in stale.peaklist] == before
+
+    fresh = _scan(-1)
+    processing.deisotopeScan(fresh, settings)
+    processing.convertScanToEnvelopes(fresh, settings)
+    assert _charges(result) == _charges(fresh.peaklist)
+    for a, b in zip(_envelopes(result), _envelopes(fresh.peaklist), strict=True):
+        assert a.attributes["envelope"]["area"] == pytest.approx(
+            b.attributes["envelope"]["area"], rel=1e-6
+        )
+
+
+def test_convert_all_in_all_documents_corrects_the_wrong_sign(settings):
+    document = doc.document()
+    document.spectrum = _scan(1)
+    processing.deisotopeScan(document.spectrum, settings)
+    processing.convertScanToEnvelopes(document.spectrum, settings)
+    document.spectrum.polarity = -1
+
+    jobs = processing.envelopeJobs([document])
+    results, failures = processing.fitEnvelopeJobs(jobs, settings)
+
+    assert not failures
+    assert all(peak.charge < 0 for peak in results[0] if peak.charge)
+    assert all(peak.charge > 0 for peak in document.spectrum.peaklist if peak.charge)
+
+
+def test_nothing_to_correct_leaves_the_peak_list_as_it_is():
+    peaklist = mspy.peaklist([mspy.peak(mz=500.0, ai=10.0, charge=-1)])
+    assert processing.polarityCorrected(peaklist, -1) is peaklist
+    assert processing.polarityCorrected(peaklist, None) is peaklist
+
+    corrected = processing.polarityCorrected(peaklist, 1)
+    assert corrected is not peaklist
+    assert [peak.charge for peak in corrected] == [1]
+    assert [peak.charge for peak in peaklist] == [-1]

@@ -5,6 +5,8 @@ config.processing, so the command line can run with a changed copy of them
 without touching the user's configuration.
 """
 
+import copy
+
 import numpy
 
 import mspy
@@ -183,13 +185,42 @@ def signedCharge(charge, polarity):
     """A charge with the sign of the scan's polarity.
 
     Charges are signed: negative in negative mode, so that the neutral mass of
-    a peak comes out right ([M-H]- rather than [M+H]+). A charge given negative
-    already (a negative max. charge typed by hand) is kept as it is.
+    a peak comes out right ([M-H]- rather than [M+H]+). A known polarity
+    decides the sign; without one the charge is kept as given (a negative
+    max. charge typed by hand for a spectrum of unknown polarity).
     """
 
-    if polarity == -1 and charge and charge > 0:
-        return -charge
+    if polarity in (1, -1) and charge:
+        return abs(charge) * polarity
     return charge
+
+
+def polarityCorrected(peaklist, polarity):
+    """The peak list with every charge of the wrong sign for the polarity
+    corrected (e.g. envelopes labelled +1 in a negative-mode spectrum before
+    the charges were signed).
+
+    A new peak list whose corrected peaks are copies, so the document's peaks
+    stay as they are until the result is applied (and the undo step taken);
+    the same object when nothing needs correcting.
+    """
+
+    if polarity not in (1, -1):
+        return peaklist
+    wrong = [
+        i
+        for i, peak in enumerate(peaklist)
+        if peak.charge and signedCharge(peak.charge, polarity) != peak.charge
+    ]
+    if not wrong:
+        return peaklist
+
+    peaks = list(peaklist)
+    for i in wrong:
+        peak = copy.deepcopy(peaks[i])
+        peak.setcharge(signedCharge(peak.charge, polarity))
+        peaks[i] = peak
+    return mspy.peaklist(peaks)
 
 
 def deisotopeScan(scan, settings):
@@ -256,16 +287,18 @@ def convertToEnvelopes(peaklist, profile, settings, charge=None, polarity=None):
 
     Returns a new peak list, or the same object when there is nothing to do.
     charge is the seed charge, by default seedCharge(peaklist); polarity is
-    the scan's, which signs the charges.
+    the scan's, which signs the charges -- those of peaks and envelopes
+    labelled with the wrong sign are corrected (see polarityCorrected).
     """
 
-    peaks = list(peaklist)
-    if not peaks:
+    if not len(peaklist):
         return peaklist
+    corrected = polarityCorrected(peaklist, polarity)
+    peaks = list(corrected)
     if charge is None:
         charge = seedCharge(peaks, polarity=polarity)
     return mspy.recalculate_neighborhood_envelopes(
-        peaklist,
+        corrected,
         profile,
         [peak.mz for peak in peaks],
         envelopeParams(settings, seedCharge=charge, polarity=polarity),
