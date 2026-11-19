@@ -23,8 +23,10 @@ arrives as arguments.
 import csv
 import datetime
 import os
+import contextlib
 import shutil
 import tempfile
+import time
 
 import numpy
 
@@ -360,6 +362,51 @@ class ResultsExist(OSError):
     """Results appeared in the folder of an export that may not replace them."""
 
 
+class FolderBusy(OSError):
+    """Another export is publishing into the same folder."""
+
+
+# exports publishing into one folder take turns through this file
+LOCK_NAME = ".similarity.lock"
+
+# how long to wait for another export to finish publishing (seconds); a lock
+# older than LOCK_STALE is left over from a run that died while publishing
+LOCK_WAIT = 10.0
+LOCK_STALE = 60.0
+
+
+@contextlib.contextmanager
+def _folderLock(folder):
+    """Hold the folder's export lock: created exclusively, which also works
+    on network shares; publishing takes milliseconds, so it is held briefly."""
+
+    path = os.path.join(folder, LOCK_NAME)
+    deadline = time.monotonic() + LOCK_WAIT
+    while True:
+        try:
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            break
+        except FileExistsError:
+            try:
+                if time.time() - os.path.getmtime(path) > LOCK_STALE:
+                    os.remove(path)
+                    continue
+            except OSError:
+                continue  # released meanwhile
+            if time.monotonic() > deadline:
+                raise FolderBusy(f"another export is writing to {folder}") from None
+            time.sleep(0.05)
+    try:
+        os.write(fd, str(os.getpid()).encode())
+        os.close(fd)
+        yield
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
 def write_results(
     folder, items, sim, grp, similarity, grouping, failed=0, source="mMass", overwrite=True
 ):
@@ -368,10 +415,12 @@ def write_results(
 
     The files are written to a staging folder first, every destination is
     checked, and only then are they published, so a failure does not leave a
-    mix of two runs behind.  Without overwrite nothing already there is
-    replaced, not even results another run wrote meanwhile: each file is
-    linked into place, which fails if it exists (ResultsExist; the files of
-    this export published so far are taken back).
+    mix of two runs behind.  Checking and publishing (and taking back) happen
+    under the folder's export lock, so two exports into one folder cannot
+    interleave.  Without overwrite nothing already there is replaced, not
+    even results another run wrote meanwhile: each file is linked into place,
+    which fails if it exists (ResultsExist; the files of this export
+    published so far are taken back).
     """
 
     os.makedirs(folder, exist_ok=True)
@@ -380,23 +429,24 @@ def write_results(
         _write_all(stage, items, sim, grp, similarity, grouping, failed, source)
         written = sorted(os.listdir(stage))
         stale = [name for name in OUTPUTS if name not in written] if overwrite else []
-        for name in written + stale:
-            target = os.path.join(folder, name)
-            if os.path.isdir(target) or (
-                os.path.exists(target) and not os.access(target, os.W_OK)
-            ):
-                raise OSError(f"{target} cannot be replaced")
-            if not overwrite and os.path.lexists(target):
-                raise ResultsExist(f"{target} already exists")
-        if overwrite:
-            for name in written:
-                os.replace(os.path.join(stage, name), os.path.join(folder, name))
-            for name in stale:
-                path = os.path.join(folder, name)
-                if os.path.exists(path):
-                    os.remove(path)  # a stale table from an earlier run would mislead
-        else:
-            _publish_new(stage, folder, written)
+        with _folderLock(folder):
+            for name in written + stale:
+                target = os.path.join(folder, name)
+                if os.path.isdir(target) or (
+                    os.path.exists(target) and not os.access(target, os.W_OK)
+                ):
+                    raise OSError(f"{target} cannot be replaced")
+                if not overwrite and os.path.lexists(target):
+                    raise ResultsExist(f"{target} already exists")
+            if overwrite:
+                for name in written:
+                    os.replace(os.path.join(stage, name), os.path.join(folder, name))
+                for name in stale:
+                    path = os.path.join(folder, name)
+                    if os.path.exists(path):
+                        os.remove(path)  # a stale table from an earlier run would mislead
+            else:
+                _publish_new(stage, folder, written)
     finally:
         shutil.rmtree(stage, ignore_errors=True)
 
@@ -404,25 +454,29 @@ def write_results(
 def _publish_new(stage, folder, names):
     """Move the staged files into folder without replacing anything there."""
 
+    # (target, the file published there), to take back only our own files
     published = []
     try:
         for name in names:
             source, target = os.path.join(stage, name), os.path.join(folder, name)
+            mine = os.stat(source)
             try:
                 os.link(source, target)  # fails if target exists, atomically
             except FileExistsError:
                 raise ResultsExist(f"{target} appeared during the export") from None
             except OSError:
                 # no hard links here (e.g. some network shares): check just
-                # before the move instead
+                # before the move instead (the folder lock keeps other exports out)
                 if os.path.lexists(target):
                     raise ResultsExist(f"{target} appeared during the export") from None
                 os.replace(source, target)
-            published.append(target)
+            published.append((target, mine))
     except OSError:
-        for path in published:
+        for path, mine in published:
             try:
-                os.remove(path)
+                # a file someone else put there since is not ours to remove
+                if os.path.samestat(os.stat(path), mine):
+                    os.remove(path)
             except OSError:
                 pass
         raise

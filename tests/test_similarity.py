@@ -4,6 +4,8 @@ All spectra are synthetic: Gaussian peaks on a noisy profile, with an optional
 broad baseline hump, a precursor m/z and a polarity.
 """
 
+import os
+
 import numpy
 import pytest
 
@@ -532,3 +534,58 @@ def test_upgma_matches_a_full_recomputation():
         ref = _upgma_reference(S)
         assert Z[:, 2] == pytest.approx([d for d, _ in ref])
         assert list(Z[:, 3]) == [k for _, k in ref]
+
+
+def test_an_export_waits_for_the_folder_lock_then_gives_up(tmp_path, monkeypatch):
+    results, items, sim, grp = _export_inputs()
+    monkeypatch.setattr(results, "LOCK_WAIT", 0.2)
+    (tmp_path / results.LOCK_NAME).write_text("another export")
+    with pytest.raises(results.FolderBusy):
+        results.write_results(str(tmp_path), items, sim, grp, {}, {"replicates": 0})
+    assert not (tmp_path / "REPORT.md").exists()
+
+
+def test_a_lock_left_by_a_dead_run_is_cleared(tmp_path):
+    results, items, sim, grp = _export_inputs()
+    lock = tmp_path / results.LOCK_NAME
+    lock.write_text("crashed")
+    old = os.path.getmtime(lock) - 2 * results.LOCK_STALE
+    os.utime(lock, (old, old))
+    results.write_results(str(tmp_path), items, sim, grp, {}, {"replicates": 0})
+    assert (tmp_path / "REPORT.md").exists() and not lock.exists()
+
+
+def test_the_lock_is_released_after_a_failed_export(tmp_path):
+    results, items, sim, grp = _export_inputs()
+    (tmp_path / "groups.csv").write_text("earlier")
+    with pytest.raises(results.ResultsExist):
+        results.write_results(
+            str(tmp_path), items, sim, grp, {}, {"replicates": 0}, overwrite=False
+        )
+    assert not (tmp_path / results.LOCK_NAME).exists()
+
+
+def test_taking_back_an_export_spares_files_others_put_there(tmp_path, monkeypatch):
+    """Run A published REPORT.md; another run replaced it before A hit a
+    conflict: A's rollback must not delete the other run's report."""
+
+    results, items, sim, grp = _export_inputs()
+    real = os.link
+
+    def link(src, dst):
+        name = os.path.basename(dst)
+        if name == "groups.csv":
+            # meanwhile: the other run replaces our report and writes groups.csv
+            other = tmp_path / "other.tmp"
+            other.write_text("the other report")
+            os.replace(other, tmp_path / "REPORT.md")
+            (tmp_path / "groups.csv").write_text("the other groups")
+        return real(src, dst)
+
+    monkeypatch.setattr(results.os, "link", link)
+    with pytest.raises(results.ResultsExist):
+        results.write_results(
+            str(tmp_path), items, sim, grp, {}, {"replicates": 0}, overwrite=False
+        )
+    assert (tmp_path / "REPORT.md").read_text() == "the other report"
+    assert (tmp_path / "groups.csv").read_text() == "the other groups"
