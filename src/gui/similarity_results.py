@@ -514,24 +514,29 @@ def _publish_replacing(stage, folder, names, stale):
             os.replace(os.path.join(stage, name), os.path.join(folder, name))
             placed.append(name)
     except OSError as exc:
-        lost = []
+        lost, left = [], []
         for name in placed:
             if name not in moved:
                 try:
                     os.remove(os.path.join(folder, name))
                 except OSError:
-                    pass
+                    left.append(os.path.join(folder, name))
         for name in moved:
             try:
                 os.replace(os.path.join(aside, name), os.path.join(folder, name))
             except OSError:
                 lost.append(name)
+        problems = []
         if lost:
-            raise OSError(
-                f"publishing failed and {', '.join(lost)} could not be put back; "
-                f"the earlier files are in {aside}"
-            ) from exc
-        shutil.rmtree(aside, ignore_errors=True)
+            problems.append(
+                f"{', '.join(lost)} could not be put back (the earlier files are in {aside})"
+            )
+        if left:
+            problems.append(f"the new {', '.join(left)} could not be removed")
+        if not lost:
+            shutil.rmtree(aside, ignore_errors=True)
+        if problems:
+            raise OSError(f"publishing failed: {exc}; " + "; ".join(problems)) from exc
         raise
     shutil.rmtree(aside, ignore_errors=True)
 

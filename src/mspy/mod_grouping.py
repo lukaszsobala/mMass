@@ -31,7 +31,10 @@ same-precursor pairs in the lipid data and separated the species in the
 positive glycan spectra.
 
 A tree (UPGMA, average linkage) is built for display, one per set of
-comparable spectra (spectra of different polarity are not compared).
+spectra linked by a chain of compared pairs.  Spectra of different polarity
+are not compared directly, but a spectrum of unknown polarity can link both
+into one tree; clusters with no compared pair between them join at
+UNMEASURED.
 
 Confidence comes from a bootstrap over blocks of the m/z and loss axes
 (mod_similarity.bootstrapmatrices): for every pair, the share of replicates in

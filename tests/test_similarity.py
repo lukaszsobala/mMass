@@ -485,6 +485,34 @@ def test_an_overwrite_that_fails_midway_puts_the_earlier_results_back(
         assert (tmp_path / name).read_text() == content
 
 
+def test_a_new_file_left_behind_by_a_failed_overwrite_is_reported(tmp_path, monkeypatch):
+    """The earlier run had no co_membership.csv; the failed run's one cannot
+    be taken back: the error must say so rather than leave it unmentioned."""
+
+    results, items, sim, _ = _export_inputs()
+    grp = mspy.groupspectra(sim, replicates=5, seed=1)
+    (tmp_path / "REPORT.md").write_text("earlier report")
+    realReplace, realRemove = os.replace, os.remove
+
+    def replace(src, dst):
+        if os.path.basename(dst) == "trees.nwk" and "-old-" not in src:
+            raise OSError("disk full")  # after co_membership.csv was published
+        return realReplace(src, dst)
+
+    def remove(path):
+        if os.path.basename(path) == "co_membership.csv":
+            raise PermissionError("read-only")
+        return realRemove(path)
+
+    monkeypatch.setattr(results.os, "replace", replace)
+    monkeypatch.setattr(results.os, "remove", remove)
+    with pytest.raises(OSError, match="co_membership.csv could not be removed"):
+        results.write_results(
+            str(tmp_path), items, sim, grp, {}, {"replicates": 5}
+        )
+    assert (tmp_path / "REPORT.md").read_text() == "earlier report"
+
+
 def _export_inputs():
     from gui import similarity_results as results
 

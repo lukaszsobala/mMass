@@ -150,7 +150,7 @@ TIPS = {
     "none": "Large peaks dominate.",
     "weighting": "Signals most spectra have count less than rare ones.",
     "chanceCorrection": "Subtracts the similarity expected by chance for the pair's m/z range\nand peak density: 0 = chance, 1 = identical.",
-    "neutralMass": "Compare positive and negative spectra, assuming one ion type per polarity.\nOff: each polarity is grouped on its own.",
+    "neutralMass": "Compare positive and negative spectra, assuming one ion type per polarity.\nOff: spectra of different polarity are not compared directly.",
     "posAdduct": "Ion type assumed for every positive spectrum.",
     "negAdduct": "Ion type assumed for every negative spectrum.",
     "network": "Groups are communities of a network linking each spectrum\nto its most similar ones.",
@@ -2009,7 +2009,7 @@ class panelSpectrumSimilarity(wx.Frame):
             parts.append("stability %.2f" % grp.stability)
         polarity, apart = results.uncompared(data.sim)
         if polarity:
-            parts.append("polarities grouped apart")
+            parts.append("polarities not compared")
         if apart:
             parts.append("%d pair%s without a common m/z range" % (apart, "" if apart == 1 else "s"))
         rho, rhoApart = mspy.rangedependence(data.sim)
