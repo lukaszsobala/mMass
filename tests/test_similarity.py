@@ -481,7 +481,8 @@ def test_an_export_without_overwrite_never_replaces_results(tmp_path, monkeypatc
             str(tmp_path), items, sim, grp, {}, {"replicates": 0}, overwrite=False
         )
     assert (tmp_path / "groups.csv").read_text() == "the other run"
-    assert sorted(p.name for p in tmp_path.iterdir()) == ["groups.csv"]
+    left = sorted(p.name for p in tmp_path.iterdir() if p.name != results.LOCK_NAME)
+    assert left == ["groups.csv"]
 
 
 def test_an_export_publishes_without_hard_links(tmp_path, monkeypatch):
@@ -536,23 +537,54 @@ def test_upgma_matches_a_full_recomputation():
         assert list(Z[:, 3]) == [k for _, k in ref]
 
 
+_LOCKER = """
+import os, sys, time
+sys.path.insert(0, {src!r})
+from gui import similarity_results as r
+fd = os.open(os.path.join({folder!r}, r.LOCK_NAME), os.O_CREAT | os.O_RDWR)
+print("locked" if r._trylock(fd) else "busy", flush=True)
+time.sleep({hold})
+"""
+
+
+def _locker(folder, hold):
+    """Another process trying the folder lock (POSIX locks are per process)."""
+
+    import subprocess
+    import sys
+
+    src = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src")
+    proc = subprocess.Popen(
+        [sys.executable, "-c", _LOCKER.format(src=src, folder=str(folder), hold=hold)],
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    assert proc.stdout is not None
+    return proc, proc.stdout.readline().strip()
+
+
 def test_an_export_waits_for_the_folder_lock_then_gives_up(tmp_path, monkeypatch):
     results, items, sim, grp = _export_inputs()
-    monkeypatch.setattr(results, "LOCK_WAIT", 0.2)
-    (tmp_path / results.LOCK_NAME).write_text("another export")
-    with pytest.raises(results.FolderBusy):
-        results.write_results(str(tmp_path), items, sim, grp, {}, {"replicates": 0})
-    assert not (tmp_path / "REPORT.md").exists()
+    monkeypatch.setattr(results, "LOCK_WAIT", 0.3)
+    proc, state = _locker(tmp_path, 30)
+    try:
+        assert state == "locked"
+        with pytest.raises(results.FolderBusy):
+            results.write_results(str(tmp_path), items, sim, grp, {}, {"replicates": 0})
+        assert not (tmp_path / "REPORT.md").exists()
+    finally:
+        proc.kill()
+        proc.wait()
 
 
-def test_a_lock_left_by_a_dead_run_is_cleared(tmp_path):
+def test_a_lock_dies_with_the_export_that_held_it(tmp_path):
     results, items, sim, grp = _export_inputs()
-    lock = tmp_path / results.LOCK_NAME
-    lock.write_text("crashed")
-    old = os.path.getmtime(lock) - 2 * results.LOCK_STALE
-    os.utime(lock, (old, old))
+    proc, state = _locker(tmp_path, 30)
+    assert state == "locked"
+    proc.kill()  # crashed while publishing
+    proc.wait()
     results.write_results(str(tmp_path), items, sim, grp, {}, {"replicates": 0})
-    assert (tmp_path / "REPORT.md").exists() and not lock.exists()
+    assert (tmp_path / "REPORT.md").exists()
 
 
 def test_the_lock_is_released_after_a_failed_export(tmp_path):
@@ -562,7 +594,9 @@ def test_the_lock_is_released_after_a_failed_export(tmp_path):
         results.write_results(
             str(tmp_path), items, sim, grp, {}, {"replicates": 0}, overwrite=False
         )
-    assert not (tmp_path / results.LOCK_NAME).exists()
+    proc, state = _locker(tmp_path, 0)
+    proc.wait()
+    assert state == "locked"
 
 
 def test_taking_back_an_export_spares_files_others_put_there(tmp_path, monkeypatch):

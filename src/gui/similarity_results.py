@@ -24,7 +24,9 @@ import csv
 import datetime
 import os
 import contextlib
+import errno
 import shutil
+import sys
 import tempfile
 import time
 
@@ -369,42 +371,79 @@ class FolderBusy(OSError):
 # exports publishing into one folder take turns through this file
 LOCK_NAME = ".similarity.lock"
 
-# how long to wait for another export to finish publishing (seconds); a lock
-# older than LOCK_STALE is left over from a run that died while publishing
+# how long to wait for another export to finish publishing (seconds)
 LOCK_WAIT = 10.0
-LOCK_STALE = 60.0
+
+
+def _trylock(fd):
+    """Take an exclusive lock on fd without waiting; False if someone else
+    holds it.  An OS lock (forwarded to NFS and SMB servers as a byte-range
+    lock) is released by the kernel when its holder exits, so a crashed
+    export leaves nothing to clean up."""
+
+    try:
+        if sys.platform == "win32":
+            import msvcrt
+
+            os.lseek(fd, 0, os.SEEK_SET)
+            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.lockf(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (BlockingIOError, PermissionError):
+        return False
+    except OSError as exc:
+        # Windows reports a held lock as EDEADLOCK/EACCES
+        if exc.errno in (errno.EACCES, errno.EAGAIN, getattr(errno, "EDEADLOCK", -1)):
+            return False
+        raise
+    return True
+
+
+def _unlock(fd):
+    if sys.platform == "win32":
+        import msvcrt
+
+        os.lseek(fd, 0, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+    else:
+        import fcntl
+
+        fcntl.lockf(fd, fcntl.LOCK_UN)
 
 
 @contextlib.contextmanager
 def _folderLock(folder):
-    """Hold the folder's export lock: created exclusively, which also works
-    on network shares; publishing takes milliseconds, so it is held briefly."""
+    """Hold the folder's export lock while publishing (milliseconds).
 
-    path = os.path.join(folder, LOCK_NAME)
-    deadline = time.monotonic() + LOCK_WAIT
-    while True:
-        try:
-            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            break
-        except FileExistsError:
-            try:
-                if time.time() - os.path.getmtime(path) > LOCK_STALE:
-                    os.remove(path)
-                    continue
-            except OSError:
-                continue  # released meanwhile
-            if time.monotonic() > deadline:
-                raise FolderBusy(f"another export is writing to {folder}") from None
-            time.sleep(0.05)
+    The lock file stays in the folder: removing it would let two exports
+    lock different files.  Where the filesystem supports no locking at all,
+    publishing goes ahead unlocked (it still never replaces files without
+    overwrite).
+    """
+
+    fd = os.open(os.path.join(folder, LOCK_NAME), os.O_CREAT | os.O_RDWR, 0o644)
+    locked = False
     try:
-        os.write(fd, str(os.getpid()).encode())
-        os.close(fd)
+        deadline = time.monotonic() + LOCK_WAIT
+        while True:
+            try:
+                locked = _trylock(fd)
+            except OSError:
+                break  # no locking here (e.g. ENOLCK): go ahead unlocked
+            if locked:
+                break
+            if time.monotonic() > deadline:
+                raise FolderBusy(f"another export is writing to {folder}")
+            time.sleep(0.05)
         yield
     finally:
         try:
-            os.remove(path)
-        except OSError:
-            pass
+            if locked:
+                _unlock(fd)
+        finally:
+            os.close(fd)
 
 
 def write_results(
