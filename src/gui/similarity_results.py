@@ -418,12 +418,18 @@ def _folderLock(folder):
     """Hold the folder's export lock while publishing (milliseconds).
 
     The lock file stays in the folder: removing it would let two exports
-    lock different files.  Where the filesystem supports no locking at all,
-    publishing goes ahead unlocked (it still never replaces files without
-    overwrite).
+    lock different files.  It is created group-writable if the umask allows,
+    so others sharing the folder can lock it too.  Where the filesystem
+    supports no locking at all, or the lock file belongs to someone who has
+    not shared it, publishing goes ahead unlocked (it still never replaces
+    files without overwrite).
     """
 
-    fd = os.open(os.path.join(folder, LOCK_NAME), os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        fd = os.open(os.path.join(folder, LOCK_NAME), os.O_CREAT | os.O_RDWR, 0o666)
+    except PermissionError:
+        yield
+        return
     locked = False
     try:
         deadline = time.monotonic() + LOCK_WAIT

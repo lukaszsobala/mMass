@@ -599,6 +599,35 @@ def test_the_lock_is_released_after_a_failed_export(tmp_path):
     assert state == "locked"
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX permissions")
+def test_the_lock_file_is_shared_with_the_group(tmp_path):
+    """In a shared folder (umask 002) other group members must be able to
+    open the lock for writing, or every export of theirs would fail."""
+
+    results, items, sim, grp = _export_inputs()
+    old = os.umask(0o002)
+    try:
+        results.write_results(str(tmp_path), items, sim, grp, {}, {"replicates": 0})
+    finally:
+        os.umask(old)
+    mode = (tmp_path / results.LOCK_NAME).stat().st_mode
+    assert mode & 0o060 == 0o060
+
+
+@pytest.mark.skipif(
+    os.name != "posix" or os.geteuid() == 0, reason="needs a lock file we cannot open"
+)
+def test_a_lock_file_we_cannot_open_does_not_stop_the_export(tmp_path):
+    """A lock left by someone who did not share it (older 0644 files)."""
+
+    results, items, sim, grp = _export_inputs()
+    lock = tmp_path / results.LOCK_NAME
+    lock.write_text("")
+    lock.chmod(0o444)
+    results.write_results(str(tmp_path), items, sim, grp, {}, {"replicates": 0})
+    assert (tmp_path / "REPORT.md").exists()
+
+
 def test_taking_back_an_export_spares_files_others_put_there(tmp_path, monkeypatch):
     """Run A published REPORT.md; another run replaced it before A hit a
     conflict: A's rollback must not delete the other run's report."""
