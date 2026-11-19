@@ -264,7 +264,9 @@ def report(items, sim, grp, similarity, grouping, failed=0, source="mMass"):
         ]
     if len([t for t in grp.trees if len(t[0]) > 1]) > 1:
         lines += [
-            "Spectra with no compared pair between them are in separate trees.",
+            "Each tree holds spectra linked by a chain of compared pairs; spectra "
+            "with no such chain between them are in separate trees. Within a tree, "
+            "clusters with no compared pair between them join at similarity -1.",
             "",
         ]
     rho, rhoApart = mspy.rangedependence(sim)
@@ -484,16 +486,54 @@ def write_results(
                 if not overwrite and os.path.lexists(target):
                     raise ResultsExist(f"{target} already exists")
             if overwrite:
-                for name in written:
-                    os.replace(os.path.join(stage, name), os.path.join(folder, name))
-                for name in stale:
-                    path = os.path.join(folder, name)
-                    if os.path.exists(path):
-                        os.remove(path)  # a stale table from an earlier run would mislead
+                # a stale table from an earlier run would mislead: it goes too
+                _publish_replacing(stage, folder, written, stale)
             else:
                 _publish_new(stage, folder, written)
     finally:
         shutil.rmtree(stage, ignore_errors=True)
+
+
+def _publish_replacing(stage, folder, names, stale):
+    """Move the staged files into folder in place of the earlier results.
+
+    The earlier files are moved aside first and put back if any step fails,
+    so the folder holds either the whole earlier set or the whole new one.
+    If even putting them back fails, they are kept in a folder named in the
+    error rather than deleted.
+    """
+
+    aside = tempfile.mkdtemp(prefix=".similarity-old-", dir=folder)
+    moved, placed = [], []
+    try:
+        for name in names + stale:
+            if os.path.lexists(os.path.join(folder, name)):
+                os.replace(os.path.join(folder, name), os.path.join(aside, name))
+                moved.append(name)
+        for name in names:
+            os.replace(os.path.join(stage, name), os.path.join(folder, name))
+            placed.append(name)
+    except OSError as exc:
+        lost = []
+        for name in placed:
+            if name not in moved:
+                try:
+                    os.remove(os.path.join(folder, name))
+                except OSError:
+                    pass
+        for name in moved:
+            try:
+                os.replace(os.path.join(aside, name), os.path.join(folder, name))
+            except OSError:
+                lost.append(name)
+        if lost:
+            raise OSError(
+                f"publishing failed and {', '.join(lost)} could not be put back; "
+                f"the earlier files are in {aside}"
+            ) from exc
+        shutil.rmtree(aside, ignore_errors=True)
+        raise
+    shutil.rmtree(aside, ignore_errors=True)
 
 
 def _publish_new(stage, folder, names):

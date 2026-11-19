@@ -48,6 +48,7 @@ import numpy
 from . import mod_similarity
 
 __all__ = [
+    "UNMEASURED",
     "upgma",
     "treeorder",
     "clades",

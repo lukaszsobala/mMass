@@ -904,7 +904,8 @@ class matrixCanvas(_canvas):
 
 
 class treeCanvas(_canvas):
-    """Average-linkage trees (one per polarity) with bootstrap support."""
+    """Average-linkage trees with bootstrap support, one per set of spectra
+    linked by a chain of compared pairs (usually one per polarity)."""
 
     SPLIT_KEY = "treeSplit"
 
@@ -975,7 +976,9 @@ class treeCanvas(_canvas):
         y = float(top)
         for comp, Z, support in trees:
             if len(trees) > 1:
-                pol = data.items[comp[0]].scan.polarity
+                # a spectrum of unknown polarity can link both into one tree
+                pols = {data.items[i].scan.polarity for i in comp}
+                pol = pols.pop() if len(pols) == 1 else 0
                 caption = {1: "positive", -1: "negative"}.get(pol, "")
                 if caption:
                     dc.SetTextForeground(self.colours["muted"])
@@ -2101,7 +2104,10 @@ class panelSpectrumSimilarity(wx.Frame):
     # ----
 
     def cladeText(self, members, similarity, support):
-        text = "%d spectra joined at similarity %.2f" % (len(members), similarity)
+        if similarity <= 1.0 - mspy.UNMEASURED:
+            text = "%d spectra joined without a compared pair" % len(members)
+        else:
+            text = "%d spectra joined at similarity %.2f" % (len(members), similarity)
         if support is not None:
             text += ", in %.0f%% of the bootstrap trees" % (100 * support)
         return text + " · click to show them"

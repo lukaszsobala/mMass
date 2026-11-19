@@ -456,6 +456,35 @@ def test_a_failed_export_leaves_the_earlier_results_alone(tmp_path):
 
 
 
+def test_an_overwrite_that_fails_midway_puts_the_earlier_results_back(
+    tmp_path, monkeypatch
+):
+    results, items, sim, grp = _export_inputs()
+    earlier = {"REPORT.md": "earlier report", "groups.csv": "earlier groups",
+               "co_membership.csv": "earlier bootstrap"}  # stale without bootstrap
+    for name, content in earlier.items():
+        (tmp_path / name).write_text(content)
+    real, calls = os.replace, []
+
+    def replace(src, dst):
+        if os.path.basename(os.path.dirname(src)).startswith(".similarity-") and (
+            os.path.dirname(dst) == str(tmp_path)
+        ) and "-old-" not in src:
+            calls.append(dst)
+            if len(calls) == 2:
+                raise OSError("disk full")  # the second new file
+        return real(src, dst)
+
+    monkeypatch.setattr(results.os, "replace", replace)
+    with pytest.raises(OSError, match="disk full"):
+        results.write_results(str(tmp_path), items, sim, grp, {}, {"replicates": 0})
+    assert len(calls) == 2
+    left = {p.name for p in tmp_path.iterdir() if p.name != results.LOCK_NAME}
+    assert left == set(earlier)
+    for name, content in earlier.items():
+        assert (tmp_path / name).read_text() == content
+
+
 def _export_inputs():
     from gui import similarity_results as results
 
