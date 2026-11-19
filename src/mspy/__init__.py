@@ -44,6 +44,8 @@ from .mod_formulator import *
 from .mod_envfit import *
 from .mod_mascot import *
 from .mod_utils import *
+from .mod_similarity import *
+from .mod_grouping import *
 
 # load parsers
 from .parser_xy import parseXY
