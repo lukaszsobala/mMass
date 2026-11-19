@@ -69,8 +69,12 @@ def _scan_key(scanlist, scanArg):
     raise InputError(f"it has no scan {scanArg}")
 
 
-def read_input(path, scanArg=None):
-    """The spectra an input contributes, as Items."""
+def read_input(path, scanArg=None, problems=None):
+    """The spectra an input contributes, as Items.
+
+    problems (list or None) - given, an empty entry of a multi-entry file is
+        left out and described here instead of failing the whole file
+    """
 
     from gui import doc
 
@@ -143,9 +147,24 @@ def read_input(path, scanArg=None):
         ):
             title = f"{title} [{scanID}]"
         items.append(Item(document.spectrum, title, path))
+    if len(items) == 1:
+        _check_data(items[0].scan)
+        return items
+
+    # entries of one file are independent: an empty one is left out on its own
+    kept = []
     for item in items:
-        _check_data(item.scan, len(items) > 1 and item.title)
-    return items
+        try:
+            _check_data(item.scan, item.title)
+        except InputError as exc:
+            if problems is None:
+                raise
+            problems.append(str(exc))
+            continue
+        kept.append(item)
+    if not kept:
+        raise InputError("none of its entries contains data points or peaks")
+    return kept
 
 
 def _check_data(scan, name=None):
@@ -171,7 +190,11 @@ def collect(options):
                     failed += 1
                 for docPath, scanArg in documents:
                     try:
-                        items += read_input(docPath, scanArg)
+                        problems = []
+                        items += read_input(docPath, scanArg, problems)
+                        for problem in problems:
+                            error(f"{shown(docPath)}: {problem}")
+                            failed += 1
                     except InputError as exc:
                         error(f"{shown(docPath)}: {exc}")
                         failed += 1
@@ -180,7 +203,11 @@ def collect(options):
                         error(f"{shown(docPath)}: it cannot be read: {exc!r}")
                         failed += 1
             else:
-                items += read_input(path)
+                problems = []
+                items += read_input(path, problems=problems)
+                for problem in problems:
+                    error(f"{shown(path)}: {problem}")
+                    failed += 1
         except InputError as exc:
             error(f"{shown(path)}: {exc}")
             failed += 1
@@ -231,16 +258,24 @@ def run(options):
         return 1
     grp = mspy.groupspectra(sim, **options.grouping)
     out = options.outputDir
-    results.write_results(
-        out,
-        items,
-        sim,
-        grp,
-        options.similarity,
-        options.grouping,
-        failed,
-        source=f"mmass {COMMAND}",
-    )
+    try:
+        results.write_results(
+            out,
+            items,
+            sim,
+            grp,
+            options.similarity,
+            options.grouping,
+            failed,
+            source=f"mmass {COMMAND}",
+            overwrite=options.overwrite,
+        )
+    except results.ResultsExist as exc:
+        error(f"{exc} (another run wrote results there; use --overwrite to replace them)")
+        return 2
+    except OSError as exc:
+        error(f"the results cannot be written: {exc}")
+        return 1
 
     sizes = numpy.bincount(grp.groups)
     multi = int((sizes > 1).sum())

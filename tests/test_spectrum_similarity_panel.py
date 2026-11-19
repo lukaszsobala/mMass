@@ -472,15 +472,46 @@ def test_restore_survives_closing_a_compared_document(window):
     assert all(d.visible for d in hidden)
 
 
-def test_stop_stays_usable_while_comparing(window):
+def test_stop_stays_usable_while_comparing(window, monkeypatch):
     frame, parent = window
+    skipped = []
+    real = panel.wx.WindowDisabler
+
+    def recorder(*args):
+        skipped.extend(args)
+        return real(*args)
+
+    # the disabler must skip this window: a plain one disables Stop as well
+    monkeypatch.setattr(panel.wx, "WindowDisabler", recorder)
     frame.onProcessing(True)
+    assert skipped == [frame]
     try:
         assert frame.IsEnabled()
         assert not frame.toolbar.IsEnabled() and not frame.bottombar.IsEnabled()
         assert frame.gauge.GetParent().IsEnabled()
-        # every other (shown) window is blocked
-        assert isinstance(frame._disabler, panel.wx.WindowDisabler)
+        assert frame._disabler is not None
     finally:
         frame.onProcessing(False)
     assert frame._disabler is None and frame.toolbar.IsEnabled()
+
+
+
+def test_pairs_without_a_common_range_are_not_blamed_on_polarity(window):
+    from gui import doc
+
+    frame, parent = window
+    documents = []
+    for k, (lo, hi) in enumerate([(100, 300), (100, 300), (400, 600)]):
+        document = doc.document()
+        document.title = "r%d" % k
+        document.spectrum = make_scan(
+            random_peaks(50 + k, lo + 10, hi - 10), lo=lo, hi=hi, seed=k
+        )
+        documents.append(document)
+    parent.documents = documents
+    frame.setData(documents)
+    _compare(frame)
+    summary = frame.summary()
+    assert "without a common m/z range" in summary
+    assert "polarities" not in summary
+    assert "no m/z range in common" in frame.pairText(0, 2)

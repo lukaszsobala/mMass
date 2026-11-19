@@ -2004,8 +2004,11 @@ class panelSpectrumSimilarity(wx.Frame):
         ]
         if grp.stability is not None:
             parts.append("stability %.2f" % grp.stability)
-        if not data.sim.comparable.all():
+        polarity, apart = results.uncompared(data.sim)
+        if polarity:
             parts.append("polarities grouped apart")
+        if apart:
+            parts.append("%d pair%s without a common m/z range" % (apart, "" if apart == 1 else "s"))
         rho, rhoApart = mspy.rangedependence(data.sim)
         if numpy.isfinite(rhoApart) and rhoApart < RANGE_WARNING:
             parts.append(
@@ -2298,10 +2301,16 @@ class panelSpectrumSimilarity(wx.Frame):
                 return
 
         try:
+            # replace only what the user agreed to replace above
             results.write_results(
                 folder, data.items, data.sim, data.grp, data.similarity, data.grouping,
-                source="mMass Spectrum Similarity",
+                source="mMass Spectrum Similarity", overwrite=bool(existing),
             )
+        except results.ResultsExist:
+            wx.Bell()
+            self.notice = "Export stopped: results appeared in that folder meanwhile."
+            self.updateStatus()
+            return
         except OSError as exc:
             wx.Bell()
             self.notice = "Export failed: %s" % exc

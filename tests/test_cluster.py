@@ -296,10 +296,10 @@ def test_a_session_document_that_fails_to_read_does_not_stop_the_rest(
     )
     real = cluster.read_input
 
-    def flaky(path, scanArg=None):
+    def flaky(path, scanArg=None, problems=None):
         if path == families["a1"]:
             raise OSError("vanished")
-        return real(path, scanArg)
+        return real(path, scanArg, problems)
 
     monkeypatch.setattr(cluster, "read_input", flaky)
     out = tmp_path / "out"
@@ -341,3 +341,12 @@ def test_centroided_mgf_spectra_are_compared_on_their_peaks(gui_doc, tmp_path):
     with open(out / "similarity.csv", newline="", encoding="utf-8") as fh:
         table = list(csv.reader(fh))
     assert float(table[1][2]) > 0.5  # the two Sample entries
+
+
+def test_an_empty_mgf_entry_is_left_out_on_its_own(gui_doc, tmp_path, capsys):
+    base = random_peaks(31, 100, 900, 20)
+    path = _mgf(tmp_path / "set.mgf", [("A", base), ("Empty", []), ("B", base[:-2])])
+    out = tmp_path / "out"
+    assert _run(path, "-d", out, "--bootstrap", "0") == 1
+    assert "no data points or peaks" in capsys.readouterr().err
+    assert len(_groups(out)) == 2

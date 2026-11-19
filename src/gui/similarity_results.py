@@ -356,13 +356,22 @@ def outputs_in_the_way(folder):
     return [name for name in OUTPUTS if os.path.exists(os.path.join(folder, name))]
 
 
-def write_results(folder, items, sim, grp, similarity, grouping, failed=0, source="mMass"):
+class ResultsExist(OSError):
+    """Results appeared in the folder of an export that may not replace them."""
+
+
+def write_results(
+    folder, items, sim, grp, similarity, grouping, failed=0, source="mMass", overwrite=True
+):
     """Write every file of OUTPUTS into folder (co_membership.csv only with
-    a bootstrap; a stale one is removed).
+    a bootstrap; with overwrite, a stale one is removed).
 
     The files are written to a staging folder first, every destination is
-    checked, and only then are the old files replaced, so a failure does not
-    leave a mix of two runs behind.
+    checked, and only then are they published, so a failure does not leave a
+    mix of two runs behind.  Without overwrite nothing already there is
+    replaced, not even results another run wrote meanwhile: each file is
+    linked into place, which fails if it exists (ResultsExist; the files of
+    this export published so far are taken back).
     """
 
     os.makedirs(folder, exist_ok=True)
@@ -370,21 +379,53 @@ def write_results(folder, items, sim, grp, similarity, grouping, failed=0, sourc
     try:
         _write_all(stage, items, sim, grp, similarity, grouping, failed, source)
         written = sorted(os.listdir(stage))
-        stale = [name for name in OUTPUTS if name not in written]
+        stale = [name for name in OUTPUTS if name not in written] if overwrite else []
         for name in written + stale:
             target = os.path.join(folder, name)
             if os.path.isdir(target) or (
                 os.path.exists(target) and not os.access(target, os.W_OK)
             ):
                 raise OSError(f"{target} cannot be replaced")
-        for name in written:
-            os.replace(os.path.join(stage, name), os.path.join(folder, name))
-        for name in stale:
-            path = os.path.join(folder, name)
-            if os.path.exists(path):
-                os.remove(path)  # a stale table from an earlier run would mislead
+            if not overwrite and os.path.lexists(target):
+                raise ResultsExist(f"{target} already exists")
+        if overwrite:
+            for name in written:
+                os.replace(os.path.join(stage, name), os.path.join(folder, name))
+            for name in stale:
+                path = os.path.join(folder, name)
+                if os.path.exists(path):
+                    os.remove(path)  # a stale table from an earlier run would mislead
+        else:
+            _publish_new(stage, folder, written)
     finally:
         shutil.rmtree(stage, ignore_errors=True)
+
+
+def _publish_new(stage, folder, names):
+    """Move the staged files into folder without replacing anything there."""
+
+    published = []
+    try:
+        for name in names:
+            source, target = os.path.join(stage, name), os.path.join(folder, name)
+            try:
+                os.link(source, target)  # fails if target exists, atomically
+            except FileExistsError:
+                raise ResultsExist(f"{target} appeared during the export") from None
+            except OSError:
+                # no hard links here (e.g. some network shares): check just
+                # before the move instead
+                if os.path.lexists(target):
+                    raise ResultsExist(f"{target} appeared during the export") from None
+                os.replace(source, target)
+            published.append(target)
+    except OSError:
+        for path in published:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+        raise
 
 
 def _write_all(folder, items, sim, grp, similarity, grouping, failed, source):

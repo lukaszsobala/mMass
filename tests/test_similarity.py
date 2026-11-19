@@ -451,3 +451,84 @@ def test_a_failed_export_leaves_the_earlier_results_alone(tmp_path):
     assert (tmp_path / "REPORT.md").read_text() == "earlier run"
     assert not (tmp_path / "groups.csv").exists()
     assert not [p for p in tmp_path.iterdir() if p.name.startswith(".similarity-")]
+
+
+
+def _export_inputs():
+    from gui import similarity_results as results
+
+    scans = [make_scan(random_peaks(40 + k, 100, 900), seed=k) for k in range(3)]
+    items = [results.Item(sc, "s%d" % k, "") for k, sc in enumerate(scans)]
+    sim = mspy.similaritymatrix(scans)
+    return results, items, sim, mspy.groupspectra(sim, replicates=0)
+
+
+def test_an_export_without_overwrite_never_replaces_results(tmp_path, monkeypatch):
+    """Results another run writes while this one computes are kept."""
+
+    results, items, sim, grp = _export_inputs()
+    real = results._write_all
+
+    def meanwhile(*args, **kwargs):
+        real(*args, **kwargs)
+        (tmp_path / "groups.csv").write_text("the other run")
+
+    monkeypatch.setattr(results, "_write_all", meanwhile)
+    with pytest.raises(results.ResultsExist):
+        results.write_results(
+            str(tmp_path), items, sim, grp, {}, {"replicates": 0}, overwrite=False
+        )
+    assert (tmp_path / "groups.csv").read_text() == "the other run"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["groups.csv"]
+
+
+def test_an_export_publishes_without_hard_links(tmp_path, monkeypatch):
+    results, items, sim, grp = _export_inputs()
+
+    def no_links(src, dst):
+        raise PermissionError("no hard links here")
+
+    monkeypatch.setattr(results.os, "link", no_links)
+    results.write_results(str(tmp_path), items, sim, grp, {}, {"replicates": 0}, overwrite=False)
+    assert (tmp_path / "REPORT.md").exists() and (tmp_path / "groups.csv").exists()
+
+
+def _upgma_reference(S):
+    """Average linkage over measured pairs, recomputing every distance."""
+
+    S = numpy.asarray(S, float)
+    clusters = {i: [i] for i in range(len(S))}
+    ids = {i: i for i in range(len(S))}
+    Z, nxt = [], len(S)
+    while len(clusters) > 1:
+        best = None
+        keys = sorted(clusters)
+        for x in range(len(keys)):
+            for y in range(x + 1, len(keys)):
+                d = [1 - S[a, b] for a in clusters[keys[x]] for b in clusters[keys[y]]
+                     if numpy.isfinite(S[a, b])]
+                dist = numpy.mean(d) if d else mod_grouping.UNMEASURED
+                if best is None or dist < best[0] - 1e-12:
+                    best = (dist, keys[x], keys[y])
+        assert best is not None
+        dist, a, b = best
+        Z.append((dist, len(clusters[a]) + len(clusters[b])))
+        clusters[a] = clusters[a] + clusters.pop(b)
+        ids[a] = nxt
+        nxt += 1
+    return Z
+
+
+def test_upgma_matches_a_full_recomputation():
+    rng = numpy.random.default_rng(5)
+    for trial in range(5):
+        n = 9
+        A = rng.random((n, n))
+        S = (A + A.T) / 2
+        if trial % 2:
+            S[0, 3] = S[3, 0] = numpy.nan  # an unmeasured pair
+        numpy.fill_diagonal(S, 1.0)
+        Z = mod_grouping.upgma(S)
+        ref = _upgma_reference(S)
+        assert Z[:, 2] == pytest.approx([d for d, _ in ref])
+        assert list(Z[:, 3]) == [k for _, k in ref]

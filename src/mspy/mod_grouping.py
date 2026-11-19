@@ -118,7 +118,14 @@ def upgma(S):
         size[ia] = na + nb
         ids[ia] = n + step
         active.remove(ib)
-        M = distances()
+        # only the merged cluster's distances changed (ib is no longer active)
+        with numpy.errstate(invalid="ignore", divide="ignore"):
+            row = numpy.where(
+                count[ia] > 0, total[ia] / numpy.maximum(count[ia], 1), UNMEASURED
+            )
+        M[ia, :] = row
+        M[:, ia] = row
+        M[ia, ia] = numpy.inf
     return numpy.array(Z, float).reshape(-1, 4)
 
 
