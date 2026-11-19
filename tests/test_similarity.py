@@ -292,3 +292,11 @@ def test_rangedependence_returns_two_values():
     sim = mspy.similaritymatrix(scans)
     allPairs, apart = mspy.rangedependence(sim)
     assert -1 <= allPairs <= 1
+
+
+def test_groups_of_several_spectra_are_numbered_first():
+    fam = family(random_peaks(101, 100, 900, 15), [1, 2, 3])
+    loners = [make_scan(random_peaks(300 + k, 100, 900), hi=950, seed=10 + k) for k in range(2)]
+    res = mspy.groupspectra(mspy.similaritymatrix(loners + fam), replicates=0)
+    assert set(res.groups[2:]) == {1}
+    assert sorted(res.groups[:2]) == [2, 3]

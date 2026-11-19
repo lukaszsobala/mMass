@@ -229,7 +229,8 @@ def make_parser():
             f"       mmass {CONVERT_COMMAND} INPUT ... -f FORMAT [-d DIR] [options]\n"
             f"       mmass {PROCESS_COMMAND} INPUT STEP ... OUTPUT [options]\n"
             f"       mmass {PROCESS_COMMAND} INPUT ... STEP ... "
-            "(-f FORMAT [-d DIR] | --in-place) [options]"
+            "(-f FORMAT [-d DIR] | --in-place) [options]\n"
+            f"       mmass {CLUSTER_COMMAND} INPUT ... -d DIR [options]"
         ),
         description=(
             "mMass - Open Source Mass Spectrometry Tool.\n\n"
@@ -239,7 +240,9 @@ def make_parser():
             "without the GUI\n"
             f"  {PROCESS_COMMAND}   process spectra (crop, baseline, smooth, "
             "find peaks, ...) without the GUI\n"
-            f"See 'mmass {CONVERT_COMMAND} --help' and 'mmass {PROCESS_COMMAND} --help'."
+            f"  {CLUSTER_COMMAND}   group spectra by similarity, without the GUI\n"
+            f"See 'mmass COMMAND --help' for {CONVERT_COMMAND}, {PROCESS_COMMAND} "
+            f"and {CLUSTER_COMMAND}."
         ),
         epilog=(
             "FILE can be an mzML, mzXML, mzData, MGF, mSD or XY/TXT/ASC spectrum,\n"
@@ -1054,4 +1057,230 @@ def parse_convert_args(argv, command=CONVERT_COMMAND):
         # an explicit --separator also sets the separator of in-place text
         # files, which otherwise keep their own
         explicitSeparator=args.separator is not None,
+    )
+
+
+# MMASS CLUSTER
+# -------------
+
+CLUSTER_COMMAND = "cluster"
+
+# what mmass cluster writes into its output folder
+CLUSTER_OUTPUTS = (
+    "REPORT.md",
+    "groups.csv",
+    "similarity.csv",
+    "similarity_cosine.csv",
+    "co_membership.csv",
+    "trees.nwk",
+)
+
+
+@dataclass
+class ClusterOptions:
+    """What mmass cluster should compare and group, and where to write."""
+
+    inputs: list[str]
+    outputDir: str
+    overwrite: bool = False
+    includeHidden: bool = False
+    # keyword arguments of mspy.similaritymatrix and mspy.groupspectra
+    similarity: dict[str, Any] = field(default_factory=dict)
+    grouping: dict[str, Any] = field(default_factory=dict)
+
+
+def _positive(value):
+    try:
+        number = float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"'{value}' is not a number") from None
+    if not number > 0:
+        raise argparse.ArgumentTypeError(f"'{value}' must be above zero")
+    return number
+
+
+def _nonnegative(value):
+    try:
+        number = float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"'{value}' is not a number") from None
+    if number < 0:
+        raise argparse.ArgumentTypeError(f"'{value}' must not be negative")
+    return number
+
+
+def _count(value):
+    try:
+        number = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"'{value}' is not a whole number") from None
+    if number < 0:
+        raise argparse.ArgumentTypeError(f"'{value}' must not be negative")
+    return number
+
+
+def _edge(value):
+    if value.lower() == "auto":
+        return "auto"
+    try:
+        return float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"'{value}' is neither a number nor 'auto'") from None
+
+
+def make_cluster_parser():
+    """Return the argument parser of mmass cluster."""
+
+    parser = Parser(
+        prog=f"mmass {CLUSTER_COMMAND}",
+        usage=f"mmass {CLUSTER_COMMAND} INPUT ... -d DIR [options]",
+        description=(
+            "Group spectra by the similarity of their whole profiles, without "
+            "opening the GUI. The similarity is corrected for the m/z range the "
+            "spectra cover and for the similarity expected by chance (0 = as "
+            "alike as chance, 1 = identical). For fragment spectra, neutral "
+            "losses from the precursor count as well as fragment ions. Groups are "
+            "communities of a network of similar spectra; a bootstrap gives each "
+            "pair the share of replicates in which both fall in one group."
+        ),
+        epilog=(
+            "Inputs: mSD, XY/TXT/ASC, mzML, mzXML, mzData, MGF, a Bruker fid "
+            "file or dataset folder, or a session (the documents it shows; "
+            "--include-hidden adds the hidden ones). Every spectrum of an MGF or "
+            "of a Bruker folder of many acquisitions is used; an LC-MS run is used "
+            "only through a session that names one of its scans. Spectra of "
+            "different polarity are compared only with --neutral-mass. Outputs, "
+            f"in DIR: {', '.join(CLUSTER_OUTPUTS)}. The spectra should be "
+            "calibrated: a shifted m/z axis makes related spectra look unrelated. "
+            "Exit status: 0 when every input was used, 1 when some could not be, "
+            "2 when the arguments are wrong."
+        ),
+    )
+    parser.add_argument("inputs", nargs="*", metavar="INPUT", help="spectra or sessions to group")
+    parser.add_argument(
+        "-d", "--output-dir", metavar="DIR", help="folder for the results (made if missing)"
+    )
+    parser.add_argument(
+        "--overwrite", action="store_true", help="replace results already in DIR"
+    )
+    parser.add_argument(
+        "--include-hidden",
+        action="store_true",
+        help="also use the documents a session hides",
+    )
+
+    sim = parser.add_argument_group("similarity")
+    sim.add_argument(
+        "--source",
+        choices=("profile", "peaks"),
+        default="profile",
+        help="compare the profiles (default) or the peak lists",
+    )
+    sim.add_argument(
+        "--axes",
+        choices=("both", "mz", "loss"),
+        default="both",
+        help="fragment spectra: compare fragment m/z, neutral losses or both (default)",
+    )
+    sim.add_argument("--tolerance", type=_positive, default=0.2, metavar="DA",
+                     help="m/z tolerance (default 0.2)")
+    sim.add_argument("--min-mz", type=_nonnegative, default=50.0, metavar="MZ",
+                     help="low-mass limit (default 50)")
+    sim.add_argument("--isolation", type=_nonnegative, default=6.0, metavar="DA",
+                     help="half-width left out around a precursor (default 6)")
+    sim.add_argument("--snr", type=_nonnegative, default=5.0, metavar="N",
+                     help="keep signal above N times the local noise (default 5)")
+    sim.add_argument("--baseline-window", type=_positive, default=5.0, metavar="DA",
+                     help="width of the baseline (default 5)")
+    sim.add_argument("--noise-window", type=_positive, default=25.0, metavar="DA",
+                     help="width of the noise estimate (default 25)")
+    sim.add_argument("--grid", type=_positive, default=0.1, metavar="DA",
+                     help="step of the m/z grid (default 0.1)")
+    sim.add_argument("--transform", choices=("sqrt", "log", "none"), default="sqrt",
+                     help="intensity transform (default sqrt)")
+    sim.add_argument("--no-weighting", action="store_true",
+                     help="do not weight rare signals above ones every spectrum has")
+    sim.add_argument("--no-chance-correction", action="store_true",
+                     help="use the shared-range cosine without the chance correction")
+    sim.add_argument("--neutral-mass", action="store_true",
+                     help="compare positive with negative spectra on neutral mass")
+    sim.add_argument("--pos-adduct", choices=("H", "Na", "K", "NH4"), default="Na",
+                     help="with --neutral-mass: positive ions are [M+X]+ (default Na)")
+    sim.add_argument("--neg-adduct", choices=("H", "Cl", "HCOO"), default="H",
+                     help="with --neutral-mass: negative ions are [M-H]- (H, default), "
+                     "[M+Cl]- or [M+HCOO]-")
+
+    grp = parser.add_argument_group("grouping")
+    grp.add_argument("--groups", choices=("network", "tree"), default="network",
+                     help="network communities (default) or a cut of the tree")
+    grp.add_argument("--edge", type=_edge, default=0.2, metavar="S",
+                     help="network edge threshold on the corrected similarity "
+                     "(default 0.2), or 'auto'")
+    grp.add_argument("--top-k", type=int, default=3, metavar="K",
+                     help="an edge needs both spectra among each other's K most "
+                     "similar (default 3)")
+    grp.add_argument("--resolution", type=_positive, default=1.0, metavar="R",
+                     help="higher gives smaller network groups (default 1)")
+    grp.add_argument("--cut", type=float, default=0.3, metavar="S",
+                     help="with --groups tree: similarity at which the tree is cut "
+                     "(default 0.3)")
+    grp.add_argument("--bootstrap", type=_count, default=200, metavar="N",
+                     help="bootstrap replicates (default 200; 0 = none)")
+    grp.add_argument("--seed", type=int, default=1, help="random seed (default 1)")
+    return parser
+
+
+def parse_cluster_args(argv):
+    """Parse and check mmass cluster arguments into ClusterOptions."""
+
+    parser = make_cluster_parser()
+    if not argv:
+        parser.print_help()
+        parser.exit(0)
+    args = parser.parse_intermixed_args(argv)
+    if not args.inputs:
+        parser.error("no inputs given")
+    if not args.output_dir:
+        parser.error("the results need a folder: give it with -d DIR")
+    if os.path.exists(args.output_dir) and not os.path.isdir(args.output_dir):
+        parser.error(f"{args.output_dir} is not a folder")
+    if args.top_k < 1:
+        parser.error("--top-k must be at least 1")
+    if not args.neutral_mass:
+        for name, value, default in (("--pos-adduct", args.pos_adduct, "Na"),
+                                     ("--neg-adduct", args.neg_adduct, "H")):
+            if value != default:
+                warn(f"{name} applies with --neutral-mass, ignoring it", parser.prog)
+
+    return ClusterOptions(
+        inputs=[os.path.abspath(path) for path in args.inputs],
+        outputDir=os.path.abspath(args.output_dir),
+        overwrite=args.overwrite,
+        includeHidden=args.include_hidden,
+        similarity={
+            "source": args.source,
+            "axes": args.axes,
+            "binWidth": args.grid,
+            "tolerance": args.tolerance,
+            "minMZ": args.min_mz,
+            "isolation": args.isolation,
+            "baselineWindow": args.baseline_window,
+            "noiseWindow": args.noise_window,
+            "snr": args.snr,
+            "transform": args.transform,
+            "weighting": "none" if args.no_weighting else "rarity",
+            "chanceCorrection": not args.no_chance_correction,
+            "neutralMass": args.neutral_mass,
+            "posAdduct": args.pos_adduct,
+            "negAdduct": args.neg_adduct,
+        },
+        grouping={
+            "method": args.groups,
+            "edge": args.edge,
+            "topK": args.top_k,
+            "resolution": args.resolution,
+            "cut": args.cut,
+            "replicates": args.bootstrap,
+            "seed": args.seed,
+        },
     )

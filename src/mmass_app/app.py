@@ -54,6 +54,13 @@ def main(argv=None):
 
         return convert.run(options)
 
+    if argv[:1] == [cli.CLUSTER_COMMAND]:
+        options = cli.parse_cluster_args(argv[1:])
+
+        from mmass_app import cluster
+
+        return cluster.run(options)
+
     options = cli.parse_args(argv)
 
     from mmass_app import gui_app

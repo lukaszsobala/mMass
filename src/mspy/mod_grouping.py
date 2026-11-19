@@ -283,8 +283,8 @@ def adjustedrand(a, b):
 class groupingresult:
     """Result of groupspectra().
 
-    groups - group number per spectrum (1, 2, ... in tree order; a spectrum
-        on its own has a group of its own)
+    groups - group number per spectrum: groups of several spectra are
+        numbered 1, 2, ... in display order, then each single spectrum
     order - spectrum order for display (tree order, tree after tree)
     trees - list of (indices, linkage, clade support or None), one per set of
         comparable spectra
@@ -467,9 +467,13 @@ def groupspectra(
     res.order = order
     res.trees = [(comp, Z, sup) for comp, Z, sup in trees]
 
-    # number groups in display order
+    # number groups of several spectra first, then single spectra, each in
+    # display order
+    sizes = numpy.bincount(labels)
     renumber = {}
-    for i in order:
-        renumber.setdefault(labels[i], len(renumber) + 1)
+    for single in (False, True):
+        for i in order:
+            if (sizes[labels[i]] == 1) == single:
+                renumber.setdefault(labels[i], len(renumber) + 1)
     res.groups = numpy.array([renumber[c] for c in labels])
     return res
