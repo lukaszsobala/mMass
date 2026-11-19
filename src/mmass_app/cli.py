@@ -5,6 +5,7 @@ the GUI starts and is tested headless.
 """
 
 import argparse
+import math
 import os
 import re
 import sys
@@ -1089,21 +1090,28 @@ class ClusterOptions:
     grouping: dict[str, Any] = field(default_factory=dict)
 
 
-def _positive(value):
+def _finite(value):
+    """A finite number (inf and nan are refused: they pass float() but break
+    or silently empty the analysis)."""
+
     try:
         number = float(value)
     except ValueError:
         raise argparse.ArgumentTypeError(f"'{value}' is not a number") from None
+    if not math.isfinite(number):
+        raise argparse.ArgumentTypeError(f"'{value}' is not a finite number")
+    return number
+
+
+def _positive(value):
+    number = _finite(value)
     if not number > 0:
         raise argparse.ArgumentTypeError(f"'{value}' must be above zero")
     return number
 
 
 def _nonnegative(value):
-    try:
-        number = float(value)
-    except ValueError:
-        raise argparse.ArgumentTypeError(f"'{value}' is not a number") from None
+    number = _finite(value)
     if number < 0:
         raise argparse.ArgumentTypeError(f"'{value}' must not be negative")
     return number
@@ -1123,9 +1131,11 @@ def _edge(value):
     if value.lower() == "auto":
         return "auto"
     try:
-        return float(value)
-    except ValueError:
-        raise argparse.ArgumentTypeError(f"'{value}' is neither a number nor 'auto'") from None
+        return _finite(value)
+    except argparse.ArgumentTypeError:
+        raise argparse.ArgumentTypeError(
+            f"'{value}' is neither a finite number nor 'auto'"
+        ) from None
 
 
 def make_cluster_parser():
@@ -1223,12 +1233,13 @@ def make_cluster_parser():
                      "similar (default 3)")
     grp.add_argument("--resolution", type=_positive, default=1.0, metavar="R",
                      help="higher gives smaller network groups (default 1)")
-    grp.add_argument("--cut", type=float, default=0.3, metavar="S",
+    grp.add_argument("--cut", type=_finite, default=0.3, metavar="S",
                      help="with --groups tree: similarity at which the tree is cut "
                      "(default 0.3)")
     grp.add_argument("--bootstrap", type=_count, default=200, metavar="N",
                      help="bootstrap replicates (default 200; 0 = none)")
-    grp.add_argument("--seed", type=int, default=1, help="random seed (default 1)")
+    grp.add_argument("--seed", type=_count, default=1,
+                     help="random seed, 0 or above (default 1)")
     return parser
 
 

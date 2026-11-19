@@ -51,8 +51,10 @@ def test_export_writes_what_mmass_cluster_writes():
 
 
 def test_a_bad_choice_in_the_settings_file_is_replaced(monkeypatch):
-    monkeypatch.setitem(config.spectrumSimilarity, "axes", "sideways")
-    monkeypatch.setitem(config.spectrumSimilarity, "edge", "high")
+    # a plain copy: nothing here may reach a settings file
+    monkeypatch.setattr(config, "spectrumSimilarity", dict(config.spectrumSimilarity))
+    config.spectrumSimilarity["axes"] = "sideways"
+    config.spectrumSimilarity["edge"] = "high"
     with config._suspendAutoSave():
         config._validateConfig()
     assert config.spectrumSimilarity["axes"] == "both"
@@ -436,3 +438,49 @@ def test_losses_only_refuses_spectra_without_a_precursor(window):
     frame.onCompare()
     assert frame.current is None
     assert "no precursor m/z" in frame.status_label.GetLabel()
+
+
+
+def test_an_edited_spectrum_makes_the_comparison_out_of_date(window):
+    frame, parent = window
+    _compare(frame)
+    # showing a group changes visibility only: still current
+    frame.showSpectra({0, 1})
+    frame.setData(parent.documents)
+    assert frame.current is not None and not frame.current.stale
+    frame.onRestore()
+
+    scan = parent.documents[0].spectrum
+    scan.profile = scan.profile * 2.0  # e.g. processed
+    frame.setData(parent.documents)
+    assert frame.current.stale
+    assert "Compare again" in frame.status_label.GetLabel()
+    assert not frame.export_butt.IsEnabled()
+
+
+def test_restore_survives_closing_a_compared_document(window):
+    frame, parent = window
+    _compare(frame)
+    frame.showSpectra({0, 1})
+    hidden = [d for d in parent.documents if not d.visible]
+    assert hidden
+    parent.documents = parent.documents[1:]
+    frame.setData(parent.documents)
+    assert frame.current is None
+    assert frame.restore_butt.IsEnabled()
+    frame.onRestore()
+    assert all(d.visible for d in hidden)
+
+
+def test_stop_stays_usable_while_comparing(window):
+    frame, parent = window
+    frame.onProcessing(True)
+    try:
+        assert frame.IsEnabled()
+        assert not frame.toolbar.IsEnabled() and not frame.bottombar.IsEnabled()
+        assert frame.gauge.GetParent().IsEnabled()
+        # every other (shown) window is blocked
+        assert isinstance(frame._disabler, panel.wx.WindowDisabler)
+    finally:
+        frame.onProcessing(False)
+    assert frame._disabler is None and frame.toolbar.IsEnabled()

@@ -30,6 +30,7 @@ import inspect
 import math
 import os
 import threading
+import time
 import traceback
 
 import numpy
@@ -41,7 +42,6 @@ from . import config
 from . import images
 from . import mwx
 from . import similarity_results as results
-from .mixins import MakeModalMixin
 
 # FLOATING PANEL WITH SPECTRUM SIMILARITY TOOL
 # --------------------------------------------
@@ -171,6 +171,24 @@ RANGE_WARNING = -0.5
 # ----------
 
 
+def fingerprint(scan):
+    """What the comparison read from a spectrum, condensed: a change in it
+    (processing, peak picking, undo) makes the comparison out of date, while
+    showing or hiding the document does not."""
+
+    if scan is None:
+        return None
+    profile = scan.profile
+    if profile is not None and len(profile):
+        data = (len(profile), float(numpy.asarray(profile)[:, 1].sum()))
+    else:
+        data = (0, 0.0)
+    peaks = [(p.mz, p.intensity) for p in scan.peaklist]
+    return (id(scan), data, len(peaks), float(numpy.sum(peaks)) if peaks else 0.0,
+            scan.precursorMZ, scan.polarity)
+
+
+
 class comparison:
     """One comparison: the documents, their labels and the mspy results."""
 
@@ -190,6 +208,8 @@ class comparison:
 
         self.groups = results.groups_in_order(grp)
         self._features = {}
+        self.fingerprints = [fingerprint(d.spectrum) for d in documents]
+        self.stale = False
 
     # ----
 
@@ -1217,7 +1237,7 @@ class dlgSimilaritySettings(wx.Dialog):
         self.topK_value = self._field(kind="intPos")
         self.resolution_value = self._field()
         self.cut_value = self._field(kind="float")
-        self.seed_value = self._field(kind="int")
+        self.seed_value = self._field(kind="intPos")
         groupBox = mwx.staticBoxSizer(self, "Groups", wx.VERTICAL)
         methods = wx.BoxSizer(wx.HORIZONTAL)
         methods.Add(self.methodNetwork_radio, 0, wx.RIGHT, 10)
@@ -1327,14 +1347,20 @@ class dlgSimilaritySettings(wx.Dialog):
             "binWidth": self.binWidth_value,
             "resolution": self.resolution_value,
         }
+        def finite(ctrl):
+            value = float(ctrl.GetValue())
+            if not math.isfinite(value):
+                raise ValueError
+            return value
+
         try:
             for key, ctrl in positive.items():
                 current = ctrl
-                out[key] = float(ctrl.GetValue())
+                out[key] = finite(ctrl)
                 if out[key] <= 0:
                     raise ValueError
             current = self.minMZ_value
-            out["minMZ"] = float(self.minMZ_value.GetValue())
+            out["minMZ"] = finite(self.minMZ_value)
             if out["minMZ"] < 0:
                 raise ValueError
             current = self.topK_value
@@ -1342,13 +1368,15 @@ class dlgSimilaritySettings(wx.Dialog):
             if out["topK"] < 1:
                 raise ValueError
             current = self.cut_value
-            out["cut"] = float(self.cut_value.GetValue())
+            out["cut"] = finite(self.cut_value)
             current = self.seed_value
             out["seed"] = int(self.seed_value.GetValue())
+            if out["seed"] < 0:
+                raise ValueError
             current = self.edge_value
             edge = self.edge_value.GetValue().strip().lower()
-            if edge != "auto":
-                float(edge)
+            if edge != "auto" and not math.isfinite(float(edge)):
+                raise ValueError
             out["edge"] = edge
         except ValueError:
             wx.Bell()
@@ -1391,7 +1419,7 @@ class dlgSimilaritySettings(wx.Dialog):
 # ----------
 
 
-class panelSpectrumSimilarity(wx.Frame, MakeModalMixin):
+class panelSpectrumSimilarity(wx.Frame):
     """Spectrum similarity tool."""
 
     VIEWS = ("matrix", "tree", "groups")
@@ -1409,6 +1437,7 @@ class panelSpectrumSimilarity(wx.Frame, MakeModalMixin):
         self.parent = parent
         self.processing = None
         self._outcome = None
+        self._disabler = None
 
         # documents Compare would use, the comparison on show, and the
         # visibility to put back after showing a pair or a group
@@ -1427,7 +1456,7 @@ class panelSpectrumSimilarity(wx.Frame, MakeModalMixin):
     def makeGUI(self):
         """Make panel gui."""
 
-        toolbar = self.makeToolbar()
+        toolbar = self.toolbar = self.makeToolbar()
         self.book = wx.Simplebook(self, -1)
         self.matrixCanvas = matrixCanvas(self.book, self)
         self.treeCanvas = treeCanvas(self.book, self)
@@ -1435,7 +1464,7 @@ class panelSpectrumSimilarity(wx.Frame, MakeModalMixin):
         self.book.AddPage(self.matrixCanvas, "Matrix")
         self.book.AddPage(self.treeCanvas, "Tree")
         self.book.AddPage(self.groupsPage, "Groups")
-        bottombar = self.makeBottombar()
+        bottombar = self.bottombar = self.makeBottombar()
         gauge = self.makeGaugePanel()
 
         self.mainSizer = wx.BoxSizer(wx.VERTICAL)
@@ -1727,9 +1756,13 @@ class panelSpectrumSimilarity(wx.Frame, MakeModalMixin):
         if self.current is not None and any(
             not any(d is x for x in self.allDocuments) for d in self.current.documents
         ):
+            # Restore stays available for the documents still open (pruned below)
             self.setComparison(None)
-            self.savedVisibility = None
             self.notice = "A compared document was closed."
+        elif self.current is not None and not self.current.stale:
+            now = [fingerprint(d.spectrum) for d in self.current.documents]
+            if now != self.current.fingerprints:
+                self.current.stale = True
 
         if self.savedVisibility is not None:
             self.savedVisibility = {
@@ -1775,7 +1808,7 @@ class panelSpectrumSimilarity(wx.Frame, MakeModalMixin):
         settings = config.spectrumSimilarity
         try:
             tolerance = float(self.tolerance_value.GetValue())
-            if tolerance <= 0:
+            if not (math.isfinite(tolerance) and tolerance > 0):
                 raise ValueError
         except ValueError:
             wx.Bell()
@@ -1844,7 +1877,13 @@ class panelSpectrumSimilarity(wx.Frame, MakeModalMixin):
         )
         self.processing.start()
         while self.processing.is_alive():
-            self.gauge.pulse()
+            # mwx.gauge.pulse() would disable this window too, and Stop with it
+            self.gauge.Pulse()
+            try:
+                wx.SafeYield(self, True)
+            except Exception:
+                pass
+            time.sleep(0.05)
         self.onProcessing(False)
 
         outcome = self._outcome or ("error", "nothing came back")
@@ -1872,7 +1911,10 @@ class panelSpectrumSimilarity(wx.Frame, MakeModalMixin):
 
         try:
             sim = mspy.similaritymatrix(
-                [item.scan for item in items], stopper=mspy.CHECK_FORCE_QUIT, **similarity
+                [item.scan for item in items],
+                stopper=mspy.CHECK_FORCE_QUIT,
+                blocks=grouping["replicates"] > 0,  # only the bootstrap needs them
+                **similarity,
             )
             grp = mspy.groupspectra(sim, stopper=mspy.CHECK_FORCE_QUIT, **grouping)
             self._outcome = ("done", sim, grp)
@@ -1887,17 +1929,21 @@ class panelSpectrumSimilarity(wx.Frame, MakeModalMixin):
     # ----
 
     def onProcessing(self, status=True):
-        """Show the gauge and block the window while comparing."""
+        """Show the gauge while comparing; every other window is blocked, and
+        here everything but Stop."""
 
         self.gauge.SetValue(0)
         if status:
-            self.MakeModal(True)
+            # skip this window: a plain WindowDisabler would disable Stop too
+            self._disabler = wx.WindowDisabler(self)
             self.mainSizer.Show(3)
         else:
-            self.MakeModal(False)
+            self._disabler = None
             self.mainSizer.Hide(3)
             self.processing = None
             mspy.start()
+        for part in (self.toolbar, self.book, self.bottombar):
+            part.Enable(not status)
         self.Layout()
 
     # ----
@@ -1915,6 +1961,8 @@ class panelSpectrumSimilarity(wx.Frame, MakeModalMixin):
     def onSettings(self, evt):
         """Edit the analysis settings."""
 
+        if self.processing is not None:
+            return
         dlg = dlgSimilaritySettings(self)
         changed = dlg.ShowModal() == wx.ID_OK
         dlg.Destroy()
@@ -1972,6 +2020,8 @@ class panelSpectrumSimilarity(wx.Frame, MakeModalMixin):
     def updateStatus(self, text=None):
         if text is None:
             parts = [p for p in (self.summary(), self.notice) if p]
+            if self.current is not None and self.current.stale:
+                parts.append("A compared spectrum changed: Compare again.")
             if (
                 self.current is not None
                 and self.savedVisibility is None
@@ -2003,7 +2053,13 @@ class panelSpectrumSimilarity(wx.Frame, MakeModalMixin):
             return self.spectrumText(i)
         S = data.sim.similarity[i, j]
         if not numpy.isfinite(S):
-            return "%s × %s: not compared (different polarity)" % (a, b)
+            pi, pj = data.items[i].scan.polarity, data.items[j].scan.polarity
+            different = (
+                not data.similarity.get("neutralMass")
+                and pi is not None and pj is not None and (pi > 0) != (pj > 0)
+            )
+            reason = "different polarity" if different else "no m/z range in common"
+            return "%s × %s: not compared (%s)" % (a, b, reason)
         text = "%s × %s: similarity %.2f (cosine %.2f, chance %.2f)" % (
             a, b, S, data.sim.cosine[i, j], data.sim.chance[i, j]
         )
@@ -2176,7 +2232,7 @@ class panelSpectrumSimilarity(wx.Frame, MakeModalMixin):
     # ----
 
     def onRestore(self, evt=None):
-        if self.savedVisibility is None:
+        if self.savedVisibility is None or self.processing is not None:
             wx.Bell()
             return
         saved = self.savedVisibility
@@ -2206,7 +2262,7 @@ class panelSpectrumSimilarity(wx.Frame, MakeModalMixin):
             and self.book.GetSelection() == self.VIEWS.index("groups")
             and self.selectedGroup() is not None
         )
-        self.export_butt.Enable(self.current is not None)
+        self.export_butt.Enable(self.current is not None and not self.current.stale)
 
     # EXPORT
     # ------
@@ -2215,7 +2271,7 @@ class panelSpectrumSimilarity(wx.Frame, MakeModalMixin):
         """Write the tables, trees and report into a folder."""
 
         data = self.current
-        if data is None or self.processing is not None:
+        if data is None or data.stale or self.processing is not None:
             wx.Bell()
             return
 

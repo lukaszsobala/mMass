@@ -23,6 +23,8 @@ arrives as arguments.
 import csv
 import datetime
 import os
+import shutil
+import tempfile
 
 import numpy
 
@@ -68,13 +70,27 @@ def unique_labels(items):
                     if name:
                         item.label = f"{item.title} ({name})"
                 break
+    # what is still not unique gets a number no other label already has
     labels = [item.label for item in items]
     duplicated = {t for t in labels if labels.count(t) > 1}
-    counter = {}
+    taken = {t for t in labels if t not in duplicated}
     for item in items:
         if item.label in duplicated:
-            counter[item.label] = counter.get(item.label, 0) + 1
-            item.label = f"{item.label} #{counter[item.label]}"
+            k = 1
+            while f"{item.label} #{k}" in taken:
+                k += 1
+            item.label = f"{item.label} #{k}"
+            taken.add(item.label)
+
+
+def text(value):
+    """A text cell for a spreadsheet: a value that would start a formula
+    there (=, +, -, @, tab, CR) is kept as text with a leading apostrophe."""
+
+    value = str(value)
+    if value[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + value
+    return value
 
 
 def number(value, digits=4):
@@ -88,9 +104,9 @@ def number(value, digits=4):
 def write_matrix(path, labels, M):
     with open(path, "w", newline="", encoding="utf-8") as fh:
         writer = csv.writer(fh)
-        writer.writerow([""] + labels)
+        writer.writerow([""] + [text(label) for label in labels])
         for label, row in zip(labels, M, strict=True):
-            writer.writerow([label] + [number(v) for v in row])
+            writer.writerow([text(label)] + [number(v) for v in row])
 
 
 def nearest(sim, i):
@@ -148,13 +164,13 @@ def group_rows(items, sim, grp):
         rows.append(
             [
                 grp.groups[i],
-                items[i].label,
+                text(items[i].label),
                 POLARITY.get(scan.polarity, ""),
                 number(scan.precursorMZ) if scan.precursorMZ else "",
                 number(share, 2) if share is not None else "",
-                items[near].label if near is not None else "",
+                text(items[near].label) if near is not None else "",
                 number(S[i, near], 3) if near is not None else "",
-                items[i].path,
+                text(items[i].path),
             ]
         )
     return rows
@@ -230,10 +246,21 @@ def report(items, sim, grp, similarity, grouping, failed=0, source="mMass"):
         + ".",
         "",
     ]
-    if not sim.comparable.all():
+    polarity, apart = uncompared(sim)
+    if polarity:
         lines += [
             "Spectra of different polarity were not compared (the neutral-mass "
-            "option compares them); each polarity has its own tree.",
+            "option compares them).",
+            "",
+        ]
+    if apart:
+        lines += [
+            f"{apart} pair(s) had no m/z range in common and were not compared.",
+            "",
+        ]
+    if len([t for t in grp.trees if len(t[0]) > 1]) > 1:
+        lines += [
+            "Spectra with no compared pair between them are in separate trees.",
             "",
         ]
     rho, rhoApart = mspy.rangedependence(sim)
@@ -292,12 +319,35 @@ def report(items, sim, grp, similarity, grouping, failed=0, source="mMass"):
         "- groups.csv: group, polarity, precursor, 'together', nearest spectrum",
         "- similarity.csv: corrected similarity (empty where not compared)",
         "- similarity_cosine.csv: shared-range cosine before the chance correction",
-        "- co_membership.csv: share of bootstrap replicates in one group",
-        "- trees.nwk: average-linkage trees (one per line, one per polarity), "
-        "bootstrap support at the inner nodes",
+    ]
+    if grp.coMembership is not None:
+        lines.append("- co_membership.csv: share of bootstrap replicates in one group")
+    lines += [
+        "- trees.nwk: average-linkage trees (one per line), bootstrap support at "
+        "the inner nodes",
         "",
     ]
     return "\n".join(lines)
+
+
+def uncompared(sim):
+    """(whether some pairs were left out for polarity, how many pairs of the
+    same polarity had no m/z range in common)."""
+
+    n = len(sim.similarity)
+    neutral = sim.params.get("neutralMass", False)
+    polarity, apart = False, 0
+    pols = [p.polarity for p in sim.prepared]
+    for i in range(n):
+        for j in range(i + 1, n):
+            if sim.comparable[i, j]:
+                continue
+            a, b = pols[i], pols[j]
+            if not neutral and a is not None and b is not None and (a > 0) != (b > 0):
+                polarity = True
+            else:
+                apart += 1
+    return polarity, apart
 
 
 def outputs_in_the_way(folder):
@@ -308,17 +358,41 @@ def outputs_in_the_way(folder):
 
 def write_results(folder, items, sim, grp, similarity, grouping, failed=0, source="mMass"):
     """Write every file of OUTPUTS into folder (co_membership.csv only with
-    a bootstrap; a stale one is removed)."""
+    a bootstrap; a stale one is removed).
+
+    The files are written to a staging folder first, every destination is
+    checked, and only then are the old files replaced, so a failure does not
+    leave a mix of two runs behind.
+    """
 
     os.makedirs(folder, exist_ok=True)
+    stage = tempfile.mkdtemp(prefix=".similarity-", dir=folder)
+    try:
+        _write_all(stage, items, sim, grp, similarity, grouping, failed, source)
+        written = sorted(os.listdir(stage))
+        stale = [name for name in OUTPUTS if name not in written]
+        for name in written + stale:
+            target = os.path.join(folder, name)
+            if os.path.isdir(target) or (
+                os.path.exists(target) and not os.access(target, os.W_OK)
+            ):
+                raise OSError(f"{target} cannot be replaced")
+        for name in written:
+            os.replace(os.path.join(stage, name), os.path.join(folder, name))
+        for name in stale:
+            path = os.path.join(folder, name)
+            if os.path.exists(path):
+                os.remove(path)  # a stale table from an earlier run would mislead
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)
+
+
+def _write_all(folder, items, sim, grp, similarity, grouping, failed, source):
     labels = [item.label for item in items]
     write_matrix(os.path.join(folder, "similarity.csv"), labels, sim.similarity)
     write_matrix(os.path.join(folder, "similarity_cosine.csv"), labels, sim.cosine)
-    path = os.path.join(folder, "co_membership.csv")
     if grp.coMembership is not None:
-        write_matrix(path, labels, grp.coMembership)
-    elif os.path.exists(path):
-        os.remove(path)  # a stale table from an earlier run would mislead
+        write_matrix(os.path.join(folder, "co_membership.csv"), labels, grp.coMembership)
     with open(os.path.join(folder, "groups.csv"), "w", newline="", encoding="utf-8") as fh:
         writer = csv.writer(fh)
         writer.writerow(

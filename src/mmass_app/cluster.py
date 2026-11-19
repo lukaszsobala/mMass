@@ -98,9 +98,11 @@ def read_input(path, scanArg=None):
                 document.scanCache[document.currentScanID] = document.spectrum
             if scanID not in document.scanCache:
                 raise InputError(f"scan {scanID} was not saved in it")
+            _check_data(document.scanCache[scanID])
             return [
                 Item(document.scanCache[scanID], f"{document.title} [{scanID}]", path)
             ]
+        _check_data(document.spectrum)
         return [Item(document.spectrum, document.title, path)]
 
     parser = doc.makeScanParser(path, docType)
@@ -132,10 +134,28 @@ def read_input(path, scanArg=None):
                 else "the document cannot be read"
             )
         title = document.title or os.path.splitext(os.path.basename(path))[0]
-        if scanID is not None and len(scanIDs) > 1 and docType != "bruker":
+        # the reader names the scan itself, except scan 0 and Bruker data
+        if (
+            scanID is not None
+            and len(scanIDs) > 1
+            and docType != "bruker"
+            and not title.endswith(f" [{scanID}]")
+        ):
             title = f"{title} [{scanID}]"
         items.append(Item(document.spectrum, title, path))
+    for item in items:
+        _check_data(item.scan, len(items) > 1 and item.title)
     return items
+
+
+def _check_data(scan, name=None):
+    """Refuse a spectrum with neither profile nor peaks: it would score as
+    unlike everything instead of being reported."""
+
+    hasProfile = scan.profile is not None and len(scan.profile) > 0
+    if not hasProfile and not len(scan.peaklist):
+        where = f" ({name})" if name else ""
+        raise InputError(f"the spectrum{where} contains no data points or peaks")
 
 
 def collect(options):
@@ -154,6 +174,10 @@ def collect(options):
                         items += read_input(docPath, scanArg)
                     except InputError as exc:
                         error(f"{shown(docPath)}: {exc}")
+                        failed += 1
+                    except Exception as exc:
+                        # one unreadable document must not stop the rest
+                        error(f"{shown(docPath)}: it cannot be read: {exc!r}")
                         failed += 1
             else:
                 items += read_input(path)
@@ -197,7 +221,11 @@ def run(options):
         scans.append(item.scan)
 
     try:
-        sim = mspy.similaritymatrix(scans, **options.similarity)
+        sim = mspy.similaritymatrix(
+            scans,
+            blocks=options.grouping["replicates"] > 0,  # only the bootstrap needs them
+            **options.similarity,
+        )
     except ValueError as exc:
         error(str(exc))
         return 1

@@ -64,10 +64,19 @@ __all__ = [
 # -----
 
 
+# distance at which clusters without a single measured pair between them are
+# joined: similarity -1, the bottom of the scale
+UNMEASURED = 2.0
+
+
 def upgma(S):
     """Average-linkage tree from a similarity matrix.
 
-    Distances are 1 - S.  Returns a linkage matrix in the scipy layout:
+    Distances are 1 - S.  The distance between two clusters is the mean over
+    the pairs between them that were measured (NaN = not measured), so a
+    missing pair does not count as any particular distance; clusters with no
+    measured pair between them join at UNMEASURED.  With every pair measured
+    this is plain UPGMA.  Returns a linkage matrix in the scipy layout:
     rows (a, b, distance, size), new clusters numbered from n upwards.
     """
 
@@ -75,29 +84,41 @@ def upgma(S):
     n = len(S)
     D = 1.0 - S
     D = 0.5 * (D + D.T)
-    numpy.fill_diagonal(D, numpy.inf)
-    D = numpy.where(numpy.isfinite(D) | numpy.eye(n, dtype=bool), D, 2.0)
+    measured = numpy.isfinite(D)
+    numpy.fill_diagonal(measured, False)
+    total = numpy.where(measured, D, 0.0)
+    count = measured.astype(float)
     active = list(range(n))
     ids = list(range(n))
     size = [1] * n
     Z = []
+
+    def distances():
+        with numpy.errstate(invalid="ignore", divide="ignore"):
+            M = numpy.where(count > 0, total / numpy.maximum(count, 1), UNMEASURED)
+        numpy.fill_diagonal(M, numpy.inf)
+        return M
+
+    M = distances()
     for step in range(n - 1):
-        sub = D[numpy.ix_(active, active)]
+        sub = M[numpy.ix_(active, active)]
         k = int(numpy.argmin(sub))
         a, b = divmod(k, len(active))
         ia, ib = active[a], active[b]
-        d = float(D[ia, ib])
+        d = float(M[ia, ib])
         na, nb = size[ia], size[ib]
         lo, hi = sorted((ids[ia], ids[ib]))
         Z.append((lo, hi, d, na + nb))
-        # merge ib into ia
-        for c in active:
-            if c in (ia, ib):
-                continue
-            D[ia, c] = D[c, ia] = (na * D[ia, c] + nb * D[ib, c]) / (na + nb)
+        # merge ib into ia: sums and counts of the measured pairs add up
+        total[ia, :] += total[ib, :]
+        total[:, ia] = total[ia, :]
+        count[ia, :] += count[ib, :]
+        count[:, ia] = count[ia, :]
+        total[ia, ia] = count[ia, ia] = 0.0
         size[ia] = na + nb
         ids[ia] = n + step
         active.remove(ib)
+        M = distances()
     return numpy.array(Z, float).reshape(-1, 4)
 
 
@@ -153,7 +174,12 @@ def newick(Z, labels, support=None):
 
 
 def _clean(text):
-    return "".join("_" if c in " (),:;[]'" else c for c in text)
+    """A Newick label: as it is when safe, else quoted (quotes doubled), so
+    distinct names stay distinct."""
+
+    if text and not any(c in text for c in " (),:;[]'\t\n"):
+        return text
+    return "'%s'" % text.replace("'", "''")
 
 
 # NETWORK
@@ -440,7 +466,9 @@ def groupspectra(
         freq = numpy.zeros((n, n))
         hits = [numpy.zeros(len(Z)) for _, Z, _ in trees]
         aris = []
+        done = 0
         for B in mod_similarity.bootstrapmatrices(similarity, replicates, seed):
+            done += 1
             if stopper is not None:
                 stopper()
             g, Wb, _ = _group(
@@ -453,12 +481,14 @@ def groupspectra(
                 if len(Z):
                     found = set(clades(upgma(B[numpy.ix_(comp, comp)])))
                     hits[t] += [c in found for c in clades(Z)]
-        res.coMembership = co / replicates
-        res.edgeFrequency = freq / replicates
-        res.stability = float(numpy.mean(aris)) if aris else None
-        for t in range(len(trees)):
-            if len(trees[t][1]):
-                trees[t][2] = hits[t] / replicates
+        # nothing to resample (no compared pair): no bootstrap results
+        if done:
+            res.coMembership = co / done
+            res.edgeFrequency = freq / done
+            res.stability = float(numpy.mean(aris)) if aris else None
+            for t in range(len(trees)):
+                if len(trees[t][1]):
+                    trees[t][2] = hits[t] / done
 
     # display order: tree after tree, larger sets first
     order = []

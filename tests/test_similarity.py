@@ -164,6 +164,7 @@ def test_bootstrap_is_deterministic_with_a_seed():
     res = mspy.similaritymatrix(scans)
     a = list(mspy.bootstrapmatrices(res, 5, seed=3))
     b = list(mspy.bootstrapmatrices(res, 5, seed=3))
+    assert len(a) == len(b) == 5
     assert all(numpy.allclose(x, y, equal_nan=True) for x, y in zip(a, b, strict=True))
 
 
@@ -225,7 +226,7 @@ def test_newick_has_all_leaves_and_support():
         1 - numpy.array([[0, 0.2, 0.8], [0.2, 0, 0.7], [0.8, 0.7, 0]])
     )
     text = mod_grouping.newick(Z, ["a b", "c", "d"], support=numpy.array([0.9, 1.0]))
-    assert text.endswith(";") and "a_b" in text and ")90:" in text
+    assert text.endswith(";") and "'a b'" in text and ")90:" in text
 
 
 def family(base, seeds, lo=100, hi=900, precursor=None):
@@ -330,3 +331,123 @@ def test_spectra_without_a_precursor_are_compared_on_mz():
 
     with pytest.raises(ValueError, match="precursor"):
         mspy.similaritymatrix(ms1 + [ms2], axes="loss")
+
+
+# ---------------------------------------------------------------------------
+# review fixes
+# ---------------------------------------------------------------------------
+
+
+def test_a_peak_outside_the_shared_range_does_not_change_the_score():
+    """The chance level comes from the shared range only, as the cosine."""
+
+    peaks = random_peaks(11, 100, 290, 10)
+    a = make_scan(peaks, hi=300, seed=1)
+    b = make_scan(peaks, hi=400, seed=2)
+    b_more = make_scan(peaks + [(315.0, 50.0)], hi=400, seed=2)
+    s1 = mspy.similaritymatrix([a, b]).similarity[0, 1]
+    s2 = mspy.similaritymatrix([a, b_more]).similarity[0, 1]
+    assert s1 == pytest.approx(s2, abs=1e-9)
+
+
+def test_spectra_without_a_common_range_are_not_compared():
+    a = make_scan(random_peaks(1, 100, 290), lo=100, hi=300, seed=1)
+    b = make_scan(random_peaks(2, 410, 590), lo=400, hi=600, seed=2)
+    c = make_scan(random_peaks(3, 100, 290), lo=100, hi=300, seed=3)
+    res = mspy.similaritymatrix([a, b, c])
+    assert not res.comparable[0, 1] and numpy.isnan(res.similarity[0, 1])
+    assert res.comparable[0, 2]
+
+
+def test_fragment_spectra_are_compared_only_where_acquired():
+    """Same precursor, profiles over 100-300 and 400-450: nothing in common."""
+
+    a = make_scan(random_peaks(1, 110, 290), lo=100, hi=300, precursor=500.0, seed=1)
+    b = make_scan(random_peaks(2, 405, 445), lo=400, hi=450, precursor=500.0, seed=2)
+    res = mspy.similaritymatrix([a, b])
+    assert not res.comparable[0, 1]
+
+
+def test_a_spectrum_without_a_profile_uses_its_peaks():
+    peaks = random_peaks(5, 100, 900)
+    profile = make_scan(peaks, hi=950, seed=1)
+    centroids = mspy.scan(peaklist=[mspy.peak(mz=mz, ai=ai) for mz, ai in peaks])
+    assert mspy.similaritymatrix([profile, centroids]).similarity[0, 1] > 0.5
+
+
+def test_without_blocks_the_scores_match_but_cannot_be_bootstrapped():
+    scans = [make_scan(random_peaks(40 + k, 100, 900), seed=k) for k in range(3)]
+    full = mspy.similaritymatrix(scans)
+    lean = mspy.similaritymatrix(scans, blocks=False)
+    assert numpy.allclose(full.similarity, lean.similarity)
+    assert lean.blockSums.shape[-1] == 1
+    with pytest.raises(ValueError):
+        list(mspy.bootstrapmatrices(lean, 2))
+
+
+def test_the_bootstrap_does_not_depend_on_input_order():
+    a = make_scan(random_peaks(1, 100, 900) + [(500.0, 20.0)], seed=1)
+    b = make_scan(random_peaks(1, 100, 900) + [(700.0, 20.0)], seed=2)
+    ab = list(mspy.bootstrapmatrices(mspy.similaritymatrix([a, b]), 20, seed=4))
+    ba = list(mspy.bootstrapmatrices(mspy.similaritymatrix([b, a]), 20, seed=4))
+    assert [m[0, 1] for m in ab] == pytest.approx([m[0, 1] for m in ba])
+
+
+def test_unmeasured_pairs_do_not_count_as_a_distance():
+    """u (unknown polarity) is identical to p and n, which were not compared:
+    the tree joins u at 0 and then the third at the mean of measured pairs."""
+
+    S = numpy.array([[1.0, 1.0, numpy.nan], [1.0, 1.0, 1.0], [numpy.nan, 1.0, 1.0]])
+    Z = mod_grouping.upgma(S)
+    assert Z[0, 2] == pytest.approx(0.0)
+    assert Z[1, 2] == pytest.approx(0.0)  # only u-n measured, at distance 0
+
+
+def test_no_bootstrap_results_when_nothing_could_be_resampled():
+    pos = make_scan(random_peaks(1, 100, 900), polarity=1, seed=1)
+    neg = make_scan(random_peaks(2, 100, 900), polarity=-1, seed=2)
+    grp = mspy.groupspectra(mspy.similaritymatrix([pos, neg]), replicates=10)
+    assert grp.coMembership is None and grp.stability is None
+
+
+def test_newick_keeps_distinct_names_distinct():
+    Z = mod_grouping.upgma(numpy.array([[1.0, 0.5], [0.5, 1.0]]))
+    text = mspy.newick(Z, ["a:b", "a,b"])
+    assert "'a:b'" in text and "'a,b'" in text
+
+
+def test_smoothing_keeps_the_length_with_a_long_kernel():
+    assert len(mod_similarity._gaussian(numpy.ones(12), 10.0)) == 12
+
+
+def test_labels_that_would_start_a_formula_stay_text():
+    from gui import similarity_results as results
+
+    assert results.text("=HYPERLINK()") == "'=HYPERLINK()"
+    assert results.text("-5 sample") == "'-5 sample"
+    assert results.text("sample") == "sample"
+
+
+def test_numbered_labels_skip_names_already_taken():
+    from gui import similarity_results as results
+
+    items = [results.Item(None, t, "/d/x") for t in ("Sample", "Sample", "Sample #1")]
+    results.unique_labels(items)
+    labels = [item.label for item in items]
+    assert len(set(labels)) == 3 and "Sample #1" in labels
+
+
+def test_a_failed_export_leaves_the_earlier_results_alone(tmp_path):
+    from gui import similarity_results as results
+
+    scans = [make_scan(random_peaks(40 + k, 100, 900), seed=k) for k in range(3)]
+    items = [results.Item(s, "s%d" % k, "") for k, s in enumerate(scans)]
+    sim = mspy.similaritymatrix(scans)
+    grp = mspy.groupspectra(sim, replicates=0)
+    (tmp_path / "REPORT.md").write_text("earlier run")
+    (tmp_path / "trees.nwk").mkdir()  # cannot be replaced
+    with pytest.raises(OSError):
+        results.write_results(str(tmp_path), items, sim, grp, {}, {"replicates": 0})
+    assert (tmp_path / "REPORT.md").read_text() == "earlier run"
+    assert not (tmp_path / "groups.csv").exists()
+    assert not [p for p in tmp_path.iterdir() if p.name.startswith(".similarity-")]

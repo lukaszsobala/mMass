@@ -169,7 +169,9 @@ def _gaussian(x, sigma):
     t = numpy.arange(-radius, radius + 1)
     kernel = numpy.exp(-0.5 * (t / sigma) ** 2)
     kernel /= kernel.sum()
-    return numpy.convolve(x, kernel, mode="same")
+    # the centred slice of the full convolution keeps the length of x even
+    # when the kernel is longer ("same" would not)
+    return numpy.convolve(x, kernel, mode="full")[radius : radius + len(x)]
 
 
 def _lagsmear(v, kmin, kmax):
@@ -341,13 +343,15 @@ def _prepare(scans, params, stopper=None):
             stopper()
         raw = _resamplemax(mz, it, binw, n)
         prof, first, last = _clean(raw, params)
-        if params["source"] == "peaks":
+        hasProfile = len(mz) > 0
+        # a spectrum without profile data (e.g. centroided) uses its peaks
+        if params["source"] == "peaks" or (not hasProfile and len(pk)):
             sig = numpy.zeros(n)
             if len(pk):
                 idx = numpy.floor(pk[:, 0] / binw).astype(int)
                 ok = (idx >= 0) & (idx < n)
                 numpy.maximum.at(sig, idx[ok], pk[ok, 1])
-            if not len(mz) and len(pk):
+            if not hasProfile and len(pk):
                 first = int(pk[:, 0].min() / binw)
                 last = int(pk[:, 0].max() / binw)
         else:
@@ -361,7 +365,14 @@ def _prepare(scans, params, stopper=None):
         lo = max(
             params["minMZ"], grid[first] + 1.0 if last > first else params["minMZ"]
         )
-        hi = (p.precursor - params["isolation"]) if p.precursor else grid[last]
+        if p.precursor:
+            # up to the isolation window, and not beyond the acquired profile
+            # (a peak list alone does not say where acquisition stopped)
+            hi = p.precursor - params["isolation"]
+            if hasProfile:
+                hi = min(hi, grid[last])
+        else:
+            hi = grid[last]
         p.end = p.precursor if p.precursor else grid[last]
         if params["axes"] == "loss":
             p.mzRange = (0.0, 0.0)
@@ -372,12 +383,13 @@ def _prepare(scans, params, stopper=None):
             valid = (grid >= lo) & (grid <= hi)
             p.mzVector = _gaussian(t, sigma) * valid
             p.mzPresent = (_runningmax(t, dil) > 0) & valid
-        if p.precursor and params["axes"] in ("both", "loss"):
+        if p.precursor and params["axes"] in ("both", "loss") and hi > lo:
+            # the losses of the m/z range compared
             lt = numpy.interp(p.precursor - grid, grid, t, left=0, right=0)
-            valid = (grid >= params["isolation"]) & (grid <= p.precursor - lo)
+            valid = (grid >= p.precursor - hi) & (grid <= p.precursor - lo)
             p.lossVector = _gaussian(lt, sigma) * valid
             p.lossPresent = (_runningmax(lt, dil) > 0) & valid
-            p.lossRange = (params["isolation"], p.precursor - lo)
+            p.lossRange = (p.precursor - hi, p.precursor - lo)
         else:
             p.lossVector = numpy.zeros(n)
             p.lossPresent = numpy.zeros(n, bool)
@@ -436,8 +448,9 @@ class similarityresult:
             numpy.zeros(0, int),
             numpy.zeros(0, int),
         )
-        # pairs x 7 x blocks, for the bootstrap
+        # pairs x 7 x blocks, for the bootstrap (x 1 without blocks)
         self.blockSums: numpy.ndarray = numpy.zeros((0, 7, 1))
+        self.hasBlocks: bool = True
 
 
 def _scores(sums, chanceCorrection):
@@ -454,13 +467,18 @@ def _scores(sums, chanceCorrection):
     return cos, chance, (cos - chance) / numpy.clip(1 - chance, 1e-6, None)
 
 
-def similaritymatrix(scans, stopper=None, **params):
+def similaritymatrix(scans, stopper=None, blocks=True, **params):
     """Corrected similarity of every pair of scans (see the module docstring).
 
     scans (list of mspy.scan) - spectra; profile, peaklist, polarity and
         precursorMZ are used
     stopper (callable or None) - called once per spectrum; may raise to stop
+    blocks (bool) - keep per-block sums for bootstrapmatrices(); without
+        them a large set needs far less memory, but cannot be bootstrapped
     params - see similarityparams()
+
+    A pair of different polarity (without neutralMass), or without any m/z
+    range in common, is not compared: its similarity is NaN.
     """
 
     params = similarityparams(**params)
@@ -473,63 +491,78 @@ def similaritymatrix(scans, stopper=None, **params):
     kmin = max(1, int(round(params["lagMin"] / binw)))
     kmax = max(kmin, int(round(params["lagMax"] / binw)))
     nb = int(math.ceil(len(grid) * binw / params["blockSize"])) + 1
-    blocks = (grid / params["blockSize"]).astype(int)
+    blocks_ = (grid / params["blockSize"]).astype(int)
     axes = [
         a
         for a in ("mz", "loss")
         if any(getattr(p, a + "Range")[1] > 0 for p in prepared)
     ]
 
-    vecs, smear, smear2 = {}, {}, {}
-    for axis in axes:
-        V = [weights[axis] * getattr(p, axis + "Vector") for p in prepared]
-        vecs[axis] = V
-        smear[axis] = [_lagsmear(v, kmin, kmax) for v in V]
-        smear2[axis] = [_lagsmear(v * v, kmin, kmax) for v in V]
+    vecs = {
+        axis: [weights[axis] * getattr(p, axis + "Vector") for p in prepared]
+        for axis in axes
+    }
 
-    pi, pj = [], []
-    sums = []
-    for i in range(n):
-        if stopper is not None:
+    def shared(i, j, axis):
+        """Grid slice both spectra cover on an axis, or None."""
+
+        lo = max(getattr(prepared[i], axis + "Range")[0], getattr(prepared[j], axis + "Range")[0])
+        hi = min(getattr(prepared[i], axis + "Range")[1], getattr(prepared[j], axis + "Range")[1])
+        if hi <= lo:
+            return None
+        a = int(numpy.searchsorted(grid, lo))
+        b = int(numpy.searchsorted(grid, hi, side="right"))
+        return (a, b) if b > a else None
+
+    # the pairs to compare: same polarity (unless neutralMass) and some
+    # range in common
+    pairList = [
+        (i, j)
+        for i in range(n)
+        for j in range(i + 1, n)
+        if _comparable(prepared[i].polarity, prepared[j].polarity, params)
+        and any(shared(i, j, axis) is not None for axis in axes)
+    ]
+    width = nb * len(axes) if blocks else 1
+    sums = numpy.zeros((len(pairList), 7, width))
+
+    last = -1
+    for q, (i, j) in enumerate(pairList):
+        if stopper is not None and i != last:
             stopper()
-        for j in range(i + 1, n):
-            if not _comparable(prepared[i].polarity, prepared[j].polarity, params):
+            last = i
+        acc = sums[q]
+        for a_i, axis in enumerate(axes):
+            window = shared(i, j, axis)
+            if window is None:
                 continue
-            acc = numpy.zeros((7, nb * len(axes)))
-            for a_i, axis in enumerate(axes):
-                lo = max(
-                    getattr(prepared[i], axis + "Range")[0],
-                    getattr(prepared[j], axis + "Range")[0],
-                )
-                hi = min(
-                    getattr(prepared[i], axis + "Range")[1],
-                    getattr(prepared[j], axis + "Range")[1],
-                )
-                if hi <= lo:
-                    continue
-                a = int(numpy.searchsorted(grid, lo))
-                b = int(numpy.searchsorted(grid, hi, side="right"))
-                x, y = vecs[axis][i][a:b], vecs[axis][j][a:b]
-                xs, ys = smear[axis][i][a:b], smear[axis][j][a:b]
-                xs2, ys2 = smear2[axis][i][a:b], smear2[axis][j][a:b]
-                blk = blocks[a:b] + a_i * nb
-                for k, val in enumerate(
-                    (x * y, x * x, y * y, x * ys, ys2, y * xs, xs2)
-                ):
-                    acc[k] += numpy.bincount(blk, val, minlength=nb * len(axes))
-            pi.append(i)
-            pj.append(j)
-            sums.append(acc)
+            a, b = window
+            x, y = vecs[axis][i][a:b], vecs[axis][j][a:b]
+            # chance level from the shared range only: a peak outside it
+            # cannot raise the chance level any more than the cosine
+            xs, ys = _lagsmear(x, kmin, kmax), _lagsmear(y, kmin, kmax)
+            xs2, ys2 = _lagsmear(x * x, kmin, kmax), _lagsmear(y * y, kmin, kmax)
+            terms = (x * y, x * x, y * y, x * ys, ys2, y * xs, xs2)
+            if blocks:
+                blk = blocks_[a:b] + a_i * nb
+                for k, val in enumerate(terms):
+                    acc[k] += numpy.bincount(blk, val, minlength=width)
+            else:
+                for k, val in enumerate(terms):
+                    acc[k, 0] += val.sum()
 
     res = similarityresult()
     res.params = params
     res.grid = grid
     res.prepared = prepared
     res.labels = [s.title for s in scans]
-    res.pairs = (numpy.array(pi, int), numpy.array(pj, int))
-    res.blockSums = (
-        numpy.array(sums).reshape(len(pi), 7, -1) if pi else numpy.zeros((0, 7, 1))
+    res.pairs = (
+        numpy.array([i for i, _ in pairList], int),
+        numpy.array([j for _, j in pairList], int),
     )
+    res.blockSums = sums
+    res.hasBlocks = bool(blocks)
+    pi = pairList
     res.similarity = numpy.full((n, n), numpy.nan)
     res.cosine = numpy.full((n, n), numpy.nan)
     res.chance = numpy.full((n, n), numpy.nan)
@@ -552,11 +585,17 @@ def similaritymatrix(scans, stopper=None, **params):
 def bootstrapmatrices(result, replicates, seed=1):
     """Yield similarity matrices recomputed from resampled blocks."""
 
+    if not result.hasBlocks:
+        raise ValueError(
+            "The similarity was computed without blocks (blocks=False); "
+            "it cannot be bootstrapped."
+        )
     n = len(result.labels)
     sums = result.blockSums
     if not len(sums):
         return
-    informative = numpy.nonzero(sums[:, 1, :].sum(axis=0) > 0)[0]
+    # a block counts where either spectrum of some pair has signal
+    informative = numpy.nonzero((sums[:, 1, :] + sums[:, 2, :]).sum(axis=0) > 0)[0]
     rng = numpy.random.default_rng(seed)
     for _ in range(replicates):
         draw = rng.choice(informative, size=len(informative), replace=True)
