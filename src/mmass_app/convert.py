@@ -602,6 +602,9 @@ def cached_scans(document, scanIDs):
     return {scanID: document.scanCache.get(scanID) for scanID in scanIDs}
 
 
+PROFILE_STEPS = ("baseline", "smooth", "math")
+
+
 def apply_steps(document, scanID, options, settings):
     """Run the processing steps on a document read by read(), in place.
 
@@ -678,7 +681,10 @@ def apply_steps(document, scanID, options, settings):
             for scan in scans:
                 processing.mathScan(scan, argument, settings)
 
-        processing.clearNotations(document)
+        # notations mark places in the profile: only the steps that change
+        # it make them stale
+        if step in PROFILE_STEPS:
+            processing.clearNotations(document)
 
 
 # WRITING

@@ -3035,7 +3035,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
             # backup document
             if not batch:
-                document.backup(("spectrum", "notations"), label="Peak Picking")
+                document.backup(("spectrum"), label="Peak Picking")
 
             # the shown scan may have been edited since it was cached
             if isLCMS and document.currentScanID is not None:
@@ -3062,7 +3062,8 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             if isLCMS and document.currentScanID in document.scanCache:
                 document.spectrum = document.scanCache[document.currentScanID]
 
-            processing.clearNotations(document)
+            # annotations stay: they mark places in the profile, which
+            # picking leaves alone
 
         # task canceled
         except mspy.ForceQuit:
@@ -3091,10 +3092,9 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
             # backup document
             if not batch:
-                self.currentDocument.backup(("spectrum", "notations"), label="Deisotoping")
+                self.currentDocument.backup(("spectrum"), label="Deisotoping")
 
             processing.deisotopeScan(self.currentDocument.spectrum, config.processing)
-            processing.clearNotations(self.currentDocument)
 
         # task canceled
         except mspy.ForceQuit:

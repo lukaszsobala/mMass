@@ -472,3 +472,65 @@ def test_overlapping_species_one_dalton_apart_keep_their_charge():
     # the upper peak carries a textbook +1 of its own, so it stays a species
     upper = [p for p in lower if abs(p.mz - (963.128 + step)) < 0.01][0]
     assert upper.charge == 1 and upper.isotope == 0
+
+
+# ---------------------------------------------------------------------------
+# Broad peaks: the isotope spacing tolerance follows the peak width
+# ---------------------------------------------------------------------------
+
+
+def _lipid_cluster(mono, errors, fwhm, height=1000.0):
+    """A charge-1 lipid isotope cluster whose spacings are off by `errors`."""
+    pattern = mpp._isotope_pattern_at_mass(mono, "lipid")
+    peaks, mz = [], mono
+    for isotope in range(len(errors) + 1):
+        if isotope:
+            mz += mspy.ISOTOPE_DISTANCE + errors[isotope - 1]
+        peaks.append(mspy.peak(mz=mz, ai=height * pattern[isotope] / pattern[0], fwhm=fwhm))
+    return mspy.peaklist(peaks)
+
+
+def test_a_broad_peak_finds_an_isotope_a_little_off_its_spacing():
+    """LIFT fragments: peaks 0.25 Da wide, M+1 0.045 Da off (0.02 allowed)."""
+    pl = _lipid_cluster(504.29, (0.045, 0.0), fwhm=0.25)
+    pl.deisotope(maxCharge=1, mzTolerance=0.02, averagineType="lipid")
+
+    assert [(p.charge, p.isotope) for p in pl] == [(1, 0), (1, 1), (1, 2)]
+
+
+def test_the_second_isotope_is_not_taken_for_the_monoisotope():
+    """M misses its M+1, which then finds M+2: M is still the monoisotope.
+
+    Measured on a LIFT fragment at 504.29: M+1 1.058 Da up (0.054 off, 0.052
+    allowed), M+2 exactly 1.000 Da further. "Remove unknown" then kept 505.35
+    and dropped 504.29.
+    """
+    pl = _lipid_cluster(504.29, (0.054, -0.003), fwhm=0.207)
+    pl.deisotope(maxCharge=1, mzTolerance=0.02, averagineType="lipid")
+
+    assert [(p.charge, p.isotope) for p in pl] == [(1, 0), (1, 1), (1, 2)]
+
+
+def test_sharp_peaks_keep_the_tolerance_given():
+    """Peaks narrower than four times the tolerance: nothing changes."""
+    pl = _lipid_cluster(504.29, (0.03, 0.0), fwhm=0.02)
+    pl.deisotope(maxCharge=1, mzTolerance=0.02, averagineType="lipid")
+
+    assert pl[0].charge is None
+
+
+def test_isotopes_closer_than_the_peaks_are_wide_are_not_resolved():
+    """0.2-Da-wide peaks 0.25 Da apart are no charge-4 isotope pattern."""
+    pattern = mpp._isotope_pattern_at_mass(4 * 676.0, "lipid")
+    pl = mspy.peaklist([
+        mspy.peak(mz=676.0 + i * mspy.ISOTOPE_DISTANCE / 4, ai=1000.0 * share / pattern[0], fwhm=0.2)
+        for i, share in enumerate(pattern[:6])
+    ])
+    pl.deisotope(maxCharge=4, mzTolerance=0.02, averagineType="lipid")
+
+    assert all(p.charge is None or abs(p.charge) < 4 for p in pl)
+
+    for p in pl:
+        p.fwhm = 0.05
+    pl.deisotope(maxCharge=4, mzTolerance=0.02, averagineType="lipid")
+    assert pl[0].charge == 4

@@ -4638,6 +4638,83 @@ def _sits_on_isotope_ridge(peaklist, index, step, mzTolerance, signal=None):
 # ----
 
 
+# THE ISOTOPE SPACING OF BROAD PEAKS
+#
+# A fixed m/z tolerance suits sharp peaks only. Where peaks are a few tenths of
+# a dalton wide and crowded -- LIFT fragment spectra -- their neighbours pull
+# the apexes about by a fair fraction of the width: measured M to M+1 spacings
+# were off by 0.16 FWHM (median) and 0.36 FWHM (90th percentile), against
+# 0.02 Da allowed, so only 29 % of real pairs matched. Where M then missed its
+# M+1 while M+1 and M+2 happened to agree, M+1 was taken for the monoisotope and
+# M was thrown away as uncharged. So the tolerance grows to a share of the
+# peak's width where that is larger; sharp peaks keep the tolerance given.
+ISOTOPE_TOLERANCE_FWHM = 0.25
+# The widening stops at this share of the isotope spacing: a peak a fifth of a
+# dalton off is no charge-1 isotope however broad the peaks (half-dalton-wide
+# peaks near a LIFT precursor otherwise chained across 1.2-Da steps).
+ISOTOPE_TOLERANCE_SPACING = 0.1
+# and a charge whose isotopes would lie closer than 1.5 peak widths is not
+# tried: such isotopes are not resolved (no clear valley between them), so
+# whatever lies at that spacing is something else (with the wider tolerance,
+# 0.2-Da-wide peaks 0.16-0.25 Da apart passed for charge 4)
+ISOTOPE_RESOLVABLE_FWHM = 1.5
+
+
+def _isotope_tolerance(peak, mzTolerance, difference, reach=1.0):
+    """The m/z tolerance for an isotope spacing of difference next to a peak.
+
+    reach scales the widening (not the tolerance given), for a second look.
+    """
+
+    fwhm = getattr(peak, "fwhm", None)
+    if not fwhm or fwhm <= 0.0:
+        return mzTolerance
+    widened = min(ISOTOPE_TOLERANCE_FWHM * fwhm, ISOTOPE_TOLERANCE_SPACING * difference)
+    return max(mzTolerance, reach * widened)
+
+
+def _missed_monoisotope(peaklist, index, difference, mzTolerance, pattern, intTolerance):
+    """The peak below peaklist[index] whose first isotope it is, or None.
+
+    The walk goes up the m/z axis, so a monoisotope whose M+1 lay just outside
+    the tolerance has been passed over -- left without a charge -- by the time
+    its M+1 finds an M+2 and passes for a species. "Remove unknown" then kept
+    the second peak of the pattern and dropped the first. Looking back over
+    twice the width-based tolerance, a peak left uncharged whose intensity makes
+    this one its first isotope, as the pattern has it, is the monoisotope. Sharp
+    peaks look back no further than the tolerance given.
+    """
+
+    parent = peaklist[index]
+    if len(pattern) < 2 or pattern[0] <= 0.0:
+        return None
+    window = _isotope_tolerance(parent, mzTolerance, difference, reach=2.0)
+    target = parent.mz - difference
+    for below in range(index - 1, -1, -1):
+        peak = peaklist[below]
+        if peak.mz < target - window:
+            break
+        if peak.mz > target + window:
+            continue
+        if peak.charge is not None or peak.isotope is not None:
+            continue
+        if _peak_carries_envelope(peak):
+            continue
+        expected = peak.intensity / pattern[0] * pattern[1]
+        if expected > 0.0 and abs(parent.intensity - expected) <= expected * intTolerance:
+            return peak
+    return None
+
+
+def _isotopes_resolvable(peak, difference):
+    """Whether isotopes this far apart can be seen as separate peaks."""
+
+    fwhm = getattr(peak, "fwhm", None)
+    if not fwhm or fwhm <= 0.0:
+        return True
+    return difference >= ISOTOPE_RESOLVABLE_FWHM * fwhm
+
+
 def deisotope(
     peaklist,
     maxCharge=1,
@@ -4712,18 +4789,26 @@ def deisotope(
         for z in candidateCharges:
             cluster = [parent]
 
-            # search for next isotope within m/z tolerance
+            # isotopes closer than the peak is wide cannot be told apart, but a
+            # charge the caller decided on stands
             difference = (ISOTOPE_DISTANCE + isotopeShift) / abs(z)
+            if not respectCharge and not _isotopes_resolvable(parent, difference):
+                continue
+
+            # broad peaks get a wider tolerance (see ISOTOPE_TOLERANCE_FWHM)
+            tolerance = _isotope_tolerance(parent, mzTolerance, difference)
+
+            # search for next isotope within m/z tolerance
             y = 1
             while x + y < maxIndex:
                 candidate = peaklist[x + y]
                 mzError = candidate.mz - cluster[-1].mz - difference
-                if abs(mzError) <= mzTolerance:
+                if abs(mzError) <= tolerance:
                     # another species' envelope is not this one's isotope
                     if _peak_carries_envelope(candidate):
                         break
                     cluster.append(candidate)
-                elif mzError > mzTolerance:
+                elif mzError > tolerance:
                     break
                 y += 1
 
@@ -4789,7 +4874,7 @@ def deisotope(
                 and not confirmed
                 and not respectCharge
                 and _sits_on_isotope_ridge(
-                    peaklist, x, difference, mzTolerance, signal=signal
+                    peaklist, x, difference, tolerance, signal=signal
                 )
             ):
                 continue
@@ -4810,13 +4895,29 @@ def deisotope(
             if valid and not confirmed and not respectCharge:
                 previous = parent.mz - difference
                 if any(
-                    charge == z and abs(mz - previous) <= mzTolerance
+                    charge == z and abs(mz - previous) <= tolerance
                     for mz, charge in accepted
                 ):
                     continue
 
-            # cluster is OK, set parent peak and skip other charges
+            # cluster is OK, set parent peak and skip other charges -- unless
+            # it is the first isotope of a peak below that missed it
             if valid:
+                mono = None
+                if not respectCharge:
+                    mono = _missed_monoisotope(
+                        peaklist, x, difference, mzTolerance, pattern, intTolerance
+                    )
+                if mono is not None:
+                    for peak in cluster[1:]:
+                        if peak.isotope is not None:
+                            peak.setisotope(peak.isotope + 1)
+                    mono.setisotope(0)
+                    mono.setcharge(z)
+                    parent.setisotope(1)
+                    parent.setcharge(z)
+                    accepted.append((mono.mz, z))
+                    break
                 parent.setisotope(0)
                 parent.setcharge(z)
                 accepted.append((parent.mz, z))

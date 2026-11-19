@@ -437,6 +437,21 @@ def test_steps_run_in_the_order_given(profiles, tmp_path):
     assert 403.9 < picked.profile[:, 0].min() and picked.profile[:, 0].max() < 406.1
 
 
+def test_annotations_outlive_steps_that_leave_the_profile_alone(profiles, tmp_path):
+    document = _read(profiles["msd"], "mSD")
+    document.annotations.append(doc.annotation("M+H", 405.0, 1000.0))
+    annotated = tmp_path / "annotated.msd"
+    annotated.write_text(document.msd())
+    picked = tmp_path / "picked.msd"
+    smoothed = tmp_path / "smoothed.msd"
+
+    assert _process(str(annotated), "--find-peaks", "--deisotope", "-o", str(picked)) == 0
+    assert _process(str(annotated), "--find-peaks", "--smooth", "-o", str(smoothed)) == 0
+
+    assert [a.label for a in _read(picked, "mSD").annotations] == ["M+H"]
+    assert _read(smoothed, "mSD").annotations == []
+
+
 def test_envelopes_are_what_convert_all_to_envelopes_gives(profiles, tmp_path):
     from gui import processing
 
