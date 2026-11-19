@@ -8,6 +8,7 @@ import numpy
 import pytest
 
 import mspy
+from mspy import mod_stopper
 from mspy import mod_grouping, mod_similarity
 
 
@@ -300,3 +301,32 @@ def test_groups_of_several_spectra_are_numbered_first():
     res = mspy.groupspectra(mspy.similaritymatrix(loners + fam), replicates=0)
     assert set(res.groups[2:]) == {1}
     assert sorted(res.groups[:2]) == [2, 3]
+
+
+def test_a_stopper_ends_the_comparison():
+    scans = [make_scan(random_peaks(k, 100, 900), hi=950, seed=k) for k in range(3)]
+    calls = []
+
+    def stopper():
+        calls.append(1)
+        if len(calls) == 2:
+            raise mod_stopper.ForceQuit
+
+    with pytest.raises(mod_stopper.ForceQuit):
+        mspy.similaritymatrix(scans, stopper=stopper)
+    assert len(calls) == 2
+
+
+def test_spectra_without_a_precursor_are_compared_on_mz():
+    """MS1 spectra have no losses: with the default axes they are compared on
+    m/z (also against fragment spectra); losses only refuses them."""
+
+    peaks = random_peaks(7, 100, 900)
+    ms1 = [make_scan(peaks, hi=950, seed=k) for k in range(2)]
+    ms2 = make_scan(peaks, hi=950, precursor=950.0, seed=3)
+    res = mspy.similaritymatrix(ms1 + [ms2])
+    assert res.similarity[0, 1] > 0.5
+    assert numpy.isfinite(res.similarity[0, 2])
+
+    with pytest.raises(ValueError, match="precursor"):
+        mspy.similaritymatrix(ms1 + [ms2], axes="loss")

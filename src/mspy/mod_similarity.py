@@ -70,7 +70,10 @@ def similarityparams(**overrides):
 
     params = {
         "source": "profile",  # 'profile' or 'peaks' (the peak list)
-        "axes": "both",  # 'both', 'mz' or 'loss' (loss axis needs a precursor)
+        # spectra with a precursor m/z: 'both', 'mz' or 'loss' (losses from
+        # the precursor); spectra without one are always compared on m/z, and
+        # 'loss' needs a precursor in every spectrum
+        "axes": "both",
         "binWidth": 0.1,  # grid step, Da
         "tolerance": 0.2,  # Gaussian sigma for m/z tolerance, Da
         "minMZ": 50.0,  # low-mass limit
@@ -308,7 +311,14 @@ def _shift(scan, params):
     )
 
 
-def _prepare(scans, params):
+def _prepare(scans, params, stopper=None):
+    if params["axes"] == "loss":
+        for s in scans:
+            if not s.precursorMZ:
+                raise ValueError(
+                    "axes='loss' needs the precursor m/z of every spectrum "
+                    "(missing in '%s')" % s.title
+                )
     shifts = [_shift(s, params) for s in scans]
     data = [_spectrumdata(s, d) for s, d in zip(scans, shifts, strict=True)]
     top = 0.0
@@ -327,6 +337,8 @@ def _prepare(scans, params):
 
     out = []
     for s, d, (mz, it, pk) in zip(scans, shifts, data, strict=True):
+        if stopper is not None:
+            stopper()
         raw = _resamplemax(mz, it, binw, n)
         prof, first, last = _clean(raw, params)
         if params["source"] == "peaks":
@@ -442,11 +454,12 @@ def _scores(sums, chanceCorrection):
     return cos, chance, (cos - chance) / numpy.clip(1 - chance, 1e-6, None)
 
 
-def similaritymatrix(scans, **params):
+def similaritymatrix(scans, stopper=None, **params):
     """Corrected similarity of every pair of scans (see the module docstring).
 
     scans (list of mspy.scan) - spectra; profile, peaklist, polarity and
         precursorMZ are used
+    stopper (callable or None) - called once per spectrum; may raise to stop
     params - see similarityparams()
     """
 
@@ -454,7 +467,7 @@ def similaritymatrix(scans, **params):
     n = len(scans)
     if n < 2:
         raise ValueError("At least two spectra are needed.")
-    grid, prepared = _prepare(scans, params)
+    grid, prepared = _prepare(scans, params, stopper)
     weights = _weights(grid, prepared, params)
     binw = params["binWidth"]
     kmin = max(1, int(round(params["lagMin"] / binw)))
@@ -477,6 +490,8 @@ def similaritymatrix(scans, **params):
     pi, pj = [], []
     sums = []
     for i in range(n):
+        if stopper is not None:
+            stopper()
         for j in range(i + 1, n):
             if not _comparable(prepared[i].polarity, prepared[j].polarity, params):
                 continue

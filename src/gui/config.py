@@ -697,6 +697,42 @@ comparePeaklists = {
     "alignmentSeparator": "tab",
 }
 
+# Spectrum Similarity tool; the analysis keys are mspy.similarityparams and
+# mspy.groupspectra parameters of the same name (see panel_spectrum_similarity)
+spectrumSimilarity = {
+    "source": "profile",
+    "tolerance": 0.2,
+    "replicates": 200,
+    "view": "matrix",
+    "axes": "both",
+    "binWidth": 0.1,
+    "minMZ": 50.0,
+    "isolation": 6.0,
+    "baselineWindow": 5.0,
+    "noiseWindow": 25.0,
+    "snr": 5.0,
+    "transform": "sqrt",
+    "weighting": 1,
+    "chanceCorrection": 1,
+    "neutralMass": 0,
+    "posAdduct": "Na",
+    "negAdduct": "H",
+    "method": "network",
+    # a number, or "auto"
+    "edge": "0.2",
+    "topK": 3,
+    "resolution": 1.0,
+    "cut": 0.3,
+    "seed": 1,
+    # where the names start in the matrix and tree views, as a share of the
+    # width (0 = automatic)
+    "matrixSplit": 0.0,
+    "treeSplit": 0.0,
+    # inner size of the window when it was last closed, DIP (0 = default)
+    "windowWidth": 0,
+    "windowHeight": 0,
+}
+
 spectrumGenerator = {
     "fwhm": 0.1,
     "points": 10,
@@ -1532,6 +1568,32 @@ def _validateConfig():
                 lists.append("Amino acids")
         settings["lists"] = lists
 
+    # Spectrum Similarity choices (a bad value would stop every comparison)
+    choices = {
+        "source": ("profile", "peaks"),
+        "view": ("matrix", "tree", "groups"),
+        "axes": ("both", "mz", "loss"),
+        "transform": ("sqrt", "log", "none"),
+        "posAdduct": ("Na", "H", "K", "NH4"),
+        "negAdduct": ("H", "Cl", "HCOO"),
+        "method": ("network", "tree"),
+    }
+    for key, allowed in choices.items():
+        if spectrumSimilarity[key] not in allowed:
+            spectrumSimilarity[key] = allowed[0]
+    for key in ("windowWidth", "windowHeight"):
+        if not 0 <= spectrumSimilarity[key] <= 20000:
+            spectrumSimilarity[key] = 0
+    for key in ("matrixSplit", "treeSplit"):
+        if not 0.15 <= spectrumSimilarity[key] <= 0.95:
+            spectrumSimilarity[key] = 0.0
+    edge = str(spectrumSimilarity["edge"]).strip()
+    try:
+        float(edge)
+    except ValueError:
+        if edge != "auto":
+            spectrumSimilarity["edge"] = "0.2"
+
     # entries left out, of the lists matched only
     excluded = peakDifferences["excluded"]
     peakDifferences["excluded"] = [
@@ -1739,6 +1801,7 @@ _CONFIG_SECTIONS = (
     "peakDifferences",
     "differenceRuler",
     "comparePeaklists",
+    "spectrumSimilarity",
     "spectrumGenerator",
     "envelopeFit",
     "mascot",
@@ -1910,6 +1973,7 @@ compoundsSearch = ConfigDict(compoundsSearch)
 peakDifferences = ConfigDict(peakDifferences)
 differenceRuler = ConfigDict(differenceRuler)
 comparePeaklists = ConfigDict(comparePeaklists)
+spectrumSimilarity = ConfigDict(spectrumSimilarity)
 spectrumGenerator = ConfigDict(spectrumGenerator)
 envelopeFit = ConfigDict(envelopeFit)
 mascot = ConfigDict(mascot)

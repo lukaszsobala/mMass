@@ -1180,7 +1180,9 @@ def make_cluster_parser():
         "--axes",
         choices=("both", "mz", "loss"),
         default="both",
-        help="fragment spectra: compare fragment m/z, neutral losses or both (default)",
+        help="spectra with a precursor m/z: compare fragment m/z, losses from the "
+        "precursor or both (default); spectra without one are compared on m/z, "
+        "and 'loss' needs a precursor in every spectrum",
     )
     sim.add_argument("--tolerance", type=_positive, default=0.2, metavar="DA",
                      help="m/z tolerance (default 0.2)")

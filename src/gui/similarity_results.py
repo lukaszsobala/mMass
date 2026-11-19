@@ -1,0 +1,342 @@
+# -------------------------------------------------------------------------
+#     This program is free software; you can redistribute it and/or modify
+#     it under the terms of the GNU General Public License as published by
+#     the Free Software Foundation; either version 3 of the License, or
+#     (at your option) any later version.
+
+#     This program is distributed in the hope that it will be useful,
+#     but WITHOUT ANY WARRANTY; without even the implied warranty of
+#     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+#     GNU General Public License for more details.
+
+#     Complete text of GNU GPL can be found in the file LICENSE.TXT in the
+#     main directory of the program.
+# -------------------------------------------------------------------------
+
+"""Spectrum similarity results as files: tables, trees and a report.
+
+Shared by the Spectrum Similarity tool's Export and by `mmass cluster`, so
+both write the same files.  Free of wxPython and of gui.config: everything
+arrives as arguments.
+"""
+
+import csv
+import datetime
+import os
+
+import numpy
+
+import mspy
+
+# the files write_results() writes
+OUTPUTS = (
+    "REPORT.md",
+    "groups.csv",
+    "similarity.csv",
+    "similarity_cosine.csv",
+    "co_membership.csv",
+    "trees.nwk",
+)
+
+POLARITY = {1: "positive", -1: "negative", None: ""}
+
+
+class Item:
+    """One spectrum to compare."""
+
+    def __init__(self, scan, title, path):
+        self.scan = scan
+        self.title = title
+        self.path = path
+        self.label = title
+
+
+def unique_labels(items):
+    """Give spectra of the same title distinct labels: the nearest folder
+    level at which their paths differ, then a number."""
+
+    for item in items:
+        item.label = item.title
+    titles = [item.title for item in items]
+    for title in {t for t in titles if titles.count(t) > 1}:
+        same = [item for item in items if item.title == title]
+        parts = [os.path.dirname(item.path or "").split(os.sep)[::-1] for item in same]
+        for level in range(max(len(p) for p in parts)):
+            names = [p[level] if level < len(p) else "" for p in parts]
+            if len(set(names)) > 1:
+                for item, name in zip(same, names, strict=True):
+                    if name:
+                        item.label = f"{item.title} ({name})"
+                break
+    labels = [item.label for item in items]
+    duplicated = {t for t in labels if labels.count(t) > 1}
+    counter = {}
+    for item in items:
+        if item.label in duplicated:
+            counter[item.label] = counter.get(item.label, 0) + 1
+            item.label = f"{item.label} #{counter[item.label]}"
+
+
+def number(value, digits=4):
+    """A finite number as text, else an empty string."""
+
+    if value is None or not numpy.isfinite(value):
+        return ""
+    return f"{value:.{digits}f}"
+
+
+def write_matrix(path, labels, M):
+    with open(path, "w", newline="", encoding="utf-8") as fh:
+        writer = csv.writer(fh)
+        writer.writerow([""] + labels)
+        for label, row in zip(labels, M, strict=True):
+            writer.writerow([label] + [number(v) for v in row])
+
+
+def nearest(sim, i):
+    """The spectrum most similar to spectrum i, or None."""
+
+    S = sim.similarity
+    others = [j for j in range(len(S)) if j != i and numpy.isfinite(S[i, j])]
+    return max(others, key=lambda j: S[i, j]) if others else None
+
+
+def together(grp, i):
+    """Mean share of replicates spectrum i spends with the rest of its group
+    (None without bootstrap or for a single spectrum)."""
+
+    if grp.coMembership is None:
+        return None
+    members = [j for j in range(len(grp.groups)) if grp.groups[j] == grp.groups[i]]
+    members.remove(i)
+    if not members:
+        return None
+    return float(numpy.mean(grp.coMembership[i, members]))
+
+
+def group_summary(sim, grp, members):
+    """(mean similarity, mean co-membership, weakest pair co-membership) of a
+    group; the last two are None without bootstrap."""
+
+    S = sim.similarity
+    within = [S[a, b] for a in members for b in members if a < b]
+    mean = float(numpy.nanmean(within)) if within else float("nan")
+    if grp.coMembership is None or not within:
+        return mean, None, None
+    pairs = [grp.coMembership[a, b] for a in members for b in members if a < b]
+    return mean, float(numpy.mean(pairs)), float(min(pairs))
+
+
+def groups_in_order(grp):
+    """[(group number, members in display order)], in group number order."""
+
+    out = []
+    for c in sorted(set(grp.groups.tolist())):
+        out.append((c, [i for i in grp.order if grp.groups[i] == c]))
+    return out
+
+
+def group_rows(items, sim, grp):
+    """Rows of groups.csv, in display order."""
+
+    S = sim.similarity
+    rows = []
+    for i in grp.order:
+        share = together(grp, i)
+        near = nearest(sim, i)
+        scan = items[i].scan
+        rows.append(
+            [
+                grp.groups[i],
+                items[i].label,
+                POLARITY.get(scan.polarity, ""),
+                number(scan.precursorMZ) if scan.precursorMZ else "",
+                number(share, 2) if share is not None else "",
+                items[near].label if near is not None else "",
+                number(S[i, near], 3) if near is not None else "",
+                items[i].path,
+            ]
+        )
+    return rows
+
+
+def feature_text(feature):
+    """One shared m/z or loss as text: its position, and the range when
+    neighbours (e.g. isotopes) were merged into it."""
+
+    pos = feature["positions"]
+    text = f"{feature['position']:.2f}"
+    if len(pos) > 1:
+        text += f" ({pos[0]:.2f}–{pos[-1]:.2f}, {len(pos)} peaks)"
+    return text
+
+
+def _features_table(feats, axis):
+    rows = feats[axis]
+    if not rows:
+        return []
+    head = "m/z" if axis == "mz" else "loss (Da)"
+    lines = [
+        f"| {head} | members with signal | others with signal | note |",
+        "|---|---|---|---|",
+    ]
+    for f in rows:
+        others = "—" if f["others"] is None else f"{f['others']}/{f['othersCovered']}"
+        note = f"= m/z {f['mirror']:.2f} above" if f.get("mirror") is not None else ""
+        lines.append(
+            f"| {feature_text(f)} | {f['members']}/{f['covered']} | {others} | {note} |"
+        )
+    return lines + [""]
+
+
+def report(items, sim, grp, similarity, grouping, failed=0, source="mMass"):
+    """The Markdown report.
+
+    similarity, grouping - the parameters passed to mspy.similaritymatrix
+        and mspy.groupspectra
+    """
+
+    n = len(items)
+    g = {
+        "method": "network",
+        "topK": 3,
+        "cut": 0.3,
+        "replicates": 0,
+        **grouping,
+    }
+    lines = [
+        "# Spectrum groups",
+        "",
+        f"{source}, {datetime.datetime.now():%Y-%m-%d %H:%M}. "
+        f"{n} spectra"
+        + (f"; {failed} input(s) could not be used" if failed else "")
+        + ".",
+        "",
+    ]
+    if g["method"] == "network":
+        thresholds = sorted({round(t, 3) for t in grp.threshold if t is not None})
+        lines.append(
+            "Groups are communities of a spectral network: an edge joins two spectra "
+            f"whose corrected similarity is at least {', '.join(f'{t:g}' for t in thresholds) or '—'} "
+            f"and that are among each other's {g['topK']} most similar."
+        )
+    else:
+        lines.append(f"Groups are the tree cut at corrected similarity {g['cut']:g}.")
+    lines += [
+        "",
+        "Corrected similarity: 1 = identical, 0 = as alike as chance for the m/z "
+        "range and peak density of the pair. Settings: "
+        + ", ".join(f"{k} {v}" for k, v in mspy.similarityparams(**similarity).items())
+        + ".",
+        "",
+    ]
+    if not sim.comparable.all():
+        lines += [
+            "Spectra of different polarity were not compared (the neutral-mass "
+            "option compares them); each polarity has its own tree.",
+            "",
+        ]
+    rho, rhoApart = mspy.rangedependence(sim)
+    lines += [
+        "Range dependence (Spearman rho of pair similarity against the ratio of the "
+        "spectra's m/z ranges; 0 = none, negative = spectra of similar range look "
+        f"more alike): {number(rho, 2) or '—'} for all pairs, "
+        f"{number(rhoApart, 2) or '—'} for pairs whose ranges differ by more than 10 Da.",
+        "",
+    ]
+    if grp.stability is not None:
+        lines += [
+            f"Bootstrap: {g['replicates']} replicates. The grouping agrees with the "
+            f"replicates' groupings at a mean adjusted Rand index of {grp.stability:.2f} "
+            "(1 = always the same). For each group, 'together' is the share of "
+            "replicates in which two members fall in one group.",
+            "",
+        ]
+
+    singles = []
+    for c, members in groups_in_order(grp):
+        if len(members) == 1:
+            singles.append(members[0])
+            continue
+        mean, share, weakest = group_summary(sim, grp, members)
+        head = f"## Group {c} ({len(members)} spectra, mean similarity {mean:.2f}"
+        if share is not None and weakest is not None:
+            head += (
+                f"; together in {100 * share:.0f}% of replicates, "
+                f"weakest pair {100 * weakest:.0f}%"
+            )
+        lines += [head + ")", ""]
+        for i in members:
+            extra = ""
+            mine = together(grp, i)
+            if mine is not None:
+                extra = f" — together with the others in {100 * mine:.0f}%"
+            lines.append(f"- {items[i].label}{extra}")
+        lines.append("")
+        feats = mspy.sharedfeatures(sim, members)
+        if feats["mz"] or feats["loss"]:
+            lines += [
+                "Shared signals (members with signal / members covering the position; "
+                "others likewise):",
+                "",
+            ]
+            lines += _features_table(feats, "mz")
+            lines += _features_table(feats, "loss")
+    if singles:
+        lines += (
+            ["## Not grouped", ""] + [f"- {items[i].label}" for i in singles] + [""]
+        )
+    lines += [
+        "## Files",
+        "",
+        "- groups.csv: group, polarity, precursor, 'together', nearest spectrum",
+        "- similarity.csv: corrected similarity (empty where not compared)",
+        "- similarity_cosine.csv: shared-range cosine before the chance correction",
+        "- co_membership.csv: share of bootstrap replicates in one group",
+        "- trees.nwk: average-linkage trees (one per line, one per polarity), "
+        "bootstrap support at the inner nodes",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def outputs_in_the_way(folder):
+    """The result files already in folder."""
+
+    return [name for name in OUTPUTS if os.path.exists(os.path.join(folder, name))]
+
+
+def write_results(folder, items, sim, grp, similarity, grouping, failed=0, source="mMass"):
+    """Write every file of OUTPUTS into folder (co_membership.csv only with
+    a bootstrap; a stale one is removed)."""
+
+    os.makedirs(folder, exist_ok=True)
+    labels = [item.label for item in items]
+    write_matrix(os.path.join(folder, "similarity.csv"), labels, sim.similarity)
+    write_matrix(os.path.join(folder, "similarity_cosine.csv"), labels, sim.cosine)
+    path = os.path.join(folder, "co_membership.csv")
+    if grp.coMembership is not None:
+        write_matrix(path, labels, grp.coMembership)
+    elif os.path.exists(path):
+        os.remove(path)  # a stale table from an earlier run would mislead
+    with open(os.path.join(folder, "groups.csv"), "w", newline="", encoding="utf-8") as fh:
+        writer = csv.writer(fh)
+        writer.writerow(
+            [
+                "group",
+                "spectrum",
+                "polarity",
+                "precursor",
+                "together",
+                "nearest",
+                "nearest_similarity",
+                "file",
+            ]
+        )
+        writer.writerows(group_rows(items, sim, grp))
+    with open(os.path.join(folder, "trees.nwk"), "w", encoding="utf-8") as fh:
+        for comp, Z, support in grp.trees:
+            if len(comp) > 1:
+                fh.write(mspy.newick(Z, [labels[i] for i in comp], support) + "\n")
+    with open(os.path.join(folder, "REPORT.md"), "w", encoding="utf-8") as fh:
+        fh.write(report(items, sim, grp, similarity, grouping, failed, source))
