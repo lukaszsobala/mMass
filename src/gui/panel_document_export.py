@@ -31,6 +31,7 @@ from . import images
 from . import config
 from . import doc
 from .mixins import MakeModalMixin
+from .panel_peaklist import checkedExportColumns, makeExportColumnChecks
 
 # FLOATING PANEL WITH EXPORTING TOOLS
 # -----------------------------------
@@ -317,58 +318,7 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
         panel = wx.Panel(self, -1)
 
         # make elements
-        self.peaklistColumnMz_check = wx.CheckBox(panel, -1, "m/z")
-        self.peaklistColumnMz_check.SetValue(
-            config.export["peaklistColumns"].count("mz")
-        )
-
-        self.peaklistColumnAi_check = wx.CheckBox(panel, -1, "a.i.")
-        self.peaklistColumnAi_check.SetValue(
-            config.export["peaklistColumns"].count("ai")
-        )
-
-        self.peaklistColumnBase_check = wx.CheckBox(panel, -1, "Baseline")
-        self.peaklistColumnBase_check.SetValue(
-            config.export["peaklistColumns"].count("base")
-        )
-
-        self.peaklistColumnInt_check = wx.CheckBox(panel, -1, "Intensity")
-        self.peaklistColumnInt_check.SetValue(
-            config.export["peaklistColumns"].count("int")
-        )
-
-        self.peaklistColumnRel_check = wx.CheckBox(panel, -1, "Relative intensity")
-        self.peaklistColumnRel_check.SetValue(
-            config.export["peaklistColumns"].count("rel")
-        )
-
-        self.peaklistColumnSn_check = wx.CheckBox(panel, -1, "s/n")
-        self.peaklistColumnSn_check.SetValue(
-            config.export["peaklistColumns"].count("sn")
-        )
-
-        self.peaklistColumnZ_check = wx.CheckBox(panel, -1, "Charge")
-        self.peaklistColumnZ_check.SetValue(config.export["peaklistColumns"].count("z"))
-
-        self.peaklistColumnMass_check = wx.CheckBox(panel, -1, "Mass")
-        self.peaklistColumnMass_check.SetValue(
-            config.export["peaklistColumns"].count("mass")
-        )
-
-        self.peaklistColumnFwhm_check = wx.CheckBox(panel, -1, "FWHM")
-        self.peaklistColumnFwhm_check.SetValue(
-            config.export["peaklistColumns"].count("fwhm")
-        )
-
-        self.peaklistColumnResol_check = wx.CheckBox(panel, -1, "Resolution")
-        self.peaklistColumnResol_check.SetValue(
-            config.export["peaklistColumns"].count("resol")
-        )
-
-        self.peaklistColumnGroup_check = wx.CheckBox(panel, -1, "Group")
-        self.peaklistColumnGroup_check.SetValue(
-            config.export["peaklistColumns"].count("group")
-        )
+        self.peaklistColumns, grid1 = makeExportColumnChecks(panel)
 
         peaklistSelect_label = wx.StaticText(panel, -1, "Export:")
         self.peaklistSelect_choice = wx.Choice(
@@ -410,19 +360,6 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
         self.onPeaklistFormatChanged()
 
         # pack elements
-        grid1 = wx.GridBagSizer(mwx.GRIDBAG_VSPACE, mwx.GRIDBAG_HSPACE)
-        grid1.Add(self.peaklistColumnMz_check, (0, 0))
-        grid1.Add(self.peaklistColumnAi_check, (1, 0))
-        grid1.Add(self.peaklistColumnBase_check, (2, 0))
-        grid1.Add(self.peaklistColumnInt_check, (3, 0))
-        grid1.Add(self.peaklistColumnRel_check, (4, 0))
-        grid1.Add(self.peaklistColumnSn_check, (5, 0))
-        grid1.Add(self.peaklistColumnZ_check, (0, 2))
-        grid1.Add(self.peaklistColumnMass_check, (1, 2))
-        grid1.Add(self.peaklistColumnFwhm_check, (2, 2))
-        grid1.Add(self.peaklistColumnResol_check, (3, 2))
-        grid1.Add(self.peaklistColumnGroup_check, (4, 2))
-
         grid2 = wx.GridBagSizer(mwx.GRIDBAG_VSPACE, mwx.GRIDBAG_HSPACE)
         grid2.Add(
             peaklistSelect_label, (0, 0), flag=wx.ALIGN_CENTER_VERTICAL | wx.ALIGN_RIGHT
@@ -709,17 +646,8 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
         if config.export["peaklistFormat"] == "MGF":
             enable = False
 
-        self.peaklistColumnMz_check.Enable(enable)
-        self.peaklistColumnAi_check.Enable(enable)
-        self.peaklistColumnBase_check.Enable(enable)
-        self.peaklistColumnInt_check.Enable(enable)
-        self.peaklistColumnRel_check.Enable(enable)
-        self.peaklistColumnSn_check.Enable(enable)
-        self.peaklistColumnZ_check.Enable(enable)
-        self.peaklistColumnMass_check.Enable(enable)
-        self.peaklistColumnFwhm_check.Enable(enable)
-        self.peaklistColumnResol_check.Enable(enable)
-        self.peaklistColumnGroup_check.Enable(enable)
+        for check in self.peaklistColumns.values():
+            check.Enable(enable)
         self.peaklistSeparator_choice.Enable(enable)
 
     # ----
@@ -945,29 +873,9 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
             )
 
             # peaklist data
-            config.export["peaklistColumns"] = []
-            if self.peaklistColumnMz_check.IsChecked():
-                config.export["peaklistColumns"].append("mz")
-            if self.peaklistColumnAi_check.IsChecked():
-                config.export["peaklistColumns"].append("ai")
-            if self.peaklistColumnBase_check.IsChecked():
-                config.export["peaklistColumns"].append("base")
-            if self.peaklistColumnInt_check.IsChecked():
-                config.export["peaklistColumns"].append("int")
-            if self.peaklistColumnRel_check.IsChecked():
-                config.export["peaklistColumns"].append("rel")
-            if self.peaklistColumnZ_check.IsChecked():
-                config.export["peaklistColumns"].append("z")
-            if self.peaklistColumnMass_check.IsChecked():
-                config.export["peaklistColumns"].append("mass")
-            if self.peaklistColumnSn_check.IsChecked():
-                config.export["peaklistColumns"].append("sn")
-            if self.peaklistColumnFwhm_check.IsChecked():
-                config.export["peaklistColumns"].append("fwhm")
-            if self.peaklistColumnResol_check.IsChecked():
-                config.export["peaklistColumns"].append("resol")
-            if self.peaklistColumnGroup_check.IsChecked():
-                config.export["peaklistColumns"].append("group")
+            config.export["peaklistColumns"] = checkedExportColumns(
+                self.peaklistColumns
+            )
 
             choices = {"Comma": ",", "Semicolon": ";", "Tab": "tab"}
             config.export["peaklistSeparator"] = choices[

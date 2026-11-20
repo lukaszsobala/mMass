@@ -75,6 +75,48 @@ PEAKLIST_COLUMNS = {
     "group": ("group", wx.LIST_FORMAT_LEFT),
 }
 
+# columns a copied or exported peak list can have: (name, checkbox label,
+# grid position). The Copy dialog and the Export panel both use these and
+# share config.export["peaklistColumns"], which lists the chosen ones in the
+# order of doc.PEAKLIST_COLUMNS.
+EXPORT_COLUMNS = (
+    ("mz", "m/z", (0, 0)),
+    ("ai", "a.i.", (1, 0)),
+    ("base", "Baseline", (2, 0)),
+    ("int", "Intensity", (3, 0)),
+    ("rel", "Relative intensity", (4, 0)),
+    ("sn", "s/n", (5, 0)),
+    ("envint", "Summed Env. Int.", (6, 0)),
+    ("z", "Charge", (0, 2)),
+    ("mass", "Mass", (1, 2)),
+    ("fwhm", "FWHM", (2, 2)),
+    ("resol", "Resolution", (3, 2)),
+    ("envarea", "Env. Area", (4, 2)),
+    ("enverr", "Env. Area Uncertainty", (5, 2)),
+    ("group", "Group", (6, 2)),
+)
+
+
+def makeExportColumnChecks(parent):
+    """Make a checkbox for each export column, ticked as in the config.
+
+    Return the checkboxes {name: checkbox} and the grid holding them.
+    """
+
+    checks = {}
+    grid = wx.GridBagSizer(mwx.GRIDBAG_VSPACE, mwx.GRIDBAG_HSPACE)
+    for name, label, position in EXPORT_COLUMNS:
+        checks[name] = wx.CheckBox(parent, -1, label)
+        checks[name].SetValue(name in config.export["peaklistColumns"])
+        grid.Add(checks[name], position)
+    return checks, grid
+
+
+def checkedExportColumns(checks):
+    """Names of the ticked export columns, in the order they are written."""
+
+    return [name for name in doc.PEAKLIST_COLUMNS if checks[name].IsChecked()]
+
 
 class panelPeaklist(wx.Panel):
     """Make peaklist panel."""
@@ -2174,95 +2216,13 @@ class dlgCopy(wx.Dialog):
         staticSizer = mwx.staticBoxSizer(self, "", wx.VERTICAL)
 
         # make elements
-        self.peaklistColumnMz_check = wx.CheckBox(self, -1, "m/z")
-        self.peaklistColumnMz_check.SetValue(
-            config.export["peaklistColumns"].count("mz")
-        )
-
-        self.peaklistColumnAi_check = wx.CheckBox(self, -1, "a.i.")
-        self.peaklistColumnAi_check.SetValue(
-            config.export["peaklistColumns"].count("ai")
-        )
-
-        self.peaklistColumnBase_check = wx.CheckBox(self, -1, "Baseline")
-        self.peaklistColumnBase_check.SetValue(
-            config.export["peaklistColumns"].count("base")
-        )
-
-        self.peaklistColumnInt_check = wx.CheckBox(self, -1, "Intensity")
-        self.peaklistColumnInt_check.SetValue(
-            config.export["peaklistColumns"].count("int")
-        )
-
-        self.peaklistColumnRel_check = wx.CheckBox(self, -1, "Relative intensity")
-        self.peaklistColumnRel_check.SetValue(
-            config.export["peaklistColumns"].count("rel")
-        )
-
-        self.peaklistColumnSn_check = wx.CheckBox(self, -1, "s/n")
-        self.peaklistColumnSn_check.SetValue(
-            config.export["peaklistColumns"].count("sn")
-        )
-
-        self.peaklistColumnZ_check = wx.CheckBox(self, -1, "Charge")
-        self.peaklistColumnZ_check.SetValue(config.export["peaklistColumns"].count("z"))
-
-        self.peaklistColumnMass_check = wx.CheckBox(self, -1, "Mass")
-        self.peaklistColumnMass_check.SetValue(
-            config.export["peaklistColumns"].count("mass")
-        )
-
-        self.peaklistColumnFwhm_check = wx.CheckBox(self, -1, "FWHM")
-        self.peaklistColumnFwhm_check.SetValue(
-            config.export["peaklistColumns"].count("fwhm")
-        )
-
-        self.peaklistColumnResol_check = wx.CheckBox(self, -1, "Resolution")
-        self.peaklistColumnResol_check.SetValue(
-            config.export["peaklistColumns"].count("resol")
-        )
-
-        self.peaklistColumnEnvArea_check = wx.CheckBox(self, -1, "Env. Area")
-        self.peaklistColumnEnvArea_check.SetValue(
-            config.export["peaklistColumns"].count("envarea")
-        )
-
-        self.peaklistColumnEnvErr_check = wx.CheckBox(self, -1, "Env. Area Uncertainty")
-        self.peaklistColumnEnvErr_check.SetValue(
-            config.export["peaklistColumns"].count("enverr")
-        )
-
-        self.peaklistColumnEnvInt_check = wx.CheckBox(self, -1, "Summed Env. Int.")
-        self.peaklistColumnEnvInt_check.SetValue(
-            config.export["peaklistColumns"].count("envint")
-        )
-
-        self.peaklistColumnGroup_check = wx.CheckBox(self, -1, "Group")
-        self.peaklistColumnGroup_check.SetValue(
-            config.export["peaklistColumns"].count("group")
-        )
+        self.columns, grid = makeExportColumnChecks(self)
 
         cancel_butt = wx.Button(self, wx.ID_CANCEL, "Cancel")
         copy_butt = wx.Button(self, wx.ID_OK, "Copy")
         copy_butt.SetDefault()
 
         # pack elements
-        grid = wx.GridBagSizer(mwx.GRIDBAG_VSPACE, mwx.GRIDBAG_HSPACE)
-        grid.Add(self.peaklistColumnMz_check, (0, 0))
-        grid.Add(self.peaklistColumnAi_check, (1, 0))
-        grid.Add(self.peaklistColumnBase_check, (2, 0))
-        grid.Add(self.peaklistColumnInt_check, (3, 0))
-        grid.Add(self.peaklistColumnRel_check, (4, 0))
-        grid.Add(self.peaklistColumnSn_check, (5, 0))
-        grid.Add(self.peaklistColumnZ_check, (0, 2))
-        grid.Add(self.peaklistColumnMass_check, (1, 2))
-        grid.Add(self.peaklistColumnFwhm_check, (2, 2))
-        grid.Add(self.peaklistColumnResol_check, (3, 2))
-        grid.Add(self.peaklistColumnEnvArea_check, (4, 2))
-        grid.Add(self.peaklistColumnEnvErr_check, (5, 2))
-        grid.Add(self.peaklistColumnGroup_check, (6, 2))
-        grid.Add(self.peaklistColumnEnvInt_check, (6, 0))
-
         staticSizer.Add(grid, 0, wx.ALL, 5)
 
         buttSizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -2285,36 +2245,7 @@ class dlgCopy(wx.Dialog):
     def getData(self):
         """Set selected columns to export presets."""
 
-        # get data
-        config.export["peaklistColumns"] = []
-        if self.peaklistColumnMz_check.IsChecked():
-            config.export["peaklistColumns"].append("mz")
-        if self.peaklistColumnAi_check.IsChecked():
-            config.export["peaklistColumns"].append("ai")
-        if self.peaklistColumnBase_check.IsChecked():
-            config.export["peaklistColumns"].append("base")
-        if self.peaklistColumnInt_check.IsChecked():
-            config.export["peaklistColumns"].append("int")
-        if self.peaklistColumnRel_check.IsChecked():
-            config.export["peaklistColumns"].append("rel")
-        if self.peaklistColumnZ_check.IsChecked():
-            config.export["peaklistColumns"].append("z")
-        if self.peaklistColumnMass_check.IsChecked():
-            config.export["peaklistColumns"].append("mass")
-        if self.peaklistColumnSn_check.IsChecked():
-            config.export["peaklistColumns"].append("sn")
-        if self.peaklistColumnFwhm_check.IsChecked():
-            config.export["peaklistColumns"].append("fwhm")
-        if self.peaklistColumnResol_check.IsChecked():
-            config.export["peaklistColumns"].append("resol")
-        if self.peaklistColumnEnvArea_check.IsChecked():
-            config.export["peaklistColumns"].append("envarea")
-        if self.peaklistColumnEnvErr_check.IsChecked():
-            config.export["peaklistColumns"].append("enverr")
-        if self.peaklistColumnEnvInt_check.IsChecked():
-            config.export["peaklistColumns"].append("envint")
-        if self.peaklistColumnGroup_check.IsChecked():
-            config.export["peaklistColumns"].append("group")
+        config.export["peaklistColumns"] = checkedExportColumns(self.columns)
 
     # ----
 
