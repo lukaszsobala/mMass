@@ -47,6 +47,13 @@ WX_DEAD_OBJECT_ERROR = getattr(wx, "PyDeadObjectError", RuntimeError)
 # ------------------------------------
 
 
+def _tip(text, *windows):
+    """Give a setting's label and control the same hover help."""
+
+    for window in windows:
+        window.SetToolTip(wx.ToolTip(text))
+
+
 def _throttleFromScroll(throttle, evt):
     """Queue a throttled update, letting the end of a slider drag jump ahead.
 
@@ -395,6 +402,11 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         self.mathSpectrumB_choice.Disable()
 
         self.mathPreservePeaks_check = wx.CheckBox(panel, -1, "Preserve peaks")
+        _tip(
+            "Keep the peak list, its heights read off the result.\n"
+            "Otherwise the peak list is cleared.",
+            self.mathPreservePeaks_check,
+        )
         self.mathPreservePeaks_check.SetValue(
             bool(config.processing.get("math", {}).get("preservePeaks", 0))
         )
@@ -552,6 +564,22 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         )
         self.baselinePreservePeaks_check.Bind(wx.EVT_CHECKBOX, self.onBaselineChanged)
 
+        _tip(
+            "How closely the baseline follows the spectrum: higher follows faster changes.\n"
+            "Peak heights, S/N and widths are measured above this baseline.",
+            baselinePrecision_label,
+            self.baselinePrecision_slider,
+        )
+        _tip(
+            "Let subtraction take the profile below zero instead of clipping it there.",
+            self.baselineAllowNegative_check,
+        )
+        _tip(
+            "Keep the peak list, the baseline taken off its peaks.\n"
+            "Otherwise the peak list is cleared.",
+            self.baselinePreservePeaks_check,
+        )
+
         # pack elements
         grid = wx.GridBagSizer(mwx.GRIDBAG_VSPACE, mwx.GRIDBAG_HSPACE)
         grid.Add(
@@ -630,6 +658,29 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             bool(config.processing["smoothing"]["preservePeaks"])
         )
         self.smoothingPreservePeaks_check.Bind(wx.EVT_CHECKBOX, self.onSmoothingChanged)
+
+        _tip(
+            "Savitzky-Golay keeps peak heights and widths best;\n"
+            "moving average and Gaussian flatten and broaden peaks a little.",
+            smoothingMethod_label,
+            self.smoothingMethod_choice,
+        )
+        _tip(
+            "Width of the smoothing window. Keep it below the peak width (FWHM),\n"
+            "or peaks broaden and close neighbours merge.",
+            smoothingWindow_label,
+            self.smoothingWindow_value,
+        )
+        _tip(
+            "How many times smoothing is applied.",
+            smoothingCycles_label,
+            self.smoothingCycles_slider,
+        )
+        _tip(
+            "Keep the peak list, its heights read off the smoothed profile.\n"
+            "Otherwise the peak list is cleared.",
+            self.smoothingPreservePeaks_check,
+        )
 
         # pack elements
         grid = wx.GridBagSizer(mwx.GRIDBAG_VSPACE, mwx.GRIDBAG_HSPACE)
@@ -743,11 +794,42 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             wx.EVT_CHECKBOX, self.onPeakpickingChanged
         )
 
+        _tip(
+            "Least signal-to-noise ratio a peak must reach to be picked.",
+            peakpickingSNThreshold_label,
+            self.peakpickingSNThreshold_value,
+        )
+        _tip(
+            "Least intensity a peak must reach to be picked (0 = off).",
+            peakpickingAbsIntThreshold_label,
+            self.peakpickingAbsIntThreshold_value,
+        )
+        _tip(
+            "Least intensity a peak must reach, in % of the tallest peak (0 = off).",
+            peakpickingRelIntThreshold_label,
+            self.peakpickingRelIntThreshold_value,
+        )
+        _tip(
+            "Height at which a peak's m/z is taken, as the centre of the peak there.\n"
+            "100 % takes the apex; lower averages over more of the peak top.",
+            peakpickingHeight_label,
+            self.peakpickingHeight_slider,
+        )
+        _tip(
+            "Find charges and isotopes right after picking, as the deisotoping panel says.",
+            peakpickingDeisotoping_label,
+            self.peakpickingDeisotoping_check,
+        )
+
         peakpickingRemoveShoulders_label = wx.StaticText(
             panel, -1, "Remove shoulder peaks:"
         )
-        peakpickingRemoveShoulders_label.SetToolTip(wx.ToolTip("For FTMS data only."))
         self.peakpickingRemoveShoulders_check = wx.CheckBox(panel, -1, "")
+        _tip(
+            "Remove small side peaks (ringing) next to strong peaks. For FTMS data only.",
+            peakpickingRemoveShoulders_label,
+            self.peakpickingRemoveShoulders_check,
+        )
         self.peakpickingRemoveShoulders_check.SetValue(
             bool(config.processing["peakpicking"]["removeShoulders"])
         )
@@ -789,15 +871,8 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         peakpickingPool_label = wx.StaticText(panel, -1, "Find peaks using:")
         peakpickingPool_label.SetToolTip(
             wx.ToolTip(
-                "For LC-MS runs: which scans decide what the peaks are.\n\n"
-                "Whole run -- scans acquired the same way are aligned and "
-                "averaged, peaks, charges and envelopes are found once in the "
-                "average, and then labelled in each scan: positions and widths "
-                "come from the average, intensities and areas from the scan.\n\n"
-                "Neighbouring scans -- the same, averaging each scan with the "
-                "given number of scans on either side (for species that elute "
-                "over a few scans only).\n\n"
-                "Each scan alone -- every scan is picked on its own."
+                "LC-MS: peaks are found once in averaged scans (the whole run, or each\n"
+                "scan's neighbours) and labelled in every scan, or in each scan alone."
             )
         )
         self.peakpickingPool_choice = wx.Choice(
@@ -823,6 +898,11 @@ class panelProcessing(wx.Frame, MakeModalMixin):
             validator=mwx.validator("intPos"),
         )
         peakpickingPoolWindowUnits_label = wx.StaticText(panel, -1, "each side")
+        _tip(
+            "Scans averaged on each side of a scan, for species that elute briefly.",
+            peakpickingPoolWindow_label,
+            self.peakpickingPoolWindow_value,
+        )
 
         peakpickingPoolSN_label = wx.StaticText(panel, -1, "S/N threshold in scan:")
         peakpickingPoolSN_label.SetToolTip(
@@ -972,7 +1052,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         )
 
         deisotopingMassTolerance_label = wx.StaticText(
-            panel, -1, "Isotope mass tolerance:"
+            panel, -1, "Min. isotope tolerance:"
         )
         self.deisotopingMassTolerance_value = wx.TextCtrl(
             panel,
@@ -1080,17 +1160,11 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         self.deisotopingRefinePattern_check.SetValue(
             bool(config.processing["deisotoping"].get("envelopeRefinePattern", 1))
         )
-        self.deisotopingRefinePattern_check.SetToolTip(
-            "Overlapping envelopes measure their own isotope pattern from the "
-            "spectrum instead of assuming the averagine ratios exactly.\n\n"
-            "Averagine predicts an envelope's whole isotope pattern from one "
-            "generic number, so a species that is not typical of the selected "
-            "type gets a tail that is too heavy -- and where that tail lands on a "
-            "neighbouring peak, the neighbour is charged for signal that is not "
-            "there. This lets each envelope narrow its pattern to match its own "
-            "clearly-measured peaks (it can never widen it), which mostly removes "
-            "the dependence on picking the right averagine type.\n\n"
-            "Uncheck to use the averagine pattern strictly."
+        _tip(
+            "Overlapping envelopes narrow their isotope pattern to fit their own peaks\n"
+            "(never widen it), so a too-heavy averagine tail takes no signal from a neighbour.",
+            deisotopingRefinePattern_label,
+            self.deisotopingRefinePattern_check,
         )
         self.deisotopingRefinePattern_check.Bind(wx.EVT_CHECKBOX, self.getParams)
 
@@ -1112,6 +1186,69 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         )
         self.deisotopingConvertToEnvelopes_check.Bind(
             wx.EVT_CHECKBOX, self.getParams
+        )
+
+        _tip(
+            "Highest charge tried; its sign follows the spectrum's polarity.\n"
+            "1 suits most MALDI and LIFT spectra, where higher charges mostly match noise.",
+            deisotopingMaxCharge_label,
+            self.deisotopingMaxCharge_value,
+        )
+        _tip(
+            "How far an isotope may lie off its expected spacing, at least.\n"
+            "Broad peaks get more: a quarter of their width, at most a tenth of the spacing.",
+            deisotopingMassTolerance_label,
+            self.deisotopingMassTolerance_value,
+        )
+        _tip(
+            "How far each isotope's height may differ from the averagine pattern,\n"
+            "in % of the expected height (taller is taken as an overlap).",
+            deisotopingIntTolerance_label,
+            self.deisotopingIntTolerance_value,
+        )
+        _tip(
+            "Added to the isotope spacing (1.00287 Da), e.g. for labelled samples.",
+            deisotopingIsotopeShift_label,
+            self.deisotopingIsotopeShift_value,
+        )
+        _tip(
+            "Delete isotope peaks after deisotoping, keeping the monoisotopic ones.",
+            deisotopingRemoveIsotopes_label,
+            self.deisotopingRemoveIsotopes_check,
+        )
+        _tip(
+            "Delete peaks no charge was found for, including strong peaks\n"
+            "whose isotopes were not found.",
+            deisotopingRemoveUnknown_label,
+            self.deisotopingRemoveUnknown_check,
+        )
+        _tip(
+            "What an envelope puts in the peak list: its first selected isotope,\n"
+            "the monoisotopic m/z, the envelope centroid, or every isotope.",
+            deisotopingLabelEnvelopeTool_label,
+            self.deisotopingLabelEnvelopeTool_choice,
+        )
+        _tip(
+            "Intensity of an envelope's peak: its tallest isotope, or the sum\n"
+            "or average of its isotopes.",
+            deisotopingEnvelopeIntensity_label,
+            self.deisotopingEnvelopeIntensity_choice,
+        )
+        _tip(
+            "How far each isotope's share may move from averagine towards the data,\n"
+            "in ± % of its theoretical value; 0 keeps the shape rigid.",
+            deisotopingEnvelopeNonIdeality_label,
+            self.deisotopingEnvelopeNonIdeality_value,
+        )
+        _tip(
+            "Mark peaks labelled by hand as monoisotopic.",
+            deisotopingSetAsMonoisotopic_label,
+            self.deisotopingSetAsMonoisotopic_check,
+        )
+        _tip(
+            "Turn each deisotoped peak into an envelope with a fitted area.",
+            deisotopingConvertToEnvelopes_label,
+            self.deisotopingConvertToEnvelopes_check,
         )
 
         # pack elements
@@ -1250,6 +1387,24 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         self.deconvolutionForceGroupWindow_check = wx.CheckBox(panel, -1, "")
         self.deconvolutionForceGroupWindow_check.SetValue(
             config.processing["deconvolution"]["forceGroupWindow"]
+        )
+
+        _tip(
+            "Merge peaks that land within the window after deconvolution\n"
+            "(one species seen at several charges).",
+            deconvolutionGroupPeaks_label,
+            self.deconvolutionGroupPeaks_check,
+        )
+        _tip(
+            "Merging window for peaks with no width of their own;\n"
+            "the others merge within a quarter of their width.",
+            deconvolutionGroupWindow_label,
+            self.deconvolutionGroupWindow_value,
+        )
+        _tip(
+            "Use the window for every peak, not each peak's own width.",
+            deconvolutionForceGroupWindow_label,
+            self.deconvolutionForceGroupWindow_check,
         )
 
         # pack elements
@@ -3241,7 +3396,7 @@ class panelProcessing(wx.Frame, MakeModalMixin):
     # ----
 
     def checkIsotopeMassTolerance(self):
-        """Check isotope mass tolerance for cuurent max charge."""
+        """Check the minimum isotope tolerance for the current max. charge."""
 
         # get max tolerance
         z = float(abs(config.processing["deisotoping"]["maxCharge"]))
@@ -3256,11 +3411,11 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         if config.processing["deisotoping"]["massTolerance"] >= maxTol:
             wx.Bell()
             message = (
-                "For the specified charge your isotope mass tolerance must be\nlower than %.4f. Please correct the parameter in deisotoping panel."
+                "For the specified charge your minimum isotope tolerance must be\nlower than %.4f. Please correct the parameter in deisotoping panel."
                 % maxTol
             )
             dlg = mwx.dlgMessage(
-                self, title="Isotope mass tolerance is too high.", message=message
+                self, title="Minimum isotope tolerance is too high.", message=message
             )
             dlg.ShowModal()
             dlg.Destroy()
