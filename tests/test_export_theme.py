@@ -115,6 +115,25 @@ def test_document_colours_follow_the_image_theme(spectrum):
     _shown(panel, dark)
 
 
+def test_nested_themes_restore_the_enclosing_one(spectrum):
+    panel, dark = spectrum
+
+    with panel.drawnInTheme(not dark):
+        bitmap = panel.getBitmap(600, 400, None, dark=dark)
+        assert _pixel(bitmap, 2, 2) == plot_canvas.THEME_COLOURS[dark]["canvasColour"]
+
+        # back in the enclosing theme, canvas and document colours alike
+        canvas = panel.spectrumCanvas
+        assert canvas.isDark() == (not dark)
+        assert plot_objects._is_dark_mode_cached() == (not dark)
+        outer = plot_canvas.THEME_COLOURS[not dark]["canvasColour"]
+        assert canvas.properties["canvasColour"] == outer
+        colour = list(panel.container[2].properties["spectrumColour"])
+        assert colour == (LIGHT_COLOUR if dark else mwx.invertColour(LIGHT_COLOUR))
+
+    _shown(panel, dark)
+
+
 def test_svg_has_the_chosen_colours(spectrum, tmp_path):
     panel, dark = spectrum
     path = tmp_path / "spectrum.svg"

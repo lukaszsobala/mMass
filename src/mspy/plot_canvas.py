@@ -327,19 +327,21 @@ class canvas(wx.Window):
         """Draw in light (False) or dark (True) colours for the duration.
 
         For exported images and printing, which need not follow the screen.
-        The window is frozen meanwhile, and redrawn in its own colours after.
+        The window is frozen meanwhile, and redrawn in the colours it had
+        before (those of an enclosing drawnInTheme, if any) after.
         """
 
         if bool(dark) == self.isDark():
             yield
             return
 
+        previous = self._theme
         self.Freeze()
         try:
             self._setTheme(bool(dark))
             yield
         finally:
-            self._setTheme(None)
+            self._setTheme(previous)
             if self.lastDraw:
                 self.refresh()
             self.Thaw()

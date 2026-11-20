@@ -2913,10 +2913,13 @@ class panelSpectrum(wx.Panel):
     def _flipDocumentColours(self):
         """Invert the document colours and give them to the plot objects."""
 
-        for document in self.documents:
+        for docIndex, document in enumerate(self.documents):
             document.colour = mwx.invertColour(document.colour)
-        for docIndex in range(len(self.documents)):
-            self.updateSpectrumProperties(docIndex, refresh=False)
+            self.setSpectrumProperties(docIndex)
+
+        # the overlays drawn over the spectra, once for all documents
+        self.updateNotationMarks(self.currentNotationMarks, refresh=False)
+        self.restoreTmpSpectrum()
 
     # ----
 
