@@ -4770,6 +4770,27 @@ def _envelope_window(parent, cluster, mzTolerance, isotopeShift=0.0):
     return max(adaptive, _envelope_tolerance(parent, mzTolerance, isotopeShift))
 
 
+def _least_first_isotope(neutralMass):
+    """The smallest first-isotope ratio (M+1 / M) any averagine model gives
+    at a mass.
+
+    An averagine stands for a typical member of its class, but small
+    fragments are often far poorer in carbon: phosphocholine (184.07, 5 C)
+    has an M+1 of 5.8 %, where the lipid averagine predicts 12.7 %. Held to
+    the selected model, deisotoping took such an M+1 for no isotope at all;
+    the peak stayed uncharged and "remove unknown" deleted it -- or, where
+    the M+1 then paired with the M+2, kept the M+1 in its place. An M+1 a
+    compound of some class has is not taken for "nonsense".
+    """
+
+    ratios = []
+    for averagineType in AVERAGINE_MODELS:
+        pattern = _isotope_pattern_at_mass(neutralMass, averagineType)
+        if len(pattern) > 1 and pattern[0] > 0.0:
+            ratios.append(pattern[1] / pattern[0])
+    return min(ratios) if ratios else 0.0
+
+
 def _missed_monoisotope(
     peaklist, index, difference, charge, mzTolerance, pattern, intTolerance
 ):
@@ -4799,8 +4820,12 @@ def _missed_monoisotope(
             continue
         if _peak_carries_envelope(peak):
             continue
+        # the first isotope as deisotoping accepts it: up to the averagine's
+        # tolerance above, down to what a carbon-poorer compound has
         expected = peak.intensity / pattern[0] * pattern[1]
-        if expected > 0.0 and abs(parent.intensity - expected) <= expected * intTolerance:
+        neutralMass = _mass_scalar(mod_basics.mz(peak.mz, 0, charge))
+        least = peak.intensity * _least_first_isotope(neutralMass) * (1.0 - intTolerance)
+        if expected > 0.0 and least <= parent.intensity <= expected * (1.0 + intTolerance):
             return peak
     return None
 
@@ -4935,6 +4960,15 @@ def deisotope(
                 # intensity is higher (overlap)
                 elif intError > 0:
                     pass
+
+                # a first isotope lower than the averagine allows but which a
+                # carbon-poorer compound has (see _least_first_isotope)
+                elif isotope == 1 and cluster[1].intensity >= cluster[0].intensity * (
+                    _least_first_isotope(neutralMass) * (1.0 - intTolerance)
+                ):
+                    cluster[isotope].setisotope(isotope)
+                    cluster[isotope].setcharge(z)
+                    confirmed += 1
 
                 # intensity is lower and first isotope is checked (nonsense)
                 elif intError < 0 and isotope == 1:

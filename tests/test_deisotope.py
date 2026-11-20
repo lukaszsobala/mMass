@@ -566,3 +566,30 @@ def test_widening_keeps_neighbouring_high_charges_apart():
     pl.deisotope(maxCharge=15, mzTolerance=0.9 * allowed, averagineType="protein")
 
     assert [p.charge for p in pl] == [14] * len(pl)
+
+
+def test_a_carbon_poor_fragment_keeps_its_monoisotope():
+    """Phosphocholine (184.07, 5 C) has an M+1 of 5.8 %, where the lipid
+    averagine predicts 12.7 %. Held to the lipid model the M+1 was taken for
+    no isotope, the M+1 paired with the M+2 instead, and "remove unknown"
+    kept 185.08 and deleted 184.07 (measured in a LIFT parent spectrum)."""
+    pl = mspy.peaklist([
+        mspy.peak(mz=184.073, ai=5300.0, fwhm=0.21),
+        mspy.peak(mz=185.076, ai=300.0, fwhm=0.21),
+        mspy.peak(mz=186.040, ai=100.0, fwhm=0.21),
+    ])
+    pl.deisotope(maxCharge=1, mzTolerance=0.02, averagineType="lipid")
+
+    assert [(p.charge, p.isotope) for p in pl][:2] == [(1, 0), (1, 1)]
+
+
+def test_a_first_isotope_too_weak_for_any_compound_is_no_isotope():
+    """Below what even the most carbon-poor model allows, the peak one spacing
+    up is not the first isotope."""
+    pl = mspy.peaklist([
+        mspy.peak(mz=800.0, ai=5000.0, fwhm=0.05),
+        mspy.peak(mz=801.003, ai=200.0, fwhm=0.05),
+    ])
+    pl.deisotope(maxCharge=1, mzTolerance=0.02, averagineType="lipid")
+
+    assert pl[0].charge is None
