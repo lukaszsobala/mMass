@@ -1625,10 +1625,9 @@ def _merge_adjacent_clusters(
 
             expectedMz = parent.mz + expectedIsotope * difference
             # scale the matching window by 1/charge, like the isotope spacing
-            chargeTol = _envelope_tolerance(parent, mzTolerance, isotopeShift)
             dynamicTol = max(
-                _adaptive_mz_tolerance(chargeTol, left),
-                _adaptive_mz_tolerance(chargeTol, right),
+                _envelope_window(parent, left, mzTolerance, isotopeShift),
+                _envelope_window(parent, right, mzTolerance, isotopeShift),
             )
             if abs(rightParent.mz - expectedMz) > dynamicTol:
                 i += 1
@@ -2482,6 +2481,18 @@ def _on_isotope_grid(positions, charge, isotopeShift, mzTolerance, tolerance=Non
     return all(
         abs(float(mz) - (mono + k * spacing)) <= bound for k, mz in enumerate(positions)
     )
+
+
+def _grid_charge(positions, isotopeShift=0.0):
+    """The charge whose isotope spacing a stored grid has, or None for a
+    single position."""
+
+    if len(positions) < 2:
+        return None
+    spacing = float(numpy.median(numpy.diff(sorted(positions))))
+    if spacing <= 0.0:
+        return None
+    return max(1, int(round((ISOTOPE_DISTANCE + isotopeShift) / spacing)))
 
 
 def _is_regular_isotope_grid(shaped):
@@ -4083,6 +4094,17 @@ def relabelenvelopes(
             if reuseStored and len(storedIsos) != expectedLength:
                 reuseStored = False
 
+            #  * it was built at another charge: the charge was edited since.
+            #    Its isotopes lie at that charge's spacing, so the fit would
+            #    model the wrong pattern (measured: 184.07 set to 2+ and back to
+            #    1+ kept the 2+ grid, and its area fell from 24.6 to 2.1). The
+            #    length alone does not tell, as both charges may model as many.
+            if reuseStored and _grid_charge(gridMzs, isotopeShift) not in (
+                None,
+                abs(int(parent.charge)),
+            ):
+                reuseStored = False
+
             if reuseStored:
                 used.add(x)
                 rebuilt = _reconstruct_cluster_from_envelope(
@@ -4120,7 +4142,7 @@ def relabelenvelopes(
             found_isotope = None
             best_error = None
             best_pattern_error = None
-            dynamicTol = _adaptive_mz_tolerance(chargeTol, cluster)
+            dynamicTol = _envelope_window(parent, cluster, mzTolerance, isotopeShift)
 
             # Strictly forbid gaps; envelopes must be a continuous series.
             for isotope in [next_isotope]:
@@ -4259,7 +4281,7 @@ def relabelenvelopes(
         # width now only widens it, by a quarter of the width at most and never
         # past a tenth of the spacing, as deisotoping does: a broad peak's
         # isotopes scatter by more than 0.02 Da, but stay on their grid.)
-        sampleWindow = _adaptive_mz_tolerance(chargeTol, cluster)
+        sampleWindow = _envelope_window(parent, cluster, mzTolerance, isotopeShift)
         signalFloor = ENVELOPE_TAIL_SN_LIMIT * noise
         if useSignal:
             sigArr = numpy.asarray(signal, dtype=float)
@@ -4714,6 +4736,22 @@ def _envelope_tolerance(peak, mzTolerance, isotopeShift=0.0, charge=None):
     z = abs(int(charge if charge is not None else (peak.charge or 1)))
     difference = (ISOTOPE_DISTANCE + isotopeShift) / z
     return _isotope_tolerance(peak, mzTolerance / z, difference, z)
+
+
+def _envelope_window(parent, cluster, mzTolerance, isotopeShift=0.0):
+    """The m/z window an envelope's isotopes are matched and snapped within.
+
+    The S/N-adaptive factor (see _adaptive_mz_tolerance) scales the tolerance
+    given only; the width-based widening is taken as it is. The S/N is read
+    again on every refit, from the peak's own pedestal, so scaling the widened
+    window by it let a refit snap an isotope that picking had left on the
+    spacing (a 0.53-Da-wide peak: window 0.09 at picking, 0.135 after) -- and
+    a rebuilt envelope then differed from the one first made.
+    """
+
+    z = abs(int(parent.charge or 1))
+    adaptive = _adaptive_mz_tolerance(mzTolerance / z, cluster)
+    return max(adaptive, _envelope_tolerance(parent, mzTolerance, isotopeShift))
 
 
 def _missed_monoisotope(

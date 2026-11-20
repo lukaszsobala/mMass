@@ -5,6 +5,7 @@ label/intensity modes, envelope metadata, idempotency of re-runs, and the
 tail-length floor.
 """
 
+import numpy
 import pytest
 
 import mspy
@@ -539,3 +540,46 @@ def test_a_broad_envelope_sits_on_isotopes_a_little_off_their_spacing():
     isotopes = [mz for mz, _share in pl[0].attributes["envelope"]["isotopes"]]
     assert isotopes[1] == pytest.approx(measured[1], abs=0.01)
     assert isotopes[2] == pytest.approx(measured[2], abs=0.01)
+
+
+def test_a_charge_set_and_set_back_gives_the_envelope_back():
+    """Editing a charge to 2 and back must not leave the 2+ isotope grid in
+    place: both charges model three isotopes here, so the length did not tell,
+    and the 1+ fit on the 2+ grid lost most of its area (measured at 184.07)."""
+    pl = build_envelope_peaklist(formula="C5H15NO4P", fwhm=0.2)
+    profile = mspy.profile(pl, fwhm=0.2, points=40)
+    pl.deisotope(maxCharge=1, mzTolerance=0.02, intTolerance=0.5)
+    params = {
+        "massTolerance": 0.02, "isotopeShift": 0.0, "maxCharge": 1, "intTolerance": 0.5,
+        "labelEnvelope": "1st", "envelopeIntensity": "maximum", "envelopeNonIdeality": 0.4,
+    }
+    mono = min(p.mz for p in pl)
+    first = mspy.recalculate_neighborhood_envelopes(pl, profile, [mono], params, selectedOnly=True)
+    before = first[0].attributes["envelope"]
+
+    first[0].setcharge(2)
+    second = mspy.recalculate_neighborhood_envelopes(first, profile, [mono], params, selectedOnly=True)
+    spacing = numpy.diff([mz for mz, _w in second[0].attributes["envelope"]["isotopes"]])
+    assert spacing[0] == pytest.approx(mspy.ISOTOPE_DISTANCE / 2, abs=0.01)
+
+    second[0].setcharge(1)
+    third = mspy.recalculate_neighborhood_envelopes(second, profile, [mono], params, selectedOnly=True)
+    after = third[0].attributes["envelope"]
+    assert [round(mz, 6) for mz, _w in after["isotopes"]] == [round(mz, 6) for mz, _w in before["isotopes"]]
+    assert after["area"] == pytest.approx(before["area"], rel=1e-6)
+
+
+def test_the_widened_window_does_not_follow_the_signal_to_noise():
+    """A refit reads the S/N again; the window a broad peak's isotopes snap
+    within must not move with it, or a rebuilt envelope differs from the
+    first."""
+    parent = mspy.peak(mz=845.0, ai=1000.0, fwhm=0.5, charge=1)
+    clean = [mspy.peak(mz=845.0, ai=1000.0, sn=500.0, fwhm=0.5)]
+    noisy = [mspy.peak(mz=845.0, ai=1000.0, sn=3.0, fwhm=0.5)]
+    window = mpp._envelope_window(parent, clean, 0.02)
+    assert window == mpp._envelope_window(parent, noisy, 0.02)
+    assert window == pytest.approx(0.1 * mspy.ISOTOPE_DISTANCE)  # a tenth of the spacing
+
+    # sharp peaks keep the S/N-adaptive tolerance given
+    sharp = mspy.peak(mz=845.0, ai=1000.0, fwhm=0.02, charge=1)
+    assert mpp._envelope_window(sharp, clean, 0.02) < mpp._envelope_window(sharp, noisy, 0.02)
