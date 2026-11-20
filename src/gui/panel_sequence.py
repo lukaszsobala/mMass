@@ -60,7 +60,6 @@ class panelSequence(wx.Frame, MakeModalMixin):
         self.currentDigest: Any = None
         self.currentFragments: Any = None
         self.currentSearch: Any = None
-        self.currentDocument: Any = None
 
         self._digestFilter = 0
         self._fragmentsFilter = 0
@@ -2335,12 +2334,28 @@ class panelSequence(wx.Frame, MakeModalMixin):
             wx.Bell()
             return
 
+        # the matches are stored in the document holding the sequence
+        document = self.sequenceDocument()
+        if document is None:
+            wx.Bell()
+            return
+
         # backup previous matches
-        self.currentDocument.backup(("sequences"), label="Annotate Sequence Matches")
+        document.backup(("sequences",), label="Annotate Sequence Matches")
 
         # store matches
         self.currentSequence.matches = matches
         self.parent.onDocumentChanged(items=("matches"))
+
+    # ----
+
+    def sequenceDocument(self):
+        """The open document the current sequence belongs to, or None."""
+
+        for document in self.parent.documents:
+            if any(sequence is self.currentSequence for sequence in document.sequences):
+                return document
+        return None
 
     # ----
 
