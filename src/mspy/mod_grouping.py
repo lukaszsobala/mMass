@@ -188,21 +188,27 @@ def newick(Z, labels, support=None):
     if n == 1:
         return _clean(labels[0]) + ";"
 
-    # built bottom-up in linkage order (a join always comes after its two
-    # sides), so deep trees need no recursion; each piece lacks only its own
-    # branch length, which its parent adds
-    text = [_clean(label) for label in labels]
-    height = [0.0] * n
-    for k, (a, b, d, _) in enumerate(Z):
-        h = d / 2
-        sides = []
-        for child in (int(a), int(b)):
-            length = h if child < n else max(h - height[child], 0.0)
-            sides.append("%s:%.4f" % (text[child], length))
+    # walked with an explicit stack of nodes and finished tokens, so deep trees
+    # need no recursion and no subtree's text is held more than once
+    Z = numpy.asarray(Z, float)
+    height = [0.0] * n + [d / 2 for d in Z[:, 2]]
+    tokens = []
+    stack = [2 * n - 2]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, str):
+            tokens.append(item)
+            continue
+        if item < n:
+            tokens.append(_clean(labels[item]))
+            continue
+        k = item - n
+        h = height[item]
+        a, b = int(Z[k, 0]), int(Z[k, 1])
+        lengths = [":%.4f" % (h if c < n else max(h - height[c], 0.0)) for c in (a, b)]
         sup = "%d" % round(100 * support[k]) if support is not None else ""
-        text.append("(%s,%s)%s" % (sides[0], sides[1], sup))
-        height.append(h)
-    return text[-1] + ";"
+        stack += [")" + sup, lengths[1], b, ",", lengths[0], a, "("]
+    return "".join(tokens) + ";"
 
 
 def _clean(text):
