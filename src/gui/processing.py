@@ -39,12 +39,96 @@ def measurementBaseline(scan, settings):
     )
 
 
-def clearNotations(document):
-    """Remove annotations and sequence matches, which processing invalidates."""
+# NOTATIONS FOLLOW THE SPECTRUM
+#
+# Annotations, sequence matches and difference rulers mark places in the
+# spectrum: an m/z, and the intensity their label stands at. No processing step
+# deletes them (only cropping drops those outside the range kept). A step that
+# moves the m/z axis -- calibration -- moves them along, and one that changes
+# intensities carries them as mspy carries the peaks it keeps (preservePeaks):
+# the baseline is taken off them, smoothing and combining read the new profile
+# under them, and normalizing, multiplying and square-rooting apply to them as
+# to the profile. Otherwise a label would hang where the peak used to stand --
+# far off the plot after normalizing -- and its reported intensity be stale.
 
-    del document.annotations[:]
-    for sequence in document.sequences:
-        del sequence.matches[:]
+
+def _notationsOn(document, scan):
+    """(points, rulers): the annotations and sequence matches, and the
+    difference rulers, drawn on scan -- one of the document's spectra."""
+
+    if document is None:
+        return [], []
+    shown = scan is document.spectrum
+    points = []
+    if shown:
+        points = list(document.annotations)
+        for sequence in document.sequences:
+            points += sequence.matches
+        key = document.shownScanKey()
+    else:
+        key = next((k for k, v in document.scanCache.items() if v is scan), None)
+        if key is None:
+            return points, []
+    rulers = [
+        ruler
+        for ruler in document.rulers
+        if ruler.scanID == key or (shown and ruler.scanID is None)
+    ]
+    return points, rulers
+
+
+def carryNotations(document, scan, intensity, height=None):
+    """Carry the notations drawn on scan through a change of its intensities.
+
+    intensity(mz, ai, base) takes and returns numpy arrays: the new label
+    intensities and baselines at those m/z. height(value) changes a ruler's
+    hand-set bar height, which is left alone without it.
+    """
+
+    points, rulers = _notationsOn(document, scan)
+    if points:
+        mz = numpy.array([p.mz for p in points], dtype=float)
+        ai = numpy.array([p.ai for p in points], dtype=float)
+        base = numpy.array([p.base for p in points], dtype=float)
+        ai, base = intensity(mz, ai, base)
+        for point, a, b in zip(points, ai, base, strict=True):
+            point.ai = float(a)
+            point.base = float(b)
+    if rulers:
+        mz = numpy.array([r.mz1 for r in rulers] + [r.mz2 for r in rulers], dtype=float)
+        ai = numpy.array([r.ai1 for r in rulers] + [r.ai2 for r in rulers], dtype=float)
+        ai, _base = intensity(mz, ai, numpy.zeros(len(mz)))
+        for i, ruler in enumerate(rulers):
+            ruler.ai1 = float(ai[i])
+            ruler.ai2 = float(ai[i + len(rulers)])
+            if height is not None and ruler.height is not None:
+                ruler.height = float(height(ruler.height))
+
+
+def _scaled(fn):
+    """An intensity change applying fn to every intensity alike."""
+
+    return lambda mz, ai, base: (fn(ai), fn(base)), fn
+
+
+def _readFrom(profile):
+    """An intensity change reading the label heights off the new profile."""
+
+    def intensity(mz, ai, base):
+        return numpy.interp(mz, profile[:, 0], profile[:, 1]), base
+
+    return intensity
+
+
+def recalibrateNotations(document, fn, params):
+    """Move the notations drawn on the spectrum shown by a calibration."""
+
+    points, rulers = _notationsOn(document, document.spectrum)
+    for point in points:
+        point.mz = fn(params, point.mz)
+    for ruler in rulers:
+        ruler.mz1 = float(fn(params, ruler.mz1))
+        ruler.mz2 = float(fn(params, ruler.mz2))
 
 
 def cropDocument(document, lowMass, highMass):
@@ -77,17 +161,45 @@ def cropNotations(document, lowMass, highMass):
 SINGLE_SPECTRUM_MATH = ("normalize", "multiply", "squareroot")
 
 
-def mathScan(scan, operation, settings):
-    """Apply a single-spectrum math operation to a scan's profile and peaks."""
+def _signedRoot(values):
+    """Square root keeping the sign, as mspy takes it of peaks."""
+
+    return numpy.sign(values) * numpy.sqrt(numpy.abs(values))
+
+
+def mathScan(scan, operation, settings, document=None):
+    """Apply a single-spectrum math operation to a scan's profile and peaks,
+    and to the notations of document drawn on it."""
 
     if operation == "normalize":
+        factor = scan.normalization()
         scan.normalize()
+        intensity, height = _scaled(lambda values: values / factor)
     elif operation == "multiply":
-        scan.multiply(y=settings["math"]["multiplier"])
+        y = settings["math"]["multiplier"]
+        scan.multiply(y=y)
+        intensity, height = _scaled(lambda values: values * y)
     elif operation == "squareroot":
         scan.squareroot(preservePeaks=bool(settings["math"]["preservePeaks"]))
+        intensity, height = _scaled(_signedRoot)
     else:
         raise ValueError(f"{operation} needs more than one spectrum")
+    carryNotations(document, scan, intensity, height)
+
+
+# math operations of the Processing panel that take a second spectrum
+PAIR_MATH = ("combine", "overlay", "subtract")
+
+
+def mathPair(scan, operation, other, preservePeaks, document=None):
+    """Combine, overlay or subtract another spectrum, carrying the notations
+    of document drawn on scan."""
+
+    if operation not in PAIR_MATH:
+        raise ValueError(f"{operation} takes no second spectrum")
+    getattr(scan, operation)(other, preservePeaks=preservePeaks)
+    if scan.hasprofile():
+        carryNotations(document, scan, _readFrom(scan.profile))
 
 
 def combineSpectra(scans, average=True):
@@ -136,19 +248,34 @@ def previewPair(operation, scanA, scanB):
     return signal[operation](scanA.profile, scanB.profile)
 
 
-def subtractBaseline(scan, settings):
-    """Subtract the baseline from a scan's profile."""
+def subtractBaseline(scan, settings, document=None):
+    """Subtract the baseline from a scan's profile, and from the notations of
+    document drawn on it."""
 
+    window = baselineWindow(settings)
+    offset = settings["baseline"]["offset"]
+    allowNegative = settings["baseline"]["allowNegative"]
+    baseline = scan.baseline(window=window, offset=offset)  # kept for subbase
     scan.subbase(
-        window=baselineWindow(settings),
-        offset=settings["baseline"]["offset"],
-        allowNegative=settings["baseline"]["allowNegative"],
+        window=window,
+        offset=offset,
+        allowNegative=allowNegative,
         preservePeaks=bool(settings["baseline"]["preservePeaks"]),
     )
 
+    def intensity(mz, ai, base):
+        level = numpy.interp(mz, baseline[:, 0], baseline[:, 1])
+        ai = ai - level
+        if not allowNegative:
+            ai = numpy.maximum(ai, 0.0)
+        return ai, numpy.maximum(base - level, 0.0)
 
-def smoothScan(scan, settings):
-    """Smooth a scan's profile."""
+    if len(baseline):
+        carryNotations(document, scan, intensity)
+
+
+def smoothScan(scan, settings, document=None):
+    """Smooth a scan's profile, carrying the notations of document drawn on it."""
 
     scan.smooth(
         method=settings["smoothing"]["method"],
@@ -156,6 +283,8 @@ def smoothScan(scan, settings):
         cycles=int(settings["smoothing"]["cycles"]),
         preservePeaks=bool(settings["smoothing"]["preservePeaks"]),
     )
+    if scan.hasprofile():
+        carryNotations(document, scan, _readFrom(scan.profile))
 
 
 def _labelEnvelopes(scan, settings):

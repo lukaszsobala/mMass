@@ -2901,28 +2901,28 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
                 # backup document
                 if not batch:
-                    docA.backup(("spectrum", "notations"), label="Math Operation")
+                    docA.backup(("spectrum", "notations", "rulers"), label="Math Operation")
 
                 # process spectrum
                 preserve_peaks = bool(config.processing["math"]["preservePeaks"])
 
+                # the notations are carried along (see processing.carryNotations)
                 if config.processing["math"]["operation"] in processing.SINGLE_SPECTRUM_MATH:
                     processing.mathScan(
                         docA.spectrum,
                         config.processing["math"]["operation"],
                         config.processing,
+                        document=docA,
                     )
 
-                elif config.processing["math"]["operation"] == "combine":
-                    docA.spectrum.combine(spectrumB, preservePeaks=preserve_peaks)
-
-                elif config.processing["math"]["operation"] == "overlay":
-                    docA.spectrum.overlay(spectrumB, preservePeaks=preserve_peaks)
-
-                elif config.processing["math"]["operation"] == "subtract":
-                    docA.spectrum.subtract(spectrumB, preservePeaks=preserve_peaks)
-
-                processing.clearNotations(docA)
+                elif config.processing["math"]["operation"] in processing.PAIR_MATH:
+                    processing.mathPair(
+                        docA.spectrum,
+                        config.processing["math"]["operation"],
+                        spectrumB,
+                        preserve_peaks,
+                        document=docA,
+                    )
 
         # task canceled
         except mspy.ForceQuit:
@@ -2975,10 +2975,13 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
             # backup document
             if not batch:
-                self.currentDocument.backup(("spectrum", "notations"), label="Baseline Correction")
+                self.currentDocument.backup(
+                    ("spectrum", "notations", "rulers"), label="Baseline Correction"
+                )
 
-            processing.subtractBaseline(self.currentDocument.spectrum, config.processing)
-            processing.clearNotations(self.currentDocument)
+            processing.subtractBaseline(
+                self.currentDocument.spectrum, config.processing, document=self.currentDocument
+            )
 
         # task canceled
         except mspy.ForceQuit:
@@ -3001,10 +3004,13 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
             # backup document
             if not batch:
-                self.currentDocument.backup(("spectrum", "notations"), label="Smoothing")
+                self.currentDocument.backup(
+                    ("spectrum", "notations", "rulers"), label="Smoothing"
+                )
 
-            processing.smoothScan(self.currentDocument.spectrum, config.processing)
-            processing.clearNotations(self.currentDocument)
+            processing.smoothScan(
+                self.currentDocument.spectrum, config.processing, document=self.currentDocument
+            )
 
         # task canceled
         except mspy.ForceQuit:
@@ -3204,10 +3210,9 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
                 # one backup per document covers all steps — single undo entry
                 if apply_in_place:
-                    items = ("spectrum", "notations")
-                    if step_enabled.get("crop", False):
-                        # cropping also removes the difference labels outside the range
-                        items += ("rulers",)
+                    # the steps carry the notations and difference labels along,
+                    # and cropping removes those outside the range
+                    items = ("spectrum", "notations", "rulers")
                     self.currentDocument.backup(items, label="Batch Processing")
                     self.batchChanged.append(docIndex)
 

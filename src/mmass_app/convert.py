@@ -602,9 +602,6 @@ def cached_scans(document, scanIDs):
     return {scanID: document.scanCache.get(scanID) for scanID in scanIDs}
 
 
-PROFILE_STEPS = ("baseline", "smooth", "math")
-
-
 def apply_steps(document, scanID, options, settings):
     """Run the processing steps on a document read by read(), in place.
 
@@ -641,11 +638,11 @@ def apply_steps(document, scanID, options, settings):
 
         if step == "baseline":
             for scan in with_profile(step):
-                processing.subtractBaseline(scan, settings)
+                processing.subtractBaseline(scan, settings, document)
 
         elif step == "smooth":
             for scan in with_profile(step):
-                processing.smoothScan(scan, settings)
+                processing.smoothScan(scan, settings, document)
 
         elif step == "find-peaks":
             usable = with_profile(step)
@@ -679,12 +676,7 @@ def apply_steps(document, scanID, options, settings):
 
         elif step == "math":
             for scan in scans:
-                processing.mathScan(scan, argument, settings)
-
-        # notations mark places in the profile: only the steps that change
-        # it make them stale
-        if step in PROFILE_STEPS:
-            processing.clearNotations(document)
+                processing.mathScan(scan, argument, settings, document)
 
 
 # WRITING
