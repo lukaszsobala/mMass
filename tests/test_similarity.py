@@ -231,6 +231,44 @@ def test_newick_has_all_leaves_and_support():
     assert text.endswith(";") and "'a b'" in text and ")90:" in text
 
 
+def test_newick_lengths_are_half_the_join_distances():
+    D = numpy.array(
+        [[0, 0.2, 0.8, 0.9], [0.2, 0, 0.7, 0.6], [0.8, 0.7, 0, 0.4], [0.9, 0.6, 0.4, 0]]
+    )
+    Z = mod_grouping.upgma(1 - D)
+    text = mod_grouping.newick(Z, ["a", "b c", "d", "e"], support=numpy.array([0.9, 0.5, 1.0]))
+    assert text == "((a:0.1000,'b c':0.1000)90:0.2750,(d:0.2000,e:0.2000)50:0.1750)100;"
+
+
+def test_a_tree_deeper_than_the_recursion_limit_is_drawn_and_exported():
+    import sys
+
+    # a chain: each spectrum joins all the ones before it, as alike spectra do
+    n = sys.getrecursionlimit() + 500
+    Z = numpy.array([(0 if k == 0 else n + k - 1, k + 1, 0.0, k + 2) for k in range(n - 1)], float)
+    Z[:, :2] = numpy.sort(Z[:, :2], axis=1)  # upgma's layout: smaller id first
+
+    order = mod_grouping.treeorder(Z)
+    assert sorted(order) == list(range(n)) and order[:2] == [n - 1, n - 2] and order[-2:] == [0, 1]
+    text = mod_grouping.newick(Z, ["s%d" % i for i in range(n)])
+    assert text.endswith(";") and all("s%d:" % i in text for i in (0, n // 2, n - 1))
+
+
+def test_joins_without_a_compared_pair_are_told_by_the_data_not_the_height():
+    # 2 compared with neither, so it joins 0 at UNMEASURED; 0-1 compared and
+    # scoring below -1, so 1 joins them higher still -- a measured join
+    S = numpy.array([[1.0, -1.3, numpy.nan], [-1.3, 1.0, numpy.nan], [numpy.nan] * 3])
+    S[2, 2] = 1.0
+    Z = mod_grouping.upgma(S)
+    measured = mspy.measuredjoins(Z, S)
+    joined = [frozenset(c) for c in mod_grouping.clades(Z)]
+    assert dict(zip(joined, measured, strict=True)) == {
+        frozenset({0, 2}): False,
+        frozenset({0, 1, 2}): True,
+    }
+    assert all(Z[:, 2] >= mspy.UNMEASURED)
+
+
 def family(base, seeds, lo=100, hi=900, precursor=None):
     """Spectra sharing `base` peaks, each with a few peaks of its own."""
 

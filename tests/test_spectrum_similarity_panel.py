@@ -498,8 +498,11 @@ def test_stop_stays_usable_while_comparing(window, monkeypatch):
 
 def test_a_join_without_a_compared_pair_shows_no_similarity(window):
     frame, parent = window
-    assert "without a compared pair" in frame.cladeText([0, 1], 1.0 - mspy.UNMEASURED, None)
+    unmeasured = 1.0 - mspy.UNMEASURED
+    assert "without a compared pair" in frame.cladeText([0, 1], unmeasured, None, measured=False)
     assert "similarity 0.40" in frame.cladeText([0, 1], 0.4, None)
+    # a compared pair can score below -1: it keeps its number
+    assert "similarity -1.30" in frame.cladeText([0, 1], -1.3, None, measured=True)
 
 
 def test_pairs_without_a_common_range_are_not_blamed_on_polarity(window):

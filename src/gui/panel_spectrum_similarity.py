@@ -1003,6 +1003,7 @@ class treeCanvas(_canvas):
             n = len(comp)
             pos = {k: (x1, ys[k]) for k in range(n)}
             members = {k: [comp[k]] for k in range(n)}
+            measured = mspy.measuredjoins(Z, data.sim.similarity[numpy.ix_(comp, comp)])
             for k, (a, b, d, _) in enumerate(Z):
                 a, b = int(a), int(b)
                 xa, ya = pos[a]
@@ -1021,7 +1022,9 @@ class treeCanvas(_canvas):
                 pos[n + k] = (xn, (ya + yb) / 2.0)
                 members[n + k] = inside
                 sup = None if support is None else float(support[k])
-                self._nodes.append((xn, min(ya, yb), max(ya, yb), inside, d, sup))
+                self._nodes.append(
+                    (xn, min(ya, yb), max(ya, yb), inside, d, sup, bool(measured[k]))
+                )
                 # the root is in every tree, so its support says nothing
                 if sup is not None and k < len(Z) - 1 and rowHeight >= th * 0.6:
                     text = "%d" % round(100 * sup)
@@ -1059,9 +1062,9 @@ class treeCanvas(_canvas):
         if self.data is None:
             return None
         slack = self.FromDIP(4)
-        for x, ya, yb, inside, d, sup in getattr(self, "_nodes", []):
+        for x, ya, yb, inside, d, sup, measured in getattr(self, "_nodes", []):
             if abs(pos.x - x) <= slack and ya - slack <= pos.y <= yb + slack:
-                return ("node", tuple(sorted(inside))), (inside, d, sup)
+                return ("node", tuple(sorted(inside))), (inside, d, sup, measured)
         for ya, yb, i in getattr(self, "_rows", []):
             if ya <= pos.y < yb and pos.x >= getattr(self, "_labelsStart", 0):
                 return ("leaf", i), i
@@ -1076,8 +1079,8 @@ class treeCanvas(_canvas):
             return
         key, info = found
         if key[0] == "node":
-            inside, d, sup = info
-            text = self.owner.cladeText(inside, 1.0 - d, sup)
+            inside, d, sup, measured = info
+            text = self.owner.cladeText(inside, 1.0 - d, sup, measured)
         else:
             text = self.owner.spectrumText(info)
         self.setHovered(key, text)
@@ -2103,8 +2106,10 @@ class panelSpectrumSimilarity(wx.Frame):
 
     # ----
 
-    def cladeText(self, members, similarity, support):
-        if similarity <= 1.0 - mspy.UNMEASURED:
+    def cladeText(self, members, similarity, support, measured=True):
+        # by the flag, not the height: a compared pair can score as low as the
+        # height unmeasured joins are put at
+        if not measured:
             text = "%d spectra joined without a compared pair" % len(members)
         else:
             text = "%d spectra joined at similarity %.2f" % (len(members), similarity)

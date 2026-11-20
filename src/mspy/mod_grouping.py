@@ -54,6 +54,7 @@ __all__ = [
     "UNMEASURED",
     "upgma",
     "treeorder",
+    "measuredjoins",
     "clades",
     "newick",
     "backgroundthreshold",
@@ -136,17 +137,35 @@ def upgma(S):
 def treeorder(Z):
     """Leaf order for drawing the tree (left to right)."""
 
+    # an explicit stack: a tree of many alike spectra is a chain as deep as
+    # the spectra are many, beyond Python's recursion limit
     n = len(Z) + 1
-    if n == 1:
-        return [0]
-
-    def rec(node):
+    order = []
+    stack = [2 * n - 2]
+    while stack:
+        node = stack.pop()
         if node < n:
-            return [node]
-        a, b = int(Z[node - n, 0]), int(Z[node - n, 1])
-        return rec(a) + rec(b)
+            order.append(node)
+        else:
+            a, b = int(Z[node - n, 0]), int(Z[node - n, 1])
+            stack += [b, a]  # a comes off first: left to right
+    return order
 
-    return rec(2 * n - 2)
+
+def measuredjoins(Z, S):
+    """For each join of a linkage tree, whether any pair between its two
+    sides was compared (finite in S). upgma joins the others at UNMEASURED,
+    but a compared pair can score as low, so the height cannot tell."""
+
+    finite = numpy.isfinite(numpy.asarray(S, float))
+    n = len(Z) + 1
+    members = [[i] for i in range(n)]
+    out = []
+    for a, b, _, _ in Z:
+        left, right = members[int(a)], members[int(b)]
+        out.append(bool(finite[numpy.ix_(left, right)].any()))
+        members.append(left + right)
+    return numpy.array(out, bool)
 
 
 def clades(Z):
@@ -169,19 +188,21 @@ def newick(Z, labels, support=None):
     if n == 1:
         return _clean(labels[0]) + ";"
 
-    def rec(node, parentHeight):
-        if node < n:
-            return "%s:%.4f" % (_clean(labels[node]), parentHeight)
-        k = node - n
-        h = Z[k, 2] / 2
-        left = rec(int(Z[k, 0]), h)
-        right = rec(int(Z[k, 1]), h)
+    # built bottom-up in linkage order (a join always comes after its two
+    # sides), so deep trees need no recursion; each piece lacks only its own
+    # branch length, which its parent adds
+    text = [_clean(label) for label in labels]
+    height = [0.0] * n
+    for k, (a, b, d, _) in enumerate(Z):
+        h = d / 2
+        sides = []
+        for child in (int(a), int(b)):
+            length = h if child < n else max(h - height[child], 0.0)
+            sides.append("%s:%.4f" % (text[child], length))
         sup = "%d" % round(100 * support[k]) if support is not None else ""
-        return "(%s,%s)%s:%.4f" % (left, right, sup, max(parentHeight - h, 0.0))
-
-    root = 2 * n - 2
-    text = rec(root, Z[-1, 2] / 2)
-    return text.rsplit(":", 1)[0] + ";"
+        text.append("(%s,%s)%s" % (sides[0], sides[1], sup))
+        height.append(h)
+    return text[-1] + ";"
 
 
 def _clean(text):
