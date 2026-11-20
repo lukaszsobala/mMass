@@ -6,6 +6,8 @@ keeps. gui.processing and gui.doc import wx, so the module skips where the GUI
 stack is unavailable.
 """
 
+from types import SimpleNamespace
+
 import numpy
 import pytest
 
@@ -33,6 +35,12 @@ def _document():
     document.annotations.append(gdoc.annotation("M", 500.0, 1200.0, base=200.0))
     document.rulers.append(gdoc.ruler(500.0, 1200.0, 501.0, 200.0, height=1500.0))
     return document
+
+
+def _sequence(*matches):
+    """A sequence as the documents hold one: what matters here is its matches."""
+
+    return SimpleNamespace(matches=list(matches))
 
 
 def test_baseline_correction_takes_the_baseline_off_the_labels():
@@ -89,8 +97,7 @@ def test_subtracting_a_spectrum_reads_the_labels_off_the_difference():
 
 def test_matches_follow_like_annotations():
     document = _document()
-    sequence = mspy.sequence("PEPTIDE")
-    sequence.matches = [gdoc.match("b2", 500.0, 1200.0, base=200.0)]
+    sequence = _sequence(gdoc.match("b2", 500.0, 1200.0, base=200.0))
     document.sequences.append(sequence)
     processing.mathScan(document.spectrum, "multiply", _settings(), document)
 
@@ -99,8 +106,7 @@ def test_matches_follow_like_annotations():
 
 def test_calibration_moves_annotations_matches_and_rulers():
     document = _document()
-    sequence = mspy.sequence("PEPTIDE")
-    sequence.matches = [gdoc.match("b2", 501.0, 300.0)]
+    sequence = _sequence(gdoc.match("b2", 501.0, 300.0))
     document.sequences.append(sequence)
 
     processing.recalibrateNotations(document, lambda params, mz: mz + params[0], (0.5,))

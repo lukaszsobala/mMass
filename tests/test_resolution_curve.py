@@ -168,4 +168,5 @@ def test_without_a_curve_widths_are_measured_above_the_baseline_picking_uses():
     )
     assert mpp._measured_fwhm(profile, picked.mz, window) == pytest.approx(picked.fwhm, rel=1e-9)
     # above the local median the same peak reads wider, as refits read it before
-    assert mpp.labelpoint(signal=profile, mz=picked.mz).fwhm > 1.05 * picked.fwhm
+    unbased = mpp.labelpoint(signal=profile, mz=picked.mz)
+    assert unbased is not None and unbased.fwhm > 1.05 * picked.fwhm
