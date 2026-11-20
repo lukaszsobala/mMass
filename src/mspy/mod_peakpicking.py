@@ -4653,10 +4653,13 @@ ISOTOPE_TOLERANCE_FWHM = 0.25
 # dalton off is no charge-1 isotope however broad the peaks (half-dalton-wide
 # peaks near a LIFT precursor otherwise chained across 1.2-Da steps).
 ISOTOPE_TOLERANCE_SPACING = 0.1
-# and a charge whose isotopes would lie closer than 1.5 peak widths is not
-# tried: such isotopes are not resolved (no clear valley between them), so
-# whatever lies at that spacing is something else (with the wider tolerance,
-# 0.2-Da-wide peaks 0.16-0.25 Da apart passed for charge 4)
+# Nor is it widened for a spacing under 1.5 peak widths, where isotopes overlap
+# (the valley between them is shallow) and a peak a quarter-width off is as
+# likely a shoulder or a neighbour as the isotope: with the wider tolerance,
+# 0.2-Da-wide peaks 0.16 Da apart passed for charge 4 (0.25 Da expected). The
+# charge is still tried with the tolerance given -- measured widths of
+# overlapping isotopes read wide, so skipping it would drop genuine, barely
+# resolved clusters that matched before.
 ISOTOPE_RESOLVABLE_FWHM = 1.5
 
 
@@ -4668,6 +4671,8 @@ def _isotope_tolerance(peak, mzTolerance, difference, reach=1.0):
 
     fwhm = getattr(peak, "fwhm", None)
     if not fwhm or fwhm <= 0.0:
+        return mzTolerance
+    if difference < ISOTOPE_RESOLVABLE_FWHM * fwhm:
         return mzTolerance
     widened = min(ISOTOPE_TOLERANCE_FWHM * fwhm, ISOTOPE_TOLERANCE_SPACING * difference)
     return max(mzTolerance, reach * widened)
@@ -4704,15 +4709,6 @@ def _missed_monoisotope(peaklist, index, difference, mzTolerance, pattern, intTo
         if expected > 0.0 and abs(parent.intensity - expected) <= expected * intTolerance:
             return peak
     return None
-
-
-def _isotopes_resolvable(peak, difference):
-    """Whether isotopes this far apart can be seen as separate peaks."""
-
-    fwhm = getattr(peak, "fwhm", None)
-    if not fwhm or fwhm <= 0.0:
-        return True
-    return difference >= ISOTOPE_RESOLVABLE_FWHM * fwhm
 
 
 def deisotope(
@@ -4789,13 +4785,8 @@ def deisotope(
         for z in candidateCharges:
             cluster = [parent]
 
-            # isotopes closer than the peak is wide cannot be told apart, but a
-            # charge the caller decided on stands
-            difference = (ISOTOPE_DISTANCE + isotopeShift) / abs(z)
-            if not respectCharge and not _isotopes_resolvable(parent, difference):
-                continue
-
             # broad peaks get a wider tolerance (see ISOTOPE_TOLERANCE_FWHM)
+            difference = (ISOTOPE_DISTANCE + isotopeShift) / abs(z)
             tolerance = _isotope_tolerance(parent, mzTolerance, difference)
 
             # search for next isotope within m/z tolerance

@@ -519,18 +519,30 @@ def test_sharp_peaks_keep_the_tolerance_given():
     assert pl[0].charge is None
 
 
-def test_isotopes_closer_than_the_peaks_are_wide_are_not_resolved():
-    """0.2-Da-wide peaks 0.25 Da apart are no charge-4 isotope pattern."""
+def _charge4_cluster(error, fwhm):
+    """Charge-4 lipid isotopes, each spacing off by error."""
     pattern = mpp._isotope_pattern_at_mass(4 * 676.0, "lipid")
-    pl = mspy.peaklist([
-        mspy.peak(mz=676.0 + i * mspy.ISOTOPE_DISTANCE / 4, ai=1000.0 * share / pattern[0], fwhm=0.2)
+    step = mspy.ISOTOPE_DISTANCE / 4 + error
+    return mspy.peaklist([
+        mspy.peak(mz=676.0 + i * step, ai=1000.0 * share / pattern[0], fwhm=fwhm)
         for i, share in enumerate(pattern[:6])
     ])
-    pl.deisotope(maxCharge=4, mzTolerance=0.02, averagineType="lipid")
 
+
+def test_overlapping_isotopes_get_no_wider_tolerance():
+    """0.2-Da-wide peaks 0.023 Da off a charge-4 spacing (0.02 allowed)."""
+    pl = _charge4_cluster(-0.023, fwhm=0.2)
+    pl.deisotope(maxCharge=4, mzTolerance=0.02, averagineType="lipid")
     assert all(p.charge is None or abs(p.charge) < 4 for p in pl)
 
-    for p in pl:
-        p.fwhm = 0.05
+    # resolved isotopes as far off do get it
+    pl = _charge4_cluster(-0.023, fwhm=0.16)
+    pl.deisotope(maxCharge=4, mzTolerance=0.02, averagineType="lipid")
+    assert pl[0].charge == 4
+
+
+def test_overlapping_isotopes_still_match_the_tolerance_given():
+    """Barely resolved isotopes on their spacing keep the charge they had."""
+    pl = _charge4_cluster(0.0, fwhm=0.2)
     pl.deisotope(maxCharge=4, mzTolerance=0.02, averagineType="lipid")
     assert pl[0].charge == 4
