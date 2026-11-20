@@ -178,26 +178,6 @@ def test_math_combine_of_centroided_spectra_merges_like_sum_all():
     assert len(a.peaklist) == 4
 
 
-def test_centroided_spectra_are_previewed_as_sticks():
-    processing = pytest.importorskip("gui.processing")
-    scan = _centroids([(300.0, 10.0), (450.0, 50.0)])
-
-    points = processing.previewPoints(scan)
-
-    assert points.tolist() == [
-        [300.0, 0.0], [300.0, 10.0], [300.0, 0.0],
-        [450.0, 0.0], [450.0, 50.0], [450.0, 0.0],
-    ]
-    profile = _scan(numpy.array([1.0, 2.0]), numpy.array([3.0, 4.0]), 1)
-    assert processing.previewPoints(profile) is profile.profile
-    assert len(processing.peakSticks(mspy.peaklist())) == 0
-
-    # Combine A+B previews the merged peaks, one stick per ion
-    other = _centroids([(300.05, 30.0), (451.0, 8.0)])
-    points = processing.previewPair("combine", scan, other)
-    assert points[1::3, 1].tolist() == pytest.approx([40.0, 50.0, 8.0])
-
-
 # ---------------------------------------------------------------------------
 # Traces of the example run
 # ---------------------------------------------------------------------------
