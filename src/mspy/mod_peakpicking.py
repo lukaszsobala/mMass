@@ -4724,7 +4724,8 @@ def _isotope_tolerance(peak, mzTolerance, difference, charge=1, reach=1.0):
     """The m/z tolerance for an isotope spacing of difference (charge) next to
     a peak.
 
-    reach scales the widening (not the tolerance given), for a second look.
+    reach scales the width-based widening (not the tolerance given, nor the
+    caps), for a second look.
     """
 
     fwhm = getattr(peak, "fwhm", None)
@@ -4732,8 +4733,11 @@ def _isotope_tolerance(peak, mzTolerance, difference, charge=1, reach=1.0):
         return mzTolerance
     if difference < ISOTOPE_RESOLVABLE_FWHM * fwhm:
         return mzTolerance
-    widened = reach * min(
-        ISOTOPE_TOLERANCE_FWHM * fwhm, ISOTOPE_TOLERANCE_SPACING * difference
+    # reach looks farther by the width only: the cap holds for every look,
+    # or peaks half a dalton wide chain across the 1.2-Da teeth of a LIFT
+    # parent spectrum's comb
+    widened = min(
+        reach * ISOTOPE_TOLERANCE_FWHM * fwhm, ISOTOPE_TOLERANCE_SPACING * difference
     )
     # never past the gap to one charge less, however far the look
     if abs(charge) > 1:
@@ -4768,6 +4772,64 @@ def _envelope_window(parent, cluster, mzTolerance, isotopeShift=0.0):
     z = abs(int(parent.charge or 1))
     adaptive = _adaptive_mz_tolerance(mzTolerance / z, cluster)
     return max(adaptive, _envelope_tolerance(parent, mzTolerance, isotopeShift))
+
+
+def _grow_isotope_series(peaklist, start, cluster, difference, tolerance):
+    """Extend cluster with the peaks from index start on that each lie one
+    spacing (difference) from the last, within tolerance."""
+
+    for index in range(start, len(peaklist)):
+        candidate = peaklist[index]
+        mzError = candidate.mz - cluster[-1].mz - difference
+        if abs(mzError) <= tolerance:
+            # another species' envelope is not this one's isotope
+            if _peak_carries_envelope(candidate):
+                break
+            cluster.append(candidate)
+        elif mzError > tolerance:
+            break
+
+
+def _farther_first_isotope(
+    peaklist, index, difference, charge, mzTolerance, intTolerance, averagineType
+):
+    """Index of the first isotope of peaklist[index] found by a second, wider
+    look, or None.
+
+    The apex of a weak first isotope wanders: in LIFT fragment spectra the
+    M+1 of 184.10 (S/N 500) sits, cleanly, at 185.16 -- 0.06 Da, a third of
+    the width, off the spacing, past the widened tolerance. The strong peak
+    was left uncharged and "remove unknown" deleted it. The look back at a
+    missed monoisotope (_missed_monoisotope) already reaches twice the
+    widening for this one spacing; this is the same look upwards. The peak
+    found must be as tall as a first isotope can be: no lower than the most
+    carbon-poor averagine has it, no higher than the tolerance above the
+    selected one.
+    """
+
+    parent = peaklist[index]
+    window = _isotope_tolerance(parent, mzTolerance, difference, charge, reach=2.0)
+    if window <= mzTolerance:
+        return None
+    neutralMass = _mass_scalar(mod_basics.mz(parent.mz, 0, charge))
+    pattern = _isotope_pattern_at_mass(neutralMass, averagineType)
+    if len(pattern) < 2 or pattern[0] <= 0.0:
+        return None
+    highest = parent.intensity * pattern[1] / pattern[0] * (1.0 + intTolerance)
+    lowest = parent.intensity * _least_first_isotope(neutralMass) * (1.0 - intTolerance)
+    target = parent.mz + difference
+    best = None
+    for above in range(index + 1, len(peaklist)):
+        peak = peaklist[above]
+        if peak.mz > target + window:
+            break
+        if peak.mz < target - window or _peak_carries_envelope(peak):
+            continue
+        if not lowest <= peak.intensity <= highest:
+            continue
+        if best is None or abs(peak.mz - target) < abs(peaklist[best].mz - target):
+            best = above
+    return best
 
 
 def _least_first_isotope(neutralMass):
@@ -4882,7 +4944,6 @@ def deisotope(
     charges.reverse()
 
     # walk in a peaklist
-    maxIndex = len(peaklist)
     accepted = []
     for x, parent in enumerate(peaklist):
 
@@ -4909,18 +4970,17 @@ def deisotope(
             tolerance = _isotope_tolerance(parent, mzTolerance, difference, z)
 
             # search for next isotope within m/z tolerance
-            y = 1
-            while x + y < maxIndex:
-                candidate = peaklist[x + y]
-                mzError = candidate.mz - cluster[-1].mz - difference
-                if abs(mzError) <= tolerance:
-                    # another species' envelope is not this one's isotope
-                    if _peak_carries_envelope(candidate):
-                        break
-                    cluster.append(candidate)
-                elif mzError > tolerance:
-                    break
-                y += 1
+            _grow_isotope_series(peaklist, x + 1, cluster, difference, tolerance)
+
+            # none there: a second look for the first isotope, as far as the
+            # look back at a missed monoisotope reaches (see _farther_first_isotope)
+            if len(cluster) == 1 and not respectCharge:
+                first = _farther_first_isotope(
+                    peaklist, x, difference, z, mzTolerance, intTolerance, averagineType
+                )
+                if first is not None:
+                    cluster.append(peaklist[first])
+                    _grow_isotope_series(peaklist, first + 1, cluster, difference, tolerance)
 
             # no isotope found
             if len(cluster) == 1:

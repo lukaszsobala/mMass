@@ -593,3 +593,35 @@ def test_a_first_isotope_too_weak_for_any_compound_is_no_isotope():
     pl.deisotope(maxCharge=1, mzTolerance=0.02, averagineType="lipid")
 
     assert pl[0].charge is None
+
+
+def test_a_strong_peak_finds_a_wandering_first_isotope():
+    """LIFT fragment 184.10 (S/N 500): its M+1 sits cleanly at 185.16, a third
+    of the width off the spacing and past the widened tolerance. A second look
+    as far as the look back at a missed monoisotope reaches finds it, so the
+    strong peak is not left uncharged for "remove unknown" to delete."""
+    pl = mspy.peaklist([
+        mspy.peak(mz=184.098, ai=68.0, fwhm=0.175),
+        mspy.peak(mz=185.159, ai=4.0, fwhm=0.16),
+    ])
+    pl.deisotope(maxCharge=1, mzTolerance=0.02, averagineType="lipid")
+
+    assert [(p.charge, p.isotope) for p in pl] == [(1, 0), (1, 1)]
+
+
+@pytest.mark.parametrize(
+    "offset, height, fwhm, why",
+    [
+        (0.12, 4.0, 0.4, "past a tenth of the spacing, however broad the peaks"),
+        (0.058, 30.0, 0.175, "too tall for a first isotope: another species"),
+        (0.058, 1.0, 0.175, "too weak for a first isotope of any compound"),
+    ],
+)
+def test_the_second_look_takes_only_a_plausible_first_isotope(offset, height, fwhm, why):
+    pl = mspy.peaklist([
+        mspy.peak(mz=184.098, ai=68.0, fwhm=fwhm),
+        mspy.peak(mz=184.098 + mspy.ISOTOPE_DISTANCE + offset, ai=height, fwhm=fwhm),
+    ])
+    pl.deisotope(maxCharge=1, mzTolerance=0.02, averagineType="lipid")
+
+    assert pl[0].charge is None, why
