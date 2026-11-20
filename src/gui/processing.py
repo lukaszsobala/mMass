@@ -390,6 +390,9 @@ def envelopeParams(settings, seedCharge=1, polarity=None):
         "envelopeRefinePattern": deisotoping.get("envelopeRefinePattern", 1),
         "averagineType": settings["peakpicking"].get("averagineType", "protein"),
         "seedCharge": signedCharge(seedCharge, polarity),
+        # widths are measured above the baseline picking measures them above
+        # (mspy's default, the app's default precision, without a baseline panel)
+        "baselineWindow": baselineWindow(settings) if "baseline" in settings else None,
     }
 
 

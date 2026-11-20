@@ -5082,6 +5082,23 @@ RESOLUTION_BASELINE_WINDOW = 0.01
 
 _RESOLUTION_CACHE = []
 _RESOLUTION_CACHE_SIZE = 8
+_BASELINE_CACHE = []
+
+
+def _measurement_baseline(signal, window=None):
+    """The baseline widths are measured above, as picking takes it: the
+    profile's baseline over a noise window of `window` (relative; by default
+    the app's default precision), with no offset. Cached per profile."""
+
+    window = RESOLUTION_BASELINE_WINDOW if window is None else float(window)
+    key = (_profile_key(signal), window)
+    for cachedKey, cachedBaseline in _BASELINE_CACHE:
+        if cachedKey == key:
+            return cachedBaseline
+    baseline = mod_signal.baseline(signal, window=window, offset=0.0)
+    _BASELINE_CACHE.insert(0, (key, baseline))
+    del _BASELINE_CACHE[_RESOLUTION_CACHE_SIZE:]
+    return baseline
 
 
 def _profile_key(signal):
@@ -5187,7 +5204,7 @@ def resolutioncurve(signal):
     for cachedKey, cachedCurve in _RESOLUTION_CACHE:
         if cachedKey == key:
             return cachedCurve
-    baseline = mod_signal.baseline(signal, window=RESOLUTION_BASELINE_WINDOW, offset=0.0)
+    baseline = _measurement_baseline(signal)
     curve = _fit_resolution(_resolution_references(signal, baseline))
     if curve is not None:
         curve["baseline"] = baseline
@@ -5246,24 +5263,34 @@ def applyresolution(peaklist, signal):
             peak.setfwhm(width)
 
 
-def _measured_fwhm(signal, mz):
+def _measured_fwhm(signal, mz, baselineWindow=None):
     """A peak's width measured at m/z in the profile, above its baseline, and
-    resolved against the spectrum's resolution curve."""
+    resolved against the spectrum's resolution curve.
 
-    return _measured_fwhm_on(signal, mz, resolutioncurve(signal))
+    The baseline is the one picking measures widths above (baselineWindow, the
+    baseline panel's precision as a relative window; by default the app's).
+    Measured above no baseline at all -- as it was where a spectrum has too
+    few clean peaks for a resolution curve, typical of LIFT fragment spectra
+    -- the half height sat lower and a refit widened the envelopes picking had
+    made (0.43 -> 0.58 Da), and their areas with them (+42 %).
+    """
+
+    return _measured_fwhm_on(signal, mz, resolutioncurve(signal), baselineWindow)
 
 
-def _measured_fwhm_on(signal, mz, curve):
+def _measured_fwhm_on(signal, mz, curve, baselineWindow=None):
     """`_measured_fwhm` with the profile's resolution curve (or None) at hand."""
 
-    baseline = curve["baseline"] if curve is not None else None
+    baseline = _measurement_baseline(signal, baselineWindow)
     labeled = labelpoint(signal=signal, mz=mz, baseline=baseline)
     measured = labeled.fwhm if labeled and labeled.fwhm and labeled.fwhm > 0.0 else None
     sn = labeled.sn if labeled else None
     return resolvedfwhm(measured, mz, sn, curve)
 
 
-def _refresh_missing_fwhm_from_profile(peaklist, profile, recompute=False, respectAll=False):
+def _refresh_missing_fwhm_from_profile(
+    peaklist, profile, recompute=False, respectAll=False, baselineWindow=None
+):
     """Refresh FWHM values from the profile signal at each peak m/z.
 
     By default only peaks with a missing/zero FWHM are filled in. With
@@ -5303,7 +5330,7 @@ def _refresh_missing_fwhm_from_profile(peaklist, profile, recompute=False, respe
 
         # measured above the baseline and resolved against the spectrum's
         # resolution curve, exactly as picking measures it
-        width = _measured_fwhm(profile, peak.mz)
+        width = _measured_fwhm(profile, peak.mz, baselineWindow)
         if width and width > 0.0:
             peak.setfwhm(width)
             stored = _envelope_width_owner(peak) if recompute else None
@@ -5314,7 +5341,7 @@ def _refresh_missing_fwhm_from_profile(peaklist, profile, recompute=False, respe
 # ----
 
 
-def _default_envelope_fwhm(peaklist, profile, respectAll=False):
+def _default_envelope_fwhm(peaklist, profile, respectAll=False, baselineWindow=None):
     """The width the envelopes of this peak list are fitted with when a cluster
     has none of its own: the base peak's, measured as the recalculation measures
     every width.
@@ -5329,7 +5356,9 @@ def _default_envelope_fwhm(peaklist, profile, respectAll=False):
     if base is None:
         return 0.1
     probe = copy.deepcopy(base)
-    _refresh_missing_fwhm_from_profile([probe], profile, recompute=True, respectAll=respectAll)
+    _refresh_missing_fwhm_from_profile(
+        [probe], profile, recompute=True, respectAll=respectAll, baselineWindow=baselineWindow
+    )
     if probe.fwhm and probe.fwhm > 0.0:
         return float(probe.fwhm)
     return 0.1
@@ -5371,7 +5400,9 @@ def _species_fit_reach(peak, profile, curve, defaultFwhm, params, respectAll=Fal
         widths.append(envelope.get("fwhm") or 0.0)
     respect = _fwhm_is_locked(peak) or (respectAll and bool(peak.fwhm) and peak.fwhm > 0.0)
     if not respect and profile is not None and len(profile):
-        widths.append(_measured_fwhm_on(profile, peak.mz, curve) or 0.0)
+        widths.append(
+            _measured_fwhm_on(profile, peak.mz, curve, params.get("baselineWindow")) or 0.0
+        )
 
     if peak.charge:
         charges = [abs(int(peak.charge))]
@@ -5559,7 +5590,10 @@ def recalculate_neighborhood_envelopes(
         massTolerance, isotopeShift, maxCharge, intTolerance,
         labelEnvelope, envelopeIntensity, envelopeNonIdeality,
         seedCharge (optional, default 1),
-        averagineType (optional, default "protein")
+        averagineType (optional, default "protein"),
+        baselineWindow (optional) - noise window of the baseline widths are
+            measured above, as picking takes it (the baseline panel's precision);
+            by default the app's default
     selectedOnly (bool) - when True, the peaks matching the given m/z values are
         converted (the explicit "convert to envelopes" action): no margin window is
         added, and only those peaks plus any EXISTING envelope they overlap are
@@ -5591,7 +5625,9 @@ def recalculate_neighborhood_envelopes(
     contextIdx = set()
 
     # the same for the whole list whichever peaks are recalculated
-    defaultFwhm = _default_envelope_fwhm(peaklist, profile, respectAll=respectFwhm)
+    defaultFwhm = _default_envelope_fwhm(
+        peaklist, profile, respectAll=respectFwhm, baselineWindow=params.get("baselineWindow")
+    )
 
     if selectedOnly:
         # Convert-to-envelopes: match each selected m/z to its own peak (nearest
@@ -5682,7 +5718,11 @@ def recalculate_neighborhood_envelopes(
         # edit) keeps every usable width as-is instead, so the typed value takes
         # effect; a locked width is always kept regardless.
         _refresh_missing_fwhm_from_profile(
-            gpl, profile, recompute=True, respectAll=respectFwhm
+            gpl,
+            profile,
+            recompute=True,
+            respectAll=respectFwhm,
+            baselineWindow=params.get("baselineWindow"),
         )
 
         # A peak whose species is already settled -- an existing envelope, or a

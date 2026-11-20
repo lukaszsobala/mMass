@@ -145,3 +145,27 @@ def test_refitting_measures_widths_as_picking_does():
 
     for peak in scan.peaklist:
         assert peak.fwhm == pytest.approx(picked[round(peak.mz, 3)], rel=0.02)
+
+
+def test_without_a_curve_widths_are_measured_above_the_baseline_picking_uses():
+    """A spectrum with too few clean peaks for a resolution curve (LIFT
+    fragment spectra) measured the widths a refit uses above a median of the
+    surrounding 10 %, not picking's baseline. On a curved baseline the half
+    height then sat lower and every refit widened the envelopes picking had
+    made, and their areas with them (measured: 0.43 -> 0.58 Da, +42 %)."""
+    x = numpy.linspace(880.0, 1080.0, 60000)
+    hump = 45.0 - 0.004 * (x - 979.0) ** 2
+    noise = numpy.random.RandomState(3).normal(0.0, 1.0, len(x))
+    y = hump + noise + 100.0 * numpy.exp(-0.5 * ((x - 979.0) / (0.43 / 2.3548)) ** 2)
+    profile = numpy.column_stack([x, y])
+    assert mpp.resolutioncurve(profile) is None
+
+    window = 0.01
+    baseline = mspy.scan(profile=profile).baseline(window=window, offset=0.0)
+    picked = min(
+        mpp.labelscan(profile, pickingHeight=1.0, snThreshold=10.0, baseline=baseline),
+        key=lambda peak: abs(peak.mz - 979.0),
+    )
+    assert mpp._measured_fwhm(profile, picked.mz, window) == pytest.approx(picked.fwhm, rel=1e-9)
+    # above the local median the same peak reads wider, as refits read it before
+    assert mpp.labelpoint(signal=profile, mz=picked.mz).fwhm > 1.05 * picked.fwhm
