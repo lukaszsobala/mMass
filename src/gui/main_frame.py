@@ -31,7 +31,6 @@ import subprocess
 import re
 import random
 from pathlib import Path
-from mspy import plot_objects
 import mspy
 import requests
 import tempfile
@@ -3204,30 +3203,8 @@ class mainFrame(wx.Frame):
             target_width = max(1600, min(3200, canvas_width * 2))
             target_height = max(1, int(round(target_width * aspect_ratio)))
 
-            # Render reports with a fixed light palette regardless of app theme.
-            reportCanvas = self.spectrumPanel.spectrumCanvas
-            lightPalette = {
-                "canvasColour": (255, 255, 255),
-                "plotColour": (255, 255, 255),
-                "axisColour": (0, 0, 0),
-                "gridColour": (235, 235, 235),
-            }
-            originalPalette = {
-                key: reportCanvas.properties.get(key) for key in lightPalette
-            }
-            originalBgColour = reportCanvas.GetBackgroundColour()
-            originalDarkModeCache = plot_objects._DARK_MODE
-
-            try:
-                plot_objects._DARK_MODE = False
-                reportCanvas.setProperties(**lightPalette)
-                reportCanvas.SetBackgroundColour(wx.Colour(*lightPalette["canvasColour"]))
-                self.getSpectrumSVG(imagePath, target_width, target_height, None)
-            finally:
-                plot_objects._DARK_MODE = originalDarkModeCache
-                reportCanvas.setProperties(**originalPalette)
-                reportCanvas.SetBackgroundColour(originalBgColour)
-                reportCanvas.refresh()
+            # reports are always light, whatever the app's theme
+            self.getSpectrumSVG(imagePath, target_width, target_height, None, dark=False)
 
             # make report file
             reportHTML = self.documents[self.currentDocument].report(image=imagePath)
@@ -7025,15 +7002,17 @@ class mainFrame(wx.Frame):
 
     # ----
 
-    def getSpectrumBitmap(self, width, height, printerScale):
-        """Get bitmap from current spectrum canvas."""
-        return self.spectrumPanel.getBitmap(width, height, printerScale)
+    def getSpectrumBitmap(self, width, height, printerScale, dark=None):
+        """Get bitmap from current spectrum canvas, in dark or light colours
+        (None: as shown)."""
+        return self.spectrumPanel.getBitmap(width, height, printerScale, dark)
 
     # ----
 
-    def getSpectrumSVG(self, path, width, height, printerScale, dpi=72):
-        """Export current spectrum canvas to an SVG file."""
-        return self.spectrumPanel.getSVG(path, width, height, printerScale, dpi)
+    def getSpectrumSVG(self, path, width, height, printerScale, dpi=72, dark=None):
+        """Export current spectrum canvas to an SVG file, in dark or light
+        colours (None: as shown)."""
+        return self.spectrumPanel.getSVG(path, width, height, printerScale, dpi, dark)
 
     # ----
 
