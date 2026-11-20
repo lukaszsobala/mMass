@@ -404,6 +404,8 @@ export = {
     "imageFontsScale": 1,
     "imageDrawingsScale": 1,
     "imageFormat": "PNG",
+    # exported images: "light" or "dark", whatever the app's theme
+    "imageColours": "light",
     "peaklistColumns": ["mz", "int"],
     "peaklistFormat": "ASCII",
     "peaklistSeparator": "tab",

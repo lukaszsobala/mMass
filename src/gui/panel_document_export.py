@@ -218,6 +218,17 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
         mwx.fitChoice(self.imageFormat_choice)
         self.imageFormat_choice.SetStringSelection(config.export["imageFormat"])
 
+        imageColours_label = wx.StaticText(panel, -1, "Colours:")
+        self.imageColours_choice = wx.Choice(
+            panel,
+            -1,
+            choices=["Light", "Dark"],
+            size=wx.Size(140, mwx.CHOICE_HEIGHT),
+        )
+        mwx.fitChoice(self.imageColours_choice)
+        self.imageColours_choice.Select(int(config.export["imageColours"] == "dark"))
+        self.imageColours_choice.SetToolTip("Light or dark background, whatever the screen shows.")
+
         imageResolution_label = wx.StaticText(panel, -1, "Resolution:")
         imageResolutionUnits_label = wx.StaticText(panel, -1, "dpi")
         choices = ["72", "150", "200", "300", "600"]
@@ -300,6 +311,10 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
             imageFormat_label, (5, 0), flag=wx.ALIGN_CENTER_VERTICAL | wx.ALIGN_RIGHT
         )
         grid.Add(self.imageFormat_choice, (5, 1), flag=wx.ALIGN_CENTER_VERTICAL)
+        grid.Add(
+            imageColours_label, (6, 0), flag=wx.ALIGN_CENTER_VERTICAL | wx.ALIGN_RIGHT
+        )
+        grid.Add(self.imageColours_choice, (6, 1), flag=wx.ALIGN_CENTER_VERTICAL)
 
         mainSizer = wx.BoxSizer(wx.VERTICAL)
         mainSizer.Add(grid, 0, wx.ALIGN_CENTER | wx.ALL, mwx.PANEL_SPACE_MAIN)
@@ -862,6 +877,9 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
             config.export["imageHeight"] = float(self.imageHeight_value.GetValue())
             config.export["imageUnits"] = self.imageUnits_choice.GetStringSelection()
             config.export["imageFormat"] = self.imageFormat_choice.GetStringSelection()
+            config.export["imageColours"] = (
+                self.imageColours_choice.GetStringSelection().lower()
+            )
             config.export["imageResolution"] = int(
                 self.imageResolution_choice.GetStringSelection()
             )
@@ -924,11 +942,14 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
             "fonts": config.export["imageFontsScale"],
         }
 
+        # light or dark, whatever the screen shows
+        dark = config.export["imageColours"] == "dark"
+
         # export to vector graphics
         if config.export["imageFormat"] == "SVG":
             try:
                 self.parent.getSpectrumSVG(
-                    path, width, height, printerScale, resolution
+                    path, width, height, printerScale, resolution, dark=dark
                 )
             except Exception:
                 wx.Bell()
@@ -943,7 +964,7 @@ class panelDocumentExport(wx.Frame, MakeModalMixin):
             fileFormat = wx.BITMAP_TYPE_JPEG
 
         # make image
-        bitmap = self.parent.getSpectrumBitmap(width, height, printerScale)
+        bitmap = self.parent.getSpectrumBitmap(width, height, printerScale, dark=dark)
         if not bitmap:
             wx.Bell()
             return

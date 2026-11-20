@@ -20,6 +20,7 @@
 
 # load libs
 import bisect
+import contextlib
 import wx
 
 # load modules
@@ -2871,15 +2872,51 @@ class panelSpectrum(wx.Panel):
 
     # ----
 
-    def getBitmap(self, width, height, printerScale):
-        """Get spectrum image."""
-        return self.spectrumCanvas.getBitmap(width, height, printerScale)
+    def getBitmap(self, width, height, printerScale, dark=None):
+        """Get spectrum image, in dark or light colours (None: as shown)."""
+        with self.drawnInTheme(dark):
+            return self.spectrumCanvas.getBitmap(width, height, printerScale)
 
     # ----
 
-    def getSVG(self, path, width, height, printerScale, dpi=72):
-        """Export spectrum image as SVG."""
-        return self.spectrumCanvas.getSVG(path, width, height, printerScale, dpi)
+    def getSVG(self, path, width, height, printerScale, dpi=72, dark=None):
+        """Export spectrum image as SVG, in dark or light colours (None: as
+        shown)."""
+        with self.drawnInTheme(dark):
+            return self.spectrumCanvas.getSVG(path, width, height, printerScale, dpi)
+
+    # ----
+
+    @contextlib.contextmanager
+    def drawnInTheme(self, dark):
+        """Draw the spectrum in dark (True) or light (False) colours for the
+        duration, as a light/dark switch would (None: as shown).
+
+        The document colours are inverted for dark mode (see
+        mainFrame.onThemeChanged), so they are flipped too, and back after.
+        """
+
+        canvas = self.spectrumCanvas
+        if dark is None or bool(dark) == canvas.isDark():
+            yield
+            return
+
+        with canvas.drawnInTheme(dark):
+            self._flipDocumentColours()
+            try:
+                yield
+            finally:
+                self._flipDocumentColours()
+
+    # ----
+
+    def _flipDocumentColours(self):
+        """Invert the document colours and give them to the plot objects."""
+
+        for document in self.documents:
+            document.colour = mwx.invertColour(document.colour)
+        for docIndex in range(len(self.documents)):
+            self.updateSpectrumProperties(docIndex, refresh=False)
 
     # ----
 
@@ -2890,8 +2927,10 @@ class panelSpectrum(wx.Panel):
     # ----
 
     def getPrintout(self, filterSize, title):
-        """Get spectrum printout."""
-        return self.spectrumCanvas.getPrintout(filterSize, title)
+        """Get spectrum printout, in light colours."""
+        return self.spectrumCanvas.getPrintout(
+            filterSize, title, themed=lambda: self.drawnInTheme(False)
+        )
 
     # ----
 
