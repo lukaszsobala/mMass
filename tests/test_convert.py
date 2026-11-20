@@ -452,6 +452,29 @@ def test_annotations_outlive_steps_that_leave_the_profile_alone(profiles, tmp_pa
     assert _read(smoothed, "mSD").annotations == []
 
 
+def test_picking_in_the_window_keeps_annotations_and_undoes_alone():
+    """Tools > Processing: picking and deisotoping leave annotations, and
+    Undo takes back the peaks only."""
+    panel_processing = pytest.importorskip("gui.panel_processing")
+    from types import SimpleNamespace
+
+    document = doc.document()
+    document.spectrum = _pattern()
+    document.annotations.append(doc.annotation("M+H", 405.0, 1000.0))
+    panel = SimpleNamespace(currentDocument=document)
+
+    panel_processing.panelProcessing.runApplyPeakpicking(panel)
+    assert document.spectrum.haspeaks()
+    panel_processing.panelProcessing.runApplyDeisotoping(panel)
+    assert [a.label for a in document.annotations] == ["M+H"]
+
+    assert document.undoLabel() == "Deisotoping"
+    assert document.restore() == ("spectrum",)
+    assert document.restore() == ("spectrum",)
+    assert not document.spectrum.haspeaks()
+    assert [a.label for a in document.annotations] == ["M+H"]
+
+
 def test_envelopes_are_what_convert_all_to_envelopes_gives(profiles, tmp_path):
     from gui import processing
 
