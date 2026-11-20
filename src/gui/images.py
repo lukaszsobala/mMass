@@ -610,6 +610,7 @@ def loadImages():
         lib["toolsMassToFormula"] = tools.GetSubBitmap(wx.Rect(480, 5, 32, 23))
         lib["toolsPeriodicTable"] = tools.GetSubBitmap(wx.Rect(512, 5, 32, 23))
         lib["toolsMassDefectPlot"] = tools.GetSubBitmap(wx.Rect(544, 5, 32, 23))
+        lib["toolsSpectrumSimilarity"] = tools.GetSubBitmap(wx.Rect(576, 5, 32, 23))
 
         lib["toolsPresets"] = tools.GetSubBitmap(wx.Rect(0, 37, 32, 22))
         lib["toolsLibrary"] = tools.GetSubBitmap(wx.Rect(32, 37, 32, 22))
@@ -638,6 +639,7 @@ def loadImages():
         lib["toolsMassToFormula"] = tools.GetSubBitmap(wx.Rect(440, 0, 22, 22))
         lib["toolsPeriodicTable"] = tools.GetSubBitmap(wx.Rect(462, 0, 22, 22))
         lib["toolsMassDefectPlot"] = tools.GetSubBitmap(wx.Rect(484, 0, 22, 22))
+        lib["toolsSpectrumSimilarity"] = tools.GetSubBitmap(wx.Rect(506, 0, 22, 22))
 
     # bottombars
     bottombarsOn = images_lib.getBottombarsOnBitmap()

@@ -1,0 +1,749 @@
+"""Spectrum similarity (mod_similarity) and grouping (mod_grouping).
+
+All spectra are synthetic: Gaussian peaks on a noisy profile, with an optional
+broad baseline hump, a precursor m/z and a polarity.
+"""
+
+import os
+
+import numpy
+import pytest
+
+import mspy
+from mspy import mod_stopper
+from mspy import mod_grouping, mod_similarity
+
+
+def make_scan(
+    peaks,
+    lo=50.0,
+    hi=1000.0,
+    precursor=None,
+    polarity=1,
+    noise=0.05,
+    hump=0.0,
+    seed=0,
+    fwhm=0.12,
+    step=0.02,
+    title="s",
+):
+    """A scan whose profile holds `peaks` [(mz, height), ...] on noise."""
+
+    rng = numpy.random.default_rng(seed)
+    x = numpy.arange(lo, hi, step)
+    y = numpy.abs(rng.normal(0, noise, len(x)))
+    if hump:
+        y += hump * numpy.exp(-0.5 * ((x - 0.5 * (lo + hi)) / (0.2 * (hi - lo))) ** 2)
+    sigma = fwhm / 2.3548
+    for mz, h in peaks:
+        k = (x > mz - 5 * sigma) & (x < mz + 5 * sigma)
+        y[k] += h * numpy.exp(-0.5 * ((x[k] - mz) / sigma) ** 2)
+    s = mspy.scan(profile=numpy.column_stack([x, y]))
+    s.precursorMZ = precursor
+    s.polarity = polarity
+    s.title = title
+    return s
+
+
+def random_peaks(seed, lo, hi, count=25):
+    rng = numpy.random.default_rng(seed)
+    return [
+        (float(m), float(h))
+        for m, h in zip(
+            rng.uniform(lo, hi, count), rng.uniform(2, 20, count), strict=True
+        )
+    ]
+
+
+# ---------------------------------------------------------------------------
+# similarity
+# ---------------------------------------------------------------------------
+
+
+def test_identical_spectra_score_one():
+    peaks = random_peaks(1, 100, 900)
+    a = make_scan(peaks, seed=1)
+    b = make_scan(peaks, seed=2)  # same peaks, different noise
+    res = mspy.similaritymatrix([a, b])
+    assert res.similarity[0, 1] > 0.9
+
+
+def test_unrelated_spectra_score_near_zero():
+    scans = [make_scan(random_peaks(10 + k, 100, 900), seed=k) for k in range(6)]
+    res = mspy.similaritymatrix(scans)
+    off = res.similarity[numpy.triu_indices(6, 1)]
+    assert abs(off.mean()) < 0.1
+    assert off.max() < 0.3
+
+
+def test_range_does_not_drive_similarity():
+    """The same fragments, one spectrum with a much longer range."""
+
+    shared = [(150.0, 10.0), (230.5, 6.0), (311.2, 8.0), (402.7, 5.0)]
+    short = make_scan(shared, hi=520, precursor=512.0, seed=1)
+    long_ = make_scan(
+        shared + random_peaks(5, 560, 980, 15), hi=1100, precursor=1003.0, seed=2
+    )
+    other = make_scan(random_peaks(7, 100, 500, 4), hi=520, precursor=515.0, seed=3)
+    res = mspy.similaritymatrix([short, long_, other], axes="mz")
+    assert res.similarity[0, 1] > 0.7
+    assert abs(res.similarity[0, 2]) < 0.25
+
+
+def test_shared_baseline_and_noise_do_not_create_similarity():
+    a = make_scan(random_peaks(20, 100, 900), hump=30.0, noise=1.0, seed=1)
+    b = make_scan(random_peaks(21, 100, 900), hump=30.0, noise=1.0, seed=2)
+    res = mspy.similaritymatrix([a, b])
+    assert abs(res.similarity[0, 1]) < 0.2
+
+
+def test_neutral_losses_link_different_precursors():
+    """Two precursors 28 Da apart, sharing only their losses of 59 and 183."""
+
+    def frag(P, seed):
+        # the losses dominate, as P - 59 does in phosphocholine lipid spectra
+        return make_scan(
+            [(P - 59.0735, 40.0), (P - 183.066, 25.0)]
+            + random_peaks(seed, 100, 500, 2),
+            hi=P + 20,
+            precursor=P,
+            seed=seed,
+        )
+
+    a, b = frag(800.0, 31), frag(828.0, 32)
+    both = mspy.similaritymatrix([a, b], axes="both").similarity[0, 1]
+    mz_only = mspy.similaritymatrix([a, b], axes="mz").similarity[0, 1]
+    loss_only = mspy.similaritymatrix([a, b], axes="loss").similarity[0, 1]
+    # a shared loss counts once on the loss axis, while the same ions sit at
+    # different m/z: about half of each spectrum's signal is shared
+    assert abs(mz_only) < 0.1
+    assert loss_only > 0.4
+    assert both > mz_only + 0.15
+
+
+def test_polarities_are_not_compared_unless_neutral_mass():
+    glycans = [700.0, 862.05, 1024.1, 1186.16]  # neutral masses
+    pos = make_scan(
+        [(m + 22.989218, 10.0) for m in glycans], hi=1300, polarity=1, seed=1
+    )
+    neg = make_scan(
+        [(m - 1.007276, 10.0) for m in glycans], hi=1300, polarity=-1, seed=2
+    )
+    pos2 = make_scan(
+        [(m + 22.989218, 10.0) for m in glycans], hi=1300, polarity=1, seed=3
+    )
+    res = mspy.similaritymatrix([pos, neg, pos2])
+    assert numpy.isnan(res.similarity[0, 1])
+    assert not res.comparable[0, 1]
+    assert res.similarity[0, 2] > 0.8
+    neutral = mspy.similaritymatrix(
+        [pos, neg], neutralMass=True, posAdduct="Na", negAdduct="H"
+    )
+    assert neutral.similarity[0, 1] > 0.8
+
+
+def test_peak_source_uses_peaklist():
+    a = make_scan([], seed=1)
+    b = make_scan([], seed=2)
+    for s in (a, b):
+        s.peaklist = mspy.peaklist(
+            [
+                mspy.peak(mz=m, ai=h)
+                for m, h in [(200.0, 10.0), (350.0, 5.0), (512.3, 8.0)]
+            ]
+        )
+    res = mspy.similaritymatrix([a, b], source="peaks")
+    assert res.similarity[0, 1] > 0.9
+
+
+def test_unknown_parameter_is_rejected():
+    with pytest.raises(ValueError):
+        mspy.similarityparams(tolerence=0.2)
+
+
+def test_bootstrap_is_deterministic_with_a_seed():
+    scans = [make_scan(random_peaks(40 + k, 100, 900), seed=k) for k in range(4)]
+    res = mspy.similaritymatrix(scans)
+    a = list(mspy.bootstrapmatrices(res, 5, seed=3))
+    b = list(mspy.bootstrapmatrices(res, 5, seed=3))
+    assert len(a) == len(b) == 5
+    assert all(numpy.allclose(x, y, equal_nan=True) for x, y in zip(a, b, strict=True))
+
+
+def test_lag_smear_matches_explicit_mean():
+    rng = numpy.random.default_rng(0)
+    v = rng.random(200)
+    got = mod_similarity._lagsmear(v, 3, 7)
+    padded = numpy.concatenate([numpy.zeros(10), v, numpy.zeros(10)])
+    want = numpy.array(
+        [
+            numpy.mean(
+                [padded[10 + b + t] for t in list(range(3, 8)) + list(range(-7, -2))]
+            )
+            for b in range(200)
+        ]
+    )
+    assert numpy.allclose(got, want)
+
+
+# ---------------------------------------------------------------------------
+# grouping
+# ---------------------------------------------------------------------------
+
+
+def test_upgma_hand_example():
+    # distances: a-b 0.2, c-d 0.4, between pairs 0.8 / 0.9 / 0.7 / 0.6
+    D = numpy.array(
+        [[0, 0.2, 0.8, 0.9], [0.2, 0, 0.7, 0.6], [0.8, 0.7, 0, 0.4], [0.9, 0.6, 0.4, 0]]
+    )
+    Z = mod_grouping.upgma(1 - D)
+    assert tuple(Z[0, :2]) == (0, 1) and Z[0, 2] == pytest.approx(0.2)
+    assert tuple(Z[1, :2]) == (2, 3) and Z[1, 2] == pytest.approx(0.4)
+    assert Z[2, 2] == pytest.approx((0.8 + 0.9 + 0.7 + 0.6) / 4)
+    assert mod_grouping.treeorder(Z) == [0, 1, 2, 3]
+
+
+def test_louvain_recovers_planted_groups():
+    rng = numpy.random.default_rng(5)
+    sizes = [2, 3, 4, 5]
+    truth = numpy.repeat(numpy.arange(len(sizes)), sizes)
+    n = len(truth)
+    W = numpy.where(
+        truth[:, None] == truth[None, :], rng.uniform(0.4, 0.9, (n, n)), 0.0
+    )
+    W = numpy.triu(W, 1)
+    W = W + W.T
+    assert mod_grouping.adjustedrand(
+        truth, mod_grouping.louvain(W, seed=0)
+    ) == pytest.approx(1.0)
+
+
+def test_adjusted_rand_values():
+    assert mod_grouping.adjustedrand([0, 0, 1, 1], [5, 5, 7, 7]) == pytest.approx(1.0)
+    assert mod_grouping.adjustedrand([0, 0, 1, 1], [0, 1, 0, 1]) < 0
+
+
+def test_newick_has_all_leaves_and_support():
+    Z = mod_grouping.upgma(
+        1 - numpy.array([[0, 0.2, 0.8], [0.2, 0, 0.7], [0.8, 0.7, 0]])
+    )
+    text = mod_grouping.newick(Z, ["a b", "c", "d"], support=numpy.array([0.9, 1.0]))
+    assert text.endswith(";") and "'a b'" in text and ")90:" in text
+
+
+def test_newick_lengths_are_half_the_join_distances():
+    D = numpy.array(
+        [[0, 0.2, 0.8, 0.9], [0.2, 0, 0.7, 0.6], [0.8, 0.7, 0, 0.4], [0.9, 0.6, 0.4, 0]]
+    )
+    Z = mod_grouping.upgma(1 - D)
+    text = mod_grouping.newick(Z, ["a", "b c", "d", "e"], support=numpy.array([0.9, 0.5, 1.0]))
+    assert text == "((a:0.1000,'b c':0.1000)90:0.2750,(d:0.2000,e:0.2000)50:0.1750)100;"
+
+
+def test_a_tree_deeper_than_the_recursion_limit_is_drawn_and_exported():
+    import sys
+
+    # a chain: each spectrum joins all the ones before it, as alike spectra do
+    n = sys.getrecursionlimit() + 500
+    Z = numpy.array([(0 if k == 0 else n + k - 1, k + 1, 0.0, k + 2) for k in range(n - 1)], float)
+    Z[:, :2] = numpy.sort(Z[:, :2], axis=1)  # upgma's layout: smaller id first
+
+    order = mod_grouping.treeorder(Z)
+    assert sorted(order) == list(range(n)) and order[:2] == [n - 1, n - 2] and order[-2:] == [0, 1]
+    text = mod_grouping.newick(Z, ["s%d" % i for i in range(n)])
+    assert text.endswith(";") and all("s%d:" % i in text for i in (0, n // 2, n - 1))
+
+
+def test_joins_without_a_compared_pair_are_told_by_the_data_not_the_height():
+    # 2 compared with neither, so it joins 0 at UNMEASURED; 0-1 compared and
+    # scoring below -1, so 1 joins them higher still -- a measured join
+    S = numpy.array([[1.0, -1.3, numpy.nan], [-1.3, 1.0, numpy.nan], [numpy.nan] * 3])
+    S[2, 2] = 1.0
+    Z = mod_grouping.upgma(S)
+    measured = mspy.measuredjoins(Z, S)
+    joined = [frozenset(c) for c in mod_grouping.clades(Z)]
+    assert dict(zip(joined, measured, strict=True)) == {
+        frozenset({0, 2}): False,
+        frozenset({0, 1, 2}): True,
+    }
+    assert all(Z[:, 2] >= mspy.UNMEASURED)
+
+
+def family(base, seeds, lo=100, hi=900, precursor=None):
+    """Spectra sharing `base` peaks, each with a few peaks of its own."""
+
+    return [
+        make_scan(
+            base + random_peaks(s, lo, hi, 4), hi=hi + 50, precursor=precursor, seed=s
+        )
+        for s in seeds
+    ]
+
+
+def test_groupspectra_finds_families_and_leaves_loners():
+    fam1 = family(random_peaks(101, 100, 900, 15), [1, 2, 3])
+    fam2 = family(random_peaks(202, 100, 900, 15), [4, 5, 6])
+    loners = [
+        make_scan(random_peaks(300 + k, 100, 900), hi=950, seed=10 + k)
+        for k in range(3)
+    ]
+    scans = fam1 + fam2 + loners
+    sim = mspy.similaritymatrix(scans)
+    res = mspy.groupspectra(sim, replicates=30, seed=1)
+    g = res.groups
+    assert len({g[0], g[1], g[2]}) == 1
+    assert len({g[3], g[4], g[5]}) == 1
+    assert g[0] != g[3]
+    assert len({g[6], g[7], g[8]} - {g[0], g[3]}) == 3  # loners stay apart
+    assert res.coMembership is not None
+    assert res.coMembership[0, 1] > 0.8
+    assert res.stability is not None and res.stability > 0.5
+    assert sorted(res.order) == list(range(len(scans)))
+
+
+def test_groupspectra_tree_method_and_polarity_split():
+    fam = family(random_peaks(101, 100, 900, 15), [1, 2])
+    neg = family(random_peaks(101, 100, 900, 15), [3, 4])
+    for s in neg:
+        s.polarity = -1
+    sim = mspy.similaritymatrix(fam + neg)
+    res = mspy.groupspectra(sim, method="tree", cut=0.3, replicates=10)
+    assert len(res.trees) == 2  # one tree per polarity
+    assert res.groups[0] == res.groups[1] and res.groups[2] == res.groups[3]
+    assert res.groups[0] != res.groups[2]
+
+
+def test_sharedfeatures_reports_the_family_ion():
+    base = [(345.6, 15.0), (512.2, 10.0)]
+    scans = family(base, [1, 2, 3]) + [
+        make_scan(random_peaks(400 + k, 100, 900), hi=950, seed=20 + k)
+        for k in range(3)
+    ]
+    sim = mspy.similaritymatrix(scans, axes="mz")
+    feats = mspy.sharedfeatures(sim, [0, 1, 2])
+    positions = [p for f in feats["mz"] for p in f["positions"]]
+    assert any(abs(p - 345.6) < 0.3 for p in positions)
+    assert any(abs(p - 512.2) < 0.3 for p in positions)
+
+
+def test_rangedependence_returns_two_values():
+    scans = [
+        make_scan(random_peaks(k, 100, 400 + 100 * k), hi=450 + 100 * k, seed=k)
+        for k in range(5)
+    ]
+    sim = mspy.similaritymatrix(scans)
+    allPairs, apart = mspy.rangedependence(sim)
+    assert -1 <= allPairs <= 1
+
+
+def test_groups_of_several_spectra_are_numbered_first():
+    fam = family(random_peaks(101, 100, 900, 15), [1, 2, 3])
+    loners = [make_scan(random_peaks(300 + k, 100, 900), hi=950, seed=10 + k) for k in range(2)]
+    res = mspy.groupspectra(mspy.similaritymatrix(loners + fam), replicates=0)
+    assert set(res.groups[2:]) == {1}
+    assert sorted(res.groups[:2]) == [2, 3]
+
+
+def test_a_stopper_ends_the_comparison():
+    scans = [make_scan(random_peaks(k, 100, 900), hi=950, seed=k) for k in range(3)]
+    calls = []
+
+    def stopper():
+        calls.append(1)
+        if len(calls) == 2:
+            raise mod_stopper.ForceQuit
+
+    with pytest.raises(mod_stopper.ForceQuit):
+        mspy.similaritymatrix(scans, stopper=stopper)
+    assert len(calls) == 2
+
+
+def test_spectra_without_a_precursor_are_compared_on_mz():
+    """MS1 spectra have no losses: with the default axes they are compared on
+    m/z (also against fragment spectra); losses only refuses them."""
+
+    peaks = random_peaks(7, 100, 900)
+    ms1 = [make_scan(peaks, hi=950, seed=k) for k in range(2)]
+    ms2 = make_scan(peaks, hi=950, precursor=950.0, seed=3)
+    res = mspy.similaritymatrix(ms1 + [ms2])
+    assert res.similarity[0, 1] > 0.5
+    assert numpy.isfinite(res.similarity[0, 2])
+
+    with pytest.raises(ValueError, match="precursor"):
+        mspy.similaritymatrix(ms1 + [ms2], axes="loss")
+
+
+# ---------------------------------------------------------------------------
+# review fixes
+# ---------------------------------------------------------------------------
+
+
+def test_a_peak_outside_the_shared_range_does_not_change_the_score():
+    """The chance level comes from the shared range only, as the cosine."""
+
+    peaks = random_peaks(11, 100, 290, 10)
+    a = make_scan(peaks, hi=300, seed=1)
+    b = make_scan(peaks, hi=400, seed=2)
+    b_more = make_scan(peaks + [(315.0, 50.0)], hi=400, seed=2)
+    s1 = mspy.similaritymatrix([a, b]).similarity[0, 1]
+    s2 = mspy.similaritymatrix([a, b_more]).similarity[0, 1]
+    assert s1 == pytest.approx(s2, abs=1e-9)
+
+
+def test_spectra_without_a_common_range_are_not_compared():
+    a = make_scan(random_peaks(1, 100, 290), lo=100, hi=300, seed=1)
+    b = make_scan(random_peaks(2, 410, 590), lo=400, hi=600, seed=2)
+    c = make_scan(random_peaks(3, 100, 290), lo=100, hi=300, seed=3)
+    res = mspy.similaritymatrix([a, b, c])
+    assert not res.comparable[0, 1] and numpy.isnan(res.similarity[0, 1])
+    assert res.comparable[0, 2]
+
+
+def test_fragment_spectra_are_compared_only_where_acquired():
+    """Same precursor, profiles over 100-300 and 400-450: nothing in common."""
+
+    a = make_scan(random_peaks(1, 110, 290), lo=100, hi=300, precursor=500.0, seed=1)
+    b = make_scan(random_peaks(2, 405, 445), lo=400, hi=450, precursor=500.0, seed=2)
+    res = mspy.similaritymatrix([a, b])
+    assert not res.comparable[0, 1]
+
+
+def test_a_spectrum_without_a_profile_uses_its_peaks():
+    peaks = random_peaks(5, 100, 900)
+    profile = make_scan(peaks, hi=950, seed=1)
+    centroids = mspy.scan(peaklist=[mspy.peak(mz=mz, ai=ai) for mz, ai in peaks])
+    assert mspy.similaritymatrix([profile, centroids]).similarity[0, 1] > 0.5
+
+
+def test_without_blocks_the_scores_match_but_cannot_be_bootstrapped():
+    scans = [make_scan(random_peaks(40 + k, 100, 900), seed=k) for k in range(3)]
+    full = mspy.similaritymatrix(scans)
+    lean = mspy.similaritymatrix(scans, blocks=False)
+    assert numpy.allclose(full.similarity, lean.similarity)
+    assert lean.blockSums.shape[-1] == 1
+    with pytest.raises(ValueError):
+        list(mspy.bootstrapmatrices(lean, 2))
+
+
+def test_the_bootstrap_does_not_depend_on_input_order():
+    a = make_scan(random_peaks(1, 100, 900) + [(500.0, 20.0)], seed=1)
+    b = make_scan(random_peaks(1, 100, 900) + [(700.0, 20.0)], seed=2)
+    ab = list(mspy.bootstrapmatrices(mspy.similaritymatrix([a, b]), 20, seed=4))
+    ba = list(mspy.bootstrapmatrices(mspy.similaritymatrix([b, a]), 20, seed=4))
+    assert [m[0, 1] for m in ab] == pytest.approx([m[0, 1] for m in ba])
+
+
+def test_unmeasured_pairs_do_not_count_as_a_distance():
+    """u (unknown polarity) is identical to p and n, which were not compared:
+    the tree joins u at 0 and then the third at the mean of measured pairs."""
+
+    S = numpy.array([[1.0, 1.0, numpy.nan], [1.0, 1.0, 1.0], [numpy.nan, 1.0, 1.0]])
+    Z = mod_grouping.upgma(S)
+    assert Z[0, 2] == pytest.approx(0.0)
+    assert Z[1, 2] == pytest.approx(0.0)  # only u-n measured, at distance 0
+
+
+def test_no_bootstrap_results_when_nothing_could_be_resampled():
+    pos = make_scan(random_peaks(1, 100, 900), polarity=1, seed=1)
+    neg = make_scan(random_peaks(2, 100, 900), polarity=-1, seed=2)
+    grp = mspy.groupspectra(mspy.similaritymatrix([pos, neg]), replicates=10)
+    assert grp.coMembership is None and grp.stability is None
+
+
+def test_newick_keeps_distinct_names_distinct():
+    Z = mod_grouping.upgma(numpy.array([[1.0, 0.5], [0.5, 1.0]]))
+    text = mspy.newick(Z, ["a:b", "a,b"])
+    assert "'a:b'" in text and "'a,b'" in text
+
+
+def test_smoothing_keeps_the_length_with_a_long_kernel():
+    assert len(mod_similarity._gaussian(numpy.ones(12), 10.0)) == 12
+
+
+def test_labels_that_would_start_a_formula_stay_text():
+    from gui import similarity_results as results
+
+    assert results.text("=HYPERLINK()") == "'=HYPERLINK()"
+    assert results.text("-5 sample") == "'-5 sample"
+    assert results.text("sample") == "sample"
+
+
+def test_numbered_labels_skip_names_already_taken():
+    from gui import similarity_results as results
+
+    items = [results.Item(None, t, "/d/x") for t in ("Sample", "Sample", "Sample #1")]
+    results.unique_labels(items)
+    labels = [item.label for item in items]
+    assert len(set(labels)) == 3 and "Sample #1" in labels
+
+
+def test_a_failed_export_leaves_the_earlier_results_alone(tmp_path):
+    from gui import similarity_results as results
+
+    scans = [make_scan(random_peaks(40 + k, 100, 900), seed=k) for k in range(3)]
+    items = [results.Item(s, "s%d" % k, "") for k, s in enumerate(scans)]
+    sim = mspy.similaritymatrix(scans)
+    grp = mspy.groupspectra(sim, replicates=0)
+    (tmp_path / "REPORT.md").write_text("earlier run")
+    (tmp_path / "trees.nwk").mkdir()  # cannot be replaced
+    with pytest.raises(OSError):
+        results.write_results(str(tmp_path), items, sim, grp, {}, {"replicates": 0})
+    assert (tmp_path / "REPORT.md").read_text() == "earlier run"
+    assert not (tmp_path / "groups.csv").exists()
+    assert not [p for p in tmp_path.iterdir() if p.name.startswith(".similarity-")]
+
+
+
+def test_an_overwrite_that_fails_midway_puts_the_earlier_results_back(
+    tmp_path, monkeypatch
+):
+    results, items, sim, grp = _export_inputs()
+    earlier = {"REPORT.md": "earlier report", "groups.csv": "earlier groups",
+               "co_membership.csv": "earlier bootstrap"}  # stale without bootstrap
+    for name, content in earlier.items():
+        (tmp_path / name).write_text(content)
+    real, calls = os.replace, []
+
+    def replace(src, dst):
+        if os.path.basename(os.path.dirname(src)).startswith(".similarity-") and (
+            os.path.dirname(dst) == str(tmp_path)
+        ) and "-old-" not in src:
+            calls.append(dst)
+            if len(calls) == 2:
+                raise OSError("disk full")  # the second new file
+        return real(src, dst)
+
+    monkeypatch.setattr(results.os, "replace", replace)
+    with pytest.raises(OSError, match="disk full"):
+        results.write_results(str(tmp_path), items, sim, grp, {}, {"replicates": 0})
+    assert len(calls) == 2
+    left = {p.name for p in tmp_path.iterdir() if p.name != results.LOCK_NAME}
+    assert left == set(earlier)
+    for name, content in earlier.items():
+        assert (tmp_path / name).read_text() == content
+
+
+def test_a_new_file_left_behind_by_a_failed_overwrite_is_reported(tmp_path, monkeypatch):
+    """The earlier run had no co_membership.csv; the failed run's one cannot
+    be taken back: the error must say so rather than leave it unmentioned."""
+
+    results, items, sim, _ = _export_inputs()
+    grp = mspy.groupspectra(sim, replicates=5, seed=1)
+    (tmp_path / "REPORT.md").write_text("earlier report")
+    realReplace, realRemove = os.replace, os.remove
+
+    def replace(src, dst):
+        if os.path.basename(dst) == "trees.nwk" and "-old-" not in src:
+            raise OSError("disk full")  # after co_membership.csv was published
+        return realReplace(src, dst)
+
+    def remove(path):
+        if os.path.basename(path) == "co_membership.csv":
+            raise PermissionError("read-only")
+        return realRemove(path)
+
+    monkeypatch.setattr(results.os, "replace", replace)
+    monkeypatch.setattr(results.os, "remove", remove)
+    with pytest.raises(OSError, match="co_membership.csv could not be removed"):
+        results.write_results(
+            str(tmp_path), items, sim, grp, {}, {"replicates": 5}
+        )
+    assert (tmp_path / "REPORT.md").read_text() == "earlier report"
+
+
+def _export_inputs():
+    from gui import similarity_results as results
+
+    scans = [make_scan(random_peaks(40 + k, 100, 900), seed=k) for k in range(3)]
+    items = [results.Item(sc, "s%d" % k, "") for k, sc in enumerate(scans)]
+    sim = mspy.similaritymatrix(scans)
+    return results, items, sim, mspy.groupspectra(sim, replicates=0)
+
+
+def test_an_export_without_overwrite_never_replaces_results(tmp_path, monkeypatch):
+    """Results another run writes while this one computes are kept."""
+
+    results, items, sim, grp = _export_inputs()
+    real = results._write_all
+
+    def meanwhile(*args, **kwargs):
+        real(*args, **kwargs)
+        (tmp_path / "groups.csv").write_text("the other run")
+
+    monkeypatch.setattr(results, "_write_all", meanwhile)
+    with pytest.raises(results.ResultsExist):
+        results.write_results(
+            str(tmp_path), items, sim, grp, {}, {"replicates": 0}, overwrite=False
+        )
+    assert (tmp_path / "groups.csv").read_text() == "the other run"
+    left = sorted(p.name for p in tmp_path.iterdir() if p.name != results.LOCK_NAME)
+    assert left == ["groups.csv"]
+
+
+def test_an_export_publishes_without_hard_links(tmp_path, monkeypatch):
+    results, items, sim, grp = _export_inputs()
+
+    def no_links(src, dst):
+        raise PermissionError("no hard links here")
+
+    monkeypatch.setattr(results.os, "link", no_links)
+    results.write_results(str(tmp_path), items, sim, grp, {}, {"replicates": 0}, overwrite=False)
+    assert (tmp_path / "REPORT.md").exists() and (tmp_path / "groups.csv").exists()
+
+
+def _upgma_reference(S):
+    """Average linkage over measured pairs, recomputing every distance."""
+
+    S = numpy.asarray(S, float)
+    clusters = {i: [i] for i in range(len(S))}
+    ids = {i: i for i in range(len(S))}
+    Z, nxt = [], len(S)
+    while len(clusters) > 1:
+        best = None
+        keys = sorted(clusters)
+        for x in range(len(keys)):
+            for y in range(x + 1, len(keys)):
+                d = [1 - S[a, b] for a in clusters[keys[x]] for b in clusters[keys[y]]
+                     if numpy.isfinite(S[a, b])]
+                dist = numpy.mean(d) if d else mod_grouping.UNMEASURED
+                if best is None or dist < best[0] - 1e-12:
+                    best = (dist, keys[x], keys[y])
+        assert best is not None
+        dist, a, b = best
+        Z.append((dist, len(clusters[a]) + len(clusters[b])))
+        clusters[a] = clusters[a] + clusters.pop(b)
+        ids[a] = nxt
+        nxt += 1
+    return Z
+
+
+def test_upgma_matches_a_full_recomputation():
+    rng = numpy.random.default_rng(5)
+    for trial in range(5):
+        n = 9
+        A = rng.random((n, n))
+        S = (A + A.T) / 2
+        if trial % 2:
+            S[0, 3] = S[3, 0] = numpy.nan  # an unmeasured pair
+        numpy.fill_diagonal(S, 1.0)
+        Z = mod_grouping.upgma(S)
+        ref = _upgma_reference(S)
+        assert Z[:, 2] == pytest.approx([d for d, _ in ref])
+        assert list(Z[:, 3]) == [k for _, k in ref]
+
+
+_LOCKER = """
+import os, sys, time
+sys.path.insert(0, {src!r})
+from gui import similarity_results as r
+fd = os.open(os.path.join({folder!r}, r.LOCK_NAME), os.O_CREAT | os.O_RDWR)
+print("locked" if r._trylock(fd) else "busy", flush=True)
+time.sleep({hold})
+"""
+
+
+def _locker(folder, hold):
+    """Another process trying the folder lock (POSIX locks are per process)."""
+
+    import subprocess
+    import sys
+
+    src = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src")
+    proc = subprocess.Popen(
+        [sys.executable, "-c", _LOCKER.format(src=src, folder=str(folder), hold=hold)],
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    assert proc.stdout is not None
+    return proc, proc.stdout.readline().strip()
+
+
+def test_an_export_waits_for_the_folder_lock_then_gives_up(tmp_path, monkeypatch):
+    results, items, sim, grp = _export_inputs()
+    monkeypatch.setattr(results, "LOCK_WAIT", 0.3)
+    proc, state = _locker(tmp_path, 30)
+    try:
+        assert state == "locked"
+        with pytest.raises(results.FolderBusy):
+            results.write_results(str(tmp_path), items, sim, grp, {}, {"replicates": 0})
+        assert not (tmp_path / "REPORT.md").exists()
+    finally:
+        proc.kill()
+        proc.wait()
+
+
+def test_a_lock_dies_with_the_export_that_held_it(tmp_path):
+    results, items, sim, grp = _export_inputs()
+    proc, state = _locker(tmp_path, 30)
+    assert state == "locked"
+    proc.kill()  # crashed while publishing
+    proc.wait()
+    results.write_results(str(tmp_path), items, sim, grp, {}, {"replicates": 0})
+    assert (tmp_path / "REPORT.md").exists()
+
+
+def test_the_lock_is_released_after_a_failed_export(tmp_path):
+    results, items, sim, grp = _export_inputs()
+    (tmp_path / "groups.csv").write_text("earlier")
+    with pytest.raises(results.ResultsExist):
+        results.write_results(
+            str(tmp_path), items, sim, grp, {}, {"replicates": 0}, overwrite=False
+        )
+    proc, state = _locker(tmp_path, 0)
+    proc.wait()
+    assert state == "locked"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX permissions")
+def test_the_lock_file_is_shared_with_the_group(tmp_path):
+    """In a shared folder (umask 002) other group members must be able to
+    open the lock for writing, or every export of theirs would fail."""
+
+    results, items, sim, grp = _export_inputs()
+    old = os.umask(0o002)
+    try:
+        results.write_results(str(tmp_path), items, sim, grp, {}, {"replicates": 0})
+    finally:
+        os.umask(old)
+    mode = (tmp_path / results.LOCK_NAME).stat().st_mode
+    assert mode & 0o060 == 0o060
+
+
+@pytest.mark.skipif(
+    os.name != "posix" or os.geteuid() == 0, reason="needs a lock file we cannot open"
+)
+def test_a_lock_file_we_cannot_open_does_not_stop_the_export(tmp_path):
+    """A lock left by someone who did not share it (older 0644 files)."""
+
+    results, items, sim, grp = _export_inputs()
+    lock = tmp_path / results.LOCK_NAME
+    lock.write_text("")
+    lock.chmod(0o444)
+    results.write_results(str(tmp_path), items, sim, grp, {}, {"replicates": 0})
+    assert (tmp_path / "REPORT.md").exists()
+
+
+def test_taking_back_an_export_spares_files_others_put_there(tmp_path, monkeypatch):
+    """Run A published REPORT.md; another run replaced it before A hit a
+    conflict: A's rollback must not delete the other run's report."""
+
+    results, items, sim, grp = _export_inputs()
+    real = os.link
+
+    def link(src, dst):
+        name = os.path.basename(dst)
+        if name == "groups.csv":
+            # meanwhile: the other run replaces our report and writes groups.csv
+            other = tmp_path / "other.tmp"
+            other.write_text("the other report")
+            os.replace(other, tmp_path / "REPORT.md")
+            (tmp_path / "groups.csv").write_text("the other groups")
+        return real(src, dst)
+
+    monkeypatch.setattr(results.os, "link", link)
+    with pytest.raises(results.ResultsExist):
+        results.write_results(
+            str(tmp_path), items, sim, grp, {}, {"replicates": 0}, overwrite=False
+        )
+    assert (tmp_path / "REPORT.md").read_text() == "the other report"
+    assert (tmp_path / "groups.csv").read_text() == "the other groups"

@@ -53,6 +53,7 @@ from . import processing as processingSteps
 from .panel_about import panelAbout
 from .panel_calibration import panelCalibration
 from .panel_compare_peaklists import panelComparePeaklists
+from .panel_spectrum_similarity import panelSpectrumSimilarity
 from .panel_compounds_search import panelCompoundsSearch
 from .panel_document_info import panelDocumentInfo
 from .panel_document_export import panelDocumentExport
@@ -940,6 +941,7 @@ class mainFrame(wx.Frame):
             "Compare Peak Lists" + HK_toolsComparePeaklists,
             "",
         )
+        tools.Append(ID_toolsSpectrumSimilarity, "Spectrum Similarity", "")
         tools.Append(
             ID_toolsSpectrumGenerator,
             "Spectrum Generator" + HK_toolsSpectrumGenerator,
@@ -991,6 +993,9 @@ class mainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.onToolsPeakDifferences, id=ID_toolsPeakDifferences)
         self.Bind(
             wx.EVT_MENU, self.onToolsComparePeaklists, id=ID_toolsComparePeaklists
+        )
+        self.Bind(
+            wx.EVT_MENU, self.onToolsSpectrumSimilarity, id=ID_toolsSpectrumSimilarity
         )
         self.Bind(
             wx.EVT_MENU, self.onToolsSpectrumGenerator, id=ID_toolsSpectrumGenerator
@@ -1308,6 +1313,14 @@ class mainFrame(wx.Frame):
             longHelp="Compare multiple peaklists",
         )
         self.toolbar.AddTool(
+            ID_toolsSpectrumSimilarity,
+            "Similarity",
+            images.lib["toolsSpectrumSimilarity"],
+            wx.NullBitmap,
+            shortHelp="Spectrum similarity...",
+            longHelp="Group the visible spectra by similarity",
+        )
+        self.toolbar.AddTool(
             ID_toolsSpectrumGenerator,
             "Generator",
             images.lib["toolsSpectrumGenerator"],
@@ -1368,6 +1381,11 @@ class mainFrame(wx.Frame):
         )
         self.toolbar.Bind(
             wx.EVT_TOOL, self.onToolsComparePeaklists, id=ID_toolsComparePeaklists
+        )
+        self.toolbar.Bind(
+            wx.EVT_TOOL,
+            self.onToolsSpectrumSimilarity,
+            id=ID_toolsSpectrumSimilarity,
         )
         self.toolbar.Bind(
             wx.EVT_TOOL, self.onToolsSpectrumGenerator, id=ID_toolsSpectrumGenerator
@@ -1437,6 +1455,7 @@ class mainFrame(wx.Frame):
         self.compoundsSearchPanel = None
         self.peakDifferencesPanel = None
         self.comparePeaklistsPanel = None
+        self.spectrumSimilarityPanel = None
         self.spectrumGeneratorPanel = None
         self.envelopeFitPanel = None
         self.sequencePanel = None
@@ -1751,6 +1770,8 @@ class mainFrame(wx.Frame):
         # update compare panel
         if self.comparePeaklistsPanel:
             self.comparePeaklistsPanel.setData(self.documents)
+        if self.spectrumSimilarityPanel:
+            self.spectrumSimilarityPanel.setData(self.documents)
 
         # update processing panel
         if self.processingPanel:
@@ -2034,6 +2055,8 @@ class mainFrame(wx.Frame):
         ):
             if self.comparePeaklistsPanel:
                 self.comparePeaklistsPanel.setData(self.documents)
+            if self.spectrumSimilarityPanel:
+                self.spectrumSimilarityPanel.setData(self.documents)
 
         # an edited sequence must not come back by undoing an older step; steps
         # storing sequences also hold their titles and accessions
@@ -2095,6 +2118,8 @@ class mainFrame(wx.Frame):
         # update compare peaklists panel
         if self.comparePeaklistsPanel:
             self.comparePeaklistsPanel.setData(self.documents)
+        if self.spectrumSimilarityPanel:
+            self.spectrumSimilarityPanel.setData(self.documents)
 
         # update current document
         if self.currentDocument in indexes:
@@ -2459,6 +2484,11 @@ class mainFrame(wx.Frame):
                 self.comparePeaklistsPanel.setData(self.documents)
             except RuntimeError:
                 pass
+        if self.spectrumSimilarityPanel:
+            try:
+                self.spectrumSimilarityPanel.setData(self.documents)
+            except RuntimeError:
+                pass
 
         # update processing panel
         if self.processingPanel:
@@ -2535,6 +2565,8 @@ class mainFrame(wx.Frame):
         # update compare panel
         if self.comparePeaklistsPanel:
             self.comparePeaklistsPanel.setData(self.documents)
+        if self.spectrumSimilarityPanel:
+            self.spectrumSimilarityPanel.setData(self.documents)
 
         # update processing panel
         if self.processingPanel:
@@ -2575,6 +2607,8 @@ class mainFrame(wx.Frame):
             self.peakDifferencesPanel.Close()
         if self.comparePeaklistsPanel:
             self.comparePeaklistsPanel.Close()
+        if self.spectrumSimilarityPanel:
+            self.spectrumSimilarityPanel.Close()
         if self.spectrumGeneratorPanel:
             self.spectrumGeneratorPanel.Close()
         if self.envelopeFitPanel:
@@ -3295,6 +3329,8 @@ class mainFrame(wx.Frame):
         # update compare panel
         if self.comparePeaklistsPanel:
             self.comparePeaklistsPanel.setData(self.documents)
+        if self.spectrumSimilarityPanel:
+            self.spectrumSimilarityPanel.setData(self.documents)
 
         # update mass defect plot panel
         if self.massDefectPlotPanel:
@@ -3355,6 +3391,8 @@ class mainFrame(wx.Frame):
         # update compare panel
         if self.comparePeaklistsPanel:
             self.comparePeaklistsPanel.setData(self.documents)
+        if self.spectrumSimilarityPanel:
+            self.spectrumSimilarityPanel.setData(self.documents)
 
     # ----
 
@@ -3452,6 +3490,8 @@ class mainFrame(wx.Frame):
         # update compare panel
         if self.comparePeaklistsPanel:
             self.comparePeaklistsPanel.setData(self.documents)
+        if self.spectrumSimilarityPanel:
+            self.spectrumSimilarityPanel.setData(self.documents)
 
         # update processing panel
         if self.processingPanel:
@@ -4426,6 +4466,87 @@ class mainFrame(wx.Frame):
         # set documents
         self.comparePeaklistsPanel.setData(self.documents)
         self.comparePeaklistsPanel.Raise()
+
+    # ----
+
+    def onToolsSpectrumSimilarity(self, evt=None):
+        """Show the spectrum similarity tool panel."""
+
+        if not self.spectrumSimilarityPanel and not self.documents:
+            wx.Bell()
+            return
+
+        if self.spectrumSimilarityPanel and evt:
+            self.spectrumSimilarityPanel.Close()
+            return
+
+        if not self.spectrumSimilarityPanel:
+            self.spectrumSimilarityPanel = panelSpectrumSimilarity(self)
+            self.spectrumSimilarityPanel.Centre()
+            self.spectrumSimilarityPanel.Show(True)
+
+        self.spectrumSimilarityPanel.setData(self.documents)
+        self.spectrumSimilarityPanel.Raise()
+
+    # ----
+
+    def showDocumentsOnly(self, documents):
+        """Show only the given documents; return the visibility to restore.
+
+        Used by the Spectrum Similarity tool to overlay a pair or a group in
+        the spectrum view. The returned {document: visible} is handed back to
+        restoreDocumentsVisibility().
+        """
+
+        previous = {document: document.visible for document in self.documents}
+        shown = [d for d in self.documents if any(d is x for x in documents)]
+        self._setDocumentsVisibility(
+            {document: any(document is x for x in shown) for document in self.documents}
+        )
+
+        if shown and (
+            self.currentDocument is None
+            or not self.documents[self.currentDocument].visible
+        ):
+            self.documentsPanel.selectDocument(self.documents.index(shown[0]))
+
+        return previous
+
+    # ----
+
+    def restoreDocumentsVisibility(self, previous):
+        """Put back the visibility showDocumentsOnly() returned (documents
+        closed meanwhile are skipped)."""
+
+        self._setDocumentsVisibility(
+            {d: previous[d] for d in self.documents if d in previous}
+        )
+
+    # ----
+
+    def _setDocumentsVisibility(self, visibility):
+        """Apply {document: visible} and tell the views and tools."""
+
+        self.documentsSoloCurrent = None
+        self.documentsSoloPrevious = {}
+
+        for docIndex, document in enumerate(self.documents):
+            if document not in visibility:
+                continue
+            document.visible = bool(visibility[document])
+            self.documentsPanel.enableDocument(docIndex, document.visible)
+            self.spectrumPanel.updateSpectrumProperties(docIndex, refresh=False)
+        self.spectrumPanel.refresh()
+
+        if self.currentDocument is not None and not self.documents[self.currentDocument].visible:
+            self.documentsPanel.selectDocument(None)
+
+        if self.comparePeaklistsPanel:
+            self.comparePeaklistsPanel.setData(self.documents)
+        if self.spectrumSimilarityPanel:
+            self.spectrumSimilarityPanel.setData(self.documents)
+        if self.massDefectPlotPanel:
+            self.massDefectPlotPanel.updateDocuments()
 
     # ----
 
@@ -6673,6 +6794,7 @@ class mainFrame(wx.Frame):
         self.menubar.Enable(ID_toolsCompoundsSearch, enable)
         self.menubar.Enable(ID_toolsPeakDifferences, enable)
         self.menubar.Enable(ID_toolsComparePeaklists, bool(self.documents))
+        self.menubar.Enable(ID_toolsSpectrumSimilarity, bool(self.documents))
         self.menubar.Enable(ID_toolsSpectrumGenerator, enable)
         self.menubar.Enable(ID_toolsEnvelopeFit, enable)
         self.menubar.Enable(ID_toolsMassDefectPlot, enable)
@@ -6694,6 +6816,7 @@ class mainFrame(wx.Frame):
         self.toolbar.EnableTool(ID_toolsCompoundsSearch, enable)
         self.toolbar.EnableTool(ID_toolsPeakDifferences, enable)
         self.toolbar.EnableTool(ID_toolsComparePeaklists, bool(self.documents))
+        self.toolbar.EnableTool(ID_toolsSpectrumSimilarity, bool(self.documents))
         self.toolbar.EnableTool(ID_toolsSpectrumGenerator, enable)
         self.toolbar.EnableTool(ID_toolsEnvelopeFit, enable)
         self.toolbar.EnableTool(ID_toolsMassDefectPlot, enable)
