@@ -28,6 +28,28 @@ from . import libs
 
 from .panel_match import panelMatch
 
+
+def matchedPeakIndexes(peaklist, matches):
+    """Indexes of the peaks the matches were made on, in peaklist as it is now.
+
+    A match records the index its peak had when matching ran. Picking peaks
+    again, or deleting some, since then shifts the list, and deleting by that
+    index removed whichever peak had come to stand there. So a match counts
+    only while a peak at its m/z is still there; the rest are left alone.
+    """
+
+    indexes = []
+    for match in matches:
+        index = match.peakIndex
+        if index is None or not 0 <= index < len(peaklist) or peaklist[index].mz != match.mz:
+            index = next(
+                (i for i in range(len(peaklist)) if peaklist[i].mz == match.mz), None
+            )
+        if index is not None and index not in indexes:
+            indexes.append(index)
+    return indexes
+
+
 # FLOATING PANEL WITH MASS FILTER TOOL
 # -------------------------------------
 
@@ -355,12 +377,13 @@ class panelMassFilter(wx.Frame):
             return
 
         # get peak indexes
-        indexes = []
-        for item in self.currentReferences:
-            if item[3]:
-                for annotation in item[-1]:
-                    if annotation.peakIndex not in indexes:
-                        indexes.append(annotation.peakIndex)
+        matches = [
+            annotation
+            for item in self.currentReferences
+            if item[3]
+            for annotation in item[-1]
+        ]
+        indexes = matchedPeakIndexes(self.currentDocument.spectrum.peaklist, matches)
 
         # delete peaks
         if indexes:
