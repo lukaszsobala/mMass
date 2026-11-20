@@ -4661,10 +4661,17 @@ ISOTOPE_TOLERANCE_SPACING = 0.1
 # overlapping isotopes read wide, so skipping it would drop genuine, barely
 # resolved clusters that matched before.
 ISOTOPE_RESOLVABLE_FWHM = 1.5
+# At high charge the spacings of neighbouring charges lie closer together than
+# a tenth of the spacing (from charge 12 up): the widening stops at this share
+# of the gap to the spacing of one charge less, so a charge-14 cluster cannot
+# pass for charge 15. The tolerance given is held below the gap by the
+# deisotoping panel; the widening must not undo that.
+ISOTOPE_TOLERANCE_CHARGE_GAP = 0.5
 
 
-def _isotope_tolerance(peak, mzTolerance, difference, reach=1.0):
-    """The m/z tolerance for an isotope spacing of difference next to a peak.
+def _isotope_tolerance(peak, mzTolerance, difference, charge=1, reach=1.0):
+    """The m/z tolerance for an isotope spacing of difference (charge) next to
+    a peak.
 
     reach scales the widening (not the tolerance given), for a second look.
     """
@@ -4674,11 +4681,19 @@ def _isotope_tolerance(peak, mzTolerance, difference, reach=1.0):
         return mzTolerance
     if difference < ISOTOPE_RESOLVABLE_FWHM * fwhm:
         return mzTolerance
-    widened = min(ISOTOPE_TOLERANCE_FWHM * fwhm, ISOTOPE_TOLERANCE_SPACING * difference)
-    return max(mzTolerance, reach * widened)
+    widened = reach * min(
+        ISOTOPE_TOLERANCE_FWHM * fwhm, ISOTOPE_TOLERANCE_SPACING * difference
+    )
+    # never past the gap to one charge less, however far the look
+    if abs(charge) > 1:
+        gap = difference / (abs(charge) - 1)
+        widened = min(widened, ISOTOPE_TOLERANCE_CHARGE_GAP * gap)
+    return max(mzTolerance, widened)
 
 
-def _missed_monoisotope(peaklist, index, difference, mzTolerance, pattern, intTolerance):
+def _missed_monoisotope(
+    peaklist, index, difference, charge, mzTolerance, pattern, intTolerance
+):
     """The peak below peaklist[index] whose first isotope it is, or None.
 
     The walk goes up the m/z axis, so a monoisotope whose M+1 lay just outside
@@ -4693,7 +4708,7 @@ def _missed_monoisotope(peaklist, index, difference, mzTolerance, pattern, intTo
     parent = peaklist[index]
     if len(pattern) < 2 or pattern[0] <= 0.0:
         return None
-    window = _isotope_tolerance(parent, mzTolerance, difference, reach=2.0)
+    window = _isotope_tolerance(parent, mzTolerance, difference, charge, reach=2.0)
     target = parent.mz - difference
     for below in range(index - 1, -1, -1):
         peak = peaklist[below]
@@ -4787,7 +4802,7 @@ def deisotope(
 
             # broad peaks get a wider tolerance (see ISOTOPE_TOLERANCE_FWHM)
             difference = (ISOTOPE_DISTANCE + isotopeShift) / abs(z)
-            tolerance = _isotope_tolerance(parent, mzTolerance, difference)
+            tolerance = _isotope_tolerance(parent, mzTolerance, difference, z)
 
             # search for next isotope within m/z tolerance
             y = 1
@@ -4897,7 +4912,7 @@ def deisotope(
                 mono = None
                 if not respectCharge:
                     mono = _missed_monoisotope(
-                        peaklist, x, difference, mzTolerance, pattern, intTolerance
+                        peaklist, x, difference, z, mzTolerance, pattern, intTolerance
                     )
                 if mono is not None:
                     for peak in cluster[1:]:

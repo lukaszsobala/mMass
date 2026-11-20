@@ -546,3 +546,23 @@ def test_overlapping_isotopes_still_match_the_tolerance_given():
     pl = _charge4_cluster(0.0, fwhm=0.2)
     pl.deisotope(maxCharge=4, mzTolerance=0.02, averagineType="lipid")
     assert pl[0].charge == 4
+
+
+def test_widening_keeps_neighbouring_high_charges_apart():
+    """Charge 14 is not charge 15, with the tolerance the panel allows.
+
+    From charge 12 up a tenth of the spacing exceeds the gap between the
+    spacings of neighbouring charges, which the tolerance given is held below.
+    """
+    z, mass = 14, 2500.0
+    pattern = mpp._isotope_pattern_at_mass(mass, "protein")
+    step = mspy.ISOTOPE_DISTANCE / z
+    pl = mspy.peaklist([
+        mspy.peak(mz=mass / z + i * step, ai=1000.0 * share / pattern[0], fwhm=0.02)
+        for i, share in enumerate(pattern)
+        if share / max(pattern) > 0.05
+    ])
+    allowed = mspy.ISOTOPE_DISTANCE * (1 / 14 - 1 / 15)
+    pl.deisotope(maxCharge=15, mzTolerance=0.9 * allowed, averagineType="protein")
+
+    assert [p.charge for p in pl] == [14] * len(pl)
