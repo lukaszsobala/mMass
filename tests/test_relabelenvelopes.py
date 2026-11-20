@@ -5,6 +5,7 @@ label/intensity modes, envelope metadata, idempotency of re-runs, and the
 tail-length floor.
 """
 
+import numpy
 import pytest
 
 import mspy
@@ -519,3 +520,104 @@ def test_reconvert_rebuilds_a_long_grid_with_no_detection_record():
 
     seed = mspy.peak(mz=900.494, ai=heights[900.494], charge=1, isotope=0, fwhm=0.05)
     assert len(envelope["isotopes"]) == mpp._theory_envelope_length(seed)
+
+
+def test_a_broad_envelope_sits_on_isotopes_a_little_off_their_spacing():
+    """Broad peaks (0.25 Da) whose isotopes all lie 0.05 Da above the spacing,
+    0.02 allowed: deisotoping finds them (its tolerance widens with the width),
+    and the envelope's isotopes sit on them, not on the bare spacing."""
+    pl = build_envelope_peaklist(fwhm=0.25)
+    for peak in list(pl)[1:]:
+        peak.setmz(peak.mz + 0.05)
+    profile = mspy.profile(pl, fwhm=0.25, points=40)
+    measured = [p.mz for p in pl]
+    pl.deisotope(maxCharge=1, mzTolerance=0.02, intTolerance=0.5)
+    assert [p.isotope for p in pl][:3] == [0, 1, 2]
+
+    pl.labelenvelopes(
+        label="1st", signal=profile, mzTolerance=0.02, defaultFwhm=0.25, nonIdeality=0.4
+    )
+    isotopes = [mz for mz, _share in pl[0].attributes["envelope"]["isotopes"]]
+    assert isotopes[1] == pytest.approx(measured[1], abs=0.01)
+    assert isotopes[2] == pytest.approx(measured[2], abs=0.01)
+
+
+def test_a_charge_set_and_set_back_gives_the_envelope_back():
+    """Editing a charge to 2 and back must not leave the 2+ isotope grid in
+    place: both charges model three isotopes here, so the length did not tell,
+    and the 1+ fit on the 2+ grid lost most of its area (measured at 184.07)."""
+    pl = build_envelope_peaklist(formula="C5H15NO4P", fwhm=0.2)
+    profile = mspy.profile(pl, fwhm=0.2, points=40)
+    pl.deisotope(maxCharge=1, mzTolerance=0.02, intTolerance=0.5)
+    params = {
+        "massTolerance": 0.02, "isotopeShift": 0.0, "maxCharge": 1, "intTolerance": 0.5,
+        "labelEnvelope": "1st", "envelopeIntensity": "maximum", "envelopeNonIdeality": 0.4,
+    }
+    mono = min(p.mz for p in pl)
+    first = mspy.recalculate_neighborhood_envelopes(pl, profile, [mono], params, selectedOnly=True)
+    before = first[0].attributes["envelope"]
+
+    first[0].setcharge(2)
+    second = mspy.recalculate_neighborhood_envelopes(first, profile, [mono], params, selectedOnly=True)
+    spacing = numpy.diff([mz for mz, _w in second[0].attributes["envelope"]["isotopes"]])
+    assert spacing[0] == pytest.approx(mspy.ISOTOPE_DISTANCE / 2, abs=0.01)
+
+    second[0].setcharge(1)
+    third = mspy.recalculate_neighborhood_envelopes(second, profile, [mono], params, selectedOnly=True)
+    after = third[0].attributes["envelope"]
+    assert [round(mz, 6) for mz, _w in after["isotopes"]] == [round(mz, 6) for mz, _w in before["isotopes"]]
+    assert after["area"] == pytest.approx(before["area"], rel=1e-6)
+
+
+def test_the_widened_window_does_not_follow_the_signal_to_noise():
+    """A refit reads the S/N again; the window a broad peak's isotopes snap
+    within must not move with it, or a rebuilt envelope differs from the
+    first."""
+    parent = mspy.peak(mz=845.0, ai=1000.0, fwhm=0.5, charge=1)
+    clean = [mspy.peak(mz=845.0, ai=1000.0, sn=500.0, fwhm=0.5)]
+    noisy = [mspy.peak(mz=845.0, ai=1000.0, sn=3.0, fwhm=0.5)]
+    window = mpp._envelope_window(parent, clean, 0.02)
+    assert window == mpp._envelope_window(parent, noisy, 0.02)
+    assert window == pytest.approx(0.1 * mspy.ISOTOPE_DISTANCE)  # a tenth of the spacing
+
+    # sharp peaks keep the S/N-adaptive tolerance given
+    sharp = mspy.peak(mz=845.0, ai=1000.0, fwhm=0.02, charge=1)
+    assert mpp._envelope_window(sharp, clean, 0.02) < mpp._envelope_window(sharp, noisy, 0.02)
+
+
+def _off_spacing_cluster(errors, fwhm, mono=504.29):
+    """A charge-1 lipid cluster whose successive spacings are off by errors,
+    deisotoped with the default 0.02 tolerance, and its profile."""
+    pattern = mpp._isotope_pattern_at_mass(mono, "lipid")
+    peaks, mz = [], mono
+    for isotope in range(len(errors) + 1):
+        if isotope:
+            mz += mspy.ISOTOPE_DISTANCE + errors[isotope - 1]
+        peaks.append(mspy.peak(mz=mz, ai=1000.0 * pattern[isotope] / pattern[0], fwhm=fwhm))
+    pl = mspy.peaklist(peaks)
+    profile = mspy.profile(pl, fwhm=fwhm, points=40)
+    pl.deisotope(maxCharge=1, mzTolerance=0.02, intTolerance=0.5, averagineType="lipid")
+    return pl, profile
+
+
+@pytest.mark.parametrize(
+    "errors, fwhm",
+    [
+        # each step 0.045 off (0.0625 allowed): M+2 lies 0.09 off the bare grid
+        ((0.045, 0.045), 0.25),
+        # M+1 0.08 off, past the widening (0.052) but within the look back
+        # that recovers the monoisotope (0.104)
+        ((0.08, 0.0), 0.207),
+    ],
+)
+def test_conversion_takes_in_the_isotopes_deisotoping_assigned(errors, fwhm):
+    pl, profile = _off_spacing_cluster(errors, fwhm)
+    assert [(p.charge, p.isotope) for p in pl] == [(1, 0), (1, 1), (1, 2)]
+
+    pl.labelenvelopes(
+        label="1st", signal=profile, mzTolerance=0.02, defaultFwhm=fwhm,
+        nonIdeality=0.4, averagineType="lipid",
+    )
+    # one envelope, its isotopes not left beside it as rows of their own
+    assert len(pl) == 1
+    assert pl[0].attributes["envelope"]["detected"] == 3

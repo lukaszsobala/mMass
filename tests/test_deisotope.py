@@ -472,3 +472,156 @@ def test_overlapping_species_one_dalton_apart_keep_their_charge():
     # the upper peak carries a textbook +1 of its own, so it stays a species
     upper = [p for p in lower if abs(p.mz - (963.128 + step)) < 0.01][0]
     assert upper.charge == 1 and upper.isotope == 0
+
+
+# ---------------------------------------------------------------------------
+# Broad peaks: the isotope spacing tolerance follows the peak width
+# ---------------------------------------------------------------------------
+
+
+def _lipid_cluster(mono, errors, fwhm, height=1000.0):
+    """A charge-1 lipid isotope cluster whose spacings are off by `errors`."""
+    pattern = mpp._isotope_pattern_at_mass(mono, "lipid")
+    peaks, mz = [], mono
+    for isotope in range(len(errors) + 1):
+        if isotope:
+            mz += mspy.ISOTOPE_DISTANCE + errors[isotope - 1]
+        peaks.append(mspy.peak(mz=mz, ai=height * pattern[isotope] / pattern[0], fwhm=fwhm))
+    return mspy.peaklist(peaks)
+
+
+def test_a_broad_peak_finds_an_isotope_a_little_off_its_spacing():
+    """LIFT fragments: peaks 0.25 Da wide, M+1 0.045 Da off (0.02 allowed)."""
+    pl = _lipid_cluster(504.29, (0.045, 0.0), fwhm=0.25)
+    pl.deisotope(maxCharge=1, mzTolerance=0.02, averagineType="lipid")
+
+    assert [(p.charge, p.isotope) for p in pl] == [(1, 0), (1, 1), (1, 2)]
+
+
+def test_the_second_isotope_is_not_taken_for_the_monoisotope():
+    """M misses its M+1, which then finds M+2: M is still the monoisotope.
+
+    Measured on a LIFT fragment at 504.29: M+1 1.058 Da up (0.054 off, 0.052
+    allowed), M+2 exactly 1.000 Da further. "Remove unknown" then kept 505.35
+    and dropped 504.29.
+    """
+    pl = _lipid_cluster(504.29, (0.054, -0.003), fwhm=0.207)
+    pl.deisotope(maxCharge=1, mzTolerance=0.02, averagineType="lipid")
+
+    assert [(p.charge, p.isotope) for p in pl] == [(1, 0), (1, 1), (1, 2)]
+
+
+def test_sharp_peaks_keep_the_tolerance_given():
+    """Peaks narrower than four times the tolerance: nothing changes."""
+    pl = _lipid_cluster(504.29, (0.03, 0.0), fwhm=0.02)
+    pl.deisotope(maxCharge=1, mzTolerance=0.02, averagineType="lipid")
+
+    assert pl[0].charge is None
+
+
+def _charge4_cluster(error, fwhm):
+    """Charge-4 lipid isotopes, each spacing off by error."""
+    pattern = mpp._isotope_pattern_at_mass(4 * 676.0, "lipid")
+    step = mspy.ISOTOPE_DISTANCE / 4 + error
+    return mspy.peaklist([
+        mspy.peak(mz=676.0 + i * step, ai=1000.0 * share / pattern[0], fwhm=fwhm)
+        for i, share in enumerate(pattern[:6])
+    ])
+
+
+def test_overlapping_isotopes_get_no_wider_tolerance():
+    """0.2-Da-wide peaks 0.023 Da off a charge-4 spacing (0.02 allowed)."""
+    pl = _charge4_cluster(-0.023, fwhm=0.2)
+    pl.deisotope(maxCharge=4, mzTolerance=0.02, averagineType="lipid")
+    assert all(p.charge is None or abs(p.charge) < 4 for p in pl)
+
+    # resolved isotopes as far off do get it
+    pl = _charge4_cluster(-0.023, fwhm=0.16)
+    pl.deisotope(maxCharge=4, mzTolerance=0.02, averagineType="lipid")
+    assert pl[0].charge == 4
+
+
+def test_overlapping_isotopes_still_match_the_tolerance_given():
+    """Barely resolved isotopes on their spacing keep the charge they had."""
+    pl = _charge4_cluster(0.0, fwhm=0.2)
+    pl.deisotope(maxCharge=4, mzTolerance=0.02, averagineType="lipid")
+    assert pl[0].charge == 4
+
+
+def test_widening_keeps_neighbouring_high_charges_apart():
+    """Charge 14 is not charge 15, with the tolerance the panel allows.
+
+    From charge 12 up a tenth of the spacing exceeds the gap between the
+    spacings of neighbouring charges, which the tolerance given is held below.
+    """
+    z, mass = 14, 2500.0
+    pattern = mpp._isotope_pattern_at_mass(mass, "protein")
+    step = mspy.ISOTOPE_DISTANCE / z
+    pl = mspy.peaklist([
+        mspy.peak(mz=mass / z + i * step, ai=1000.0 * share / pattern[0], fwhm=0.02)
+        for i, share in enumerate(pattern)
+        if share / max(pattern) > 0.05
+    ])
+    allowed = mspy.ISOTOPE_DISTANCE * (1 / 14 - 1 / 15)
+    pl.deisotope(maxCharge=15, mzTolerance=0.9 * allowed, averagineType="protein")
+
+    assert [p.charge for p in pl] == [14] * len(pl)
+
+
+def test_a_carbon_poor_fragment_keeps_its_monoisotope():
+    """Phosphocholine (184.07, 5 C) has an M+1 of 5.8 %, where the lipid
+    averagine predicts 12.7 %. Held to the lipid model the M+1 was taken for
+    no isotope, the M+1 paired with the M+2 instead, and "remove unknown"
+    kept 185.08 and deleted 184.07 (measured in a LIFT parent spectrum)."""
+    pl = mspy.peaklist([
+        mspy.peak(mz=184.073, ai=5300.0, fwhm=0.21),
+        mspy.peak(mz=185.076, ai=300.0, fwhm=0.21),
+        mspy.peak(mz=186.040, ai=100.0, fwhm=0.21),
+    ])
+    pl.deisotope(maxCharge=1, mzTolerance=0.02, averagineType="lipid")
+
+    assert [(p.charge, p.isotope) for p in pl][:2] == [(1, 0), (1, 1)]
+
+
+def test_a_first_isotope_too_weak_for_any_compound_is_no_isotope():
+    """Below what even the most carbon-poor model allows, the peak one spacing
+    up is not the first isotope."""
+    pl = mspy.peaklist([
+        mspy.peak(mz=800.0, ai=5000.0, fwhm=0.05),
+        mspy.peak(mz=801.003, ai=200.0, fwhm=0.05),
+    ])
+    pl.deisotope(maxCharge=1, mzTolerance=0.02, averagineType="lipid")
+
+    assert pl[0].charge is None
+
+
+def test_a_strong_peak_finds_a_wandering_first_isotope():
+    """LIFT fragment 184.10 (S/N 500): its M+1 sits cleanly at 185.16, a third
+    of the width off the spacing and past the widened tolerance. A second look
+    as far as the look back at a missed monoisotope reaches finds it, so the
+    strong peak is not left uncharged for "remove unknown" to delete."""
+    pl = mspy.peaklist([
+        mspy.peak(mz=184.098, ai=68.0, fwhm=0.175),
+        mspy.peak(mz=185.159, ai=4.0, fwhm=0.16),
+    ])
+    pl.deisotope(maxCharge=1, mzTolerance=0.02, averagineType="lipid")
+
+    assert [(p.charge, p.isotope) for p in pl] == [(1, 0), (1, 1)]
+
+
+@pytest.mark.parametrize(
+    "offset, height, fwhm, why",
+    [
+        (0.12, 4.0, 0.4, "past a tenth of the spacing, however broad the peaks"),
+        (0.058, 30.0, 0.175, "too tall for a first isotope: another species"),
+        (0.058, 1.0, 0.175, "too weak for a first isotope of any compound"),
+    ],
+)
+def test_the_second_look_takes_only_a_plausible_first_isotope(offset, height, fwhm, why):
+    pl = mspy.peaklist([
+        mspy.peak(mz=184.098, ai=68.0, fwhm=fwhm),
+        mspy.peak(mz=184.098 + mspy.ISOTOPE_DISTANCE + offset, ai=height, fwhm=fwhm),
+    ])
+    pl.deisotope(maxCharge=1, mzTolerance=0.02, averagineType="lipid")
+
+    assert pl[0].charge is None, why

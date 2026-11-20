@@ -1625,10 +1625,9 @@ def _merge_adjacent_clusters(
 
             expectedMz = parent.mz + expectedIsotope * difference
             # scale the matching window by 1/charge, like the isotope spacing
-            chargeTol = mzTolerance / abs(parent.charge)
             dynamicTol = max(
-                _adaptive_mz_tolerance(chargeTol, left),
-                _adaptive_mz_tolerance(chargeTol, right),
+                _envelope_window(parent, left, mzTolerance, isotopeShift),
+                _envelope_window(parent, right, mzTolerance, isotopeShift),
             )
             if abs(rightParent.mz - expectedMz) > dynamicTol:
                 i += 1
@@ -2464,21 +2463,36 @@ def _overlap_groups(intervals):
 # ----
 
 
-def _on_isotope_grid(positions, charge, isotopeShift, mzTolerance):
+def _on_isotope_grid(positions, charge, isotopeShift, mzTolerance, tolerance=None):
     """True when every position lies where an isotope of the species whose
     monoisotopic peak is the first one would be built: k isotope spacings up,
     give or take the shift and snap a fresh cluster's placeholders may get (see
-    relabelenvelopes)."""
+    relabelenvelopes). tolerance is the envelope's charge-scaled tolerance
+    (see _envelope_tolerance), mzTolerance / |charge| if not given."""
 
     if not positions or not charge:
         return False
     z = abs(int(charge))
     spacing = (ISOTOPE_DISTANCE + isotopeShift) / z
-    bound = mzTolerance / z * (1.0 + ADAPTIVE_TOLERANCE_RANGE[1])
+    if tolerance is None:
+        tolerance = mzTolerance / z
+    bound = tolerance * (1.0 + ADAPTIVE_TOLERANCE_RANGE[1])
     mono = float(positions[0])
     return all(
         abs(float(mz) - (mono + k * spacing)) <= bound for k, mz in enumerate(positions)
     )
+
+
+def _grid_charge(positions, isotopeShift=0.0):
+    """The charge whose isotope spacing a stored grid has, or None for a
+    single position."""
+
+    if len(positions) < 2:
+        return None
+    spacing = float(numpy.median(numpy.diff(sorted(positions))))
+    if spacing <= 0.0:
+        return None
+    return max(1, int(round((ISOTOPE_DISTANCE + isotopeShift) / spacing)))
 
 
 def _is_regular_isotope_grid(shaped):
@@ -4038,7 +4052,13 @@ def relabelenvelopes(
             # with a window set by the peak's S/N, which every fit re-reads from
             # its own pedestal, so re-converting moved them -- and converting one
             # peak gave its neighbours other envelopes than converting all of them.
-            onGrid = _on_isotope_grid(gridMzs, parent.charge, isotopeShift, mzTolerance)
+            onGrid = _on_isotope_grid(
+                gridMzs,
+                parent.charge,
+                isotopeShift,
+                mzTolerance,
+                tolerance=_envelope_tolerance(parent, mzTolerance, isotopeShift),
+            )
             # index by position -- do NOT iterate `peaklist` here: obj_peaklist's
             # iterator keeps a single shared cursor, so a nested `for ... in
             # peaklist` would reset the outer seed loop's cursor and drop every
@@ -4074,6 +4094,17 @@ def relabelenvelopes(
             if reuseStored and len(storedIsos) != expectedLength:
                 reuseStored = False
 
+            #  * it was built at another charge: the charge was edited since.
+            #    Its isotopes lie at that charge's spacing, so the fit would
+            #    model the wrong pattern (measured: 184.07 set to 2+ and back to
+            #    1+ kept the 2+ grid, and its area fell from 24.6 to 2.1). The
+            #    length alone does not tell, as both charges may model as many.
+            if reuseStored and _grid_charge(gridMzs, isotopeShift) not in (
+                None,
+                abs(int(parent.charge)),
+            ):
+                reuseStored = False
+
             if reuseStored:
                 used.add(x)
                 rebuilt = _reconstruct_cluster_from_envelope(
@@ -4098,7 +4129,16 @@ def relabelenvelopes(
         # shrink the same way (half for 2+, a third for 3+ ...). Using a fixed
         # absolute window would, at high charge, be a large fraction of the
         # spacing and could match a neighbouring isotope or a foreign peak.
-        chargeTol = mzTolerance / abs(parent.charge)
+        # Broad peaks widen it as deisotoping does (see _isotope_tolerance), so
+        # the isotopes deisotoping assigned are the ones the envelope takes in.
+        chargeTol = _envelope_tolerance(parent, mzTolerance, isotopeShift)
+        # A peak deisotoping put at an isotope position of this series is taken
+        # as deisotoping checked it: one spacing from the isotope before (so
+        # small errors may add up along the series), and a recovered
+        # monoisotope's first isotope within twice the widening (see
+        # _missed_monoisotope). Checked against the bare grid alone, such rows
+        # were left out of the envelope and kept beside it as rows of their own.
+        assignedTol = _envelope_tolerance(parent, mzTolerance, isotopeShift, reach=2.0)
         # In preserveSeeds mode we never absorb the following peaks: each selected
         # seed stays on its own so no chosen peak is swallowed by a neighbour. The
         # envelope tail below is still grown from the profile, and the joint fit
@@ -4109,15 +4149,18 @@ def relabelenvelopes(
             found_isotope = None
             best_error = None
             best_pattern_error = None
-            dynamicTol = _adaptive_mz_tolerance(chargeTol, cluster)
+            dynamicTol = _envelope_window(parent, cluster, mzTolerance, isotopeShift)
 
             # Strictly forbid gaps; envelopes must be a continuous series.
             for isotope in [next_isotope]:
                 expected = parent.mz + isotope * difference
+                following = cluster[-1].mz + difference
+                assignedLimit = max(dynamicTol, assignedTol)
+                farthest = max(expected + dynamicTol, following + assignedLimit)
 
                 for y in range(indexes[-1] + 1, len(peaklist)):
                     peak = peaklist[y]
-                    if peak.mz > expected + dynamicTol:
+                    if peak.mz > farthest:
                         break
                     if peak.charge != parent.charge:
                         continue
@@ -4131,9 +4174,14 @@ def relabelenvelopes(
                     if peak.isotope is not None and peak.isotope != isotope:
                         continue
 
-                    error = abs(peak.mz - expected)
-                    if error > dynamicTol:
-                        continue
+                    if peak.isotope == isotope:
+                        error = abs(peak.mz - following)
+                        if error > assignedLimit:
+                            continue
+                    else:
+                        error = abs(peak.mz - expected)
+                        if error > dynamicTol:
+                            continue
 
                     trial_cluster = cluster + [copy.deepcopy(peak)]
                     pattern_error = _cluster_pattern_error(
@@ -4242,10 +4290,13 @@ def relabelenvelopes(
         # cannot be absorbed -- no matter how intense they are. This is the same
         # tolerance the detected-isotope matching loop and the cluster merge use,
         # so the tail honours `mzTolerance` consistently with the rest of the
-        # pipeline. (Previously the window was scaled to the peak width and so
-        # ignored the tolerance entirely: tightening mzTolerance did nothing and
-        # strong off-grid peaks still extended the envelope.)
-        sampleWindow = _adaptive_mz_tolerance(chargeTol, cluster)
+        # pipeline. (Previously the window was scaled to the peak width alone
+        # and so ignored the tolerance entirely: tightening mzTolerance did
+        # nothing and strong off-grid peaks still extended the envelope. The
+        # width now only widens it, by a quarter of the width at most and never
+        # past a tenth of the spacing, as deisotoping does: a broad peak's
+        # isotopes scatter by more than 0.02 Da, but stay on their grid.)
+        sampleWindow = _envelope_window(parent, cluster, mzTolerance, isotopeShift)
         signalFloor = ENVELOPE_TAIL_SN_LIMIT * noise
         if useSignal:
             sigArr = numpy.asarray(signal, dtype=float)
@@ -4638,6 +4689,209 @@ def _sits_on_isotope_ridge(peaklist, index, step, mzTolerance, signal=None):
 # ----
 
 
+# THE ISOTOPE SPACING OF BROAD PEAKS
+#
+# A fixed m/z tolerance suits sharp peaks only. Where peaks are a few tenths of
+# a dalton wide and crowded -- LIFT fragment spectra -- their neighbours pull
+# the apexes about by a fair fraction of the width: measured M to M+1 spacings
+# were off by 0.16 FWHM (median) and 0.36 FWHM (90th percentile), against
+# 0.02 Da allowed, so only 29 % of real pairs matched. Where M then missed its
+# M+1 while M+1 and M+2 happened to agree, M+1 was taken for the monoisotope and
+# M was thrown away as uncharged. So the tolerance grows to a share of the
+# peak's width where that is larger; sharp peaks keep the tolerance given.
+ISOTOPE_TOLERANCE_FWHM = 0.25
+# The widening stops at this share of the isotope spacing: a peak a fifth of a
+# dalton off is no charge-1 isotope however broad the peaks (half-dalton-wide
+# peaks near a LIFT precursor otherwise chained across 1.2-Da steps).
+ISOTOPE_TOLERANCE_SPACING = 0.1
+# Nor is it widened for a spacing under 1.5 peak widths, where isotopes overlap
+# (the valley between them is shallow) and a peak a quarter-width off is as
+# likely a shoulder or a neighbour as the isotope: with the wider tolerance,
+# 0.2-Da-wide peaks 0.16 Da apart passed for charge 4 (0.25 Da expected). The
+# charge is still tried with the tolerance given -- measured widths of
+# overlapping isotopes read wide, so skipping it would drop genuine, barely
+# resolved clusters that matched before.
+ISOTOPE_RESOLVABLE_FWHM = 1.5
+# At high charge the spacings of neighbouring charges lie closer together than
+# a tenth of the spacing (from charge 12 up): the widening stops at this share
+# of the gap to the spacing of one charge less, so a charge-14 cluster cannot
+# pass for charge 15. The tolerance given is held below the gap by the
+# deisotoping panel; the widening must not undo that.
+ISOTOPE_TOLERANCE_CHARGE_GAP = 0.5
+
+
+def _isotope_tolerance(peak, mzTolerance, difference, charge=1, reach=1.0):
+    """The m/z tolerance for an isotope spacing of difference (charge) next to
+    a peak.
+
+    reach scales the width-based widening (not the tolerance given, nor the
+    caps), for a second look.
+    """
+
+    fwhm = getattr(peak, "fwhm", None)
+    if not fwhm or fwhm <= 0.0:
+        return mzTolerance
+    if difference < ISOTOPE_RESOLVABLE_FWHM * fwhm:
+        return mzTolerance
+    # reach looks farther by the width only: the cap holds for every look,
+    # or peaks half a dalton wide chain across the 1.2-Da teeth of a LIFT
+    # parent spectrum's comb
+    widened = min(
+        reach * ISOTOPE_TOLERANCE_FWHM * fwhm, ISOTOPE_TOLERANCE_SPACING * difference
+    )
+    # never past the gap to one charge less, however far the look
+    if abs(charge) > 1:
+        gap = difference / (abs(charge) - 1)
+        widened = min(widened, ISOTOPE_TOLERANCE_CHARGE_GAP * gap)
+    return max(mzTolerance, widened)
+
+
+def _envelope_tolerance(peak, mzTolerance, isotopeShift=0.0, charge=None, reach=1.0):
+    """The isotope matching tolerance of an envelope: mzTolerance / |charge|,
+    widened for broad peaks as deisotoping widens its own (the same share of
+    the width, the same caps), so conversion takes in the isotopes
+    deisotoping found. reach scales the widening, as for deisotoping's look
+    back at a missed monoisotope."""
+
+    z = abs(int(charge if charge is not None else (peak.charge or 1)))
+    difference = (ISOTOPE_DISTANCE + isotopeShift) / z
+    return _isotope_tolerance(peak, mzTolerance / z, difference, z, reach=reach)
+
+
+def _envelope_window(parent, cluster, mzTolerance, isotopeShift=0.0):
+    """The m/z window an envelope's isotopes are matched and snapped within.
+
+    The S/N-adaptive factor (see _adaptive_mz_tolerance) scales the tolerance
+    given only; the width-based widening is taken as it is. The S/N is read
+    again on every refit, from the peak's own pedestal, so scaling the widened
+    window by it let a refit snap an isotope that picking had left on the
+    spacing (a 0.53-Da-wide peak: window 0.09 at picking, 0.135 after) -- and
+    a rebuilt envelope then differed from the one first made.
+    """
+
+    z = abs(int(parent.charge or 1))
+    adaptive = _adaptive_mz_tolerance(mzTolerance / z, cluster)
+    return max(adaptive, _envelope_tolerance(parent, mzTolerance, isotopeShift))
+
+
+def _grow_isotope_series(peaklist, start, cluster, difference, tolerance):
+    """Extend cluster with the peaks from index start on that each lie one
+    spacing (difference) from the last, within tolerance."""
+
+    for index in range(start, len(peaklist)):
+        candidate = peaklist[index]
+        mzError = candidate.mz - cluster[-1].mz - difference
+        if abs(mzError) <= tolerance:
+            # another species' envelope is not this one's isotope
+            if _peak_carries_envelope(candidate):
+                break
+            cluster.append(candidate)
+        elif mzError > tolerance:
+            break
+
+
+def _farther_first_isotope(
+    peaklist, index, difference, charge, mzTolerance, intTolerance, averagineType
+):
+    """Index of the first isotope of peaklist[index] found by a second, wider
+    look, or None.
+
+    The apex of a weak first isotope wanders: in LIFT fragment spectra the
+    M+1 of 184.10 (S/N 500) sits, cleanly, at 185.16 -- 0.06 Da, a third of
+    the width, off the spacing, past the widened tolerance. The strong peak
+    was left uncharged and "remove unknown" deleted it. The look back at a
+    missed monoisotope (_missed_monoisotope) already reaches twice the
+    widening for this one spacing; this is the same look upwards. The peak
+    found must be as tall as a first isotope can be: no lower than the most
+    carbon-poor averagine has it, no higher than the tolerance above the
+    selected one.
+    """
+
+    parent = peaklist[index]
+    window = _isotope_tolerance(parent, mzTolerance, difference, charge, reach=2.0)
+    if window <= mzTolerance:
+        return None
+    neutralMass = _mass_scalar(mod_basics.mz(parent.mz, 0, charge))
+    pattern = _isotope_pattern_at_mass(neutralMass, averagineType)
+    if len(pattern) < 2 or pattern[0] <= 0.0:
+        return None
+    highest = parent.intensity * pattern[1] / pattern[0] * (1.0 + intTolerance)
+    lowest = parent.intensity * _least_first_isotope(neutralMass) * (1.0 - intTolerance)
+    target = parent.mz + difference
+    best = None
+    for above in range(index + 1, len(peaklist)):
+        peak = peaklist[above]
+        if peak.mz > target + window:
+            break
+        if peak.mz < target - window or _peak_carries_envelope(peak):
+            continue
+        if not lowest <= peak.intensity <= highest:
+            continue
+        if best is None or abs(peak.mz - target) < abs(peaklist[best].mz - target):
+            best = above
+    return best
+
+
+def _least_first_isotope(neutralMass):
+    """The smallest first-isotope ratio (M+1 / M) any averagine model gives
+    at a mass.
+
+    An averagine stands for a typical member of its class, but small
+    fragments are often far poorer in carbon: phosphocholine (184.07, 5 C)
+    has an M+1 of 5.8 %, where the lipid averagine predicts 12.7 %. Held to
+    the selected model, deisotoping took such an M+1 for no isotope at all;
+    the peak stayed uncharged and "remove unknown" deleted it -- or, where
+    the M+1 then paired with the M+2, kept the M+1 in its place. An M+1 a
+    compound of some class has is not taken for "nonsense".
+    """
+
+    ratios = []
+    for averagineType in AVERAGINE_MODELS:
+        pattern = _isotope_pattern_at_mass(neutralMass, averagineType)
+        if len(pattern) > 1 and pattern[0] > 0.0:
+            ratios.append(pattern[1] / pattern[0])
+    return min(ratios) if ratios else 0.0
+
+
+def _missed_monoisotope(
+    peaklist, index, difference, charge, mzTolerance, pattern, intTolerance
+):
+    """The peak below peaklist[index] whose first isotope it is, or None.
+
+    The walk goes up the m/z axis, so a monoisotope whose M+1 lay just outside
+    the tolerance has been passed over -- left without a charge -- by the time
+    its M+1 finds an M+2 and passes for a species. "Remove unknown" then kept
+    the second peak of the pattern and dropped the first. Looking back over
+    twice the width-based tolerance, a peak left uncharged whose intensity makes
+    this one its first isotope, as the pattern has it, is the monoisotope. Sharp
+    peaks look back no further than the tolerance given.
+    """
+
+    parent = peaklist[index]
+    if len(pattern) < 2 or pattern[0] <= 0.0:
+        return None
+    window = _isotope_tolerance(parent, mzTolerance, difference, charge, reach=2.0)
+    target = parent.mz - difference
+    for below in range(index - 1, -1, -1):
+        peak = peaklist[below]
+        if peak.mz < target - window:
+            break
+        if peak.mz > target + window:
+            continue
+        if peak.charge is not None or peak.isotope is not None:
+            continue
+        if _peak_carries_envelope(peak):
+            continue
+        # the first isotope as deisotoping accepts it: up to the averagine's
+        # tolerance above, down to what a carbon-poorer compound has
+        expected = peak.intensity / pattern[0] * pattern[1]
+        neutralMass = _mass_scalar(mod_basics.mz(peak.mz, 0, charge))
+        least = peak.intensity * _least_first_isotope(neutralMass) * (1.0 - intTolerance)
+        if expected > 0.0 and least <= parent.intensity <= expected * (1.0 + intTolerance):
+            return peak
+    return None
+
+
 def deisotope(
     peaklist,
     maxCharge=1,
@@ -4690,7 +4944,6 @@ def deisotope(
     charges.reverse()
 
     # walk in a peaklist
-    maxIndex = len(peaklist)
     accepted = []
     for x, parent in enumerate(peaklist):
 
@@ -4712,20 +4965,22 @@ def deisotope(
         for z in candidateCharges:
             cluster = [parent]
 
-            # search for next isotope within m/z tolerance
+            # broad peaks get a wider tolerance (see ISOTOPE_TOLERANCE_FWHM)
             difference = (ISOTOPE_DISTANCE + isotopeShift) / abs(z)
-            y = 1
-            while x + y < maxIndex:
-                candidate = peaklist[x + y]
-                mzError = candidate.mz - cluster[-1].mz - difference
-                if abs(mzError) <= mzTolerance:
-                    # another species' envelope is not this one's isotope
-                    if _peak_carries_envelope(candidate):
-                        break
-                    cluster.append(candidate)
-                elif mzError > mzTolerance:
-                    break
-                y += 1
+            tolerance = _isotope_tolerance(parent, mzTolerance, difference, z)
+
+            # search for next isotope within m/z tolerance
+            _grow_isotope_series(peaklist, x + 1, cluster, difference, tolerance)
+
+            # none there: a second look for the first isotope, as far as the
+            # look back at a missed monoisotope reaches (see _farther_first_isotope)
+            if len(cluster) == 1 and not respectCharge:
+                first = _farther_first_isotope(
+                    peaklist, x, difference, z, mzTolerance, intTolerance, averagineType
+                )
+                if first is not None:
+                    cluster.append(peaklist[first])
+                    _grow_isotope_series(peaklist, first + 1, cluster, difference, tolerance)
 
             # no isotope found
             if len(cluster) == 1:
@@ -4766,6 +5021,15 @@ def deisotope(
                 elif intError > 0:
                     pass
 
+                # a first isotope lower than the averagine allows but which a
+                # carbon-poorer compound has (see _least_first_isotope)
+                elif isotope == 1 and cluster[1].intensity >= cluster[0].intensity * (
+                    _least_first_isotope(neutralMass) * (1.0 - intTolerance)
+                ):
+                    cluster[isotope].setisotope(isotope)
+                    cluster[isotope].setcharge(z)
+                    confirmed += 1
+
                 # intensity is lower and first isotope is checked (nonsense)
                 elif intError < 0 and isotope == 1:
                     valid = False
@@ -4789,7 +5053,7 @@ def deisotope(
                 and not confirmed
                 and not respectCharge
                 and _sits_on_isotope_ridge(
-                    peaklist, x, difference, mzTolerance, signal=signal
+                    peaklist, x, difference, tolerance, signal=signal
                 )
             ):
                 continue
@@ -4810,13 +5074,29 @@ def deisotope(
             if valid and not confirmed and not respectCharge:
                 previous = parent.mz - difference
                 if any(
-                    charge == z and abs(mz - previous) <= mzTolerance
+                    charge == z and abs(mz - previous) <= tolerance
                     for mz, charge in accepted
                 ):
                     continue
 
-            # cluster is OK, set parent peak and skip other charges
+            # cluster is OK, set parent peak and skip other charges -- unless
+            # it is the first isotope of a peak below that missed it
             if valid:
+                mono = None
+                if not respectCharge:
+                    mono = _missed_monoisotope(
+                        peaklist, x, difference, z, mzTolerance, pattern, intTolerance
+                    )
+                if mono is not None:
+                    for peak in cluster[1:]:
+                        if peak.isotope is not None:
+                            peak.setisotope(peak.isotope + 1)
+                    mono.setisotope(0)
+                    mono.setcharge(z)
+                    parent.setisotope(1)
+                    parent.setcharge(z)
+                    accepted.append((mono.mz, z))
+                    break
                 parent.setisotope(0)
                 parent.setcharge(z)
                 accepted.append((parent.mz, z))
@@ -4912,20 +5192,60 @@ RESOLUTION_BASELINE_WINDOW = 0.01
 
 _RESOLUTION_CACHE = []
 _RESOLUTION_CACHE_SIZE = 8
+_BASELINE_CACHE = []
+
+
+def _measurement_baseline(signal, window=None):
+    """The baseline widths are measured above, as picking takes it: the
+    profile's baseline over a noise window of `window` (relative; by default
+    the app's default precision), with no offset. Cached per profile."""
+
+    window = RESOLUTION_BASELINE_WINDOW if window is None else float(window)
+    key = (_profile_key(signal), window)
+    for cachedKey, cachedBaseline in _BASELINE_CACHE:
+        if cachedKey == key:
+            return cachedBaseline
+    baseline = mod_signal.baseline(signal, window=window, offset=0.0)
+    _BASELINE_CACHE.insert(0, (key, baseline))
+    del _BASELINE_CACHE[_RESOLUTION_CACHE_SIZE:]
+    return baseline
 
 
 def _profile_key(signal):
-    """A cheap fingerprint of a profile, for caching what is derived from it."""
+    """A fingerprint of a profile, for caching what is derived from it.
+
+    Besides the size and ends, it holds the profile's m/z and intensities
+    weighed by fixed pseudo-random weights: profiles differing anywhere differ
+    in it (a sum and a few sampled points did not tell apart profiles whose
+    equal stretches had swapped places, though their local baselines differ),
+    at the cost of a dot product rather than hashing the data for every peak
+    measured. Two copies of one profile keying differently would only cost a
+    recalculation."""
 
     n = len(signal)
+    weights = _profile_weights(n)
     return (
         n,
         float(signal[0, 0]),
         float(signal[-1, 0]),
-        float(numpy.sum(signal[:, 1])),
-        float(signal[n // 2, 1]),
-        float(signal[n // 3, 1]),
+        float(numpy.dot(signal[:, 0], weights)),
+        float(numpy.dot(signal[:, 1], weights)),
     )
+
+
+_PROFILE_WEIGHTS = {}
+
+
+def _profile_weights(n):
+    """The fixed weights `_profile_key` fingerprints a profile of n points by."""
+
+    weights = _PROFILE_WEIGHTS.get(n)
+    if weights is None:
+        weights = numpy.random.default_rng(n).uniform(0.5, 1.5, n)
+        if len(_PROFILE_WEIGHTS) >= _RESOLUTION_CACHE_SIZE:
+            _PROFILE_WEIGHTS.pop(next(iter(_PROFILE_WEIGHTS)))
+        _PROFILE_WEIGHTS[n] = weights
+    return weights
 
 
 def _resolution_references(signal, baseline):
@@ -5017,7 +5337,7 @@ def resolutioncurve(signal):
     for cachedKey, cachedCurve in _RESOLUTION_CACHE:
         if cachedKey == key:
             return cachedCurve
-    baseline = mod_signal.baseline(signal, window=RESOLUTION_BASELINE_WINDOW, offset=0.0)
+    baseline = _measurement_baseline(signal)
     curve = _fit_resolution(_resolution_references(signal, baseline))
     if curve is not None:
         curve["baseline"] = baseline
@@ -5076,24 +5396,34 @@ def applyresolution(peaklist, signal):
             peak.setfwhm(width)
 
 
-def _measured_fwhm(signal, mz):
+def _measured_fwhm(signal, mz, baselineWindow=None):
     """A peak's width measured at m/z in the profile, above its baseline, and
-    resolved against the spectrum's resolution curve."""
+    resolved against the spectrum's resolution curve.
 
-    return _measured_fwhm_on(signal, mz, resolutioncurve(signal))
+    The baseline is the one picking measures widths above (baselineWindow, the
+    baseline panel's precision as a relative window; by default the app's).
+    Measured above no baseline at all -- as it was where a spectrum has too
+    few clean peaks for a resolution curve, typical of LIFT fragment spectra
+    -- the half height sat lower and a refit widened the envelopes picking had
+    made (0.43 -> 0.58 Da), and their areas with them (+42 %).
+    """
+
+    return _measured_fwhm_on(signal, mz, resolutioncurve(signal), baselineWindow)
 
 
-def _measured_fwhm_on(signal, mz, curve):
+def _measured_fwhm_on(signal, mz, curve, baselineWindow=None):
     """`_measured_fwhm` with the profile's resolution curve (or None) at hand."""
 
-    baseline = curve["baseline"] if curve is not None else None
+    baseline = _measurement_baseline(signal, baselineWindow)
     labeled = labelpoint(signal=signal, mz=mz, baseline=baseline)
     measured = labeled.fwhm if labeled and labeled.fwhm and labeled.fwhm > 0.0 else None
     sn = labeled.sn if labeled else None
     return resolvedfwhm(measured, mz, sn, curve)
 
 
-def _refresh_missing_fwhm_from_profile(peaklist, profile, recompute=False, respectAll=False):
+def _refresh_missing_fwhm_from_profile(
+    peaklist, profile, recompute=False, respectAll=False, baselineWindow=None
+):
     """Refresh FWHM values from the profile signal at each peak m/z.
 
     By default only peaks with a missing/zero FWHM are filled in. With
@@ -5133,7 +5463,7 @@ def _refresh_missing_fwhm_from_profile(peaklist, profile, recompute=False, respe
 
         # measured above the baseline and resolved against the spectrum's
         # resolution curve, exactly as picking measures it
-        width = _measured_fwhm(profile, peak.mz)
+        width = _measured_fwhm(profile, peak.mz, baselineWindow)
         if width and width > 0.0:
             peak.setfwhm(width)
             stored = _envelope_width_owner(peak) if recompute else None
@@ -5144,7 +5474,7 @@ def _refresh_missing_fwhm_from_profile(peaklist, profile, recompute=False, respe
 # ----
 
 
-def _default_envelope_fwhm(peaklist, profile, respectAll=False):
+def _default_envelope_fwhm(peaklist, profile, respectAll=False, baselineWindow=None):
     """The width the envelopes of this peak list are fitted with when a cluster
     has none of its own: the base peak's, measured as the recalculation measures
     every width.
@@ -5159,7 +5489,9 @@ def _default_envelope_fwhm(peaklist, profile, respectAll=False):
     if base is None:
         return 0.1
     probe = copy.deepcopy(base)
-    _refresh_missing_fwhm_from_profile([probe], profile, recompute=True, respectAll=respectAll)
+    _refresh_missing_fwhm_from_profile(
+        [probe], profile, recompute=True, respectAll=respectAll, baselineWindow=baselineWindow
+    )
     if probe.fwhm and probe.fwhm > 0.0:
         return float(probe.fwhm)
     return 0.1
@@ -5201,7 +5533,9 @@ def _species_fit_reach(peak, profile, curve, defaultFwhm, params, respectAll=Fal
         widths.append(envelope.get("fwhm") or 0.0)
     respect = _fwhm_is_locked(peak) or (respectAll and bool(peak.fwhm) and peak.fwhm > 0.0)
     if not respect and profile is not None and len(profile):
-        widths.append(_measured_fwhm_on(profile, peak.mz, curve) or 0.0)
+        widths.append(
+            _measured_fwhm_on(profile, peak.mz, curve, params.get("baselineWindow")) or 0.0
+        )
 
     if peak.charge:
         charges = [abs(int(peak.charge))]
@@ -5214,7 +5548,8 @@ def _species_fit_reach(peak, profile, curve, defaultFwhm, params, respectAll=Fal
         spacing = (ISOTOPE_DISTANCE + isotopeShift) / charge
         # the grid may be shifted by up to the charge-scaled tolerance and each
         # isotope snapped by up to the widest matching window on top of that
-        shift = tolerance / charge * (1.0 + ADAPTIVE_TOLERANCE_RANGE[1])
+        chargeTol = _envelope_tolerance(peak, tolerance, isotopeShift, charge)
+        shift = chargeTol * (1.0 + ADAPTIVE_TOLERANCE_RANGE[1])
         mzs.append(peak.mz + (length - 1) * spacing + shift)
 
     return _cluster_window(mzs, max(widths), defaultFwhm)
@@ -5388,7 +5723,10 @@ def recalculate_neighborhood_envelopes(
         massTolerance, isotopeShift, maxCharge, intTolerance,
         labelEnvelope, envelopeIntensity, envelopeNonIdeality,
         seedCharge (optional, default 1),
-        averagineType (optional, default "protein")
+        averagineType (optional, default "protein"),
+        baselineWindow (optional) - noise window of the baseline widths are
+            measured above, as picking takes it (the baseline panel's precision);
+            by default the app's default
     selectedOnly (bool) - when True, the peaks matching the given m/z values are
         converted (the explicit "convert to envelopes" action): no margin window is
         added, and only those peaks plus any EXISTING envelope they overlap are
@@ -5420,7 +5758,9 @@ def recalculate_neighborhood_envelopes(
     contextIdx = set()
 
     # the same for the whole list whichever peaks are recalculated
-    defaultFwhm = _default_envelope_fwhm(peaklist, profile, respectAll=respectFwhm)
+    defaultFwhm = _default_envelope_fwhm(
+        peaklist, profile, respectAll=respectFwhm, baselineWindow=params.get("baselineWindow")
+    )
 
     if selectedOnly:
         # Convert-to-envelopes: match each selected m/z to its own peak (nearest
@@ -5511,7 +5851,11 @@ def recalculate_neighborhood_envelopes(
         # edit) keeps every usable width as-is instead, so the typed value takes
         # effect; a locked width is always kept regardless.
         _refresh_missing_fwhm_from_profile(
-            gpl, profile, recompute=True, respectAll=respectFwhm
+            gpl,
+            profile,
+            recompute=True,
+            respectAll=respectFwhm,
+            baselineWindow=params.get("baselineWindow"),
         )
 
         # A peak whose species is already settled -- an existing envelope, or a

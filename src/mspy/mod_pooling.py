@@ -843,12 +843,14 @@ def _centroid_tolerance(lists):
 # ----
 
 
-def mergecentroids(peaklists, average=True):
+def mergecentroids(peaklists, average=True, sources=None):
     """Merge peak lists (of centroided spectra) into one.
 
     peaklists (list of mspy.peaklist) - peak lists to merge
     average (bool) - average the intensities over the lists (True, a peak
         missing in a list counting as zero there) or sum them (False)
+    sources (list or None) - when given, a (merged peak, tuple of the peaks
+        passed in that it was made of) pair is appended to it per merged peak
 
     Peaks of different lists closer than the centroid tolerance (see
     `_centroid_tolerance`, at most half the FWHM of a peak that has one and
@@ -912,6 +914,8 @@ def mergecentroids(peaklists, average=True):
         peak.setai(float(weights.sum()) * scale)
         peak.setmz(centre)
         peaks.append(peak)
+        if sources is not None:
+            sources.append((peak, tuple(source[start:end])))
         start = end
 
     return obj_peaklist.peaklist(peaks)

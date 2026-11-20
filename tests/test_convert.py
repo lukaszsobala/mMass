@@ -437,6 +437,74 @@ def test_steps_run_in_the_order_given(profiles, tmp_path):
     assert 403.9 < picked.profile[:, 0].min() and picked.profile[:, 0].max() < 406.1
 
 
+def test_annotations_outlive_every_step_and_follow_the_profile(profiles, tmp_path):
+    document = _read(profiles["msd"], "mSD")
+    document.annotations.append(doc.annotation("M+H", 405.0, 1000.0))
+    annotated = tmp_path / "annotated.msd"
+    annotated.write_text(document.msd())
+    picked = tmp_path / "picked.msd"
+    normalized = tmp_path / "normalized.msd"
+
+    assert _process(str(annotated), "--find-peaks", "--deisotope", "-o", str(picked)) == 0
+    assert _process(
+        str(annotated), "--baseline", "--smooth", "--math", "normalize", "-o", str(normalized)
+    ) == 0
+
+    assert [a.label for a in _read(picked, "mSD").annotations] == ["M+H"]
+    (annotation,) = _read(normalized, "mSD").annotations
+    assert annotation.label == "M+H"
+    # it stands on the normalized peak, not at its old height
+    assert 50.0 < annotation.ai <= 100.5
+
+
+def test_picking_in_the_window_keeps_annotations_and_undoes_alone():
+    """Tools > Processing: picking and deisotoping leave annotations, and
+    Undo takes back the peaks only."""
+    panel_processing = pytest.importorskip("gui.panel_processing")
+    from types import SimpleNamespace
+
+    document = doc.document()
+    document.spectrum = _pattern()
+    document.annotations.append(doc.annotation("M+H", 405.0, 1000.0))
+    panel = SimpleNamespace(currentDocument=document)
+
+    panel_processing.panelProcessing.runApplyPeakpicking(panel)
+    assert document.spectrum.haspeaks()
+    panel_processing.panelProcessing.runApplyDeisotoping(panel)
+    assert [a.label for a in document.annotations] == ["M+H"]
+
+    assert document.undoLabel() == "Deisotoping"
+    assert document.restore() == ("spectrum",)
+    assert document.restore() == ("spectrum",)
+    assert not document.spectrum.haspeaks()
+    assert [a.label for a in document.annotations] == ["M+H"]
+
+
+def test_smoothing_in_the_window_carries_annotations_and_undoes_them():
+    """Tools > Processing: smoothing and baseline correction keep annotations
+    on the peak, and Undo puts them back where they stood."""
+    panel_processing = pytest.importorskip("gui.panel_processing")
+    from types import SimpleNamespace
+
+    document = doc.document()
+    document.spectrum = _pattern()
+    document.annotations.append(doc.annotation("M+H", 405.0, 1000.0))
+    panel = SimpleNamespace(currentDocument=document)
+
+    panel_processing.panelProcessing.runApplySmoothing(panel)
+    panel_processing.panelProcessing.runApplyBaseline(panel)
+    (annotation,) = document.annotations
+    profile = document.spectrum.profile
+    assert annotation.ai == pytest.approx(
+        numpy.interp(405.0, profile[:, 0], profile[:, 1]), rel=0.02
+    )
+    assert annotation.ai < 1000.0
+
+    assert document.restore() == ("spectrum", "notations", "rulers")
+    assert document.restore() == ("spectrum", "notations", "rulers")
+    assert document.annotations[0].ai == 1000.0
+
+
 def test_envelopes_are_what_convert_all_to_envelopes_gives(profiles, tmp_path):
     from gui import processing
 

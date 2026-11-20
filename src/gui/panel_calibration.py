@@ -28,6 +28,7 @@ from . import mwx
 from . import images
 from . import config
 from . import libs
+from . import processing
 from .mixins import MakeModalMixin
 import mspy
 from mspy.plot_canvas import canvas as plotCanvas
@@ -1005,23 +1006,15 @@ class panelCalibration(wx.Frame, MakeModalMixin):
     def applyCalibration(self, fn, params):
         """Calibrate document."""
 
-        # backup data; undoing only the spectrum would leave the annotations
-        # and matches calibrated
+        # backup data; undoing only the spectrum would leave the annotations,
+        # matches and difference labels calibrated
         self.currentDocument.backup(
-            ("spectrum", "notations"), label="Calibration", whole=True
+            ("spectrum", "notations", "rulers"), label="Calibration", whole=True
         )
 
-        # recalibrate spectrum
+        # recalibrate spectrum, and the notations and difference labels on it
         self.currentDocument.spectrum.recalibrate(fn, params)
-
-        # recalibrate annotations
-        for annotation in self.currentDocument.annotations:
-            annotation.mz = fn(params, annotation.mz)
-
-        # recalibrate matches
-        for sequence in self.currentDocument.sequences:
-            for match in sequence.matches:
-                match.mz = fn(params, match.mz)
+        processing.recalibrateNotations(self.currentDocument, fn, params)
 
     # ----
 
