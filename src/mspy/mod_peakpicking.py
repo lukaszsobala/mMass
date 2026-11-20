@@ -1625,7 +1625,7 @@ def _merge_adjacent_clusters(
 
             expectedMz = parent.mz + expectedIsotope * difference
             # scale the matching window by 1/charge, like the isotope spacing
-            chargeTol = mzTolerance / abs(parent.charge)
+            chargeTol = _envelope_tolerance(parent, mzTolerance, isotopeShift)
             dynamicTol = max(
                 _adaptive_mz_tolerance(chargeTol, left),
                 _adaptive_mz_tolerance(chargeTol, right),
@@ -2464,17 +2464,20 @@ def _overlap_groups(intervals):
 # ----
 
 
-def _on_isotope_grid(positions, charge, isotopeShift, mzTolerance):
+def _on_isotope_grid(positions, charge, isotopeShift, mzTolerance, tolerance=None):
     """True when every position lies where an isotope of the species whose
     monoisotopic peak is the first one would be built: k isotope spacings up,
     give or take the shift and snap a fresh cluster's placeholders may get (see
-    relabelenvelopes)."""
+    relabelenvelopes). tolerance is the envelope's charge-scaled tolerance
+    (see _envelope_tolerance), mzTolerance / |charge| if not given."""
 
     if not positions or not charge:
         return False
     z = abs(int(charge))
     spacing = (ISOTOPE_DISTANCE + isotopeShift) / z
-    bound = mzTolerance / z * (1.0 + ADAPTIVE_TOLERANCE_RANGE[1])
+    if tolerance is None:
+        tolerance = mzTolerance / z
+    bound = tolerance * (1.0 + ADAPTIVE_TOLERANCE_RANGE[1])
     mono = float(positions[0])
     return all(
         abs(float(mz) - (mono + k * spacing)) <= bound for k, mz in enumerate(positions)
@@ -4038,7 +4041,13 @@ def relabelenvelopes(
             # with a window set by the peak's S/N, which every fit re-reads from
             # its own pedestal, so re-converting moved them -- and converting one
             # peak gave its neighbours other envelopes than converting all of them.
-            onGrid = _on_isotope_grid(gridMzs, parent.charge, isotopeShift, mzTolerance)
+            onGrid = _on_isotope_grid(
+                gridMzs,
+                parent.charge,
+                isotopeShift,
+                mzTolerance,
+                tolerance=_envelope_tolerance(parent, mzTolerance, isotopeShift),
+            )
             # index by position -- do NOT iterate `peaklist` here: obj_peaklist's
             # iterator keeps a single shared cursor, so a nested `for ... in
             # peaklist` would reset the outer seed loop's cursor and drop every
@@ -4098,7 +4107,9 @@ def relabelenvelopes(
         # shrink the same way (half for 2+, a third for 3+ ...). Using a fixed
         # absolute window would, at high charge, be a large fraction of the
         # spacing and could match a neighbouring isotope or a foreign peak.
-        chargeTol = mzTolerance / abs(parent.charge)
+        # Broad peaks widen it as deisotoping does (see _isotope_tolerance), so
+        # the isotopes deisotoping assigned are the ones the envelope takes in.
+        chargeTol = _envelope_tolerance(parent, mzTolerance, isotopeShift)
         # In preserveSeeds mode we never absorb the following peaks: each selected
         # seed stays on its own so no chosen peak is swallowed by a neighbour. The
         # envelope tail below is still grown from the profile, and the joint fit
@@ -4242,9 +4253,12 @@ def relabelenvelopes(
         # cannot be absorbed -- no matter how intense they are. This is the same
         # tolerance the detected-isotope matching loop and the cluster merge use,
         # so the tail honours `mzTolerance` consistently with the rest of the
-        # pipeline. (Previously the window was scaled to the peak width and so
-        # ignored the tolerance entirely: tightening mzTolerance did nothing and
-        # strong off-grid peaks still extended the envelope.)
+        # pipeline. (Previously the window was scaled to the peak width alone
+        # and so ignored the tolerance entirely: tightening mzTolerance did
+        # nothing and strong off-grid peaks still extended the envelope. The
+        # width now only widens it, by a quarter of the width at most and never
+        # past a tenth of the spacing, as deisotoping does: a broad peak's
+        # isotopes scatter by more than 0.02 Da, but stay on their grid.)
         sampleWindow = _adaptive_mz_tolerance(chargeTol, cluster)
         signalFloor = ENVELOPE_TAIL_SN_LIMIT * noise
         if useSignal:
@@ -4689,6 +4703,17 @@ def _isotope_tolerance(peak, mzTolerance, difference, charge=1, reach=1.0):
         gap = difference / (abs(charge) - 1)
         widened = min(widened, ISOTOPE_TOLERANCE_CHARGE_GAP * gap)
     return max(mzTolerance, widened)
+
+
+def _envelope_tolerance(peak, mzTolerance, isotopeShift=0.0, charge=None):
+    """The isotope matching tolerance of an envelope: mzTolerance / |charge|,
+    widened for broad peaks as deisotoping widens its own (the same share of
+    the width, the same caps), so conversion takes in the isotopes
+    deisotoping found."""
+
+    z = abs(int(charge if charge is not None else (peak.charge or 1)))
+    difference = (ISOTOPE_DISTANCE + isotopeShift) / z
+    return _isotope_tolerance(peak, mzTolerance / z, difference, z)
 
 
 def _missed_monoisotope(
@@ -5321,7 +5346,8 @@ def _species_fit_reach(peak, profile, curve, defaultFwhm, params, respectAll=Fal
         spacing = (ISOTOPE_DISTANCE + isotopeShift) / charge
         # the grid may be shifted by up to the charge-scaled tolerance and each
         # isotope snapped by up to the widest matching window on top of that
-        shift = tolerance / charge * (1.0 + ADAPTIVE_TOLERANCE_RANGE[1])
+        chargeTol = _envelope_tolerance(peak, tolerance, isotopeShift, charge)
+        shift = chargeTol * (1.0 + ADAPTIVE_TOLERANCE_RANGE[1])
         mzs.append(peak.mz + (length - 1) * spacing + shift)
 
     return _cluster_window(mzs, max(widths), defaultFwhm)

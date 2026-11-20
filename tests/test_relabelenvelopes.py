@@ -519,3 +519,23 @@ def test_reconvert_rebuilds_a_long_grid_with_no_detection_record():
 
     seed = mspy.peak(mz=900.494, ai=heights[900.494], charge=1, isotope=0, fwhm=0.05)
     assert len(envelope["isotopes"]) == mpp._theory_envelope_length(seed)
+
+
+def test_a_broad_envelope_sits_on_isotopes_a_little_off_their_spacing():
+    """Broad peaks (0.25 Da) whose isotopes all lie 0.05 Da above the spacing,
+    0.02 allowed: deisotoping finds them (its tolerance widens with the width),
+    and the envelope's isotopes sit on them, not on the bare spacing."""
+    pl = build_envelope_peaklist(fwhm=0.25)
+    for peak in list(pl)[1:]:
+        peak.setmz(peak.mz + 0.05)
+    profile = mspy.profile(pl, fwhm=0.25, points=40)
+    measured = [p.mz for p in pl]
+    pl.deisotope(maxCharge=1, mzTolerance=0.02, intTolerance=0.5)
+    assert [p.isotope for p in pl][:3] == [0, 1, 2]
+
+    pl.labelenvelopes(
+        label="1st", signal=profile, mzTolerance=0.02, defaultFwhm=0.25, nonIdeality=0.4
+    )
+    isotopes = [mz for mz, _share in pl[0].attributes["envelope"]["isotopes"]]
+    assert isotopes[1] == pytest.approx(measured[1], abs=0.01)
+    assert isotopes[2] == pytest.approx(measured[2], abs=0.01)
