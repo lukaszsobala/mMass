@@ -147,3 +147,22 @@ def test_combining_centroided_spectra_reads_the_labels_off_the_merged_peaks():
 
     assert [a.ai for a in document.annotations] == [pytest.approx(3000.0), 50.0]
     assert (document.rulers[0].ai1, document.rulers[0].ai2) == (pytest.approx(3000.0), 50.0)
+
+
+def test_a_label_follows_its_peak_into_a_merge_with_a_narrower_stronger_one():
+    """The merged peak takes the m/z mean and the stronger partner's width;
+    the label of the weaker one still stands at the sum, as the merge took
+    its peak in."""
+    document = gdoc.document()
+    document.spectrum = mspy.scan(
+        peaklist=[mspy.peak(mz=500.0, ai=1000.0, fwhm=0.1), mspy.peak(mz=600.0, ai=500.0, fwhm=0.1)]
+    )
+    document.annotations.append(gdoc.annotation("M", 500.0, 1000.0))
+    other = mspy.scan(peaklist=[mspy.peak(mz=500.04, ai=2000.0, fwhm=0.01)])
+
+    processing.mathPair(document.spectrum, "combine", other, False, document)
+
+    merged = document.spectrum.peaklist[0]
+    assert merged.ai == pytest.approx(3000.0)
+    assert abs(merged.mz - 500.0) > 0.5 * merged.fwhm  # off the label, by its width
+    assert document.annotations[0].ai == pytest.approx(3000.0)

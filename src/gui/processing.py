@@ -120,14 +120,18 @@ def _readFrom(profile):
     return intensity
 
 
-def _readFromPeaks(peaklist):
-    """An intensity change reading the label heights off the peaks they stand
-    on, for spectra with no profile: a label takes the intensity of the
-    nearest peak within the tolerance centroids are merged by (half its FWHM,
-    at most POOL_CENTROID_MAX_TOLERANCE); one standing on no peak keeps its."""
+def _readThroughMerge(peaks, merges):
+    """An intensity change for centroided spectra combined peak by peak: a
+    label standing on one of the spectrum's own peaks (the nearest, within half
+    its FWHM and at most POOL_CENTROID_MAX_TOLERANCE) takes the intensity of
+    the merged peak that peak went into (merges as mspy.mergecentroids reports
+    them); one standing on no peak keeps its. Following the merge itself, not
+    the merged peak's position and width, keeps a label whose peak merged with
+    a stronger, narrower one, which moves the m/z and lends its width."""
 
-    peaks = sorted(peaklist, key=lambda peak: peak.mz)
+    peaks = sorted(peaks, key=lambda peak: peak.mz)
     mzs = numpy.array([peak.mz for peak in peaks], dtype=float)
+    into = {id(source): merged for merged, group in merges for source in group}
 
     def intensity(mz, ai, base):
         ai, base = ai.copy(), base.copy()
@@ -144,9 +148,10 @@ def _readFromPeaks(peaklist):
                 0.5 * peak.fwhm if peak.fwhm else numpy.inf,
                 mspy.mod_pooling.POOL_CENTROID_MAX_TOLERANCE,
             )
-            if abs(mzs[j] - value) <= tolerance:
-                ai[i] = peak.ai
-                base[i] = peak.base
+            merged = into.get(id(peak))
+            if merged is not None and abs(mzs[j] - value) <= tolerance:
+                ai[i] = merged.ai
+                base[i] = merged.base
         return ai, base
 
     return intensity
@@ -229,12 +234,21 @@ def mathPair(scan, operation, other, preservePeaks, document=None):
 
     if operation not in PAIR_MATH:
         raise ValueError(f"{operation} takes no second spectrum")
+    if operation == "combine" and not (scan.hasprofile() or other.hasprofile()):
+        # centroided spectra are combined peak by peak, as scan.combine does;
+        # the merge tells which merged peak each label's own peak went into
+        peaks = list(scan.peaklist)
+        merges = []
+        if peaks or other.haspeaks():
+            scan.setpeaklist(
+                mspy.mergecentroids([scan.peaklist, other.peaklist], average=False, sources=merges)
+            )
+        scan.reset()
+        carryNotations(document, scan, _readThroughMerge(peaks, merges))
+        return
     getattr(scan, operation)(other, preservePeaks=preservePeaks)
     if scan.hasprofile():
         carryNotations(document, scan, _readFrom(scan.profile))
-    elif operation == "combine" and scan.haspeaks():
-        # centroided spectra are combined peak by peak (mspy.mergecentroids)
-        carryNotations(document, scan, _readFromPeaks(scan.peaklist))
 
 
 def combineSpectra(scans, average=True):

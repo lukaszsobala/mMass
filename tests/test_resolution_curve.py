@@ -170,3 +170,21 @@ def test_without_a_curve_widths_are_measured_above_the_baseline_picking_uses():
     # above the local median the same peak reads wider, as refits read it before
     unbased = mpp.labelpoint(signal=profile, mz=picked.mz)
     assert unbased is not None and unbased.fwhm > 1.05 * picked.fwhm
+
+
+def test_profiles_whose_stretches_swapped_places_keep_their_own_baselines():
+    """Swapping two equal stretches keeps the size, ends, sum and the middle
+    points of a profile, but not its local baselines: the cache must tell the
+    two apart, whichever is measured first."""
+    x = numpy.linspace(400.0, 1000.0, 3000)
+    first = numpy.full(3000, 10.0)
+    first[200:400] = 100.0
+    second = numpy.full(3000, 10.0)
+    second[2200:2400] = 100.0
+    profiles = [numpy.column_stack([x, y]) for y in (first, second)]
+
+    for order in (profiles, profiles[::-1]):
+        mpp._BASELINE_CACHE.clear()
+        for profile in order:
+            expected = mspy.mod_signal.baseline(profile, window=0.01, offset=0.0)
+            numpy.testing.assert_array_equal(mpp._measurement_baseline(profile, 0.01), expected)

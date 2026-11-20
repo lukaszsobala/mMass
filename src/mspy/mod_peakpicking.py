@@ -5212,17 +5212,40 @@ def _measurement_baseline(signal, window=None):
 
 
 def _profile_key(signal):
-    """A cheap fingerprint of a profile, for caching what is derived from it."""
+    """A fingerprint of a profile, for caching what is derived from it.
+
+    Besides the size and ends, it holds the profile's m/z and intensities
+    weighed by fixed pseudo-random weights: profiles differing anywhere differ
+    in it (a sum and a few sampled points did not tell apart profiles whose
+    equal stretches had swapped places, though their local baselines differ),
+    at the cost of a dot product rather than hashing the data for every peak
+    measured. Two copies of one profile keying differently would only cost a
+    recalculation."""
 
     n = len(signal)
+    weights = _profile_weights(n)
     return (
         n,
         float(signal[0, 0]),
         float(signal[-1, 0]),
-        float(numpy.sum(signal[:, 1])),
-        float(signal[n // 2, 1]),
-        float(signal[n // 3, 1]),
+        float(numpy.dot(signal[:, 0], weights)),
+        float(numpy.dot(signal[:, 1], weights)),
     )
+
+
+_PROFILE_WEIGHTS = {}
+
+
+def _profile_weights(n):
+    """The fixed weights `_profile_key` fingerprints a profile of n points by."""
+
+    weights = _PROFILE_WEIGHTS.get(n)
+    if weights is None:
+        weights = numpy.random.default_rng(n).uniform(0.5, 1.5, n)
+        if len(_PROFILE_WEIGHTS) >= _RESOLUTION_CACHE_SIZE:
+            _PROFILE_WEIGHTS.pop(next(iter(_PROFILE_WEIGHTS)))
+        _PROFILE_WEIGHTS[n] = weights
+    return weights
 
 
 def _resolution_references(signal, baseline):
