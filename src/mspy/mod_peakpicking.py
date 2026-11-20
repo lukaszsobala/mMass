@@ -4132,6 +4132,13 @@ def relabelenvelopes(
         # Broad peaks widen it as deisotoping does (see _isotope_tolerance), so
         # the isotopes deisotoping assigned are the ones the envelope takes in.
         chargeTol = _envelope_tolerance(parent, mzTolerance, isotopeShift)
+        # A peak deisotoping put at an isotope position of this series is taken
+        # as deisotoping checked it: one spacing from the isotope before (so
+        # small errors may add up along the series), and a recovered
+        # monoisotope's first isotope within twice the widening (see
+        # _missed_monoisotope). Checked against the bare grid alone, such rows
+        # were left out of the envelope and kept beside it as rows of their own.
+        assignedTol = _envelope_tolerance(parent, mzTolerance, isotopeShift, reach=2.0)
         # In preserveSeeds mode we never absorb the following peaks: each selected
         # seed stays on its own so no chosen peak is swallowed by a neighbour. The
         # envelope tail below is still grown from the profile, and the joint fit
@@ -4147,10 +4154,13 @@ def relabelenvelopes(
             # Strictly forbid gaps; envelopes must be a continuous series.
             for isotope in [next_isotope]:
                 expected = parent.mz + isotope * difference
+                following = cluster[-1].mz + difference
+                assignedLimit = max(dynamicTol, assignedTol)
+                farthest = max(expected + dynamicTol, following + assignedLimit)
 
                 for y in range(indexes[-1] + 1, len(peaklist)):
                     peak = peaklist[y]
-                    if peak.mz > expected + dynamicTol:
+                    if peak.mz > farthest:
                         break
                     if peak.charge != parent.charge:
                         continue
@@ -4164,9 +4174,14 @@ def relabelenvelopes(
                     if peak.isotope is not None and peak.isotope != isotope:
                         continue
 
-                    error = abs(peak.mz - expected)
-                    if error > dynamicTol:
-                        continue
+                    if peak.isotope == isotope:
+                        error = abs(peak.mz - following)
+                        if error > assignedLimit:
+                            continue
+                    else:
+                        error = abs(peak.mz - expected)
+                        if error > dynamicTol:
+                            continue
 
                     trial_cluster = cluster + [copy.deepcopy(peak)]
                     pattern_error = _cluster_pattern_error(
@@ -4727,15 +4742,16 @@ def _isotope_tolerance(peak, mzTolerance, difference, charge=1, reach=1.0):
     return max(mzTolerance, widened)
 
 
-def _envelope_tolerance(peak, mzTolerance, isotopeShift=0.0, charge=None):
+def _envelope_tolerance(peak, mzTolerance, isotopeShift=0.0, charge=None, reach=1.0):
     """The isotope matching tolerance of an envelope: mzTolerance / |charge|,
     widened for broad peaks as deisotoping widens its own (the same share of
     the width, the same caps), so conversion takes in the isotopes
-    deisotoping found."""
+    deisotoping found. reach scales the widening, as for deisotoping's look
+    back at a missed monoisotope."""
 
     z = abs(int(charge if charge is not None else (peak.charge or 1)))
     difference = (ISOTOPE_DISTANCE + isotopeShift) / z
-    return _isotope_tolerance(peak, mzTolerance / z, difference, z)
+    return _isotope_tolerance(peak, mzTolerance / z, difference, z, reach=reach)
 
 
 def _envelope_window(parent, cluster, mzTolerance, isotopeShift=0.0):

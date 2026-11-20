@@ -131,3 +131,19 @@ def test_a_scan_not_shown_carries_only_its_own_rulers():
     assert document.annotations[0].ai == 1200.0
     assert document.rulers[0].ai1 == 1200.0  # filed under no scan: the one shown
     assert document.rulers[1].ai1 == pytest.approx(3600.0)
+
+
+def test_combining_centroided_spectra_reads_the_labels_off_the_merged_peaks():
+    """With no profile, combining sums the peaks one ion has in both; a
+    label on such a peak stands at the sum, one on no peak stays put."""
+    document = gdoc.document()
+    document.spectrum = mspy.scan(peaklist=[mspy.peak(mz=500.0, ai=1000.0, fwhm=0.05)])
+    document.annotations.append(gdoc.annotation("M", 500.0, 1000.0))
+    document.annotations.append(gdoc.annotation("free", 510.0, 50.0))
+    document.rulers.append(gdoc.ruler(500.0, 1000.0, 510.0, 50.0))
+    other = mspy.scan(peaklist=[mspy.peak(mz=500.0, ai=2000.0, fwhm=0.05)])
+
+    processing.mathPair(document.spectrum, "combine", other, False, document)
+
+    assert [a.ai for a in document.annotations] == [pytest.approx(3000.0), 50.0]
+    assert (document.rulers[0].ai1, document.rulers[0].ai2) == (pytest.approx(3000.0), 50.0)

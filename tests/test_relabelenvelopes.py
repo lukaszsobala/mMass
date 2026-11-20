@@ -583,3 +583,41 @@ def test_the_widened_window_does_not_follow_the_signal_to_noise():
     # sharp peaks keep the S/N-adaptive tolerance given
     sharp = mspy.peak(mz=845.0, ai=1000.0, fwhm=0.02, charge=1)
     assert mpp._envelope_window(sharp, clean, 0.02) < mpp._envelope_window(sharp, noisy, 0.02)
+
+
+def _off_spacing_cluster(errors, fwhm, mono=504.29):
+    """A charge-1 lipid cluster whose successive spacings are off by errors,
+    deisotoped with the default 0.02 tolerance, and its profile."""
+    pattern = mpp._isotope_pattern_at_mass(mono, "lipid")
+    peaks, mz = [], mono
+    for isotope in range(len(errors) + 1):
+        if isotope:
+            mz += mspy.ISOTOPE_DISTANCE + errors[isotope - 1]
+        peaks.append(mspy.peak(mz=mz, ai=1000.0 * pattern[isotope] / pattern[0], fwhm=fwhm))
+    pl = mspy.peaklist(peaks)
+    profile = mspy.profile(pl, fwhm=fwhm, points=40)
+    pl.deisotope(maxCharge=1, mzTolerance=0.02, intTolerance=0.5, averagineType="lipid")
+    return pl, profile
+
+
+@pytest.mark.parametrize(
+    "errors, fwhm",
+    [
+        # each step 0.045 off (0.0625 allowed): M+2 lies 0.09 off the bare grid
+        ((0.045, 0.045), 0.25),
+        # M+1 0.08 off, past the widening (0.052) but within the look back
+        # that recovers the monoisotope (0.104)
+        ((0.08, 0.0), 0.207),
+    ],
+)
+def test_conversion_takes_in_the_isotopes_deisotoping_assigned(errors, fwhm):
+    pl, profile = _off_spacing_cluster(errors, fwhm)
+    assert [(p.charge, p.isotope) for p in pl] == [(1, 0), (1, 1), (1, 2)]
+
+    pl.labelenvelopes(
+        label="1st", signal=profile, mzTolerance=0.02, defaultFwhm=fwhm,
+        nonIdeality=0.4, averagineType="lipid",
+    )
+    # one envelope, its isotopes not left beside it as rows of their own
+    assert len(pl) == 1
+    assert pl[0].attributes["envelope"]["detected"] == 3

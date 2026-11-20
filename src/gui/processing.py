@@ -120,6 +120,38 @@ def _readFrom(profile):
     return intensity
 
 
+def _readFromPeaks(peaklist):
+    """An intensity change reading the label heights off the peaks they stand
+    on, for spectra with no profile: a label takes the intensity of the
+    nearest peak within the tolerance centroids are merged by (half its FWHM,
+    at most POOL_CENTROID_MAX_TOLERANCE); one standing on no peak keeps its."""
+
+    peaks = sorted(peaklist, key=lambda peak: peak.mz)
+    mzs = numpy.array([peak.mz for peak in peaks], dtype=float)
+
+    def intensity(mz, ai, base):
+        ai, base = ai.copy(), base.copy()
+        if not len(mzs):
+            return ai, base
+        for i, value in enumerate(mz):
+            right = int(numpy.searchsorted(mzs, value))
+            j = min(
+                {max(right - 1, 0), min(right, len(mzs) - 1)},
+                key=lambda k: abs(mzs[k] - value),
+            )
+            peak = peaks[j]
+            tolerance = min(
+                0.5 * peak.fwhm if peak.fwhm else numpy.inf,
+                mspy.mod_pooling.POOL_CENTROID_MAX_TOLERANCE,
+            )
+            if abs(mzs[j] - value) <= tolerance:
+                ai[i] = peak.ai
+                base[i] = peak.base
+        return ai, base
+
+    return intensity
+
+
 def recalibrateNotations(document, fn, params):
     """Move the notations drawn on the spectrum shown by a calibration."""
 
@@ -200,6 +232,9 @@ def mathPair(scan, operation, other, preservePeaks, document=None):
     getattr(scan, operation)(other, preservePeaks=preservePeaks)
     if scan.hasprofile():
         carryNotations(document, scan, _readFrom(scan.profile))
+    elif operation == "combine" and scan.haspeaks():
+        # centroided spectra are combined peak by peak (mspy.mergecentroids)
+        carryNotations(document, scan, _readFromPeaks(scan.peaklist))
 
 
 def combineSpectra(scans, average=True):
