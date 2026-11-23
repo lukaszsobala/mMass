@@ -1,3 +1,4 @@
+import contextlib
 import time
 
 # pyright: reportAttributeAccessIssue=false, reportArgumentType=false, reportCallIssue=false, reportGeneralTypeIssues=false, reportIndexIssue=false, reportOperatorIssue=false, reportOptionalSubscript=false
@@ -140,8 +141,10 @@ class canvas(wx.Window):
             ),
         }
 
-        # apply the theme colours, then the caller's overrides on top
+        # apply the theme colours, then the caller's overrides on top; _theme
+        # overrides the system theme while drawnInTheme() is in effect
         self._callerProperties = dict(attr)
+        self._theme = None
         self.applyThemeColours()
 
         # set default canvas params
@@ -297,7 +300,7 @@ class canvas(wx.Window):
         caller's own overrides go on last so they always win.
         """
 
-        self.properties.update(THEME_COLOURS[_is_dark_mode()])
+        self.properties.update(THEME_COLOURS[self.isDark()])
 
         for name, value in self._callerProperties.items():
             self.properties[name] = value
@@ -306,6 +309,62 @@ class canvas(wx.Window):
         if not isinstance(canvasColour, wx.Colour):
             canvasColour = wx.Colour(*canvasColour)
         self.SetBackgroundColour(canvasColour)
+
+    # ----
+
+    def isDark(self):
+        """Whether the plot is drawn in dark colours: as the system theme, or
+        as drawnInTheme() says while it is in effect."""
+
+        if self._theme is not None:
+            return self._theme
+        return _is_dark_mode()
+
+    # ----
+
+    @contextlib.contextmanager
+    def drawnInTheme(self, dark):
+        """Draw in light (False) or dark (True) colours for the duration.
+
+        For exported images and printing, which need not follow the screen.
+        The window is frozen meanwhile, and redrawn in the colours it had
+        before (those of an enclosing drawnInTheme, if any) after.
+        """
+
+        if bool(dark) == self.isDark():
+            yield
+            return
+
+        previous = self._theme
+        self.Freeze()
+        try:
+            self._setTheme(bool(dark))
+            yield
+        finally:
+            self._setTheme(previous)
+            if self.lastDraw:
+                self.refresh()
+            self.Thaw()
+
+    # ----
+
+    def _setTheme(self, dark):
+        """Switch the canvas and its plot objects to a theme (None: the
+        system's)."""
+
+        from mspy import plot_objects
+
+        self._theme = dark
+        if dark is None:
+            plot_objects.invalidate_dark_mode_cache()
+        else:
+            plot_objects.force_dark_mode(dark)
+
+        self.applyThemeColours()
+        if self.lastDraw:
+            applyObjectColours = getattr(self.lastDraw[0], "applyThemeColours", None)
+            if applyObjectColours is not None:
+                applyObjectColours()
 
     # ----
 
@@ -1245,9 +1304,13 @@ class canvas(wx.Window):
 
     # ----
 
-    def getPrintout(self, filterSize, title):
-        """Get printout of current plot."""
-        return printout(self, filterSize, title)
+    def getPrintout(self, filterSize, title, themed=None):
+        """Get printout of current plot.
+
+        themed returns the context the pages are drawn in (by default the
+        light colours of drawnInTheme), as paper is white.
+        """
+        return printout(self, filterSize, title, themed)
 
     # ----
 
@@ -2437,7 +2500,7 @@ class canvas(wx.Window):
         # than showing the lighter plot background, which would otherwise look
         # paler than genuinely low-intensity data.
         gelBackground = (
-            wx.Colour(0, 0, 0) if _is_dark_mode() else wx.Colour(255, 255, 255)
+            wx.Colour(0, 0, 0) if self.isDark() else wx.Colour(255, 255, 255)
         )
         dc.SetPen(wx.TRANSPARENT_PEN)
         dc.SetBrush(wx.Brush(gelBackground, wx.SOLID))
@@ -3808,10 +3871,11 @@ class canvas(wx.Window):
 class printout(wx.Printout):
     """Controls how the plot is made in printing and previewing."""
 
-    def __init__(self, graph, filterSize, title="mMass Spectrum"):
+    def __init__(self, graph, filterSize, title="mMass Spectrum", themed=None):
         wx.Printout.__init__(self, title)
         self.graph = graph
         self.filterSize = filterSize
+        self.themed = themed or (lambda: graph.drawnInTheme(False))
 
     # ----
 
@@ -3873,8 +3937,9 @@ class printout(wx.Printout):
             scale = max(scale, 2.5)
         self.graph.setPrinterScale(drawings=scale, fonts=_print_font_scale(scale))
 
-        # print plot
-        self.graph.drawOutside(dc, self.filterSize)
+        # print plot, in light colours whatever the screen shows
+        with self.themed():
+            self.graph.drawOutside(dc, self.filterSize)
 
         # revert all back to original
         self.graph.setSize()

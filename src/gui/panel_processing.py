@@ -17,7 +17,6 @@
 
 # load libs
 import threading
-import numpy
 import wx
 import copy
 
@@ -2254,48 +2253,6 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
     # ----
 
-    def onPreview(self, evt=None):
-        """Recalculate data and show preview."""
-
-        # check processing
-        if self.processing:
-            return
-
-        # clear preview
-        self.clearPreview()
-
-        # get all params
-        if not self.getParams():
-            return
-
-        # show processing gauge
-        self.onProcessing(True)
-        self.apply_butt.Enable(False)
-
-        # show preview
-        if self.currentTool == "math":
-            self.processing = threading.Thread(target=self.runPreviewMath)
-        elif self.currentTool == "baseline":
-            self.processing = threading.Thread(target=self.runPreviewBaseline)
-        elif self.currentTool == "smoothing":
-            self.processing = threading.Thread(target=self.runPreviewSmoothing)
-        else:
-            return
-
-        # pulse gauge while working
-        self.processing.start()
-        while self.processing and self.processing.is_alive():
-            self.gauge.pulse()
-
-        # send tmp spectrum to plot canvas
-        self.parent.updateTmpSpectrum(self.previewData)
-
-        # hide processing gauge
-        self.onProcessing(False)
-        self.apply_butt.Enable(True)
-
-    # ----
-
     def onApply(self, evt=None):
         """Apply processing to the data."""
 
@@ -2695,127 +2652,6 @@ class panelProcessing(wx.Frame, MakeModalMixin):
 
     # ----
 
-    def runPreviewMath(self):
-        """Preview operations results."""
-
-        # run task
-        try:
-
-            # get spectrum A
-            scanA = None
-            if config.processing["math"]["operation"] in (
-                "averageall",
-                "combineall",
-                "overlayall",
-            ):
-                self.previewData = numpy.array([])
-            elif config.processing["math"]["operation"] in (
-                "combine",
-                "overlay",
-                "subtract",
-            ):
-                titleA = self.mathSpectrumA_choice.GetStringSelection()
-                if titleA and titleA != "None":
-                    indexA = int(titleA.split(":")[0][1:])
-                    scanA = self.parent.documents[indexA - 1].spectrum
-                elif self.currentDocument:
-                    scanA = self.currentDocument.spectrum
-                else:
-                    wx.Bell()
-                    return
-            elif not self.currentDocument:
-                wx.Bell()
-                return
-            else:
-                scanA = self.currentDocument.spectrum
-
-            # a centroided spectrum is previewed by its peaks
-            if scanA is not None:
-                self.previewData = processing.previewPoints(scanA)
-
-            # get spectrum B (only used by the combine/overlay/subtract branches)
-            scanB = None
-            if config.processing["math"]["operation"] in (
-                "combine",
-                "overlay",
-                "subtract",
-            ):
-                title = self.mathSpectrumB_choice.GetStringSelection()
-                if title != "None":
-                    index = int(title.split(":")[0][1:])
-                    scanB = self.parent.documents[index - 1].spectrum
-                else:
-                    wx.Bell()
-                    return
-
-            # process spectrum
-            if config.processing["math"]["operation"] == "normalize":
-                self.previewData = mspy.normalize(self.previewData)
-                self.previewData = mspy.multiply(self.previewData, y=100)
-
-            # combine, overlay or subtract (only these get spectrum B)
-            elif scanA is not None and scanB is not None:
-                self.previewData = processing.previewPair(
-                    config.processing["math"]["operation"], scanA, scanB
-                )
-
-            elif config.processing["math"]["operation"] == "multiply":
-                self.previewData = mspy.multiply(
-                    self.previewData, y=config.processing["math"]["multiplier"]
-                )
-
-            elif config.processing["math"]["operation"] == "squareroot":
-                self.previewData = mspy.squareroot(self.previewData)
-
-            elif config.processing["math"]["operation"] in ("averageall", "combineall"):
-                combined, _used = processing.combineSpectra(
-                    [item.spectrum for item in self.parent.documents if item.visible],
-                    average=config.processing["math"]["operation"] == "averageall",
-                )
-                if combined is not None:
-                    self.previewData = processing.previewPoints(combined)
-
-            elif config.processing["math"]["operation"] == "overlayall":
-                for item in self.parent.documents:
-                    if item.visible:
-                        self.previewData = mspy.overlay(
-                            self.previewData, item.spectrum.profile
-                        )
-
-        # task canceled
-        except mspy.ForceQuit:
-            return
-
-    # ----
-
-    def runPreviewBaseline(self):
-        """Preview smoothing results."""
-
-        # check current spectrum
-        if not self.currentDocument or not self.currentDocument.spectrum.hasprofile():
-            wx.Bell()
-            return
-
-        # run task
-        try:
-
-            # get baseline
-            baseline = self.currentDocument.spectrum.baseline(
-                window=(1.0 / config.processing["baseline"]["precision"]),
-                offset=config.processing["baseline"]["offset"],
-            )
-
-            # correct baseline
-            self.previewData = mspy.subbase(
-                signal=self.currentDocument.spectrum.profile, baseline=baseline
-            )
-
-        # task canceled
-        except mspy.ForceQuit:
-            return
-
-    # ----
-
     def runBaselinePreviewLoop(self, request):
         """Process one baseline preview request off the UI thread."""
 
@@ -2926,31 +2762,6 @@ class panelProcessing(wx.Frame, MakeModalMixin):
         with self.baselinePreviewLock:
             self.baselinePreviewRequestId += 1
             return self.baselinePreviewRequestId
-
-    # ----
-
-    def runPreviewSmoothing(self):
-        """Preview smoothing results."""
-
-        # check current spectrum
-        if not self.currentDocument or not self.currentDocument.spectrum.hasprofile():
-            wx.Bell()
-            return
-
-        # run task
-        try:
-
-            # smooth data
-            self.previewData = mspy.smooth(
-                signal=self.currentDocument.spectrum.profile,
-                method=config.processing["smoothing"]["method"],
-                window=config.processing["smoothing"]["windowSize"],
-                cycles=int(config.processing["smoothing"]["cycles"]),
-            )
-
-        # task canceled
-        except mspy.ForceQuit:
-            return
 
     # ----
 
